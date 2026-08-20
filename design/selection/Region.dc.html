@@ -1,0 +1,236 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #6f9fe0; }
+    a:hover { color: #9dc2f0; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; background: #0d1420; color: #e4e9f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 1.5;">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; height: 44px; flex: none; background: #131d2e; border-bottom: 1px solid #24344a;">
+    <span style="width: 22px; height: 22px; flex: none; border-radius: 5px; background: #d2402f; color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center;">R</span>
+    <span style="display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;">
+      <span style="color: #8ba0ba;">docs</span><span style="color: #4a5f7a;">/</span><span style="color: #8ba0ba;">architecture</span><span style="color: #4a5f7a;">/</span><span style="color: #e4e9f0; font-weight: 500;">throughput.md</span>
+    </span>
+    <span style="flex: 1;"></span>
+    <span style="display: flex; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420; gap: 2px;">
+      <span style="padding: 3px 12px; border-radius: 4px; background: #22304a; font-size: 12px; font-weight: 500;">Document</span>
+      <span style="padding: 3px 12px; border-radius: 4px; font-size: 12px; color: #8ba0ba;">Graph</span>
+    </span>
+    <span style="font-size: 12px; color: #8ba0ba; font-variant-numeric: tabular-nums;">$0.4120</span>
+    <span style="display: flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Ask all · 2</span>
+    <span style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">
+      Open<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
+    </span>
+  </div>
+
+  <div style="display: flex; flex: 1; min-height: 0;">
+
+    <div style="width: 272px; flex: none; display: flex; flex-direction: column; background: #131d2e; border-right: 1px solid #24344a;">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; flex: none; border-bottom: 1px solid #1c2a3d;">
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">WORKSPACE · DOCS</span>
+        <span style="font-size: 11px; color: #6f9fe0;">reload</span>
+      </div>
+      <div style="display: flex; flex-direction: column; padding: 8px 0; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 12px; font-size: 12px; font-weight: 600; color: #b9c7d8;">
+          <svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor" style="color: #5d7a9a;"><path d="M4 6h8l-4 5z"></path></svg><span>architecture</span>
+        </div>
+        <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;">components.md</div>
+        <div style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 12px 0 27px; font-size: 12px; font-weight: 500; color: #e4e9f0; background: #1a2638; box-shadow: inset 2px 0 0 #6f9fe0;">
+          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">throughput.md</span>
+          <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #2f5da8;"></span><span style="font-size: 11px; color: #b9c7d8;">2</span></span>
+        </div>
+        <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;">widget-service.md</div>
+      </div>
+    </div>
+
+    <div style="flex: 1; min-width: 0; position: relative; background: #fbfaf8; overflow: hidden;">
+      <div style="height: 100%; padding: 34px 0 0; display: flex; justify-content: center; overflow: hidden;">
+        <div style="width: 100%; max-width: 620px; display: flex; flex-direction: column; gap: 16px; color: #211f1c;">
+          <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.015em;">Throughput after the queue change</div>
+          <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">Measured over four weeks. The dip in weeks three and four is the part that needs explaining.</div>
+
+          <div style="position: relative; display: flex;">
+            <span style="{{ handleStyle }}">
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 5h10M3 8h10M3 11h10"></path></svg>
+            </span>
+
+            <figure style="{{ figureStyle }}">
+              <svg viewBox="0 0 520 200" style="width: 100%; height: auto; display: block;">
+                <g stroke="#dcd8d1" stroke-width="1">
+                  <path d="M40 20 H500"></path><path d="M40 65 H500"></path><path d="M40 110 H500"></path><path d="M40 155 H500"></path>
+                </g>
+                <path d="M40 155 V20" stroke="#b9b3ab" stroke-width="1"></path>
+                <path d="M40 155 H500" stroke="#b9b3ab" stroke-width="1"></path>
+                <g fill="#2f5da8">
+                  <rect x="70" y="52" width="52" height="103"></rect>
+                  <rect x="170" y="38" width="52" height="117"></rect>
+                </g>
+                <g fill="#8fb0dd">
+                  <rect x="270" y="96" width="52" height="59"></rect>
+                  <rect x="370" y="112" width="52" height="43"></rect>
+                </g>
+                <g fill="#6b655d" font-family="IBM Plex Sans, sans-serif" font-size="11" text-anchor="middle">
+                  <text x="96" y="172">week 1</text>
+                  <text x="196" y="172">week 2</text>
+                  <text x="296" y="172">week 3</text>
+                  <text x="396" y="172">week 4</text>
+                </g>
+                <g fill="#6b655d" font-family="IBM Plex Sans, sans-serif" font-size="10" text-anchor="end">
+                  <text x="33" y="24">900</text><text x="33" y="69">600</text><text x="33" y="114">300</text><text x="33" y="158">0</text>
+                </g>
+              </svg>
+              <figcaption style="margin: 8px 0 0; font-size: 12.5px; color: #6b655d;">Figure 2 — writes committed per minute, weeks 1–4.</figcaption>
+
+              <span style="{{ marqueeStyle }}">
+                <span style="position: absolute; left: -4px; top: -4px; width: 7px; height: 7px; background: #fff; border: 1.5px solid #2f5da8;"></span>
+                <span style="position: absolute; right: -4px; top: -4px; width: 7px; height: 7px; background: #fff; border: 1.5px solid #2f5da8;"></span>
+                <span style="position: absolute; left: -4px; bottom: -4px; width: 7px; height: 7px; background: #fff; border: 1.5px solid #2f5da8;"></span>
+                <span style="position: absolute; right: -4px; bottom: -4px; width: 7px; height: 7px; background: #fff; border: 1.5px solid #2f5da8;"></span>
+              </span>
+            </figure>
+          </div>
+
+          <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">Nothing in the deploy log lines up with the drop, which is why the queue change is the suspect.</div>
+        </div>
+      </div>
+
+      <div style="position: absolute; top: 0; right: 0; bottom: 0; width: 32px; border-left: 1px solid #eae7e1; background: #f4f2ee;">
+        <div style="position: absolute; top: 130px; right: 7px; width: 19px; height: 19px; border-radius: 50%; border: 2px dashed #6f9fe0; background: #fff; color: #2f5da8; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">+</div>
+      </div>
+
+      <div style="position: absolute; top: 96px; right: 46px; width: 330px; display: flex; flex-direction: column; gap: 11px; padding: 13px; border: 1px solid #24344a; border-radius: 7px; background: #131d2e; box-shadow: 0 14px 42px rgb(0 0 0 / 48%); color: #e4e9f0;">
+        <div style="display: flex; align-items: center; gap: 7px;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: #6f9fe0;"></span>
+          <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">NEW COMMENT</span>
+          <span style="margin-left: auto; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; color: #5d7a9a;">throughput.md:9</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">ANCHOR TO</span>
+          <div style="display: flex; gap: 5px;">
+            <span onClick="{{ pickFigure }}" style="{{ chipFigure }}">whole figure</span>
+            <span onClick="{{ pickRegion }}" style="{{ chipRegion }}">a region of it</span>
+          </div>
+        </div>
+
+        <sc-if value="{{ onFigure }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; gap: 10px; padding: 9px 11px; border-radius: 5px; background: #1a2638;">
+            <span style="width: 54px; height: 34px; flex: none; border-radius: 3px; background: #e8ecf2; display: flex; align-items: flex-end; gap: 2px; padding: 4px;">
+              <span style="flex: 1; height: 68%; background: #2f5da8;"></span><span style="flex: 1; height: 80%; background: #2f5da8;"></span><span style="flex: 1; height: 38%; background: #8fb0dd;"></span><span style="flex: 1; height: 28%; background: #8fb0dd;"></span>
+            </span>
+            <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+              <span style="font-size: 12px; font-weight: 600;">Figure 2</span>
+              <span style="font-size: 10.5px; line-height: 1.45; color: #8ba0ba;">element + its caption as the quote</span>
+            </span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ onRegion }}" hint-placeholder-val="{{ true }}">
+          <div style="display: flex; gap: 10px; padding: 9px 11px; border-radius: 5px; background: #1a2638;">
+            <span style="width: 54px; height: 34px; flex: none; border-radius: 3px; background: #e8ecf2; display: flex; align-items: flex-end; gap: 2px; padding: 4px; position: relative;">
+              <span style="flex: 1; height: 68%; background: #cdd5e0;"></span><span style="flex: 1; height: 80%; background: #cdd5e0;"></span><span style="flex: 1; height: 38%; background: #8fb0dd;"></span><span style="flex: 1; height: 28%; background: #8fb0dd;"></span>
+              <span style="position: absolute; left: 50%; right: 3px; top: 12px; bottom: 3px; border: 1.5px solid #2f5da8; border-radius: 2px;"></span>
+            </span>
+            <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+              <span style="font-size: 12px; font-weight: 600;">Region of Figure 2</span>
+              <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; color: #8ba0ba;">x 0.48 · y 0.18 · w 0.46 · h 0.74</span>
+              <span style="font-size: 10.5px; line-height: 1.45; color: #8ba0ba;">fractions of the box · survives a resize</span>
+            </span>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 8px; padding: 9px 11px; border-radius: 5px; border: 1px solid #3a2f10; background: #1c1708;">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="#f0b429" stroke-width="1.5" stroke-linecap="round" style="flex: none; margin-top: 2px;"><path d="M8 5v4M8 11.2v.1"></path><circle cx="8" cy="8" r="6.2"></circle></svg>
+            <span style="font-size: 10.5px; line-height: 1.5; color: #d8c58e;">A region is geometry, not content. Redraw this chart with new data and the box still resolves — onto whatever now sits there. <strong style="color: #f0e0b0;">Proposal:</strong> fingerprint the element so a changed figure reports orphaned instead.</span>
+          </div>
+        </sc-if>
+
+        <div style="min-height: 52px; padding: 9px 11px; border: 1px solid #2f5da8; border-radius: 5px; background: #1a2638; font-size: 13px; line-height: 1.55;">Weeks 3 and 4 are half of weeks 1 and 2. Is that the queue change or a reporting gap?</div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="display: flex; align-items: center; height: 28px; padding: 0 16px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Ask</span>
+          <span style="display: flex; align-items: center; height: 28px; padding: 0 13px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">Cancel</span>
+        </div>
+      </div>
+    </div>
+
+    <div style="width: 384px; flex: none; display: flex; flex-direction: column; background: #131d2e; border-left: 1px solid #24344a; overflow: hidden;">
+      <div style="display: flex; align-items: center; padding: 0 14px; height: 40px; flex: none; border-bottom: 1px solid #1c2a3d;">
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">PICKING THINGS THAT ARE NOT TEXT</span>
+      </div>
+      <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 14px; overflow: hidden;">
+
+        <div style="display: flex; flex-direction: column; gap: 7px;">
+          <span style="font-size: 12px; font-weight: 600;">Getting to the figure</span>
+          <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">By hovering it in pick mode — the toolbar button, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">E</span>, or holding <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">⌥</span>. See the <strong style="color: #e4e9f0;">Hovering to pick</strong> board for the outline, the badge and the path bar. This board picks up once the figure is the target.</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px;">
+          <span style="font-size: 12px; font-weight: 600;">Region drag</span>
+          <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">Once a figure is picked, dragging inside it stores a box as fractions of the element — <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">createRegionAnchor()</span>, already written. Useful for “this bar”, “this quadrant”, “this row of the diagram”.</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px; padding: 11px 12px; border-radius: 6px; border: 1px solid #1f2f4a; background: #141f31;">
+          <span style="font-size: 11.5px; font-weight: 600; color: #9dc2f0;">WHAT THIS COSTS TO BUILD</span>
+          <span style="font-size: 11.5px; line-height: 1.55; color: #b9c7d8;">Two methods on <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">DocumentSurface</span> — <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">anchorFromElement()</span> and <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">anchorFromRegion()</span> — plus their two implementations and the hover/drag layer inside the frame. The anchor creation, resolution and storage all exist.</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 7px; padding: 11px 12px; border-radius: 6px; border: 1px solid #3a221c; background: #211412;">
+          <span style="font-size: 11.5px; font-weight: 600; color: #e08a76;">PDF AND DOCX — BLOCKED, NOT DESIGNED AWAY</span>
+          <span style="font-size: 11.5px; line-height: 1.55; color: #cfa79c;">You cannot select in a document REX cannot open. <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">render/index.ts</span> renders Markdown and HTML only; <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">unopenableReason()</span> calls PDF and DOCX “tier 3, not scheduled”, and the explorer greys them out. Everything on this page works on them the day a tier‑3 renderer produces a DOM — the anchor kinds do not care where the DOM came from. That renderer is the decision, and it is not mine to take.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { mode: "region" };
+  }
+
+  renderVals() {
+    const region = this.state.mode === "region";
+    const chip = (on) => {
+      const base =
+        "display: flex; align-items: center; height: 24px; padding: 0 12px; border-radius: 999px; font-size: 11.5px; cursor: pointer; border: 1px solid ";
+      return on
+        ? base + "#2f5da8; background: #1b2942; color: #e4e9f0;"
+        : base + "#24344a; background: transparent; color: #8ba0ba;";
+    };
+
+    return {
+      onFigure: !region,
+      onRegion: region,
+      chipFigure: chip(!region),
+      chipRegion: chip(region),
+      pickFigure: () => this.setState({ mode: "figure" }),
+      pickRegion: () => this.setState({ mode: "region" }),
+
+      // Picking happens by hover (see the Hovering to pick board), not a grip.
+      handleStyle: "display: none;",
+
+      // Picking the whole figure outlines it; a region dims the rest of it.
+      figureStyle: region
+        ? "flex: 1; min-width: 0; margin: 0; padding: 10px; border-radius: 5px; position: relative; background: #f4f2ee;"
+        : "flex: 1; min-width: 0; margin: 0; padding: 10px; border-radius: 5px; position: relative; background: #eef3fb; outline: 2px solid #2f5da8; outline-offset: 2px;",
+
+      marqueeStyle: region
+        ? "position: absolute; left: 50%; right: 8%; top: 16%; bottom: 26%; border: 1.5px solid #2f5da8; background: rgb(47 93 168 / 12%); border-radius: 2px;"
+        : "display: none;",
+    };
+  }
+}
+</script>
+</body>
+</html>

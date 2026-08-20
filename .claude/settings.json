@@ -107,7 +107,7 @@
   "hooks": {
     "PostToolUse": [
       {
-        "matcher": "mcp__playwright-rex__browser_(navigate|navigate_back|tabs|snapshot|take_screenshot|run_code_unsafe)",
+        "matcher": "mcp__playwright-rex__browser_.*",
         "hooks": [
           {
             "type": "command",

@@ -1,0 +1,175 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #6f9fe0; }
+    a:hover { color: #9dc2f0; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; height: 900px; box-sizing: border-box; position: relative; display: flex; flex-direction: column; background: #0d1420; color: #e4e9f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 1.5; overflow: hidden;">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; height: 44px; flex: none; background: #131d2e; border-bottom: 1px solid #24344a;">
+    <span style="width: 22px; height: 22px; flex: none; border-radius: 5px; background: #d2402f; color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center;">R</span>
+    <span style="display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;">
+      <span style="color: #8ba0ba;">docs</span><span style="color: #4a5f7a;">/</span><span style="color: #8ba0ba;">architecture</span><span style="color: #4a5f7a;">/</span><span style="color: #e4e9f0; font-weight: 500;">widget-service.md</span>
+    </span>
+    <span style="flex: 1;"></span>
+    <span style="font-size: 12px; color: #8ba0ba; font-variant-numeric: tabular-nums;">$1.1840</span>
+  </div>
+
+  <div style="display: flex; flex: 1; min-height: 0;">
+    <div style="width: 272px; flex: none; background: #131d2e; border-right: 1px solid #24344a;"></div>
+    <div style="flex: 1; min-width: 0; background: #fbfaf8; padding: 40px 0 0; display: flex; justify-content: center; overflow: hidden;">
+      <div style="width: 100%; max-width: 620px; display: flex; flex-direction: column; gap: 18px; color: #211f1c;">
+        <div style="font-size: 27px; font-weight: 600; letter-spacing: -0.015em;">Widget service notes</div>
+        <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">The widget service accepts requests on a queue and writes results to the database. Each request is acknowledged before the work begins.</div>
+        <div style="font-size: 17px; font-weight: 600;">Retries</div>
+        <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">A failed write is retried three times with no backoff, then dropped.</div>
+      </div>
+    </div>
+    <div style="width: 384px; flex: none; background: #131d2e; border-left: 1px solid #24344a;"></div>
+  </div>
+
+  <div style="position: absolute; inset: 0; background: rgb(4 8 14 / 72%); display: flex; align-items: center; justify-content: center;">
+
+    <sc-if value="{{ deciding }}" hint-placeholder-val="{{ true }}">
+      <div style="width: 880px; max-height: 760px; display: flex; flex-direction: column; border: 1px solid #24344a; border-radius: 9px; background: #131d2e; box-shadow: 0 28px 80px rgb(0 0 0 / 60%); overflow: hidden;">
+
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid #1c2a3d;">
+          <span style="width: 30px; height: 30px; flex: none; border-radius: 7px; background: #1f1512; color: #e08a76; display: flex; align-items: center; justify-content: center;">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.8 13.2 4.8 5.6 12.4 2.8 13.2 3.6 10.4z"></path></svg>
+          </span>
+          <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
+            <span style="font-size: 16px; font-weight: 600;">Apply this change?</span>
+            <span style="font-size: 12px; color: #8ba0ba;">A write-capable agent produced this patch. Nothing has been written to disk yet.</span>
+          </span>
+          <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: #1f1512; color: #e08a76; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;">
+            <span style="width: 5px; height: 5px; border-radius: 50%; background: #d2402f;"></span>WRITE PROFILE
+          </span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; overflow: hidden;">
+
+          <div style="display: flex; gap: 10px; padding: 11px 13px; border: 1px solid #3a2f10; border-radius: 6px; background: #1c1708;">
+            <span style="width: 18px; height: 18px; flex: none; border-radius: 50%; background: #f0b429; color: #2b2000; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</span>
+            <span style="display: flex; flex-direction: column; gap: 5px; min-width: 0;">
+              <span style="font-size: 13px; font-weight: 600; line-height: 1.4;">Three retries with no backoff will hammer a failing dependency. State an explicit backoff.</span>
+              <span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #8ba0ba;"><span style="color: #f0b429; font-weight: 500;">text moved</span>· the comment this patch answers</span>
+            </span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 9px;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">FILES</span>
+            <span style="display: flex; align-items: center; gap: 7px; padding: 3px 10px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #b9c7d8;">
+              docs/architecture/widget-service.md
+              <span style="color: #6fca8b;">+7</span><span style="color: #e8836f;">−3</span>
+            </span>
+          </div>
+
+          <div style="display: flex; flex-direction: column; border: 1px solid #24344a; border-radius: 6px; background: #0a1018; overflow: hidden; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; line-height: 1.6;">
+            <div style="padding: 6px 12px; border-bottom: 1px solid #1c2a3d; background: #101a29; color: #5d7a9a;">--- a/docs/architecture/widget-service.md</div>
+            <div style="padding: 6px 12px; border-bottom: 1px solid #1c2a3d; background: #101a29; color: #5d7a9a;">+++ b/docs/architecture/widget-service.md</div>
+            <div style="padding: 5px 12px; background: #16233a; color: #6f9fe0;">@@ -18,7 +18,11 @@ ## Retries</div>
+            <div style="display: flex; flex-direction: column; padding: 8px 0;">
+              <span style="padding: 0 12px; color: #8ba0ba;">&nbsp;</span>
+              <span style="padding: 0 12px; background: #2a1512; color: #e8836f;">−A failed write is retried three times with no backoff, then dropped. The queue</span>
+              <span style="padding: 0 12px; background: #2a1512; color: #e8836f;">−keeps no record of what was dropped, so the only signal available downstream</span>
+              <span style="padding: 0 12px; background: #2a1512; color: #e8836f;">−is a gap in the results table.</span>
+              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+A failed write is retried three times with exponential backoff, starting at</span>
+              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+200ms and doubling, then routed to the dead-letter queue. Every drop is</span>
+              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+recorded there with the original payload and the last error, so a failure is</span>
+              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+observable without diffing the results table.</span>
+              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+</span>
+              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+The backoff exists to avoid a thundering herd against a dependency that is</span>
+              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+already failing.</span>
+              <span style="padding: 0 12px; color: #8ba0ba;">&nbsp;</span>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: 6px; border: 1px solid #3a2f10; background: #1c1708;">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#f0b429" stroke-width="1.5" stroke-linecap="round" style="flex: none; margin-top: 2px;"><path d="M8 5v4M8 11.2v.1"></path><circle cx="8" cy="8" r="6.2"></circle></svg>
+            <span style="font-size: 12px; line-height: 1.5; color: #d8c58e;">Accepting rewrites the file on disk and re-runs anchoring. Comments written against the removed sentence will move or lose their anchor — they are kept either way, with the text they were written on.</span>
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-top: 1px solid #1c2a3d; background: #101a29;">
+          <span onClick="{{ accept }}" style="display: flex; align-items: center; height: 30px; padding: 0 16px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Accept and write</span>
+          <span style="display: flex; align-items: center; height: 30px; padding: 0 16px; border: 1px solid #5a3b33; border-radius: 4px; background: #1f1512; color: #e08a76; font-size: 12px;">Reject and revert</span>
+          <span style="margin-left: auto; font-size: 11px; color: #5d7a9a;">git checkout restores the file if you reject</span>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ done }}" hint-placeholder-val="{{ true }}">
+      <div style="width: 620px; display: flex; flex-direction: column; border: 1px solid #24344a; border-radius: 9px; background: #131d2e; box-shadow: 0 28px 80px rgb(0 0 0 / 60%); overflow: hidden;">
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid #1c2a3d;">
+          <span style="width: 30px; height: 30px; flex: none; border-radius: 7px; background: #14261f; color: #4a9d7a; display: flex; align-items: center; justify-content: center;">
+            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5 6.5 11.5 12.5 5"></path></svg>
+          </span>
+          <span style="display: flex; flex-direction: column; gap: 3px;">
+            <span style="font-size: 16px; font-weight: 600;">Written, and re-anchored</span>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #8ba0ba;">docs/architecture/widget-service.md</span>
+          </span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 18px;">
+          <span style="font-size: 12px; color: #8ba0ba;">Every comment on this document was resolved against the new text.</span>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border-radius: 6px; background: #24344a; overflow: hidden;">
+            <div style="display: flex; flex-direction: column; gap: 2px; padding: 11px 13px; background: #1a2638;">
+              <span style="font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums;">4</span>
+              <span style="font-size: 10px; letter-spacing: 0.05em; color: #8ba0ba;">STILL EXACT</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px; padding: 11px 13px; background: #1a2638;">
+              <span style="font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; color: #f0b429;">1</span>
+              <span style="font-size: 10px; letter-spacing: 0.05em; color: #8ba0ba;">MOVED</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px; padding: 11px 13px; background: #1a2638;">
+              <span style="font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; color: #d2402f;">1</span>
+              <span style="font-size: 10px; letter-spacing: 0.05em; color: #8ba0ba;">NEWLY LOST</span>
+            </div>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: 6px; border: 1px dashed #3f2a24; background: #1a1211;">
+            <span style="width: 18px; height: 18px; flex: none; border-radius: 50%; background: #d2402f; color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</span>
+            <span style="display: flex; flex-direction: column; gap: 3px;">
+              <span style="font-size: 12px; line-height: 1.45; color: #e08a76;">“Three retries with no backoff will hammer a failing dependency.” lost its anchor — the sentence it was written on is the one this patch replaced.</span>
+              <span style="font-size: 11px; color: #8ba0ba;">Kept, with its quote, in the orphaned filter.</span>
+            </span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-top: 2px;">
+            <span onClick="{{ reset }}" style="display: flex; align-items: center; height: 30px; padding: 0 16px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Back to the document</span>
+            <span style="display: flex; align-items: center; height: 30px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">Show the orphan</span>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { accepted: false };
+  }
+
+  renderVals() {
+    return {
+      deciding: !this.state.accepted,
+      done: this.state.accepted,
+      accept: () => this.setState({ accepted: true }),
+      reset: () => this.setState({ accepted: false }),
+    };
+  }
+}
+</script>
+</body>
+</html>
