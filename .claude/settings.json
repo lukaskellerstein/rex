@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Agent",
+      "Artifact",
+      "AskUserQuestion",
+      "Bash",
+      "BashOutput",
+      "Edit",
+      "EnterPlanMode",
+      "EnterWorktree",
+      "ExitPlanMode",
+      "ExitWorktree",
+      "Glob",
+      "Grep",
+      "KillShell",
+      "ListMcpResourcesTool",
+      "LSP",
+      "mcp__playwright-rex",
+      "Monitor",
+      "NotebookEdit",
+      "Read",
+      "ReadMcpResourceTool",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "SendMessage",
+      "Skill",
+      "TaskCreate",
+      "TaskGet",
+      "TaskList",
+      "TaskOutput",
+      "TaskStop",
+      "TaskUpdate",
+      "TodoWrite",
+      "ToolSearch",
+      "WebFetch",
+      "WebSearch",
+      "Workflow",
+      "Write"
+    ],
+    "ask": [
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(npm publish:*)",
+      "Bash(docker system prune:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~)",
+      "Bash(rm -rf ~/*)",
+      "Bash(rm -rf $HOME*)",
+      "Bash(sudo rm -rf *)",
+      "Bash(*--no-preserve-root*)",
+      "Bash(mkfs*)",
+      "Bash(diskutil erase*)",
+      "Bash(dd * of=/dev/*)",
+      "Read(~/.ssh/**)",
+      "Edit(~/.ssh/**)",
+      "Read(~/.gnupg/**)",
+      "Edit(~/.gnupg/**)",
+      "Read(~/.aws/**)",
+      "Read(~/.azure/**)",
+      "Read(~/.config/gcloud/**)",
+      "Read(~/.kube/config)",
+      "Read(~/.docker/config.json)",
+      "Read(~/.npmrc)",
+      "Read(~/.pypirc)",
+      "Read(~/.netrc)",
+      "Read(~/.bash_history)",
+      "Read(~/.zsh_history)",
+      "Read(~/.claude/.credentials.json)",
+      "Edit(~/.claude/.credentials.json)",
+      "Read(~/.zsh_secrets)",
+      "Edit(~/.zsh_secrets)",
+      "Read(~/.config/sops/age/**)",
+      "Edit(~/.config/sops/age/**)",
+      "Read(./secrets/**)",
+      "Read(./.secrets/**)",
+      "Read(./**/.env)",
+      "Read(./**/.env.local)",
+      "Read(./**/.env.production)",
+      "Read(./**/.env.staging)",
+      "Read(./.npmrc)",
+      "Read(./**/*credentials*.json)",
+      "Read(./**/serviceAccountKey.json)",
+      "Read(./**/*.pem)",
+      "Read(./**/*.key)",
+      "Read(./**/*.p12)",
+      "Read(./**/*.pfx)",
+      "Read(./**/*.keystore)",
+      "Read(./**/*.jks)",
+      "Read(./**/*.agekey)",
+      "Read(./**/keys.txt)",
+      "Read(./**/*.tfstate)",
+      "Read(./**/*.tfstate.backup)"
+    ]
+  },
+  "enabledPlugins": {
+    "dev-tools-plugin@claude-my-marketplace": true,
+    "lsp-typescript@claude-my-marketplace": false
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__playwright-rex__browser_(navigate|navigate_back|tabs|snapshot|take_screenshot|run_code_unsafe)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/playwright-post-navigate.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/playwright-cleanup.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

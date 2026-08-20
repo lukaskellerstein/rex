@@ -1,0 +1,28 @@
+---
+description: "Step 1: Understand — read code, ask questions, identify gaps before any implementation"
+---
+
+# Step 1: Understand
+
+- Read relevant code and identify impacted areas
+- Baseline the repo's existing problems with `nvim-tools --json --all`, so
+  findings you introduce stay distinguishable from ones that were already there.
+  For performance or RAM questions, `lukas-ps --json [name]` measures the real
+  process tree. Both: [`machine-tools.md`](machine-tools.md).
+- **If `LSP` is in your tool list, load it and use it** for every question about
+  a symbol — where defined, who implements, who calls. It is deferred, so
+  `ToolSearch("select:LSP")` comes first or it cannot be called at all. Absent
+  from the list means this repo did not opt in: use `grep`.
+  [`lsp.md`](lsp.md).
+- Ask clarifying questions if requirements are ambiguous
+- Identify gaps in the current design and opportunities for improvement
+- Understand the requirement completely before proceeding
+- **`SPEC.md` at the repo root is the authority on what REX is.** Read the
+  relevant section before designing anything — it is a complete implementation
+  spec, not a sketch, and §12 lists what was deliberately rejected. If your plan
+  contradicts it, say so explicitly rather than quietly diverging.
+- **For bug reports**: reproduce the issue first (launch the app, open one of the
+  test documents in `~/Projects/Github/redhat/ProtoBot/docs/`, and drive it to the
+  failing state) to confirm the problem before attempting a fix. Anchoring bugs
+  reproduce against those two documents specifically — `SPEC.md` §2 records why
+  they are the hostile cases.

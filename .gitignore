@@ -1,0 +1,67 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.tmp
+*.swp
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Node.js
+node_modules/
+dist/
+build/
+out/
+
+# electron-vite / vite
+.vite/
+
+# electron-builder output published to GitHub Releases, not committed
+release/
+releases/
+
+# Native module rebuild artifacts. better-sqlite3 is compiled per Electron ABI
+# by electron-rebuild (SPEC.md §3.2), so the .node binary is machine-specific.
+*.node
+prebuilds/
+
+# REX stores its database at ~/.rex/rex.db — outside every repository, so it can
+# never be committed by accident (SPEC.md §9). This entry only catches a stray
+# local one; it is not where the real database lives.
+.rex/
+
+# Playwright MCP session artifacts (console logs, snapshots)
+.playwright-mcp/
+
+# Bytecode cache from the Python hooks in .claude/hooks/
+__pycache__/
+*.pyc
+
+# Machine-local Claude Code overrides. Also covered by a global ignore on this
+# machine, but that does not travel with a clone — keep it here too.
+.claude/settings.local.json
+
+# Secrets — never committed. Runtime config goes in .env (with a committed
+# .env.example carrying only the names); credential values belong in
+# ~/.secrets/secrets.enc.yaml, outside every repo.
+.env
+.env.local
+.env.*.local
+!.env.example
+.envrc
+*.key
+*.pem
+*.agekey
+keys.txt
+
+# A plaintext credential file is an anti-pattern — gitignored is not protected.
+# Listed so an accidental one cannot be staged.
+claude_tokens.md
+.agent-token
+
+# Test outputs
+test_output/
