@@ -1,4 +1,4 @@
-// Spec 02 §5.5 and §5.6 — the reference graph.
+// Spec 02 §5.5 and §5.6, redrawn to design/screens/Graph.
 //
 // d3-force solves the layout and stays live: dragging a node reheats the
 // simulation and its neighbours follow, which is the interaction d3-force
@@ -19,6 +19,7 @@ import {
 } from "d3-force";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { GraphNode, ReferenceGraph } from "../../shared/types.ts";
+import { Check } from "./Icons.tsx";
 import { Splitter } from "./Splitter.tsx";
 
 interface Props {
@@ -54,19 +55,21 @@ const WARMUP_TICKS = 300;
 const PADDING = 60;
 /** How hard a drag reheats the simulation. d3's own examples use 0.3. */
 const DRAG_ALPHA = 0.3;
+/** How many rows the ranked list shows before it stops being a ranking. */
+const RANK_ROWS = 4;
 
 /** §5.5 — radius carries where the unfinished discussion is. */
 function radiusOf(node: GraphNode): number {
   return 7 + Math.min(15, (node.comments?.open ?? 0) * 3);
 }
 
-/** §5.5 — fill carries the state of that discussion. */
+/** §5.5 — fill carries the state of that discussion, in the shared vocabulary. */
 function fillOf(node: GraphNode): string {
   if (node.kind === "missing") return "none";
-  if (node.kind === "external") return "var(--muted)";
-  if ((node.comments?.orphaned ?? 0) > 0) return "var(--danger)";
-  if ((node.comments?.open ?? 0) > 0) return "var(--accent)";
-  return "var(--rule)";
+  if (node.kind === "external") return "#141d2b";
+  if ((node.comments?.orphaned ?? 0) > 0) return "var(--lost)";
+  if ((node.comments?.open ?? 0) > 0) return "var(--action)";
+  return "var(--sunk)";
 }
 
 /**
@@ -77,18 +80,35 @@ function edgeWidth(count: number): number {
   return Math.min(8, 1.2 + (count - 1) * 1.2);
 }
 
-function build(graph: ReferenceGraph): { nodes: LaidOutNode[]; links: LaidOutLink[] } {
-  const nodes: LaidOutNode[] = graph.nodes.map((node) => {
-    const short = node.label.split("/").pop() ?? node.label;
-    return {
-      id: node.id,
-      short,
-      node,
-      radius: radiusOf(node),
-      // 9px type, roughly 0.52em per character.
-      halfLabel: (short.length * 4.7) / 2,
-    };
-  });
+/** Every node one hop from `id`, plus `id` itself. */
+function neighbourhood(graph: ReferenceGraph, id: string): Set<string> {
+  const set = new Set<string>([id]);
+  for (const edge of graph.edges) {
+    if (edge.source === id) set.add(edge.target);
+    if (edge.target === id) set.add(edge.source);
+  }
+  return set;
+}
+
+function build(
+  graph: ReferenceGraph,
+  isolated: string | null,
+): { nodes: LaidOutNode[]; links: LaidOutLink[] } {
+  const keep = isolated ? neighbourhood(graph, isolated) : null;
+
+  const nodes: LaidOutNode[] = graph.nodes
+    .filter((node) => !keep || keep.has(node.id))
+    .map((node) => {
+      const short = node.label.split("/").pop() ?? node.label;
+      return {
+        id: node.id,
+        short,
+        node,
+        radius: radiusOf(node),
+        // 10px type, roughly 0.52em per character.
+        halfLabel: (short.length * 5.2) / 2,
+      };
+    });
 
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const links: LaidOutLink[] = graph.edges
@@ -105,7 +125,8 @@ function build(graph: ReferenceGraph): { nodes: LaidOutNode[]; links: LaidOutLin
 
 export function GraphView(props: Props): React.JSX.Element {
   const [hovered, setHovered] = useState<string | null>(null);
-  const [sideWidth, setSideWidth] = useState(272);
+  const [sideWidth, setSideWidth] = useState(384);
+  const [isolated, setIsolated] = useState<string | null>(null);
   const [, repaint] = useReducer((n: number) => n + 1, 0);
 
   const svgRef = useRef<SVGSVGElement>(null);
@@ -113,8 +134,9 @@ export function GraphView(props: Props): React.JSX.Element {
   const dragNode = useRef<LaidOutNode | null>(null);
   const panFrom = useRef<{ x: number; y: number } | null>(null);
 
-  // Rebuilt only when the graph itself changes; selection never re-lays it out.
-  const { nodes, links } = useMemo(() => build(props.graph), [props.graph]);
+  // Rebuilt only when the graph or the isolation changes; selection never
+  // re-lays it out.
+  const { nodes, links } = useMemo(() => build(props.graph, isolated), [props.graph, isolated]);
 
   /**
    * The box that holds every node *right now*.
@@ -292,173 +314,276 @@ export function GraphView(props: Props): React.JSX.Element {
   const hoveredNode = props.graph.nodes.find((node) => node.id === hovered) ?? null;
   const detail = hoveredNode ?? selectedNode;
 
+  const documents = props.graph.nodes.filter((node) => node.kind === "document").length;
+  const external = props.graph.nodes.filter((node) => node.kind === "external").length;
+
+  const ranked = [...props.graph.nodes]
+    .filter((node) => node.inLinks > 0)
+    .sort((a, b) => b.inLinks - a.inLinks)
+    .slice(0, RANK_ROWS);
+  const busiest = ranked[0]?.inLinks ?? 1;
+
+  const zoom = Math.round((framed.width / box.width) * 100);
+
   return (
     <div className="rex-graph">
-      <svg
-        ref={svgRef}
-        className="rex-graph-canvas"
-        viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
-        onPointerDown={(event) => {
-          // Empty canvas pans; a node stops this from firing (see the node's
-          // own onPointerDown).
-          panFrom.current = { x: event.clientX, y: event.clientY };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          const node = dragNode.current;
-          if (node) {
-            drag(node, event);
-            return;
-          }
-          const from = panFrom.current;
-          if (!from) return;
-          const rect = event.currentTarget.getBoundingClientRect();
-          const base = boxRef.current;
-          setView({
-            width: base.width,
-            height: base.height,
-            x: base.x - ((event.clientX - from.x) * base.width) / rect.width,
-            y: base.y - ((event.clientY - from.y) * base.height) / rect.height,
-          });
-          panFrom.current = { x: event.clientX, y: event.clientY };
-        }}
-        onPointerUp={() => {
-          release();
-          panFrom.current = null;
-        }}
-        onPointerLeave={() => {
-          panFrom.current = null;
-        }}
-        role="img"
-        aria-label="Reference graph of the workspace"
-      >
-        <title>How the documents in this workspace reference each other</title>
+      <div className="rex-graph-stage">
+        <svg
+          ref={svgRef}
+          className="rex-graph-canvas"
+          viewBox={`${box.x} ${box.y} ${box.width} ${box.height}`}
+          onPointerDown={(event) => {
+            // Empty canvas pans; a node stops this from firing (see the node's
+            // own onPointerDown).
+            panFrom.current = { x: event.clientX, y: event.clientY };
+            event.currentTarget.setPointerCapture(event.pointerId);
+          }}
+          onPointerMove={(event) => {
+            const node = dragNode.current;
+            if (node) {
+              drag(node, event);
+              return;
+            }
+            const from = panFrom.current;
+            if (!from) return;
+            const rect = event.currentTarget.getBoundingClientRect();
+            const base = boxRef.current;
+            setView({
+              width: base.width,
+              height: base.height,
+              x: base.x - ((event.clientX - from.x) * base.width) / rect.width,
+              y: base.y - ((event.clientY - from.y) * base.height) / rect.height,
+            });
+            panFrom.current = { x: event.clientX, y: event.clientY };
+          }}
+          onPointerUp={() => {
+            release();
+            panFrom.current = null;
+          }}
+          onPointerLeave={() => {
+            panFrom.current = null;
+          }}
+          role="img"
+          aria-label="Reference graph of the workspace"
+        >
+          <title>How the documents in this workspace reference each other</title>
 
-        {links.map((link) => {
-          const source = link.source as LaidOutNode;
-          const target = link.target as LaidOutNode;
-          return (
-            <line
-              key={`${source.id} ${target.id}`}
-              className={edgeClass(source.id, target.id)}
-              x1={source.x ?? 0}
-              y1={source.y ?? 0}
-              x2={target.x ?? 0}
-              y2={target.y ?? 0}
-              strokeWidth={edgeWidth(link.count)}
+          {links.map((link) => {
+            const source = link.source as LaidOutNode;
+            const target = link.target as LaidOutNode;
+            return (
+              <line
+                key={`${source.id} ${target.id}`}
+                className={edgeClass(source.id, target.id)}
+                x1={source.x ?? 0}
+                y1={source.y ?? 0}
+                x2={target.x ?? 0}
+                y2={target.y ?? 0}
+                strokeWidth={edgeWidth(link.count)}
+              >
+                <title>
+                  {`${link.count} link${link.count === 1 ? "" : "s"}: ${source.short} → ${target.short}`}
+                  {link.fragments.length > 0 ? `\n#${link.fragments.join(", #")}` : ""}
+                </title>
+              </line>
+            );
+          })}
+
+          {nodes.map((node) => (
+            // The side panel's ranked list is the keyboard route to the same
+            // selection, so the drawing itself stays pointer-only.
+            <g
+              key={node.id}
+              className={nodeClass(node)}
+              transform={`translate(${node.x ?? 0} ${node.y ?? 0})`}
+              onMouseEnter={() => setHovered(node.id)}
+              onMouseLeave={() => setHovered(null)}
+              onPointerDown={(event) => {
+                // Never let the canvas start a pan under a node drag.
+                event.stopPropagation();
+                dragNode.current = node;
+                node.fx = node.x ?? 0;
+                node.fy = node.y ?? 0;
+              }}
+              onPointerUp={release}
+              onClick={() => props.onSelect(node.id)}
+              onDoubleClick={() => {
+                if (node.node.kind === "document") props.onOpen(node.id);
+              }}
             >
-              <title>
-                {`${link.count} link${link.count === 1 ? "" : "s"}: ${source.short} → ${target.short}`}
-                {link.fragments.length > 0 ? `\n#${link.fragments.join(", #")}` : ""}
-              </title>
-            </line>
-          );
-        })}
+              <circle r={node.radius} fill={fillOf(node.node)} />
+              <text y={node.radius + 14} textAnchor="middle">
+                {node.short}
+              </text>
+            </g>
+          ))}
+        </svg>
 
-        {nodes.map((node) => (
-          // The side panel's ranked list is the keyboard route to the same
-          // selection, so the drawing itself stays pointer-only.
-          <g
-            key={node.id}
-            className={nodeClass(node)}
-            transform={`translate(${node.x ?? 0} ${node.y ?? 0})`}
-            onMouseEnter={() => setHovered(node.id)}
-            onMouseLeave={() => setHovered(null)}
-            onPointerDown={(event) => {
-              // Never let the canvas start a pan under a node drag.
-              event.stopPropagation();
-              dragNode.current = node;
-              node.fx = node.x ?? 0;
-              node.fy = node.y ?? 0;
-            }}
-            onPointerUp={release}
-            onClick={() => props.onSelect(node.id)}
-            onDoubleClick={() => {
-              if (node.node.kind === "document") props.onOpen(node.id);
-            }}
-          >
-            <circle r={node.radius} fill={fillOf(node.node)} />
-            <text y={node.radius + 13} textAnchor="middle">
-              {node.short}
-            </text>
-          </g>
-        ))}
-      </svg>
+        <div className="rex-graph-legend">
+          <span className="rex-legend-item">
+            <span className="rex-legend-swatch" />
+            document
+          </span>
+          <span className="rex-legend-item">
+            <span className="rex-legend-swatch rex-legend-comments" />
+            has comments
+          </span>
+          <span className="rex-legend-item">
+            <span className="rex-legend-swatch rex-legend-missing" />
+            missing target
+          </span>
+          <span className="rex-legend-item">
+            <span className="rex-legend-edge" />
+            drag to move · scroll to zoom
+          </span>
+        </div>
+
+        <div className="rex-graph-zoom">
+          <button type="button" onClick={fit}>
+            Fit
+          </button>
+          <button type="button" onClick={fit} title="Reset the zoom">
+            {Number.isFinite(zoom) ? zoom : 100}%
+          </button>
+        </div>
+      </div>
 
       <Splitter
         width={sideWidth}
-        min={160}
-        max={560}
+        min={240}
+        max={620}
         direction={-1}
         label="the graph panel"
         onChange={setSideWidth}
       />
 
       <aside className="rex-graph-side" style={{ width: sideWidth }}>
-        <div className="rex-graph-head">
-          <h2>Graph</h2>
-          <button type="button" className="rex-link" onClick={fit}>
-            fit
-          </button>
-        </div>
-        <p className="rex-meta">
-          {props.graph.nodes.filter((n) => n.kind === "document").length} documents ·{" "}
-          {props.graph.nodes.filter((n) => n.kind === "external").length} external ·{" "}
-          {props.graph.edges.length} edges · {props.graph.externalUrlCount} URLs and{" "}
-          {props.graph.assetLinkCount} assets not drawn
-        </p>
-
-        {detail ? (
-          <p className="rex-meta">
-            <strong>{detail.label}</strong>
-            <br />
-            {detail.inLinks} links in from {detail.inDegree} document(s) · {detail.outDegree} out
-            {detail.comments
-              ? ` · ${detail.comments.open} open, ${detail.comments.orphaned} orphaned`
-              : ""}
-          </p>
-        ) : (
-          <p className="rex-meta">
-            Click a node to select it and light up its links. Drag a node to move the graph, drag
-            the background to pan, scroll to zoom. Double-click a document to open it.
-          </p>
-        )}
-
-        <h3 className="rex-tray-head">Most referenced</h3>
-        {/*
-          Ranked by total incoming links, not in-degree. In a corpus where every
-          document cites every other, in-degree saturates at "all of them" and
-          hides the hub that link count makes obvious.
-        */}
-        {[...props.graph.nodes]
-          .filter((node) => node.inLinks > 0)
-          .sort((a, b) => b.inLinks - a.inLinks)
-          .slice(0, 5)
-          .map((node) => (
-            <button
-              key={node.id}
-              type="button"
-              className={`rex-graph-rank${node.id === props.selectedPath ? " rex-graph-rank-on" : ""}`}
-              onClick={() => props.onSelect(node.id)}
-            >
-              <strong>{node.inLinks}</strong> links from {node.inDegree} · {node.label}
+        <header className="rex-side-head">
+          <span className="rex-label">REFERENCE GRAPH</span>
+          <span className="rex-spacer" />
+          {isolated ? (
+            <button type="button" className="rex-link" onClick={() => setIsolated(null)}>
+              show all
             </button>
-          ))}
+          ) : null}
+        </header>
 
-        <h3 className="rex-tray-head">Broken links · {props.graph.brokenLinks.length}</h3>
-        {props.graph.brokenLinks.length === 0 ? (
-          <p className="rex-meta">None. Every link resolves.</p>
-        ) : (
-          props.graph.brokenLinks.map((link) => (
-            <div key={`${link.from}:${link.line}:${link.href}`} className="rex-broken">
-              <code>{link.href}</code>
-              <span className="rex-meta">
-                {link.from.split("/").pop()}
-                {link.line === null ? "" : `:${link.line}`}
-              </span>
+        <div className="rex-side-scroll">
+          <div className="rex-stats">
+            <div className="rex-stat">
+              <span className="rex-stat-n">{documents}</span>
+              <span className="rex-stat-label">DOCUMENTS</span>
             </div>
-          ))
-        )}
+            <div className="rex-stat">
+              <span className="rex-stat-n">{props.graph.edges.length}</span>
+              <span className="rex-stat-label">EDGES</span>
+            </div>
+            <div
+              className={
+                props.graph.brokenLinks.length === 0
+                  ? "rex-stat rex-stat-ok"
+                  : "rex-stat rex-stat-lost"
+              }
+            >
+              <span className="rex-stat-n">{props.graph.brokenLinks.length}</span>
+              <span className="rex-stat-label">BROKEN</span>
+            </div>
+          </div>
+
+          <p className="rex-meta">
+            {external} external target{external === 1 ? "" : "s"} · {props.graph.externalUrlCount}{" "}
+            URLs and {props.graph.assetLinkCount} assets not drawn
+          </p>
+
+          {detail ? (
+            <div className="rex-node-card">
+              <span className="rex-node-path">{detail.label}</span>
+              <span className="rex-meta">
+                {detail.inLinks} link{detail.inLinks === 1 ? "" : "s"} in from {detail.inDegree}{" "}
+                document{detail.inDegree === 1 ? "" : "s"} · {detail.outDegree} out
+                {detail.comments
+                  ? ` · ${detail.comments.open} open, ${detail.comments.orphaned} orphaned`
+                  : ""}
+              </span>
+              <div className="rex-row">
+                <button
+                  type="button"
+                  className="rex-button rex-primary"
+                  disabled={detail.kind !== "document"}
+                  title={
+                    detail.kind === "document"
+                      ? "Open this document for review"
+                      : "REX cannot open this target"
+                  }
+                  onClick={() => props.onOpen(detail.id)}
+                >
+                  Open document
+                </button>
+                <button
+                  type="button"
+                  className="rex-button"
+                  onClick={() => setIsolated(isolated === detail.id ? null : detail.id)}
+                >
+                  {isolated === detail.id ? "Show all" : "Isolate"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="rex-meta">
+              Click a node to select it and light up its links. Double-click a document to open it.
+            </p>
+          )}
+
+          <div className="rex-ranks">
+            <span className="rex-label">MOST REFERENCED</span>
+            {/*
+              Ranked by total incoming links, not in-degree. In a corpus where
+              every document cites every other, in-degree saturates at "all of
+              them" and hides the hub that link count makes obvious.
+            */}
+            {ranked.length === 0 ? (
+              <p className="rex-meta">Nothing in this workspace links to anything else.</p>
+            ) : (
+              ranked.map((node) => (
+                <button
+                  key={node.id}
+                  type="button"
+                  className={`rex-rank${node.id === props.selectedPath ? " rex-rank-on" : ""}`}
+                  onClick={() => props.onSelect(node.id)}
+                >
+                  <span className="rex-rank-head">
+                    <span className="rex-rank-n">{node.inLinks}</span>
+                    <span className="rex-rank-path">{node.label}</span>
+                  </span>
+                  <span
+                    className="rex-rank-bar"
+                    style={{ width: `${Math.max(6, (node.inLinks / busiest) * 100)}%` }}
+                  />
+                </button>
+              ))
+            )}
+          </div>
+
+          <div className="rex-ranks">
+            <span className="rex-label">BROKEN LINKS</span>
+            {props.graph.brokenLinks.length === 0 ? (
+              <p className="rex-allclear">
+                <Check />
+                None. Every link resolves.
+              </p>
+            ) : (
+              props.graph.brokenLinks.map((link) => (
+                <div key={`${link.from}:${link.line}:${link.href}`} className="rex-broken">
+                  <code>{link.href}</code>
+                  <span className="rex-meta">
+                    {link.from.split("/").pop()}
+                    {link.line === null ? "" : `:${link.line}`}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </aside>
     </div>
   );

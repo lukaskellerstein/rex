@@ -186,8 +186,58 @@ export function createElementAnchor(
 }
 
 /**
+ * A cheap content hash — FNV-1a, 32 bits, hex.
+ *
+ * Not a security primitive and not trying to be: it answers one question, "is
+ * this the same drawing it was", and it has to answer synchronously inside the
+ * document's own window, where `crypto.subtle` is a promise.
+ */
+function hash(value: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    h ^= value.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * What an element is currently *showing*, as a short string.
+ *
+ * Markup covers a redrawn SVG, a swapped `src`, a re-plotted chart and an
+ * edited table — every case where the box would otherwise resolve onto content
+ * it was not drawn over. Raster dimensions are added because a `<canvas>` has
+ * no markup to speak of and an `<img>` may keep its src while changing size.
+ *
+ * The one case it cannot see: a raster image replaced at the same URL and the
+ * same dimensions. The bytes would have to be read to catch that, and reading
+ * them is asynchronous and cross-origin-blocked; a region on such a figure
+ * still resolves silently, and that limit belongs in the open questions rather
+ * than in a comment claiming otherwise.
+ */
+export function fingerprintElement(el: Element): string {
+  const parts: string[] = [el.tagName.toLowerCase(), el.outerHTML.replace(/\s+/g, " ").trim()];
+
+  for (const media of el.querySelectorAll("img, canvas, video")) {
+    if (media instanceof HTMLImageElement) {
+      parts.push(
+        `img:${media.currentSrc || media.src}:${media.naturalWidth}x${media.naturalHeight}`,
+      );
+    } else if (media instanceof HTMLCanvasElement) {
+      parts.push(`canvas:${media.width}x${media.height}`);
+    } else if (media instanceof HTMLVideoElement) {
+      parts.push(`video:${media.currentSrc}:${media.videoWidth}x${media.videoHeight}`);
+    }
+  }
+
+  return hash(parts.join(" "));
+}
+
+/**
  * SPEC.md §6.4 — a dragged box inside an element, stored as fractions of its
  * bounding box so that it survives the element being resized.
+ *
+ * `box` is in the element's own coordinates: 0,0 is its top-left corner.
  */
 export function createRegionAnchor(
   index: TextIndex,
@@ -201,6 +251,7 @@ export function createRegionAnchor(
     y: rect.height > 0 ? box.y / rect.height : 0,
     w: rect.width > 0 ? box.w / rect.width : 0,
     h: rect.height > 0 ? box.h / rect.height : 0,
+    fingerprint: fingerprintElement(el),
   };
   return { ...createElementAnchor(index, el, sourceFile), region };
 }

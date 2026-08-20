@@ -4,14 +4,36 @@
 
 import diff_match_patch from "diff-match-patch";
 import type { Anchor, AnchorState, TextPosition } from "../../shared/types.ts";
+import { fingerprintElement, isStableId } from "./create.ts";
 import { offsetsToRange, type TextIndex } from "./textIndex.ts";
 
 /** 1 = quote (exact or disambiguated), 2 = fuzzy, 3 = element. */
 export type AnchorLayer = 1 | 2 | 3;
 
+/**
+ * How layer 3 found its element, in descending order of trust.
+ *
+ * `id` and `identity` both *name* the element — an id attribute, or one of the
+ * identifying selectors `create.ts` prefers (`aria-label`, `data-testid`,
+ * `name`, `title`), each of which it verified matched exactly one element when
+ * the anchor was written. `path` merely describes where the element used to
+ * sit, and is the case `create.ts` warns "still matches something, so the
+ * comment lands on an unrelated paragraph".
+ */
+export type ElementMatch = "id" | "identity" | "path";
+
+/**
+ * A stored selector is positional exactly when `generateCssPath()` had to fall
+ * back to `nth-of-type` — it breaks out of its walk the moment it finds an
+ * identity, so a selector without one was identity all the way up.
+ */
+function matchKindOf(css: string): ElementMatch {
+  return css.includes(":nth-of-type(") ? "path" : "identity";
+}
+
 export type Resolution =
   | { kind: "range"; range: Range; layer: AnchorLayer }
-  | { kind: "element"; element: Element; layer: AnchorLayer };
+  | { kind: "element"; element: Element; layer: AnchorLayer; matchedBy: ElementMatch };
 
 /** SPEC.md §6.5 step 3 — 0 is exact, 1 accepts anything. */
 const MATCH_THRESHOLD = 0.25;
@@ -100,17 +122,29 @@ function fuzzy(index: TextIndex, anchor: Anchor): TextPosition | null {
   return { start: at, end: Math.min(at + exact.length, index.text.length) };
 }
 
-/** SPEC.md §6.5 step 4 — the only layer an image, SVG or table ever had. */
-function resolveElement(index: TextIndex, anchor: Anchor): Element | null {
+/**
+ * SPEC.md §6.5 step 4 — the only layer an image, SVG or table ever had.
+ *
+ * Reports *how* it matched, not just what: an id written by hand identifies the
+ * element wherever it moves to, while a `nth-of-type` path identifies a slot
+ * that something else may now occupy.
+ */
+function resolveElement(
+  index: TextIndex,
+  anchor: Anchor,
+): { element: Element; matchedBy: ElementMatch } | null {
   const ref = anchor.element;
   if (!ref) return null;
-  if (ref.id) {
+  // Screened again rather than trusted: the id was judged stable when the
+  // anchor was written, possibly by an older build with a shorter list.
+  if (ref.id && isStableId(ref.id)) {
     const byId = index.doc.getElementById(ref.id);
-    if (byId) return byId;
+    if (byId) return { element: byId, matchedBy: "id" };
   }
   if (ref.css) {
     try {
-      return index.doc.querySelector(ref.css);
+      const found = index.doc.querySelector(ref.css);
+      if (found) return { element: found, matchedBy: matchKindOf(ref.css) };
     } catch {
       return null;
     }
@@ -118,8 +152,30 @@ function resolveElement(index: TextIndex, anchor: Anchor): Element | null {
   return null;
 }
 
+/**
+ * A region anchor points at a box inside an element, so the element is what has
+ * to be found — its caption is context, not the target, and resolving through
+ * the caption text would land the box on whatever now sits at those offsets.
+ *
+ * The fingerprint is the whole reason this is separate: geometry always
+ * resolves, so without a content check a redrawn figure would report success
+ * while pointing at new content. A mismatch orphans, which §6.6 makes a normal
+ * outcome — the comment and its quote are kept either way.
+ */
+function resolveRegion(index: TextIndex, anchor: Anchor): Resolution | null {
+  const found = resolveElement(index, anchor);
+  if (!found) return null;
+
+  const expected = anchor.region?.fingerprint;
+  if (expected && fingerprintElement(found.element) !== expected) return null;
+
+  return { kind: "element", element: found.element, layer: 3, matchedBy: found.matchedBy };
+}
+
 /** SPEC.md §6.5 — run the layers in order, stop at the first success. */
 export function resolveAnchor(index: TextIndex, anchor: Anchor): Resolution | null {
+  if (anchor.region) return resolveRegion(index, anchor);
+
   const exact = anchor.quote?.exact;
 
   if (exact) {
@@ -151,8 +207,10 @@ export function resolveAnchor(index: TextIndex, anchor: Anchor): Resolution | nu
     return null;
   }
 
-  const element = resolveElement(index, anchor);
-  if (element) return { kind: "element", element, layer: 3 };
+  const found = resolveElement(index, anchor);
+  if (found) {
+    return { kind: "element", element: found.element, layer: 3, matchedBy: found.matchedBy };
+  }
 
   return null;
 }
@@ -161,12 +219,20 @@ export function resolveAnchor(index: TextIndex, anchor: Anchor): Resolution | nu
  * SPEC.md §6.6 — the state the UI shows, from the layer that resolved and
  * whether the file changed underneath. `moved` means "found, but not where or
  * not how it was"; it earns a badge, not a hidden comment.
+ *
+ * Layer 3 is graded rather than condemned wholesale. Reporting `moved` for
+ * every element anchor was tolerable while they were a rare fallback, but the
+ * design makes them a primary way to comment — on a table, a figure, a section —
+ * and a badge that appears on an untouched document trains people to ignore it.
+ * An element found by name on unchanged bytes is an exact match and says so; a
+ * match found only through a positional path genuinely earns the badge.
  */
 export function anchorStateFor(
   resolution: Resolution | null,
   documentChanged: boolean,
 ): AnchorState {
   if (!resolution) return "orphaned";
-  if (resolution.layer === 1) return documentChanged ? "moved" : "ok";
-  return "moved";
+  if (documentChanged) return "moved";
+  if (resolution.layer === 1) return "ok";
+  return resolution.kind === "element" && resolution.matchedBy !== "path" ? "ok" : "moved";
 }

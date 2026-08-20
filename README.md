@@ -7,6 +7,14 @@ Select text → write a comment → **Ask**. One agent answers that one comment.
 Keep chatting in the thread. When the discussion concludes, **Apply** lets a
 second, write-capable agent make the change in the source document.
 
+Not everything worth commenting on is a run of text. **Pick element** — the
+toolbar button, `E`, or holding `⌥` — hovers the smallest anchorable thing under
+the cursor and offers what encloses it along a path bar (`↑` / `↓` to widen),
+so a comment can be written against a table, a row, a cell, a section or a
+figure. Dragging inside a figure cuts a region out of it. The composer offers
+the same widening after a text selection, and shows how well each choice would
+survive an edit before you commit to it.
+
 Comments persist. Reopening a document shows every comment, open and resolved,
 still attached to the right place in the text — even after the document has
 been edited underneath them.
@@ -18,7 +26,9 @@ shows where the unfinished discussion is.
 
 The specs are the authority on everything below:
 [01 — the app](docs/my-specs/01-initial/SPEC.md),
-[02 — workspace and graph](docs/my-specs/02-workspace-and-graph/SPEC.md).
+[02 — workspace and graph](docs/my-specs/02-workspace-and-graph/SPEC.md),
+[03 — rich rendering](docs/my-specs/03-rich-rendering/SPEC.md) (specified, not
+built).
 
 ## Running it
 
@@ -61,6 +71,11 @@ re-resolves. It does not assert that resolution *succeeded* — it prints what
 each anchor landed on and fails when an anchor reports success while sitting on
 text it was never created from. A comment that quietly moves to the wrong
 paragraph is the failure mode this exists to catch.
+
+It then does the same for a **region** — a box dragged inside a figure. Geometry
+always resolves, so a redrawn chart would otherwise report success while
+pointing at whatever now occupies the box. The case redraws one figure and
+requires that anchor to orphan, while its untouched neighbour still resolves.
 
 **`test:gate`** checks that a `read` agent cannot write, against the write
 vectors spec 01 §8.4 names — `python -c`, `tee`, `sh -c`, a plain redirect —

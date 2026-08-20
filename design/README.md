@@ -120,26 +120,48 @@ Changing any of these changes the design, not just a pixel.
   itself.** Sanitised author HTML and `<webview>` URLs keep their own styles —
   the design must survive a document looking like anything at all.
 
-## Open questions the design raises
+## Open questions the design raised — and how they were settled
 
-Each of these needs a call before it can be built.
+All four calls were taken and built. The record is here rather than in a commit
+message because each changed the design, not just the code.
 
-- `anchorStateFor()` reports `moved` for everything below layer 1, so every
-  element anchor would show amber on an untouched document. Proposal: report
-  `ok` for a layer-3 match via a stable id on an unchanged document, keep
-  `moved` for `css`-path-only matches.
-- A region anchor is geometry. Redraw a chart and it still resolves, onto
-  different content, reporting success. Proposal: fingerprint the element's
-  rendered content on `RegionRef` so a changed figure reports `orphaned`.
-- Element and region picking needs `anchorFromElement()` and
-  `anchorFromRegion()` on `DocumentSurface`. The anchor creation and resolution
-  already exist in `src/renderer/anchor/`.
+- **`anchorStateFor()` was reporting `moved` for everything below layer 1**, so
+  every element anchor showed amber on an untouched document. Settled: a layer-3
+  match reports `ok` when the element was found *by name* on an unchanged
+  document, and `moved` only when it was found by a positional path.
+  `resolveElement()` now reports which of the two it was.
+  **Wider than the proposal**, deliberately: the proposal said "via a stable id",
+  but `create.ts` prefers `aria-label`, `data-testid`, `name` and `title` over a
+  positional path and verifies each matches exactly one element. Those name the
+  element as surely as an id does, and every inline diagram in the test corpus is
+  keyed that way — under the literal rule the whole Selection page would have
+  shipped permanently amber.
+- **A region anchor is geometry, so it always resolves.** Settled: `RegionRef`
+  carries an optional `fingerprint` of the element's rendered content, and a
+  mismatch reports `orphaned` with the comment and its quote kept. `test:anchor`
+  has a case for it — a redrawn figure must orphan while its untouched
+  neighbour still resolves — because this is the one kind that can fail
+  silently. Its limit is recorded in `create.ts`: a raster replaced at the same
+  URL and the same dimensions is not detected.
+- **Element and region picking** are built. `DocumentSurface` gained
+  `probeAt()`, `anchorFromScope()` and `anchorFromRegion()`, and the tier 2
+  preload implements the same four calls so a `<webview>` picks identically.
+  The outline, badge and marquee are drawn in the overlay over the pane, never
+  on the document — REX does not mutate what it is reviewing, and §6.7 already
+  refuses the same trick for highlights.
+- **Bundling the typefaces** cost 152 KB, not 400: only the Latin subsets ship,
+  at the five weights and one italic the design actually uses. They are loaded
+  at document level, because `@font-face` inside a shadow root is ignored.
+
+Still open, and unchanged by this pass:
+
 - PDF and DOCX cannot be selected because they cannot be opened — tier 3, not
   scheduled. Every anchor kind here works on a DOM and does not care where the
   DOM came from.
-- Bundling the two typefaces adds roughly 400 KB to the app.
 - The workspace tree's selected-file marker is untouched, and is the one place
   a left-edge accent survives.
+- `tbody` is walked through rather than offered as a scope. It is not a thing
+  anyone comments on, and offering it put two chips reading "table" side by side.
 
 ## Not drawn yet
 

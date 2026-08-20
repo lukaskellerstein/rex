@@ -5,9 +5,13 @@
 // anchoring (§6.3 rule 3), and without `allow-scripts` so a local file's
 // scripts cannot run (§5.4 step 2). Tier 2 renders into a <webview>, where the
 // resolver runs behind a preload instead.
+//
+// The pane is a row — frame, then a 32px gutter — rather than a gutter floating
+// over the frame, so nothing the author wrote ever sits under REX's markers.
 
 import { useEffect, useRef, useState } from "react";
 import type { OpenedDocument, ThreadWithMessages } from "../../shared/types.ts";
+import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import {
   type DocumentSurface,
   type DraftAnchor,
@@ -16,7 +20,9 @@ import {
   type WebviewElement,
   WebviewSurface,
 } from "./anchoring.ts";
+import { Composer } from "./Composer.tsx";
 import { Gutter } from "./Gutter.tsx";
+import { PickLayer } from "./PickLayer.tsx";
 import { prepareDocumentHtml } from "./sanitise.ts";
 
 interface Props {
@@ -25,11 +31,28 @@ interface Props {
   threads: ThreadWithMessages[];
   activeId: string | null;
   draft: DraftAnchor | null;
+  /**
+   * Changes only when a *new* draft begins, never when its scope widens — so
+   * the composer keeps what has been typed while the reviewer moves from the
+   * cell to the row to the table.
+   */
+  draftKey: number;
+  picking: boolean;
+  pickScopes: PickScope[] | null;
+  pickActive: number;
+  arming: boolean;
   onSurfaceReady: (surface: DocumentSurface) => void;
   onSelectionChanged: () => void;
   onSelectMarker: (threadId: string) => void;
   onCreateComment: (note: string) => void;
   onCancelDraft: () => void;
+  onScope: (index: number) => void;
+  onArmRegion: () => void;
+  onProbe: (x: number, y: number) => void;
+  onPickActive: (index: number) => void;
+  onPickCommit: (index: number) => void;
+  onPickCancel: () => void;
+  onRegion: (index: number, box: ScopeRect) => void;
 }
 
 function baseHref(directory: string): string {
@@ -40,12 +63,17 @@ function baseHref(directory: string): string {
   return `rex-doc://doc${encoded}/`;
 }
 
+/** `widget-service.md:14` — where the composer says the comment will land. */
+function whereOf(draft: DraftAnchor): string | null {
+  const source = draft.anchor.source;
+  if (!source) return null;
+  return `${source.file.split("/").pop()}:${source.line}`;
+}
+
 export function DocumentView(props: Props): React.JSX.Element {
-  const [scrollY, setScrollY] = useState(0);
-  const [note, setNote] = useState("");
+  const [scroll, setScroll] = useState({ x: 0, y: 0 });
   const frameRef = useRef<HTMLIFrameElement>(null);
   const webviewRef = useRef<WebviewElement>(null);
-  const noteRef = useRef<HTMLTextAreaElement>(null);
 
   const { doc, onSurfaceReady, onSelectionChanged } = props;
   const isWebview = doc !== null && doc.html === null;
@@ -63,8 +91,9 @@ export function DocumentView(props: Props): React.JSX.Element {
       const inner = frame.contentDocument;
       if (!view || !inner) return;
 
-      setScrollY(view.scrollY);
-      view.addEventListener("scroll", () => setScrollY(view.scrollY), { passive: true });
+      const follow = (): void => setScroll({ x: view.scrollX, y: view.scrollY });
+      follow();
+      view.addEventListener("scroll", follow, { passive: true });
       inner.addEventListener("mouseup", onSelectionChanged);
       onSurfaceReady(new FrameSurface(frame, doc.ref.kind === "file" ? doc.ref.value : null));
     };
@@ -88,7 +117,7 @@ export function DocumentView(props: Props): React.JSX.Element {
       // A remote page scrolls in its own process; markers follow its scroll
       // rather than the overlay's, and a poll is the cheapest honest way to
       // track it without another IPC surface.
-      setScrollY(0);
+      setScroll({ x: 0, y: 0 });
     };
 
     webview.addEventListener("dom-ready", onReady);
@@ -102,19 +131,14 @@ export function DocumentView(props: Props): React.JSX.Element {
     return () => window.clearInterval(timer);
   }, [isWebview, onSelectionChanged]);
 
-  useEffect(() => {
-    if (props.draft) {
-      setNote("");
-      noteRef.current?.focus();
-    }
-  }, [props.draft]);
+  const blocks = props.resolved.filter((entry) => entry.box !== null);
 
   return (
     <main className="rex-doc">
       {doc === null ? (
         <div className="rex-empty">
           <h1>REX</h1>
-          <p>Open a Markdown or HTML document, or type a URL, to start commenting.</p>
+          <p>Open a Markdown or HTML document, or a folder, to start commenting.</p>
         </div>
       ) : null}
 
@@ -133,38 +157,62 @@ export function DocumentView(props: Props): React.JSX.Element {
         />
       )}
 
+      {/*
+        An anchor on a whole element or a region of one is an outline, not a
+        fill: the Custom Highlight API paints ranges, so there is no range to
+        paint here — and drawing it as an overlay box keeps the promise that
+        REX never touches the document's own tree.
+      */}
+      {blocks.map((entry) => (
+        <div
+          key={entry.threadId}
+          className={`rex-block-outline${entry.state === "moved" ? " rex-block-moved" : ""}${
+            props.activeId === entry.threadId ? " rex-block-active" : ""
+          }`}
+          style={{
+            left: (entry.box?.x ?? 0) - scroll.x,
+            top: (entry.box?.y ?? 0) - scroll.y,
+            width: entry.box?.w ?? 0,
+            height: entry.box?.h ?? 0,
+          }}
+        />
+      ))}
+
       <Gutter
         resolved={props.resolved}
         threads={props.threads}
         activeId={props.activeId}
-        scrollY={scrollY}
+        scrollY={scroll.y}
         onSelect={props.onSelectMarker}
       />
 
+      {props.picking ? (
+        <PickLayer
+          scopes={props.pickScopes}
+          active={props.pickActive}
+          scrollX={scroll.x}
+          scrollY={scroll.y}
+          arming={props.arming}
+          onProbe={props.onProbe}
+          onActive={props.onPickActive}
+          onCommit={props.onPickCommit}
+          onRegion={props.onRegion}
+          onCancel={props.onPickCancel}
+        />
+      ) : null}
+
       {props.draft ? (
-        <div className="rex-composer" style={{ top: Math.max(8, props.draft.top - scrollY) }}>
-          <div className="rex-quote">{props.draft.anchor.quote?.exact ?? "(element)"}</div>
-          <textarea
-            ref={noteRef}
-            className="rex-input"
-            placeholder="What about this passage?"
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-          />
-          <div className="rex-row">
-            <button
-              type="button"
-              className="rex-button rex-primary"
-              disabled={note.trim().length === 0}
-              onClick={() => props.onCreateComment(note.trim())}
-            >
-              Ask
-            </button>
-            <button type="button" className="rex-button" onClick={props.onCancelDraft}>
-              Cancel
-            </button>
-          </div>
-        </div>
+        <Composer
+          key={props.draftKey}
+          draft={props.draft}
+          top={Math.max(8, props.draft.top - scroll.y)}
+          where={whereOf(props.draft)}
+          arming={props.arming}
+          onScope={props.onScope}
+          onArmRegion={props.onArmRegion}
+          onCreate={props.onCreateComment}
+          onCancel={props.onCancelDraft}
+        />
       ) : null}
     </main>
   );

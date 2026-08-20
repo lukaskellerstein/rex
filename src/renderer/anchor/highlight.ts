@@ -5,20 +5,45 @@
 // to any agent that reads the file, so the highlight lives entirely in the
 // highlight registry and its CSS arrives as a constructed stylesheet rather
 // than a <style> element.
+//
+// Three registries rather than two: the design gives an exact anchor and a
+// re-found one different colours in the document, the same steel and amber the
+// gutter marker and the card wash use, so state reads the same in all three
+// places. A resolved thread is drained of colour but still findable.
 
-import type { ThreadStatus } from "../../shared/types.ts";
+import { HIGHLIGHT } from "../../shared/tokens.ts";
+import type { AnchorState, ThreadStatus } from "../../shared/types.ts";
 
-const OPEN_HIGHLIGHT = "rex-open";
+const OK_HIGHLIGHT = "rex-ok";
+const MOVED_HIGHLIGHT = "rex-moved";
 const RESOLVED_HIGHLIGHT = "rex-resolved";
 
+/**
+ * The design draws the underline as `box-shadow: 0 1.5px 0`. A highlight
+ * pseudo-element cannot take box-shadow — the property set is colour,
+ * background-color, text-decoration, text-shadow and -webkit-text-stroke — so
+ * it is written as the text-decoration that paints the same rule.
+ */
 const HIGHLIGHT_CSS = `
-::highlight(${OPEN_HIGHLIGHT})     { background: rgba(255, 213, 0, 0.35); }
-::highlight(${RESOLVED_HIGHLIGHT}) { background: rgba(120, 120, 120, 0.18); }
+::highlight(${OK_HIGHLIGHT}) {
+  background-color: ${HIGHLIGHT.okBg};
+  text-decoration: underline 1.5px ${HIGHLIGHT.okRule};
+  text-underline-offset: 3px;
+}
+::highlight(${MOVED_HIGHLIGHT}) {
+  background-color: ${HIGHLIGHT.movedBg};
+  text-decoration: underline 1.5px ${HIGHLIGHT.movedRule};
+  text-underline-offset: 3px;
+}
+::highlight(${RESOLVED_HIGHLIGHT}) {
+  background-color: ${HIGHLIGHT.resolvedBg};
+}
 `;
 
 export interface HighlightHit {
   range: Range;
   status: ThreadStatus;
+  state: AnchorState;
 }
 
 /** Documents already carrying the highlight stylesheet. */
@@ -39,7 +64,7 @@ function ensureStylesheet(win: Window): void {
 }
 
 /**
- * SPEC.md §6.7 — replaces both registries wholesale, so a thread that stopped
+ * SPEC.md §6.7 — replaces every registry wholesale, so a thread that stopped
  * resolving simply stops being painted.
  *
  * `win` is the window owning the ranges: for tier 1 that is the document
@@ -52,18 +77,25 @@ export function paintHighlights(win: Window, hits: HighlightHit[]): void {
 
   ensureStylesheet(win);
 
-  const open = new scope.Highlight();
+  const ok = new scope.Highlight();
+  const moved = new scope.Highlight();
   const resolved = new scope.Highlight();
-  for (const { range, status } of hits) {
-    (status === "open" ? open : resolved).add(range);
+
+  for (const hit of hits) {
+    if (hit.status === "resolved") resolved.add(hit.range);
+    else if (hit.state === "moved") moved.add(hit.range);
+    else ok.add(hit.range);
   }
-  scope.CSS.highlights.set(OPEN_HIGHLIGHT, open);
+
+  scope.CSS.highlights.set(OK_HIGHLIGHT, ok);
+  scope.CSS.highlights.set(MOVED_HIGHLIGHT, moved);
   scope.CSS.highlights.set(RESOLVED_HIGHLIGHT, resolved);
 }
 
 /** Drops every REX highlight from `win`, leaving other registrations alone. */
 export function clearHighlights(win: Window): void {
   const scope = win as Window & typeof globalThis;
-  scope.CSS?.highlights?.delete(OPEN_HIGHLIGHT);
+  scope.CSS?.highlights?.delete(OK_HIGHLIGHT);
+  scope.CSS?.highlights?.delete(MOVED_HIGHLIGHT);
   scope.CSS?.highlights?.delete(RESOLVED_HIGHLIGHT);
 }

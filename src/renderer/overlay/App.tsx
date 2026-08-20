@@ -14,6 +14,8 @@ import type {
   WorkspaceRef,
   WorkspaceTree,
 } from "../../shared/types.ts";
+import type { PickScope, ScopeRect } from "../anchor/pick.ts";
+import { ApplyResult } from "./ApplyResult.tsx";
 import type { DocumentSurface, DraftAnchor, ResolvedThread } from "./anchoring.ts";
 import { CommentCard } from "./CommentCard.tsx";
 import { DiffDialog } from "./DiffDialog.tsx";
@@ -22,11 +24,20 @@ import { Explorer } from "./Explorer.tsx";
 import { GraphView } from "./GraphView.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { Splitter } from "./Splitter.tsx";
+import { TopBar } from "./TopBar.tsx";
 
 /** SPEC.md §8.8 point 4 — confirm before a fan-out larger than this. */
 const FAN_OUT_CONFIRM = 10;
 /** A rough per-comment figure, only ever shown as an estimate. */
 const ESTIMATED_USD_PER_ASK = 0.05;
+/** How long ⌥ must be held before it means "pick", not "I am typing ⌥-something". */
+const ALT_PICK_DELAY = 250;
+
+interface ApplyOutcome {
+  summary: AnchorSummary;
+  files: string[];
+  newlyOrphaned: ThreadWithMessages[];
+}
 
 export function App(): React.JSX.Element {
   const [doc, setDoc] = useState<OpenedDocument | null>(null);
@@ -34,11 +45,13 @@ export function App(): React.JSX.Element {
   const [resolved, setResolved] = useState<ResolvedThread[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [draft, setDraft] = useState<DraftAnchor | null>(null);
+  /** Bumped only for a *new* draft, so widening a scope keeps what was typed. */
+  const [draftKey, setDraftKey] = useState(0);
   const [cost, setCost] = useState(0);
   const [pendingApply, setPendingApply] = useState<ApplyReadyEvent | null>(null);
+  const [applyOutcome, setApplyOutcome] = useState<ApplyOutcome | null>(null);
   const [busyThreads, setBusyThreads] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
-  const [url, setUrl] = useState("");
   // Spec 02: the workspace is a view of a folder, independent of which
   // document is open, so switching documents never disturbs it.
   const [workspace, setWorkspace] = useState<WorkspaceRef | null>(null);
@@ -54,9 +67,17 @@ export function App(): React.JSX.Element {
   const [explorerWidth, setExplorerWidth] = useState(272);
   const [commentsWidth, setCommentsWidth] = useState(384);
 
+  // design/selection — pick mode and the region drag it can hand off to.
+  const [picking, setPicking] = useState(false);
+  const [pickScopes, setPickScopes] = useState<PickScope[] | null>(null);
+  const [pickActive, setPickActive] = useState(0);
+  const [arming, setArming] = useState(false);
+
   const surfaceRef = useRef<DocumentSurface | null>(null);
   const docRef = useRef<OpenedDocument | null>(null);
   const threadsRef = useRef<ThreadWithMessages[]>([]);
+  /** The sweep's own result, readable before React has re-rendered with it. */
+  const resolvedRef = useRef<ResolvedThread[]>([]);
   /** Resolves the promise §8.7 step 6 is waiting on, once the sweep is done. */
   const sweepWaiter = useRef<((summary: AnchorSummary) => void) | null>(null);
 
@@ -69,6 +90,18 @@ export function App(): React.JSX.Element {
     return map;
   }, [resolved]);
 
+  /** What a quoteless anchor turned out to point at — `Table · 3 × 4`. */
+  const labelById = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const entry of resolved) map.set(entry.threadId, entry.label);
+    return map;
+  }, [resolved]);
+
+  const numbers = useMemo(
+    () => new Map(threads.map((thread, position) => [thread.id, position + 1])),
+    [threads],
+  );
+
   // ── Resolution sweep (§6.5, §6.6) ───────────────────────────
 
   const sweep = useCallback(async (): Promise<AnchorSummary> => {
@@ -80,6 +113,7 @@ export function App(): React.JSX.Element {
       threadsRef.current,
       docRef.current?.contentChanged ?? false,
     );
+    resolvedRef.current = entries;
     setResolved(entries);
 
     // Invariant I1 — main stores anchor states but cannot compute them.
@@ -109,17 +143,29 @@ export function App(): React.JSX.Element {
 
   // ── Opening documents ───────────────────────────────────────
 
-  const openDocument = useCallback(async (ref: DocumentRef): Promise<void> => {
-    if (ref.kind === "file") setSelectedPath(ref.value);
-    const opened = await window.rex.docOpen(ref);
-    const list = await window.rex.threadList(opened.documentId);
-    surfaceRef.current = null;
-    setActiveId(null);
-    setDraft(null);
-    setResolved([]);
-    setThreads(list);
-    setDoc(opened);
+  const leavePick = useCallback((): void => {
+    setPicking(false);
+    setArming(false);
+    setPickScopes(null);
+    setPickActive(0);
   }, []);
+
+  const openDocument = useCallback(
+    async (ref: DocumentRef): Promise<void> => {
+      if (ref.kind === "file") setSelectedPath(ref.value);
+      const opened = await window.rex.docOpen(ref);
+      const list = await window.rex.threadList(opened.documentId);
+      surfaceRef.current = null;
+      setActiveId(null);
+      setDraft(null);
+      setResolved([]);
+      resolvedRef.current = [];
+      leavePick();
+      setThreads(list);
+      setDoc(opened);
+    },
+    [leavePick],
+  );
 
   const guard = useCallback(async (task: () => Promise<void>): Promise<void> => {
     try {
@@ -139,14 +185,8 @@ export function App(): React.JSX.Element {
   );
 
   const openUrl = useCallback(
-    () =>
-      guard(async () => {
-        const trimmed = url.trim();
-        if (!trimmed) return;
-        await openDocument({ kind: "url", value: trimmed });
-        setUrl("");
-      }),
-    [guard, openDocument, url],
+    (value: string) => guard(() => openDocument({ kind: "url", value })),
+    [guard, openDocument],
   );
 
   const refreshThreads = useCallback(async (): Promise<ThreadWithMessages[]> => {
@@ -188,13 +228,18 @@ export function App(): React.JSX.Element {
     [guard, openWorkspace],
   );
 
-  const showGraph = useCallback(
-    () =>
+  const showCentre = useCallback(
+    (which: "document" | "graph") =>
       guard(async () => {
-        setCentre("graph");
+        setCentre(which);
+        if (which === "document") {
+          await sweep();
+          return;
+        }
+        leavePick();
         if (workspace) setGraph(await window.rex.workspaceGraph(workspace));
       }),
-    [guard, workspace],
+    [guard, leavePick, sweep, workspace],
   );
 
   // ── §8.7 step 6 — main drives the post-Apply sweep through here ──
@@ -257,10 +302,25 @@ export function App(): React.JSX.Element {
 
   // ── Commands ────────────────────────────────────────────────
 
+  /**
+   * Read through a ref rather than closed over, so this callback keeps one
+   * identity for the life of the app.
+   *
+   * DocumentView's tier 1 effect depends on it: give it a new identity and the
+   * effect re-runs, which rewrites the iframe's `srcdoc` — reloading the
+   * document under review, throwing away its scroll position and the scope
+   * chain the composer's chips point into. Arming a region did exactly that,
+   * so the drag that followed had nothing left to cut from.
+   */
+  const armingRef = useRef(false);
+  armingRef.current = arming;
+
   const onSelectionChanged = useCallback(async () => {
     const surface = surfaceRef.current;
-    if (!surface) return;
-    setDraft(await surface.anchorFromSelection());
+    if (!surface || armingRef.current) return;
+    const next = await surface.anchorFromSelection();
+    setDraft(next);
+    if (next) setDraftKey((key) => key + 1);
   }, []);
 
   const withBusy = useCallback(
@@ -289,12 +349,13 @@ export function App(): React.JSX.Element {
         note,
       });
       setDraft(null);
+      leavePick();
       await refreshThreads();
       await sweep();
       setActiveId(thread.id);
       await withBusy(thread.id, () => window.rex.threadAsk(thread.id));
     },
-    [draft, refreshThreads, sweep, withBusy],
+    [draft, leavePick, refreshThreads, sweep, withBusy],
   );
 
   const askAll = useCallback(async (): Promise<void> => {
@@ -314,68 +375,161 @@ export function App(): React.JSX.Element {
     );
   }, [withBusy]);
 
+  // ── Picking (design/selection) ──────────────────────────────
+
+  const probe = useCallback((x: number, y: number) => {
+    void (async () => {
+      const scopes = (await surfaceRef.current?.probeAt(x, y)) ?? null;
+      if (!scopes) return;
+      setPickScopes(scopes);
+      // A fresh probe lands on the smallest anchorable element; the path bar
+      // and ↑/↓ widen from there.
+      setPickActive(0);
+    })();
+  }, []);
+
+  const commitScope = useCallback((index: number) => {
+    void (async () => {
+      const next = await surfaceRef.current?.anchorFromScope(index);
+      if (!next) return;
+      setDraft(next);
+      setDraftKey((key) => key + 1);
+      setPicking(false);
+      setPickScopes(null);
+    })();
+  }, []);
+
+  /** Widening from the composer's chips: the anchor changes, the note stays. */
+  const changeScope = useCallback((index: number) => {
+    void (async () => {
+      const next = await surfaceRef.current?.anchorFromScope(index);
+      if (next) setDraft(next);
+      setArming(false);
+    })();
+  }, []);
+
+  const armRegion = useCallback(() => {
+    if (!draft) return;
+    // The layer has to be up to catch the drag, and it needs the draft's own
+    // chain so the box is cut from the element the chips are pointing at.
+    setPickScopes(draft.scopes);
+    setPickActive(draft.active);
+    setPicking(true);
+    setArming(true);
+  }, [draft]);
+
+  const takeRegion = useCallback((index: number, box: ScopeRect) => {
+    void (async () => {
+      const next = await surfaceRef.current?.anchorFromRegion(index, box);
+      setArming(false);
+      setPicking(false);
+      if (next) setDraft(next);
+    })();
+  }, []);
+
+  // `E`, or ⌥ held for a moment. Hover never outlines things while you are only
+  // reading, and it never competes with dragging a text selection.
+  useEffect(() => {
+    if (!doc || centre !== "document") return;
+    let altTimer: number | null = null;
+
+    const typing = (target: EventTarget | null): boolean =>
+      target instanceof HTMLElement &&
+      (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.isContentEditable);
+
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Alt" && altTimer === null && !arming) {
+        altTimer = window.setTimeout(() => setPicking(true), ALT_PICK_DELAY);
+        return;
+      }
+      if (event.key !== "e" && event.key !== "E") return;
+      if (event.metaKey || event.ctrlKey || event.altKey || typing(event.target)) return;
+      event.preventDefault();
+      setPicking((on) => !on);
+    };
+
+    const onKeyUp = (event: KeyboardEvent): void => {
+      if (event.key !== "Alt") return;
+      if (altTimer !== null) {
+        window.clearTimeout(altTimer);
+        altTimer = null;
+      }
+      if (!arming) setPicking(false);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keyup", onKeyUp);
+      if (altTimer !== null) window.clearTimeout(altTimer);
+    };
+  }, [arming, centre, doc]);
+
+  // ── Apply (§8.7) ────────────────────────────────────────────
+
+  const decideApply = useCallback(
+    (accept: boolean) =>
+      guard(async () => {
+        const target = pendingApply;
+        if (!target) return;
+        setPendingApply(null);
+
+        const before = new Set(
+          resolvedRef.current.filter((e) => e.state === "orphaned").map((e) => e.threadId),
+        );
+
+        const response = await window.rex.applyConfirm({
+          applyRunId: target.applyRunId,
+          accept,
+        });
+        const list = await refreshThreads();
+
+        if (!accept) {
+          setNotice("Rejected — the file was restored with git checkout.");
+          return;
+        }
+
+        // §8.7 step 7 — report the sweep, and name what it cost. "1 newly
+        // orphaned" is complete; *which one* is what the reviewer needs.
+        const newlyOrphaned = resolvedRef.current
+          .filter((entry) => entry.state === "orphaned" && !before.has(entry.threadId))
+          .map((entry) => list.find((thread) => thread.id === entry.threadId))
+          .filter((thread): thread is ThreadWithMessages => thread !== undefined);
+
+        setApplyOutcome({ summary: response.reanchored, files: target.files, newlyOrphaned });
+      }),
+    [guard, pendingApply, refreshThreads],
+  );
+
   const active = threads.find((thread) => thread.id === activeId) ?? null;
+  const unanswered = threads.filter((thread) => thread.messages.length === 0).length;
+  const applyTarget = pendingApply
+    ? (threads.find((thread) => thread.id === pendingApply.threadId) ?? null)
+    : null;
 
   return (
     <div className="rex-app">
-      <header className="rex-bar">
-        <button type="button" className="rex-button" onClick={pick}>
-          Open file…
-        </button>
-        <button type="button" className="rex-button" onClick={pickFolder}>
-          Open folder…
-        </button>
-        <input
-          className="rex-url"
-          placeholder="…or a URL"
-          value={url}
-          onChange={(event) => setUrl(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") void openUrl();
-          }}
-        />
-        <span className="rex-title">{doc?.title ?? doc?.ref.value ?? "No document open"}</span>
-        {doc?.contentChanged ? (
-          <span className="rex-badge rex-badge-moved">file changed</span>
-        ) : null}
-        <span className="rex-spacer" />
-        {workspace ? (
-          <div className="rex-toggle">
-            <button
-              type="button"
-              className={`rex-chip ${centre === "document" ? "rex-chip-on" : ""}`}
-              onClick={() => {
-                setCentre("document");
-                void sweep();
-              }}
-            >
-              Document
-            </button>
-            <button
-              type="button"
-              className={`rex-chip ${centre === "graph" ? "rex-chip-on" : ""}`}
-              onClick={showGraph}
-            >
-              Graph
-            </button>
-          </div>
-        ) : null}
-        <button
-          type="button"
-          className="rex-button"
-          onClick={askAll}
-          disabled={!doc || threads.every((thread) => thread.messages.length > 0)}
-        >
-          Ask all
-        </button>
-        <span className="rex-cost" title="Running total for this document">
-          ${cost.toFixed(4)}
-        </span>
-      </header>
+      <TopBar
+        doc={doc}
+        workspace={workspace}
+        centre={centre}
+        cost={cost}
+        unanswered={unanswered}
+        picking={picking}
+        canPick={doc !== null && centre === "document"}
+        onCentre={showCentre}
+        onAskAll={askAll}
+        onTogglePick={() => setPicking((on) => !on)}
+        onOpenFile={pick}
+        onOpenFolder={pickFolder}
+        onOpenUrl={openUrl}
+      />
 
       {notice ? (
         <div className="rex-notice">
           <span>{notice}</span>
+          <span className="rex-spacer" />
           <button type="button" className="rex-link" onClick={() => setNotice(null)}>
             dismiss
           </button>
@@ -394,7 +548,7 @@ export function App(): React.JSX.Element {
             />
             <Splitter
               width={explorerWidth}
-              min={160}
+              min={200}
               max={640}
               direction={1}
               label="the explorer"
@@ -412,15 +566,27 @@ export function App(): React.JSX.Element {
           <div className={`rex-pane${centre === "graph" ? " rex-pane-hidden" : ""}`}>
             <DocumentView
               doc={doc}
+              draftKey={draftKey}
               resolved={resolved}
               threads={threads}
               activeId={activeId}
               draft={draft}
+              picking={picking}
+              pickScopes={pickScopes}
+              pickActive={pickActive}
+              arming={arming}
               onSurfaceReady={onSurfaceReady}
               onSelectionChanged={onSelectionChanged}
               onSelectMarker={setActiveId}
               onCreateComment={createComment}
               onCancelDraft={() => setDraft(null)}
+              onScope={changeScope}
+              onArmRegion={armRegion}
+              onProbe={probe}
+              onPickActive={setPickActive}
+              onPickCommit={commitScope}
+              onPickCancel={leavePick}
+              onRegion={takeRegion}
             />
           </div>
 
@@ -461,7 +627,7 @@ export function App(): React.JSX.Element {
         {centre === "graph" ? null : (
           <Splitter
             width={commentsWidth}
-            min={240}
+            min={300}
             max={760}
             direction={-1}
             label="the comments panel"
@@ -475,7 +641,9 @@ export function App(): React.JSX.Element {
           {active ? (
             <CommentCard
               thread={active}
+              number={numbers.get(active.id) ?? 0}
               anchorState={stateById.get(active.id) ?? active.anchorState}
+              label={labelById.get(active.id) ?? null}
               busy={busyThreads.includes(active.id)}
               applyEnabled={doc?.applyEnabled ?? false}
               applyDisabledReason={doc?.applyDisabledReason ?? null}
@@ -500,6 +668,7 @@ export function App(): React.JSX.Element {
             <Sidebar
               threads={threads}
               stateById={stateById}
+              labelById={labelById}
               busyThreads={busyThreads}
               onSelect={setActiveId}
               onSynthesise={(refThreadIds, note) =>
@@ -524,21 +693,24 @@ export function App(): React.JSX.Element {
       {pendingApply ? (
         <DiffDialog
           event={pendingApply}
-          onDecide={(accept) =>
-            void guard(async () => {
-              const target = pendingApply;
-              setPendingApply(null);
-              const response = await window.rex.applyConfirm({
-                applyRunId: target.applyRunId,
-                accept,
-              });
-              const { ok, moved, orphaned, total } = response.reanchored;
-              setNotice(
-                `Re-anchored ${total} thread(s): ${ok} ok, ${moved} moved, ${orphaned} newly orphaned.`,
-              );
-              await refreshThreads();
-            })
-          }
+          thread={applyTarget}
+          number={numbers.get(pendingApply.threadId) ?? 0}
+          anchorState={stateById.get(pendingApply.threadId) ?? null}
+          onDecide={decideApply}
+        />
+      ) : null}
+
+      {applyOutcome ? (
+        <ApplyResult
+          summary={applyOutcome.summary}
+          files={applyOutcome.files}
+          newlyOrphaned={applyOutcome.newlyOrphaned}
+          onClose={() => setApplyOutcome(null)}
+          onShowOrphans={() => {
+            const first = applyOutcome.newlyOrphaned[0];
+            setApplyOutcome(null);
+            if (first) setActiveId(first.id);
+          }}
         />
       ) : null}
     </div>

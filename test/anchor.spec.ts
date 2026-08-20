@@ -417,6 +417,96 @@ const MD_MARKERS: Marker[] = [
   },
 ];
 
+// ── The region gate ─────────────────────────────────────────────
+//
+// A region anchor is geometry, and geometry always resolves: redraw the chart
+// and x/y/w/h still land inside it, onto different content, reporting success.
+// That is the one silent wrong-place failure the rest of §6 is built to avoid,
+// and the `RegionRef.fingerprint` field exists solely to close it. This case is
+// the proof, and it fails loudly if the field is ever dropped.
+
+interface RegionCheck {
+  id: string;
+  orphaned: boolean;
+  landedOn: string | null;
+}
+
+/** Redraws one figure in place: same element, same position, new content. */
+function redrawSvg(html: string, which: number): string {
+  const blocks = [...html.matchAll(/<svg[\s\S]*?<\/svg>/g)];
+  const block = blocks[which];
+  if (!block) throw new Error(`document has no svg at index ${which}`);
+  const redrawn = block[0].replace(
+    /^(<svg[^>]*>)/,
+    '$1<circle cx="12" cy="12" r="5" fill="#2f5da8"></circle>',
+  );
+  return html.slice(0, block.index) + redrawn + html.slice(block.index + block[0].length);
+}
+
+function createRegionsInPage(which: number): Array<{ id: string; anchor: Anchor }> {
+  const rex = (window as any).__rexAnchor;
+  const index = rex.buildTextIndex(document);
+  const svgs = document.querySelectorAll("svg");
+  const box = { x: 8, y: 8, w: 40, h: 24 };
+  return [
+    { id: "region/redrawn", anchor: rex.createRegionAnchor(index, svgs[which], box, null) },
+    { id: "region/untouched", anchor: rex.createRegionAnchor(index, svgs[which + 1], box, null) },
+  ];
+}
+
+function resolveRegionsInPage(created: Array<{ id: string; anchor: Anchor }>): RegionCheck[] {
+  const rex = (window as any).__rexAnchor;
+  const index = rex.buildTextIndex(document);
+  return created.map((record) => {
+    const resolution = rex.resolveAnchor(index, record.anchor);
+    return {
+      id: record.id,
+      orphaned: resolution === null,
+      landedOn: resolution?.element
+        ? `<${resolution.element.tagName.toLowerCase()}> ${(resolution.element.getAttribute("aria-label") ?? "").slice(0, 60)}`
+        : null,
+    };
+  });
+}
+
+async function runRegionGate(bundle: string, html: string): Promise<number> {
+  const which = 1;
+  const original = join(WORK, "region-original.html");
+  const redrawn = join(WORK, "region-redrawn.html");
+  writeFileSync(original, html);
+  writeFileSync(redrawn, redrawSvg(html, which));
+
+  const created = await withPage(bundle, original, (page) =>
+    page.evaluate(createRegionsInPage, which),
+  );
+  const checks = await withPage(bundle, redrawn, (page) =>
+    page.evaluate(resolveRegionsInPage, created),
+  );
+
+  console.log(`\n── Regions · a redrawn figure must not resolve ${"─".repeat(14)}`);
+  let failures = 0;
+  for (const check of checks) {
+    // The redrawn one must orphan; its neighbour must survive, or the
+    // fingerprint is simply rejecting everything and proves nothing.
+    const expected = check.id === "region/redrawn";
+    const ok = check.orphaned === expected;
+    if (!ok) failures++;
+    console.log(
+      `  ${ok ? "pass" : "FAIL"}        ${check.id.padEnd(22)} ${
+        check.orphaned ? "orphaned" : "resolved"
+      }  expected=${expected ? "orphaned" : "resolved"}`,
+    );
+    console.log(
+      `              ${
+        expected
+          ? "the figure was redrawn — geometry alone would have resolved onto new content"
+          : "untouched figure, so the box still means what it meant"
+      }`,
+    );
+  }
+  return failures;
+}
+
 async function main(): Promise<void> {
   mkdirSync(WORK, { recursive: true });
 
@@ -485,6 +575,8 @@ async function main(): Promise<void> {
       `${testCase.name.split(" ·")[0]}: ${result.survived}/${testCase.markers.length + 1}`,
     );
   }
+
+  failures += await runRegionGate(bundle, html);
 
   // §13 step 6 — the number that justifies owning the Markdown renderer.
   console.log(`\nSurvival after the same three edits — ${survival.join("  ·  ")}`);

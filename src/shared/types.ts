@@ -38,6 +38,19 @@ export interface RegionRef {
   y: number; // fractions of the element box, 0..1
   w: number;
   h: number;
+  /**
+   * What the element held when the box was drawn.
+   *
+   * A region is geometry, and geometry always resolves: redraw a chart with new
+   * data and x/y/w/h still land inside it, onto different content, reporting
+   * success. That is the one silent wrong-place failure the rest of §6 is built
+   * to avoid, and this field is what closes it — a mismatch on resolve means
+   * `orphaned`, with the comment and its quote kept as §6.6 requires.
+   *
+   * Optional: anchors written before this field existed have none, and are
+   * resolved on geometry alone rather than being orphaned wholesale.
+   */
+  fingerprint?: string;
 }
 
 export interface SourceRef {

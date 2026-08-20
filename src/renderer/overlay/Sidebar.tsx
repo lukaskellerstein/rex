@@ -1,19 +1,25 @@
-// SPEC.md §7 — all threads for the document, with the filters the spec names,
-// plus the synthesis thread builder (§1 step 6).
+// design/screens/Threads — every comment on the document, filtered.
+//
+// The chips carry their own counts, so the filter row doubles as the tally and
+// the panel needs no second header to say how many of what there are.
 
 import { useMemo, useState } from "react";
 import type { AnchorState, ThreadWithMessages } from "../../shared/types.ts";
-import { OrphanTray } from "./OrphanTray.tsx";
+import { Lines } from "./Icons.tsx";
+import { ThreadRow } from "./ThreadRow.tsx";
 
 type Filter = "open" | "resolved" | "orphaned";
 
 interface Props {
   threads: ThreadWithMessages[];
   stateById: Map<string, AnchorState>;
+  labelById: Map<string, string | null>;
   busyThreads: string[];
   onSelect: (threadId: string) => void;
   onSynthesise: (refThreadIds: string[], note: string) => void;
 }
+
+const FILTERS: Filter[] = ["open", "resolved", "orphaned"];
 
 export function Sidebar(props: Props): React.JSX.Element {
   const [filter, setFilter] = useState<Filter>("open");
@@ -21,16 +27,22 @@ export function Sidebar(props: Props): React.JSX.Element {
   const [chosen, setChosen] = useState<string[]>([]);
   const [note, setNote] = useState("");
 
-  const orphaned = useMemo(
-    () => props.threads.filter((thread) => props.stateById.get(thread.id) === "orphaned"),
-    [props.threads, props.stateById],
-  );
+  /** One rule, used for both the chip counts and the list. */
+  const belongsTo = useMemo(() => {
+    const state = props.stateById;
+    return (thread: ThreadWithMessages, which: Filter): boolean => {
+      const orphaned = state.get(thread.id) === "orphaned";
+      if (which === "orphaned") return orphaned;
+      return !orphaned && thread.status === which;
+    };
+  }, [props.stateById]);
 
-  const visible = props.threads.filter((thread) => {
-    if (filter === "orphaned") return props.stateById.get(thread.id) === "orphaned";
-    if (props.stateById.get(thread.id) === "orphaned") return false;
-    return thread.status === filter;
-  });
+  const numbers = new Map(props.threads.map((thread, position) => [thread.id, position + 1]));
+  const counts = Object.fromEntries(
+    FILTERS.map((which) => [which, props.threads.filter((t) => belongsTo(t, which)).length]),
+  ) as Record<Filter, number>;
+
+  const visible = props.threads.filter((thread) => belongsTo(thread, filter));
 
   const toggle = (threadId: string): void =>
     setChosen((current) =>
@@ -38,9 +50,9 @@ export function Sidebar(props: Props): React.JSX.Element {
     );
 
   return (
-    <div className="rex-sidebar">
-      <nav className="rex-filters">
-        {(["open", "resolved", "orphaned"] as Filter[]).map((option) => (
+    <>
+      <nav className="rex-side-head rex-filters">
+        {FILTERS.map((option) => (
           <button
             key={option}
             type="button"
@@ -48,43 +60,57 @@ export function Sidebar(props: Props): React.JSX.Element {
             onClick={() => setFilter(option)}
           >
             {option}
+            <span className={`rex-chip-count rex-chip-count-${option}`}>{counts[option]}</span>
           </button>
         ))}
       </nav>
 
-      {visible.length === 0 ? (
-        <p className="rex-meta">No {filter} comments.</p>
-      ) : (
-        visible.map((thread, position) => {
-          const state = props.stateById.get(thread.id) ?? thread.anchorState;
-          return (
-            <div key={thread.id} className="rex-item-row">
+      <div className="rex-side-scroll">
+        {filter === "orphaned" && visible.length > 0 ? (
+          // §6.6 — REX's own Apply creates orphans, so this is normal operation
+          // rather than an error path, and the panel says so plainly.
+          <p className="rex-orphan-note">
+            The text these were written against is gone. Nothing is lost — each keeps the quote it
+            was written on, and REX's own Apply is a normal way to create one.
+          </p>
+        ) : null}
+
+        {visible.length === 0 ? (
+          <p className="rex-meta">No {filter} comments.</p>
+        ) : (
+          visible.map((thread) => (
+            <div key={thread.id} className="rex-row">
               {selecting ? (
                 <input
                   type="checkbox"
-                  aria-label={`Include comment ${position + 1}`}
+                  aria-label={`Include comment ${numbers.get(thread.id)}`}
                   checked={chosen.includes(thread.id)}
                   onChange={() => toggle(thread.id)}
                 />
               ) : null}
-              <button type="button" className="rex-item" onClick={() => props.onSelect(thread.id)}>
-                <span className="rex-item-note">{thread.note}</span>
-                {thread.anchor?.quote ? (
-                  <span className="rex-quote rex-quote-small">{thread.anchor.quote.exact}</span>
-                ) : null}
-                <span className="rex-item-meta">
-                  {thread.kind === "synthesis" ? "synthesis · " : ""}
-                  {thread.messages.length} message(s)
-                  {state === "moved" ? " · text changed" : ""}
-                  {props.busyThreads.includes(thread.id) ? " · working…" : ""}
-                </span>
-              </button>
+              <ThreadRow
+                thread={thread}
+                number={numbers.get(thread.id) ?? 0}
+                state={props.stateById.get(thread.id) ?? thread.anchorState}
+                label={props.labelById.get(thread.id) ?? null}
+                selected={false}
+                busy={props.busyThreads.includes(thread.id)}
+                onSelect={() => props.onSelect(thread.id)}
+              />
             </div>
-          );
-        })
-      )}
+          ))
+        )}
 
-      <section className="rex-synth">
+        {filter !== "orphaned" && counts.orphaned > 0 ? (
+          <button type="button" className="rex-tray" onClick={() => setFilter("orphaned")}>
+            {counts.orphaned} comment{counts.orphaned === 1 ? "" : "s"} lost{" "}
+            {counts.orphaned === 1 ? "its" : "their"} anchor
+            <span className="rex-tray-more">show</span>
+          </button>
+        ) : null}
+      </div>
+
+      <div className="rex-side-foot">
         {selecting ? (
           <>
             <p className="rex-meta">
@@ -116,18 +142,20 @@ export function Sidebar(props: Props): React.JSX.Element {
             </div>
           </>
         ) : (
-          <button
-            type="button"
-            className="rex-button"
-            disabled={props.threads.length < 2}
-            onClick={() => setSelecting(true)}
-          >
-            Synthesis thread…
-          </button>
+          <>
+            <button
+              type="button"
+              className="rex-button"
+              disabled={props.threads.length < 2}
+              onClick={() => setSelecting(true)}
+            >
+              <Lines />
+              Synthesis thread…
+            </button>
+            <span className="rex-meta">discuss several comments together</span>
+          </>
         )}
-      </section>
-
-      {filter !== "orphaned" ? <OrphanTray threads={orphaned} onSelect={props.onSelect} /> : null}
-    </div>
+      </div>
+    </>
   );
 }

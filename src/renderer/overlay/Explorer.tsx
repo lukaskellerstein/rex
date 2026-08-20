@@ -5,6 +5,7 @@
 
 import { useMemo, useState } from "react";
 import type { TreeEntry, WorkspaceTree } from "../../shared/types.ts";
+import { TriangleDown, TriangleRight } from "./Icons.tsx";
 
 interface Props {
   tree: WorkspaceTree;
@@ -46,7 +47,7 @@ export function Explorer(props: Props): React.JSX.Element {
 
   const rows = (entries: TreeEntry[], depth: number): React.JSX.Element[] =>
     entries.flatMap((entry) => {
-      const indent = { paddingLeft: `${0.35 + depth * 0.75}rem` };
+      const indent = { paddingLeft: `${12 + depth * 15}px` };
 
       if (entry.kind === "directory") {
         const isOpen = open.has(entry.path);
@@ -58,7 +59,7 @@ export function Explorer(props: Props): React.JSX.Element {
             style={indent}
             onClick={() => toggle(entry.path)}
           >
-            <span className="rex-tree-twisty">{isOpen ? "▾" : "▸"}</span>
+            <span className="rex-tree-twisty">{isOpen ? <TriangleDown /> : <TriangleRight />}</span>
             <span className="rex-tree-name">{entry.name}</span>
           </button>,
           ...(isOpen ? rows(entry.children, depth + 1) : []),
@@ -93,15 +94,26 @@ export function Explorer(props: Props): React.JSX.Element {
           <span className="rex-tree-twisty" />
           <span className="rex-tree-name">{entry.name}</span>
           {counts ? (
+            // A dot and a number rather than a filled badge: twenty files with
+            // badges down the right reads as a second, competing tree.
             <span className="rex-tree-counts">
               {counts.open > 0 ? (
-                <span className="rex-count rex-count-open">{counts.open}</span>
+                <>
+                  <span className="rex-dot rex-dot-open" />
+                  <span className="rex-count">{counts.open}</span>
+                </>
               ) : null}
-              {counts.resolved > 0 ? (
-                <span className="rex-count rex-count-resolved">{counts.resolved}</span>
+              {counts.resolved > 0 && counts.open === 0 ? (
+                <>
+                  <span className="rex-dot rex-dot-resolved" />
+                  <span className="rex-count">{counts.resolved}</span>
+                </>
               ) : null}
               {counts.orphaned > 0 ? (
-                <span className="rex-count rex-count-orphaned">{counts.orphaned}</span>
+                <>
+                  <span className="rex-dot rex-dot-orphaned" />
+                  <span className="rex-count rex-count-orphaned">{counts.orphaned}</span>
+                </>
               ) : null}
             </span>
           ) : null}
@@ -112,8 +124,8 @@ export function Explorer(props: Props): React.JSX.Element {
   return (
     <nav className="rex-explorer" style={{ width: props.width }}>
       <header className="rex-explorer-head">
-        <span className="rex-explorer-root" title={props.tree.root}>
-          {props.tree.root.split("/").pop() || props.tree.root}
+        <span className="rex-label rex-explorer-root" title={props.tree.root}>
+          WORKSPACE · {(props.tree.root.split("/").pop() || props.tree.root).toUpperCase()}
         </span>
         <button type="button" className="rex-link" onClick={props.onReload}>
           reload

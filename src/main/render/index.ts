@@ -3,6 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import { basename, dirname, extname } from "node:path";
+import { MEASURE, PAPER } from "../../shared/tokens.ts";
 import type { DocumentRef } from "../../shared/types.ts";
 import { loadHtmlFile, sha256 } from "./html.ts";
 import { markdownTitle, renderMarkdown } from "./markdown.ts";
@@ -44,51 +45,66 @@ export function unopenableReason(path: string): string {
 }
 
 /**
- * The stylesheet REX supplies for Markdown, which has none of its own. HTML
- * documents keep theirs untouched (§5.4 point 3) and never see this.
+ * The stylesheet REX supplies for Markdown, which has none of its own.
+ *
+ * This is the one document REX is entitled to set: the 620px measure at 15/1.68
+ * and the paper ground are its own typography, not the author's. HTML documents
+ * keep their styles untouched (§5.4 point 3) and never see this, and a
+ * `<webview>` URL is untouchable — for both of those the pane supplies only the
+ * paper ground and the gutter.
+ *
+ * Light only, deliberately. The design draws documents on paper and REX's
+ * chrome in the dark around them; following the system into dark mode would
+ * make a Markdown file look nothing like the HTML file beside it in the
+ * explorer, and would put a review's two halves on different grounds.
  */
 const MARKDOWN_STYLESHEET = `
-  :root {
-    color-scheme: light dark;
-    --rex-bg: #ffffff;
-    --rex-fg: #1c1f23;
-    --rex-muted: #5b6570;
-    --rex-rule: #e3e7ea;
-    --rex-code-bg: #f4f6f8;
-    --rex-link: #1a56b8;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --rex-bg: #16191c;
-      --rex-fg: #e6e9ec;
-      --rex-muted: #9aa4ae;
-      --rex-rule: #2c3238;
-      --rex-code-bg: #1e2226;
-      --rex-link: #7fb0ff;
-    }
-  }
+  :root { color-scheme: light; }
   body {
     margin: 0 auto;
-    padding: 3rem 1.5rem 6rem;
-    max-width: 46rem;
-    background: var(--rex-bg);
-    color: var(--rex-fg);
-    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    padding: 40px 24px 96px;
+    max-width: ${MEASURE.width};
+    background: ${PAPER.bg};
+    color: ${PAPER.inkBody};
+    font: ${MEASURE.fontSize}/${MEASURE.lineHeight} "IBM Plex Sans", system-ui, -apple-system, sans-serif;
   }
-  h1, h2, h3, h4 { line-height: 1.25; margin: 2.2rem 0 0.8rem; }
-  h1 { font-size: 2rem; }
-  h2 { font-size: 1.5rem; border-bottom: 1px solid var(--rex-rule); padding-bottom: 0.3rem; }
-  h3 { font-size: 1.2rem; }
-  p, ul, ol, blockquote, table { margin: 0 0 1rem; }
-  a { color: var(--rex-link); }
-  code { background: var(--rex-code-bg); padding: 0.1em 0.35em; border-radius: 3px; font-size: 0.9em; }
-  pre { background: var(--rex-code-bg); padding: 1rem; border-radius: 6px; overflow-x: auto; }
-  pre code { background: none; padding: 0; }
-  blockquote { border-left: 3px solid var(--rex-rule); margin-left: 0; padding-left: 1rem; color: var(--rex-muted); }
-  table { border-collapse: collapse; width: 100%; }
-  th, td { border: 1px solid var(--rex-rule); padding: 0.4rem 0.6rem; text-align: left; }
-  hr { border: none; border-top: 1px solid var(--rex-rule); margin: 2rem 0; }
+  h1, h2, h3, h4, h5, h6 { color: ${PAPER.ink}; line-height: 1.2; margin: 30px 0 12px; }
+  h1 { font-size: 27px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.15; margin-top: 0; }
+  h2 { font-size: 20px; font-weight: 600; }
+  h3 { font-size: 17px; font-weight: 600; }
+  h4, h5, h6 { font-size: 15px; font-weight: 600; }
+  p, ul, ol, blockquote, table, figure, pre { margin: 0 0 18px; }
+  a { color: ${PAPER.link}; }
+  code {
+    background: ${PAPER.wash};
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.88em;
+  }
+  pre {
+    background: ${PAPER.wash};
+    padding: 14px 16px;
+    border-radius: 5px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  blockquote {
+    margin-left: 0;
+    padding-left: 14px;
+    border-left: 2px solid ${PAPER.rule};
+    color: ${PAPER.inkMuted};
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { border: 1px solid ${PAPER.rule}; padding: 7px 10px; text-align: left; }
+  th { background: ${PAPER.wash}; font-weight: 600; color: ${PAPER.ink}; }
+  figure { padding: 9px; border-radius: 4px; background: ${PAPER.wash}; }
+  figcaption { margin-top: 7px; font-size: 12.5px; color: ${PAPER.inkMuted}; }
+  hr { border: none; border-top: 1px solid ${PAPER.rule}; margin: 30px 0; }
   img { max-width: 100%; }
+  ::selection { background: #b6d0f2; }
 `;
 
 function markdownPage(title: string, body: string): string {
