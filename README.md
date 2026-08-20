@@ -132,7 +132,16 @@ What is drawn, and what is only counted:
 
 Node size is the count of open comments and colour is their state, so the graph
 shows where review attention is concentrated and which documents REX's own
-Apply has orphaned anchors in.
+Apply has orphaned anchors in. Edge thickness is how many times one document
+references another.
+
+Selection is one idea shared by both views: pick a file in the explorer and its
+node lights up with everything it links to; pick a node and the explorer follows
+it. A single click never navigates away from the graph — seeing the connections
+is what the click asked for — so double-click opens the document instead.
+
+The simulation stays live. Drag a node and its neighbours follow, drag the
+background to pan, scroll to zoom, and **fit** re-frames.
 
 Ranking is by **total incoming links**, not in-degree. Measured on a real docs
 folder: five documents that all cite each other have an in-degree of 4 apiece

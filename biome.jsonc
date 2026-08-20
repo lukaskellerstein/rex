@@ -116,6 +116,27 @@
       "formatter": {
         "enabled": false
       }
+    },
+    {
+      // The same html.formatter flag also hands biome every `.dc.html` in
+      // design/ — Claude Design artboards, which are a foreign format wearing
+      // an .html extension, not app source.
+      //
+      // Formatting them is unsafe rather than merely noisy: the runtime
+      // requires `<script src="./support.js">` verbatim, and the properties
+      // panel edits the inline `style="…"` attributes biome would rewrap.
+      //
+      // The linter is off for a second reason: every artboard ends in a
+      // `class Component extends DCLogic` that nothing in the file
+      // instantiates — the Design runtime does, at render time — so
+      // noUnusedVariables fires once per artboard and can never be satisfied.
+      "includes": ["**/*.dc.html"],
+      "formatter": {
+        "enabled": false
+      },
+      "linter": {
+        "enabled": false
+      }
     }
   ]
 }
