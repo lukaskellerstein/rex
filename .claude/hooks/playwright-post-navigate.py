@@ -12,6 +12,13 @@ Every session's browsers are parked, not just this one's -- parking is harmless
 across sessions and the desktop is shared. What counts as "the scratch
 workspace" is re-checked each run: a space the user has moved into is theirs,
 and the browsers on it are moved along to a fresh one (see `wm.py`).
+
+This runs on *every* `browser_*` tool, not only the navigating ones, because
+`--cdp-endpoint` inverts who creates the window: with `--isolated` Playwright
+spawns the browser and `browser_navigate` is the moment it appears, but an
+attached Electron app is launched by the dev server and re-launched on every
+restart, so the window that needs parking shows up between two ordinary
+`browser_click` calls. See the matcher note in `projects/claude-code.md`.
 """
 
 import sys
@@ -22,6 +29,15 @@ import wm
 WINDOW_APPEAR_DELAY = 0.5  # seconds to wait for a freshly spawned window
 
 
+def _candidates(manager: "wm.WindowManager") -> list[dict]:
+    """Playwright-owned browser windows that are not already parked."""
+    return [
+        window
+        for window in manager.browser_windows()
+        if not manager.is_scratch(window["workspace"]) and wm.is_playwright_browser(window["pid"])
+    ]
+
+
 def main() -> None:
     manager = wm.detect()
     if manager.name == "none":
@@ -29,13 +45,16 @@ def main() -> None:
 
     focus = manager.focus_token()
 
-    time.sleep(WINDOW_APPEAR_DELAY)
-
-    candidates = [
-        window
-        for window in manager.browser_windows()
-        if not manager.is_scratch(window["workspace"]) and wm.is_playwright_browser(window["pid"])
-    ]
+    # Look first, and only wait when there is nothing to park yet. The delay
+    # exists for a window that was *just spawned* and has not mapped yet -- the
+    # `--isolated` case, where this hook runs on the very call that created it.
+    # An attached app's window already exists and is already misplaced, so it is
+    # found on the first look; paying the delay unconditionally would tax every
+    # click and keystroke of an Electron session for nothing.
+    candidates = _candidates(manager)
+    if not candidates:
+        time.sleep(WINDOW_APPEAR_DELAY)
+        candidates = _candidates(manager)
 
     if candidates:
         scratch = manager.scratch()

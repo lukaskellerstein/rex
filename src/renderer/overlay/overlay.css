@@ -1,0 +1,796 @@
+/*
+  Every rule here applies inside REX's shadow root only (SPEC.md §7). Nothing
+  in this file can reach the document under review, and the document's own
+  stylesheet cannot reach these controls.
+*/
+
+:host {
+  all: initial;
+}
+
+.rex-shell {
+  --bg: #16191c;
+  --panel: #1d2125;
+  --sunk: #23282d;
+  --fg: #e6e9ec;
+  --muted: #98a2ac;
+  --rule: #2c3238;
+  --accent: #ffd500;
+  --accent-dim: #6c5c00;
+  --danger: #d9694a;
+  --link: #7fb0ff;
+
+  height: 100vh;
+  color: var(--fg);
+  background: var(--bg);
+  font:
+    13px / 1.5 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Helvetica,
+    Arial,
+    sans-serif;
+}
+
+.rex-app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* ── Top bar ─────────────────────────────────────────────── */
+
+.rex-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+.rex-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-spacer {
+  flex: 1;
+}
+
+.rex-url {
+  width: 14rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--sunk);
+  color: var(--fg);
+  font: inherit;
+}
+
+.rex-cost {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.rex-notice {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  padding: 0.5rem 0.75rem;
+  background: #3a2a1a;
+  border-bottom: 1px solid var(--rule);
+}
+
+/* ── Layout ──────────────────────────────────────────────── */
+
+.rex-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.rex-centre {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.rex-pane {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.rex-pane-hidden {
+  display: none;
+}
+
+.rex-doc {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  background: #fff;
+}
+
+/* ── Explorer (spec 02 §4) ───────────────────────────────── */
+
+.rex-explorer {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  border-right: 1px solid var(--rule);
+  background: var(--panel);
+  overflow-y: auto;
+}
+
+.rex-explorer-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--rule);
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+}
+
+.rex-explorer-root {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-explorer-warn {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  background: #3a2a1a;
+  font-size: 12px;
+}
+
+.rex-tree {
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem 0;
+}
+
+.rex-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.12rem 0.5rem 0.12rem 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rex-tree-row:hover {
+  background: var(--sunk);
+}
+
+.rex-tree-twisty {
+  width: 0.8rem;
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.rex-tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rex-tree-dir .rex-tree-name {
+  font-weight: 600;
+}
+
+.rex-tree-other {
+  color: var(--muted);
+  cursor: default;
+}
+
+.rex-tree-other:hover {
+  background: none;
+}
+
+.rex-tree-active {
+  background: var(--sunk);
+  box-shadow: inset 2px 0 0 var(--link);
+}
+
+.rex-tree-counts {
+  margin-left: auto;
+  display: flex;
+  gap: 0.2rem;
+}
+
+.rex-count {
+  min-width: 1.15rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  font-size: 10px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.rex-count-open {
+  background: var(--accent);
+  color: #1a1a1a;
+}
+
+.rex-count-resolved {
+  background: var(--rule);
+  color: var(--muted);
+}
+
+.rex-count-orphaned {
+  background: var(--danger);
+  color: #14171a;
+}
+
+/* ── Splitters ───────────────────────────────────────────── */
+
+.rex-splitter {
+  flex: none;
+  width: 5px;
+  margin: 0 -2px;
+  cursor: col-resize;
+  background: transparent;
+  /* Above both panes so the grab area is never covered by their content. */
+  z-index: 4;
+  touch-action: none;
+}
+
+.rex-splitter:hover,
+.rex-splitter:focus-visible {
+  background: var(--link);
+  outline: none;
+}
+
+/* ── Reference graph (spec 02 §5.6) ──────────────────────── */
+
+.rex-graph {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.rex-graph-canvas {
+  flex: 1;
+  /* Never let the sidebars squeeze the drawing out of existence. */
+  min-width: 12rem;
+  touch-action: none;
+  cursor: grab;
+}
+
+.rex-graph-canvas:active {
+  cursor: grabbing;
+}
+
+.rex-graph-loading {
+  padding: 1rem;
+}
+
+.rex-graph-edge {
+  stroke: var(--rule);
+  stroke-opacity: 0.75;
+}
+
+.rex-graph-node text {
+  fill: var(--muted);
+  font-size: 9px;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+}
+
+.rex-graph-node circle {
+  stroke: var(--rule);
+  stroke-width: 1.5;
+}
+
+.rex-graph-document {
+  cursor: pointer;
+}
+
+.rex-graph-document:hover text {
+  fill: var(--fg);
+}
+
+.rex-graph-document:hover circle {
+  stroke: var(--link);
+  stroke-width: 2.5;
+}
+
+.rex-graph-node {
+  transition: opacity 120ms ease;
+}
+
+.rex-graph-selected circle {
+  stroke: var(--link);
+  stroke-width: 3;
+}
+
+.rex-graph-selected text {
+  fill: var(--fg);
+  font-weight: 700;
+}
+
+.rex-graph-neighbour circle {
+  stroke: var(--link);
+  stroke-width: 2;
+}
+
+.rex-graph-neighbour text {
+  fill: var(--fg);
+}
+
+.rex-graph-faded {
+  opacity: 0.25;
+}
+
+.rex-graph-edge-on {
+  stroke: var(--link);
+  stroke-opacity: 1;
+}
+
+.rex-graph-edge-faded {
+  stroke-opacity: 0.18;
+}
+
+.rex-graph-missing circle {
+  stroke: var(--danger);
+  stroke-dasharray: 3 2;
+}
+
+.rex-graph-missing text {
+  fill: var(--danger);
+}
+
+.rex-graph-side {
+  flex: none;
+  padding: 0.75rem;
+  border-left: 1px solid var(--rule);
+  background: var(--panel);
+  overflow-y: auto;
+}
+
+.rex-graph-side h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.rex-graph-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.rex-graph-rank {
+  display: block;
+  width: 100%;
+  margin-bottom: 0.15rem;
+  padding: 0.2rem 0.35rem;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.rex-graph-rank:hover {
+  background: var(--sunk);
+  color: var(--fg);
+}
+
+.rex-graph-rank-on {
+  background: var(--sunk);
+  color: var(--fg);
+  box-shadow: inset 2px 0 0 var(--link);
+}
+
+.rex-broken {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.4rem;
+  padding: 0.3rem 0.4rem;
+  border-left: 2px solid var(--danger);
+  background: var(--sunk);
+  overflow-wrap: anywhere;
+}
+
+.rex-toggle {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.rex-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+
+.rex-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--bg);
+  color: var(--muted);
+  z-index: 2;
+}
+
+.rex-side {
+  flex: none;
+  border-left: 1px solid var(--rule);
+  background: var(--panel);
+  overflow-y: auto;
+}
+
+/* ── Gutter ──────────────────────────────────────────────── */
+
+.rex-gutter {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2rem;
+  pointer-events: none;
+}
+
+.rex-marker {
+  position: absolute;
+  right: 0.35rem;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  border: 1px solid var(--accent-dim);
+  background: var(--accent);
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.rex-marker-resolved {
+  background: #8b9299;
+  border-color: #5c6268;
+  color: #14171a;
+}
+
+.rex-marker-moved {
+  border-style: dashed;
+  border-width: 2px;
+}
+
+.rex-marker-active {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
+}
+
+/* ── Composer ────────────────────────────────────────────── */
+
+.rex-composer {
+  position: absolute;
+  right: 2.5rem;
+  width: 20rem;
+  padding: 0.65rem;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 45%);
+  z-index: 3;
+}
+
+/* ── Sidebar and cards ───────────────────────────────────── */
+
+.rex-sidebar,
+.rex-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem;
+}
+
+.rex-filters {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.rex-chip {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.rex-chip-on {
+  background: var(--sunk);
+  color: var(--fg);
+}
+
+.rex-item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+}
+
+.rex-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  text-align: left;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--sunk);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.rex-item-orphan {
+  border-style: dashed;
+}
+
+.rex-item-note {
+  font-weight: 600;
+}
+
+.rex-item-meta,
+.rex-meta {
+  color: var(--muted);
+  font-size: 12px;
+  margin: 0;
+}
+
+.rex-quote {
+  border-left: 2px solid var(--accent);
+  padding-left: 0.5rem;
+  margin: 0;
+  color: var(--muted);
+  font-style: italic;
+  max-height: 6rem;
+  overflow: hidden;
+}
+
+.rex-quote-small {
+  font-size: 12px;
+  max-height: 3rem;
+}
+
+.rex-note {
+  margin: 0;
+  font-weight: 600;
+}
+
+.rex-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.rex-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 24rem;
+  overflow-y: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--sunk);
+}
+
+.rex-msg {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 0.5rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rex-msg-role {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.rex-msg-thinking .rex-msg-body,
+.rex-msg-tool_call .rex-msg-body,
+.rex-msg-tool_result .rex-msg-body {
+  color: var(--muted);
+}
+
+.rex-msg-error .rex-msg-body {
+  color: var(--danger);
+}
+
+.rex-msg-pending {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.rex-tray {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.rex-tray-head {
+  margin: 0;
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rex-synth {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--rule);
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/* ── Controls ────────────────────────────────────────────── */
+
+.rex-input {
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--sunk);
+  color: var(--fg);
+  font: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.rex-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.rex-button {
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--sunk);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rex-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.rex-primary {
+  background: var(--accent);
+  border-color: var(--accent-dim);
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.rex-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.rex-link {
+  background: none;
+  border: none;
+  color: var(--link);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
+.rex-badge {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--rule);
+  color: var(--muted);
+}
+
+.rex-badge-moved {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.rex-badge-orphaned {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* ── Diff dialog ─────────────────────────────────────────── */
+
+.rex-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 60%);
+  z-index: 10;
+}
+
+.rex-dialog {
+  width: min(60rem, 90vw);
+  max-height: 85vh;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.rex-dialog h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.rex-diff {
+  max-height: 55vh;
+  overflow: auto;
+  padding: 0.6rem;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: #101315;
+  font:
+    12px / 1.45 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre;
+}
+
+.rex-diff-add {
+  color: #7ee08b;
+}
+
+.rex-diff-del {
+  color: #e88b7a;
+}
+
+.rex-diff-hunk {
+  color: var(--link);
+}
+
+.rex-diff-file {
+  color: var(--muted);
+}

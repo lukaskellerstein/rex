@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>REX</title>
+    <!--
+      The renderer displays untrusted document content (invariant I2). Document
+      HTML never reaches this page: it is sanitised and handed to a sandboxed
+      srcdoc iframe, and its assets load over rex-doc://.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: rex-doc:; font-src 'self' data: rex-doc:; frame-src 'self' rex-doc:; connect-src 'self'"
+    >
+    <style>
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      background: #16191c;
+    }
+    #rex-root {
+      height: 100vh;
+    }
+    </style>
+  </head>
+  <body>
+    <!--
+      SPEC.md §7 — every pixel REX draws lives inside the shadow root attached
+      to this host. data-rex-overlay keeps it out of the text index (§6.3).
+    -->
+    <div id="rex-root" data-rex-overlay></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>
