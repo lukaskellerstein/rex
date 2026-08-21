@@ -74,24 +74,36 @@ export type ThreadKind = "anchored" | "synthesis";
 export type ThreadStatus = "open" | "resolved";
 export type Profile = "read" | "write";
 
+/**
+ * One place a comment is about. Spec 05 §5.1.
+ *
+ * A target carries its own document, which is what lets one comment be about a
+ * table here and a paragraph in another file. Spec 04's `extraAnchors` could
+ * not: a bare `Anchor` has no document, so the pair collapsed into this list.
+ */
+export interface AnchorTarget {
+  documentId: string;
+  anchor: Anchor;
+  /**
+   * The last resolution, or null when this document has not been open since the
+   * target was written. Null is **not** orphaned — spec 05 §5.4. An orphan means
+   * "the text is gone"; null means "nobody looked".
+   */
+  state: AnchorState | null;
+}
+
 export interface Thread {
   id: string;
+  /**
+   * Where the comment started: `targets[0]`'s document. Ask's repository root
+   * and the cost pill both read it. Apply does not — it edits every document
+   * the comment is about (spec 05 §5.6).
+   */
   documentId: string;
   kind: ThreadKind;
   status: ThreadStatus;
-  anchor: Anchor | null; // null for synthesis threads
-  /**
-   * Further places the same comment is about, when the reviewer shift-clicked
-   * more than one element. Empty for the ordinary one-target comment.
-   *
-   * `anchor` stays the primary one and keeps every meaning it had: it is what
-   * Apply writes back through, what the gutter marker sits beside, and what the
-   * card quotes. These are additional evidence for the same question — "these
-   * three rows disagree with each other" is one comment, not three.
-   */
-  extraAnchors: Anchor[];
-  /** The worst state across `anchor` and `extraAnchors` — §6.6. */
-  anchorState: AnchorState | null;
+  /** Every place this comment is about, in the order the panel listed them. */
+  targets: AnchorTarget[]; // empty for a synthesis thread
   note: string; // the comment the user typed
   sessionId: string | null;
   profile: Profile;
@@ -234,17 +246,66 @@ export interface ReferenceGraph {
 // ── Beyond §4 ───────────────────────────────────────────────
 // Shapes the IPC contract (§10) names but §4 does not define.
 
-/** A thread plus its transcript, as `thread:list` returns it. */
+/**
+ * A thread plus its transcript, as `thread:list` returns it.
+ *
+ * The three fields below `messages` are derived in main from the document table
+ * and stored nowhere. The comment list is workspace-wide now (spec 05 §5.3), so
+ * a row has to be able to say what it is about — and whether Apply can act on it
+ * — without a second round trip per row.
+ */
 export interface ThreadWithMessages extends Thread {
   messages: Message[];
+  /** The distinct documents this comment is about, in target order. */
+  documentNames: string[];
+  /**
+   * One document name per target, parallel to `targets`.
+   *
+   * Not the same list as `documentNames`, which has no repeats: the card lists
+   * every place and each place has to say where it is, while the row names the
+   * documents once.
+   */
+  targetNames: string[];
+  /** True when at least one target document is a file Apply can edit (§5.6). */
+  applyEnabled: boolean;
+  /** Shown on hover when `applyEnabled` is false. */
+  applyDisabledReason: string | null;
 }
 
-/** The re-anchor sweep report required after every Apply (§8.7 step 7). */
+/**
+ * The re-anchor sweep report required after every Apply (§8.7 step 7).
+ *
+ * Spec 05 §5.8: these count **checked targets**, not threads. The sweep can only
+ * check the document on screen, so this is a report on what it just did.
+ */
 export interface AnchorSummary {
   ok: number;
   moved: number;
   orphaned: number;
   total: number;
+}
+
+/**
+ * A run of lines in a file as it is **now**, 1-indexed and inclusive.
+ *
+ * Spec 05 §5.6.1 — the `+` side of a diff hunk, which is the only side that can
+ * be matched against `data-src-line` in the document the reviewer is reading.
+ */
+export interface LineRange {
+  from: number;
+  to: number;
+}
+
+/** Where an Apply changed a file, per file. Spec 05 §5.6.1. */
+export interface ChangedRegion extends LineRange {
+  /** Absolute path, so the renderer can test it against the open document. */
+  file: string;
+}
+
+/** A target document Apply could not edit, and why. Spec 05 §5.6. */
+export interface SkippedDocument {
+  file: string;
+  reason: string;
 }
 
 /**

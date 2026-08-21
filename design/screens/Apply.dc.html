@@ -7,7 +7,7 @@
 <body>
 <x-dc>
 <helmet>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap">
   <style>
     body { margin: 0; }
     a { color: #6f9fe0; }
@@ -15,101 +15,258 @@
   </style>
 </helmet>
 
+<!--
+  Spec 05 §5.6.1 — the change is shown IN the document, not as patch text in a
+  modal. A modal over the document answers “what does this patch say” while
+  hiding the thing it says it about. So the reviewer reads the document as it
+  now stands, every changed section outlined in it, and a bar under it carries
+  OK and Undo. The diff is still one click away for anyone who wants it.
+
+  The outlines are RED — the write colour. Blue is the reviewer's own selection,
+  and mid-Apply nobody should have to work out which marks are theirs and which
+  are the agent's.
+-->
+
 <div style="width: 1440px; height: 900px; box-sizing: border-box; position: relative; display: flex; flex-direction: column; background: #0d1420; color: #e4e9f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 1.5; overflow: hidden;">
 
   <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; height: 44px; flex: none; background: #131d2e; border-bottom: 1px solid #24344a;">
-    <span style="width: 22px; height: 22px; flex: none; border-radius: 5px; background: #d2402f; color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center;">R</span>
+    <img src="rex-mark-color-128.png" alt="REX" style="flex: none; display: block; height: 24px; width: auto;">
+    <span style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">
+      Open<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
+    </span>
     <span style="display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;">
-      <span style="color: #8ba0ba;">docs</span><span style="color: #4a5f7a;">/</span><span style="color: #8ba0ba;">architecture</span><span style="color: #4a5f7a;">/</span><span style="color: #e4e9f0; font-weight: 500;">widget-service.md</span>
+      <span style="color: #8ba0ba;">docs</span><span style="color: #4a5f7a;"> / </span><span style="color: #8ba0ba;">architecture</span><span style="color: #4a5f7a;"> / </span><span style="color: #e4e9f0; font-weight: 500;">widget-service.md</span>
     </span>
     <span style="flex: 1;"></span>
+    <span style="display: flex; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420; gap: 2px;">
+      <span style="padding: 3px 12px; border-radius: 4px; background: #22304a; font-size: 12px; font-weight: 500;">Document</span>
+      <span style="padding: 3px 12px; border-radius: 4px; font-size: 12px; color: #8ba0ba;">Graph</span>
+    </span>
     <span style="font-size: 12px; color: #8ba0ba; font-variant-numeric: tabular-nums;">$1.1840</span>
+    <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #1a2638; border: 1px solid #24344a; color: #5d7a9a; font-size: 12px; font-weight: 600;">Ask all · 0</span>
   </div>
 
   <div style="display: flex; flex: 1; min-height: 0;">
-    <div style="width: 272px; flex: none; background: #131d2e; border-right: 1px solid #24344a;"></div>
-    <div style="flex: 1; min-width: 0; background: #fbfaf8; padding: 40px 0 0; display: flex; justify-content: center; overflow: hidden;">
-      <div style="width: 100%; max-width: 620px; display: flex; flex-direction: column; gap: 18px; color: #211f1c;">
-        <div style="font-size: 27px; font-weight: 600; letter-spacing: -0.015em;">Widget service notes</div>
-        <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">The widget service accepts requests on a queue and writes results to the database. Each request is acknowledged before the work begins.</div>
-        <div style="font-size: 17px; font-weight: 600;">Retries</div>
-        <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">A failed write is retried three times with no backoff, then dropped.</div>
+
+    <div style="width: 272px; flex: none; display: flex; flex-direction: column; background: #131d2e; border-right: 1px solid #24344a;">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; flex: none; border-bottom: 1px solid #1c2a3d;">
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">WORKSPACE · DOCS</span>
+        <span style="font-size: 11px; color: #6f9fe0;">reload</span>
+      </div>
+      <div style="display: flex; flex-direction: column; padding: 8px 0; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 12px; font-size: 12px; font-weight: 600; color: #b9c7d8;">
+          <svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor" style="color: #5d7a9a;"><path d="M4 6h8l-4 5z"></path></svg><span>architecture</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;">
+          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">components.md</span>
+          <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #2f5da8;"></span><span style="font-size: 11px; color: #8ba0ba; font-variant-numeric: tabular-nums;">2</span></span>
+        </div>
+        <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;">overview.md</div>
+        <div style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 12px 0 27px; font-size: 12px; font-weight: 500; color: #e4e9f0; background: #1a2638; box-shadow: inset 2px 0 0 #6f9fe0;">
+          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">widget-service.md</span>
+          <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #2f5da8;"></span><span style="font-size: 11px; color: #b9c7d8; font-variant-numeric: tabular-nums;">3</span></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; height: 24px; margin-top: 6px; padding: 0 12px; font-size: 12px; font-weight: 600; color: #b9c7d8;">
+          <svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor" style="color: #5d7a9a;"><path d="M4 6h8l-4 5z"></path></svg><span>review</span>
+        </div>
+        <!-- Not greyed any more: REX renders Markdown, HTML, PDF and DOCX. Apply
+             is still off for a PDF, and the card says why on hover. -->
+        <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;" title="Apply cannot edit a PDF — there is no source line to write back to.">2026-07-30-audit.pdf</div>
       </div>
     </div>
-    <div style="width: 384px; flex: none; background: #131d2e; border-left: 1px solid #24344a;"></div>
-  </div>
 
-  <div style="position: absolute; inset: 0; background: rgb(4 8 14 / 72%); display: flex; align-items: center; justify-content: center;">
+    <div style="flex: 1; min-width: 0; position: relative; background: #fbfaf8; overflow: hidden;">
+      <div style="height: 100%; padding: 40px 0 0; display: flex; justify-content: center; overflow: hidden;">
+        <div style="width: 100%; max-width: 620px; display: flex; flex-direction: column; gap: 18px; color: #211f1c;">
+          <div style="font-size: 27px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.15;">Widget service notes</div>
+          <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">The widget service accepts requests on a queue and writes results to the database. Each request is acknowledged before the work begins.</div>
 
-    <sc-if value="{{ deciding }}" hint-placeholder-val="{{ true }}">
-      <div style="width: 880px; max-height: 760px; display: flex; flex-direction: column; border: 1px solid #24344a; border-radius: 9px; background: #131d2e; box-shadow: 0 28px 80px rgb(0 0 0 / 60%); overflow: hidden;">
+          <div style="font-size: 17px; font-weight: 600; margin-top: 6px;">Retries</div>
 
-        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid #1c2a3d;">
-          <span style="width: 30px; height: 30px; flex: none; border-radius: 7px; background: #1f1512; color: #e08a76; display: flex; align-items: center; justify-content: center;">
-            <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.8 13.2 4.8 5.6 12.4 2.8 13.2 3.6 10.4z"></path></svg>
+          <!-- The changed sections, outlined where they now are. Main maps the
+               ADDED lines of the diff onto data-src-line and the renderer widens
+               each line to the block that holds it — so an outline never lands
+               on prose the agent did not touch. Only Markdown carries a source
+               line; an HTML file has none, and the bar says so instead of
+               guessing at a paragraph. -->
+          <div style="{{ change }}">
+            <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">A failed write is retried three times with exponential backoff, starting at 200ms and doubling, then routed to the dead-letter queue. Every drop is recorded there with the original payload and the last error.</div>
+          </div>
+          <div style="{{ change }}">
+            <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">The backoff exists to avoid a thundering herd against a dependency that is already failing. The retry budget is three in both this document and the components table.</div>
+          </div>
+
+          <div style="font-size: 15px; line-height: 1.68; color: #3d3a36;">Whether a schema change may ship in the same release as the code that reads it is still open.</div>
+        </div>
+      </div>
+
+      <div style="position: absolute; top: 0; right: 0; bottom: 0; width: 32px; border-left: 1px solid #eae7e1; background: #f4f2ee;">
+        <div style="position: absolute; top: 172px; right: 7px; width: 19px; height: 19px; border-radius: 50%; background: #2f5da8; color: #fff; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center; outline: 2px solid #6f9fe0; outline-offset: 2px;">7</div>
+      </div>
+    </div>
+
+    <div style="width: 384px; flex: none; display: flex; flex-direction: column; background: #131d2e; border-left: 1px solid #24344a; overflow: hidden;">
+      <!-- The tab bar is furniture: it is here on every screen that shows the
+           comments column, whatever is in it. With nothing selected the
+           Selection tab is dimmed and reads 0. -->
+      <div style="display: flex; align-items: center; height: 40px; flex: none; padding: 0 14px; border-bottom: 1px solid #1c2a3d;">
+        <div style="display: flex; flex: 1; gap: 2px; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420;">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 3px 12px; border-radius: 4px; color: #5d7a9a; font-size: 12px;">
+            Selection<span style="padding: 0 6px; border-radius: 999px; background: #22304a; color: #5d7a9a; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;">0</span>
           </span>
-          <span style="display: flex; flex-direction: column; gap: 3px; min-width: 0;">
-            <span style="font-size: 16px; font-weight: 600;">Apply this change?</span>
-            <span style="font-size: 12px; color: #8ba0ba;">A write-capable agent produced this patch. Nothing has been written to disk yet.</span>
-          </span>
-          <span style="margin-left: auto; display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; background: #1f1512; color: #e08a76; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;">
-            <span style="width: 5px; height: 5px; border-radius: 50%; background: #d2402f;"></span>WRITE PROFILE
+          <span style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 3px 12px; border-radius: 4px; background: #22304a; color: #e4e9f0; font-size: 12px; font-weight: 500;">
+            Comments<span style="padding: 0 6px; border-radius: 999px; background: #6f9fe0; color: #0d1420; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;">6</span>
           </span>
         </div>
+      </div>
 
-        <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; overflow: hidden;">
+      <div style="display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 40px; flex: none; border-bottom: 1px solid #1c2a3d;">
+        <span style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: #6f9fe0;">
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 4 5.5 8l4 4"></path></svg>all comments
+        </span>
+      </div>
 
-          <div style="display: flex; gap: 10px; padding: 11px 13px; border: 1px solid #3a2f10; border-radius: 6px; background: #1c1708;">
-            <span style="width: 18px; height: 18px; flex: none; border-radius: 50%; background: #f0b429; color: #2b2000; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</span>
-            <span style="display: flex; flex-direction: column; gap: 5px; min-width: 0;">
-              <span style="font-size: 13px; font-weight: 600; line-height: 1.4;">Three retries with no backoff will hammer a failing dependency. State an explicit backoff.</span>
-              <span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #8ba0ba;"><span style="color: #f0b429; font-weight: 500;">text moved</span>· the comment this patch answers</span>
+      <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 14px; overflow: hidden;">
+
+        <!-- A comment about three places says so, and lists them. Without this
+             the card shows one quote and claims a single state for all of them. -->
+        <div style="display: flex; flex-direction: column; gap: 9px; padding: 12px 13px; border: 1px solid #1f2f4a; border-radius: 6px; background: #141f31;">
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <span style="width: 18px; height: 18px; flex: none; border-radius: 50%; background: #2f5da8; color: #fff; font-size: 10px; font-weight: 600; display: flex; align-items: center; justify-content: center;">7</span>
+            <span style="font-size: 11px; color: #8ba0ba;">anchored in 3 places · resolved exactly</span>
+          </div>
+          <!-- `go to` rides the documents line, not the meta line above it: with
+               a state phrase like “re-found after the file changed” beside it,
+               the meta line wrapped. -->
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="flex: 1; min-width: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9.5px; color: #5d7a9a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">widget-service.md · components.md</span>
+            <span style="flex: none; display: flex; align-items: center; gap: 3px; font-size: 11px; color: #6f9fe0; cursor: pointer;" title="Open the document of place 1 and scroll to it">
+              go to
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4 10.5 8l-4 4"></path></svg>
             </span>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 9px;">
-            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">FILES</span>
-            <span style="display: flex; align-items: center; gap: 7px; padding: 3px 10px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #b9c7d8;">
-              docs/architecture/widget-service.md
-              <span style="color: #6fca8b;">+7</span><span style="color: #e8836f;">−3</span>
-            </span>
-          </div>
-
-          <div style="display: flex; flex-direction: column; border: 1px solid #24344a; border-radius: 6px; background: #0a1018; overflow: hidden; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; line-height: 1.6;">
-            <div style="padding: 6px 12px; border-bottom: 1px solid #1c2a3d; background: #101a29; color: #5d7a9a;">--- a/docs/architecture/widget-service.md</div>
-            <div style="padding: 6px 12px; border-bottom: 1px solid #1c2a3d; background: #101a29; color: #5d7a9a;">+++ b/docs/architecture/widget-service.md</div>
-            <div style="padding: 5px 12px; background: #16233a; color: #6f9fe0;">@@ -18,7 +18,11 @@ ## Retries</div>
-            <div style="display: flex; flex-direction: column; padding: 8px 0;">
-              <span style="padding: 0 12px; color: #8ba0ba;">&nbsp;</span>
-              <span style="padding: 0 12px; background: #2a1512; color: #e8836f;">−A failed write is retried three times with no backoff, then dropped. The queue</span>
-              <span style="padding: 0 12px; background: #2a1512; color: #e8836f;">−keeps no record of what was dropped, so the only signal available downstream</span>
-              <span style="padding: 0 12px; background: #2a1512; color: #e8836f;">−is a gap in the results table.</span>
-              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+A failed write is retried three times with exponential backoff, starting at</span>
-              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+200ms and doubling, then routed to the dead-letter queue. Every drop is</span>
-              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+recorded there with the original payload and the last error, so a failure is</span>
-              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+observable without diffing the results table.</span>
-              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+</span>
-              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+The backoff exists to avoid a thundering herd against a dependency that is</span>
-              <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+already failing.</span>
-              <span style="padding: 0 12px; color: #8ba0ba;">&nbsp;</span>
+          <div style="display: flex; flex-direction: column; gap: 3px;">
+            <div style="display: flex; align-items: baseline; gap: 7px; font-size: 10.5px;">
+              <span style="display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-right: 6px; border-radius: 50%; background: #6f9fe0; color: #fff; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9px; line-height: 1;">1</span>
+              <span style="flex: 1; min-width: 0; color: #8ba0ba; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">widget-service.md</span>
+              <span style="font-size: 11px; color: #8ba0ba;">found</span>
+            </div>
+            <div style="display: flex; align-items: baseline; gap: 7px; font-size: 10.5px;">
+              <span style="display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-right: 6px; border-radius: 50%; background: #6f9fe0; color: #fff; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9px; line-height: 1;">2</span>
+              <span style="flex: 1; min-width: 0; color: #8ba0ba; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">widget-service.md</span>
+              <span style="font-size: 11px; color: #8ba0ba;">found</span>
+            </div>
+            <!-- “not checked here” is NOT orphaned, and must never be counted as
+                 one. An orphan means the text is gone; this means nobody looked,
+                 because that document has not been open. Muted grey, never red. -->
+            <div style="display: flex; align-items: baseline; gap: 7px; font-size: 10.5px;">
+              <span style="display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-right: 6px; border-radius: 50%; background: #6f9fe0; color: #fff; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9px; line-height: 1;">3</span>
+              <span style="flex: 1; min-width: 0; color: #8ba0ba; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">components.md</span>
+              <span style="font-size: 11px; color: #8ba0ba;">not checked here</span>
+              <!-- Its document is not on screen, so there is nothing to point at.
+                   The chevron says the row opens it. -->
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="#6f9fe0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex: none;"><path d="M6.5 4 10.5 8l-4 4"></path></svg>
             </div>
           </div>
 
-          <div style="display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: 6px; border: 1px solid #3a2f10; background: #1c1708;">
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#f0b429" stroke-width="1.5" stroke-linecap="round" style="flex: none; margin-top: 2px;"><path d="M8 5v4M8 11.2v.1"></path><circle cx="8" cy="8" r="6.2"></circle></svg>
-            <span style="font-size: 12px; line-height: 1.5; color: #d8c58e;">Accepting rewrites the file on disk and re-runs anchoring. Comments written against the removed sentence will move or lose their anchor — they are kept either way, with the text they were written on.</span>
-          </div>
+          <div style="font-family: Newsreader, Georgia, serif; font-size: 13px; font-style: italic; line-height: 1.5; color: #8ba0ba; border-left: 2px solid #3f4f68; padding-left: 10px;">the retry budget is three</div>
+          <div style="font-size: 13px; font-weight: 600; line-height: 1.45;">Do these two disagree? Which number is the one to trust?</div>
         </div>
 
-        <div style="display: flex; align-items: center; gap: 10px; padding: 14px 20px; border-top: 1px solid #1c2a3d; background: #101a29;">
-          <span onClick="{{ accept }}" style="display: flex; align-items: center; height: 30px; padding: 0 16px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Accept and write</span>
-          <span style="display: flex; align-items: center; height: 30px; padding: 0 16px; border: 1px solid #5a3b33; border-radius: 4px; background: #1f1512; color: #e08a76; font-size: 12px;">Reject and revert</span>
-          <span style="margin-left: auto; font-size: 11px; color: #5d7a9a;">git checkout restores the file if you reject</span>
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">ANSWER</span>
+          <div style="font-size: 13px; line-height: 1.6; color: #e4e9f0;">They disagree, and this document is the one that is wrong: the components table is generated from the service configuration, which caps retries at three. The sentence here says three but the table below it says five.</div>
         </div>
       </div>
-    </sc-if>
 
-    <sc-if value="{{ done }}" hint-placeholder-val="{{ true }}">
+      <div style="flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; border-top: 1px solid #1c2a3d; background: #101a29;">
+        <div style="min-height: 58px; padding: 9px 11px; border: 1px solid #24344a; border-radius: 5px; background: #1a2638; font-size: 13px; color: #5d7a9a;">Reply to this thread</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Send</span>
+          <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">Resolve</span>
+          <span style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px; border: 1px solid #3f2a24; border-radius: 4px; background: #1f1512; color: #e08a76; font-size: 12px;">
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.8 13.2 4.8 5.6 12.4 2.8 13.2 3.6 10.4z"></path></svg>Apply…
+          </span>
+        </div>
+        <!-- Said BEFORE the button is pressed, not after. A comment about three
+             documents leads to a change in three documents, and the reviewer
+             should know that while deciding, not while reading a diff. -->
+        <span style="font-size: 11px; color: #8ba0ba; line-height: 1.5;">Apply edits widget-service.md, components.md. You see every change, in each document, before anything is kept.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- THE REVIEW BAR. A bar, not a dialog: the document it is about stays on
+       screen behind it. The write tint, because a write-capable agent has
+       already touched the disk — and nothing is final until OK or Undo. -->
+  <sc-if value="{{ reviewing }}" hint-placeholder-val="{{ true }}">
+    <div style="position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column; gap: 9px; max-height: 540px; padding: 11px 16px 13px; border-top: 1px solid #3f2a24; background: #1f1512; box-shadow: 0 -14px 42px rgb(0 0 0 / 44%); overflow: hidden;">
+
+      <div style="display: flex; align-items: center; gap: 9px; flex-wrap: wrap;">
+        <span style="width: 30px; height: 30px; flex: none; border-radius: 7px; background: #1f1512; color: #e08a76; display: flex; align-items: center; justify-content: center;">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.8 13.2 4.8 5.6 12.4 2.8 13.2 3.6 10.4z"></path></svg>
+        </span>
+        <span style="display: flex; flex-direction: column; gap: 1px;">
+          <strong style="font-size: 13px;">2 sections changed here — outlined in the document.</strong>
+          <span style="font-size: 11px; color: #8ba0ba;">Nothing is final until you choose.</span>
+        </span>
+        <span style="flex: 1;"></span>
+        <span style="display: flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: #1f1512; color: #e08a76; font-size: 10px; font-weight: 600; letter-spacing: 0.03em;">
+          <span style="width: 5px; height: 5px; border-radius: 50%; background: #d2402f;"></span>WRITE PROFILE
+        </span>
+        <span onClick="{{ toggleDiff }}" style="font-size: 11px; color: #6f9fe0; cursor: pointer;">
+          <sc-if value="{{ diffClosed }}" hint-placeholder-val="{{ true }}">show the diff</sc-if>
+          <sc-if value="{{ diffOpen }}" hint-placeholder-val="{{ true }}">hide the diff</sc-if>
+        </span>
+        <span onClick="{{ accept }}" style="display: flex; align-items: center; height: 28px; padding: 0 14px; border: 1px solid #2f5da8; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">OK</span>
+        <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border: 1px solid #3f2a24; border-radius: 4px; background: #1f1512; color: #e08a76; font-size: 12px;">Undo</span>
+      </div>
+
+      <!-- One turn per repository root, and the tally is per file: one pair of
+           totals repeated beside every name would be wrong for all but one. The
+           document already on screen is not a link, because there is nowhere to
+           go; the other one opens and outlines its own changes. -->
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <span style="display: flex; align-items: center; gap: 7px; padding: 3px 10px; border: 1px solid #2f5da8; border-radius: 4px; background: #1a2638; color: #e4e9f0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px;">
+          widget-service.md<span style="color: #6fca8b;">+7</span><span style="color: #e8836f;">−3</span>
+        </span>
+        <span style="display: flex; align-items: center; gap: 7px; padding: 3px 10px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; color: #b9c7d8; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; cursor: pointer;" title="components.md — open it to see the change in place">
+          components.md<span style="color: #6fca8b;">+2</span><span style="color: #e8836f;">−1</span>
+        </span>
+      </div>
+
+      <!-- A document Apply cannot edit is skipped and NAMED, one by one, rather
+           than refusing the whole comment. It refuses outright in two cases
+           only: nothing can be edited at all, or a target file already has
+           uncommitted changes, because rejecting would discard those too. -->
+      <span style="font-size: 11px; color: #8ba0ba;">Not edited: <span title="PDF — no honest source line to write back to">2026-07-30-audit.pdf</span></span>
+
+      <sc-if value="{{ diffOpen }}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; flex-direction: column; max-height: 210px; border: 1px solid #24344a; border-radius: 6px; background: #0a1018; overflow: hidden; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; line-height: 1.6;">
+          <span style="padding: 0 12px; background: #101a29; color: #5d7a9a;">+++ b/docs/architecture/widget-service.md</span>
+          <span style="padding: 0 12px; background: #16233a; color: #6f9fe0;">@@ -18,7 +18,11 @@ ## Retries</span>
+          <span style="padding: 0 12px; background: #2a1512; color: #e8836f;">−A failed write is retried three times with no backoff, then dropped.</span>
+          <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+A failed write is retried three times with exponential backoff, starting at</span>
+          <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+200ms and doubling, then routed to the dead-letter queue.</span>
+          <span style="padding: 0 12px; background: #101a29; color: #5d7a9a;">+++ b/docs/architecture/components.md</span>
+          <span style="padding: 0 12px; background: #16233a; color: #6f9fe0;">@@ -41,3 +41,4 @@ ## Retries</span>
+          <span style="padding: 0 12px; background: #2a1512; color: #e8836f;">−Retries are capped at five.</span>
+          <span style="padding: 0 12px; background: #10281a; color: #6fca8b;">+Retries are capped at three, matching the service configuration.</span>
+        </div>
+      </sc-if>
+
+      <div style="display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: 6px; border: 1px solid #3a2f10; background: #1c1708;">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="#f0b429" stroke-width="1.5" stroke-linecap="round" style="flex: none; margin-top: 2px;"><circle cx="8" cy="8" r="6.2"></circle><path d="M8 5v4M8 11.2v.1"></path></svg>
+        <span style="font-size: 12px; line-height: 1.5; color: #d8c58e;">OK keeps the change and re-runs anchoring. Comments written against the removed text will move or lose their anchor — they are kept either way, with the text they were written on. Undo restores every file with <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px;">git checkout</span>.</span>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- After OK: the sweep, reported. “1 newly orphaned” is complete; WHICH one
+       is what the reviewer actually needs, so the comment is named. -->
+  <sc-if value="{{ done }}" hint-placeholder-val="{{ true }}">
+    <div style="position: absolute; inset: 0; background: rgb(4 8 14 / 72%); display: flex; align-items: center; justify-content: center;">
       <div style="width: 620px; display: flex; flex-direction: column; border: 1px solid #24344a; border-radius: 9px; background: #131d2e; box-shadow: 0 28px 80px rgb(0 0 0 / 60%); overflow: hidden;">
         <div style="display: flex; align-items: flex-start; gap: 12px; padding: 18px 20px 14px; border-bottom: 1px solid #1c2a3d;">
           <span style="width: 30px; height: 30px; flex: none; border-radius: 7px; background: #14261f; color: #4a9d7a; display: flex; align-items: center; justify-content: center;">
@@ -117,56 +274,68 @@
           </span>
           <span style="display: flex; flex-direction: column; gap: 3px;">
             <span style="font-size: 16px; font-weight: 600;">Written, and re-anchored</span>
-            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #8ba0ba;">docs/architecture/widget-service.md</span>
+            <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 12px; font-weight: 500; color: #e4e9f0;">widget-service.md, components.md</span>
           </span>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 12px; padding: 16px 20px 18px;">
-          <span style="font-size: 12px; color: #8ba0ba;">Every comment on this document was resolved against the new text.</span>
+          <span style="font-size: 11px; color: #8ba0ba;">Every comment on this document was resolved against the new text.</span>
+          <!-- The counts are CHECKED TARGETS, not threads: it is a report on what
+               the sweep just did, and after a cross-document Apply what it just
+               did is one document's worth. -->
           <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border-radius: 6px; background: #24344a; overflow: hidden;">
-            <div style="display: flex; flex-direction: column; gap: 2px; padding: 11px 13px; background: #1a2638;">
-              <span style="font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums;">4</span>
+            <div style="display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; background: #1a2638;">
+              <span style="font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums;">4</span>
               <span style="font-size: 10px; letter-spacing: 0.05em; color: #8ba0ba;">STILL EXACT</span>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 2px; padding: 11px 13px; background: #1a2638;">
-              <span style="font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; color: #f0b429;">1</span>
+            <div style="display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; background: #1a2638;">
+              <span style="font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; color: #f0b429;">1</span>
               <span style="font-size: 10px; letter-spacing: 0.05em; color: #8ba0ba;">MOVED</span>
             </div>
-            <div style="display: flex; flex-direction: column; gap: 2px; padding: 11px 13px; background: #1a2638;">
-              <span style="font-size: 19px; font-weight: 600; font-variant-numeric: tabular-nums; color: #d2402f;">1</span>
+            <div style="display: flex; flex-direction: column; gap: 2px; padding: 9px 11px; background: #1a2638;">
+              <span style="font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; color: #d2402f;">1</span>
               <span style="font-size: 10px; letter-spacing: 0.05em; color: #8ba0ba;">NEWLY LOST</span>
             </div>
           </div>
           <div style="display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border-radius: 6px; border: 1px dashed #3f2a24; background: #1a1211;">
-            <span style="width: 18px; height: 18px; flex: none; border-radius: 50%; background: #d2402f; color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</span>
+            <span style="width: 18px; height: 18px; flex: none; border-radius: 50%; background: #d2402f; color: #fff; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">!</span>
             <span style="display: flex; flex-direction: column; gap: 3px;">
-              <span style="font-size: 12px; line-height: 1.45; color: #e08a76;">“Three retries with no backoff will hammer a failing dependency.” lost its anchor — the sentence it was written on is the one this patch replaced.</span>
+              <span style="font-size: 12px; line-height: 1.45; color: #e08a76;">“Three retries with no backoff will hammer a failing dependency.” lost its anchor — the text it was written on is the text this patch replaced.</span>
               <span style="font-size: 11px; color: #8ba0ba;">Kept, with its quote, in the orphaned filter.</span>
             </span>
           </div>
           <div style="display: flex; align-items: center; gap: 10px; margin-top: 2px;">
-            <span onClick="{{ reset }}" style="display: flex; align-items: center; height: 30px; padding: 0 16px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Back to the document</span>
-            <span style="display: flex; align-items: center; height: 30px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">Show the orphan</span>
+            <span onClick="{{ reset }}" style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;">Back to the document</span>
+            <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">Show the orphan</span>
           </div>
         </div>
       </div>
-    </sc-if>
-  </div>
+    </div>
+  </sc-if>
 </div>
 </x-dc>
 <script data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
 class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { accepted: false };
+    this.state = { accepted: false, diff: false };
   }
 
   renderVals() {
+    const reviewing = !this.state.accepted;
     return {
-      deciding: !this.state.accepted,
+      reviewing: reviewing,
       done: this.state.accepted,
+      diffOpen: reviewing && this.state.diff,
+      diffClosed: reviewing && !this.state.diff,
+      toggleDiff: () => this.setState({ diff: !this.state.diff }),
       accept: () => this.setState({ accepted: true }),
-      reset: () => this.setState({ accepted: false }),
+      reset: () => this.setState({ accepted: false, diff: false }),
+      // The changed sections, in the write colour — never the blue a selection
+      // uses. They exist only while a review is pending, and go on OK or Undo.
+      change: reviewing
+        ? "border: 2px solid #d2402f; border-radius: 3px; background: rgb(210 64 47 / 12%); padding: 6px 8px; margin: -6px -8px;"
+        : "",
     };
   }
 }

@@ -18,7 +18,12 @@ declare global {
      * SPEC.md §8.7 step 6 — main calls this after an Apply. Anchors resolve in
      * the renderer (invariant I1), so the sweep has to happen here and hand its
      * summary back across `executeJavaScript`.
+     *
+     * Spec 05 §5.6: Apply may change several documents, so it is given every one
+     * it changed. The document on screen is re-rendered only if it is among
+     * them — re-rendering one that did not change would cost the reviewer their
+     * scroll position for nothing.
      */
-    __rexReanchor?: (documentId: string) => Promise<AnchorSummary>;
+    __rexReanchor?: (changedDocumentIds: string[]) => Promise<AnchorSummary>;
   }
 }

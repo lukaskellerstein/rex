@@ -8,10 +8,12 @@ import type {
   Anchor,
   AnchorState,
   AnchorSummary,
+  ChangedRegion,
   DocumentRef,
   Message,
   OpenedDocument,
   ReferenceGraph,
+  SkippedDocument,
   Thread,
   ThreadWithMessages,
   WorkspaceRef,
@@ -68,11 +70,22 @@ export const EVENT = {
 
 // ── Request and response payloads ───────────────────────────────
 
+/**
+ * Spec 05 §5.3 — every comment in the workspace, not one document's.
+ *
+ * `root` is the workspace root, or null when a single file was opened by path;
+ * main then uses that document's own directory. `documentId` is not a duplicate
+ * of it: a tier 2 URL document sits under no directory at all, and without this
+ * its comments would vanish the moment the list stopped being per-document.
+ */
+export interface ThreadListRequest {
+  root: string | null;
+  documentId: string | null;
+}
+
+/** Spec 05 §7 — `targets[0]` decides the thread's own document. Panel order. */
 export interface ThreadCreateRequest {
-  documentId: string;
-  anchor: Anchor;
-  /** Further targets of the same comment. Absent or empty for one target. */
-  extraAnchors?: Anchor[];
+  targets: Array<{ documentId: string; anchor: Anchor }>;
   note: string;
 }
 
@@ -101,8 +114,10 @@ export interface ApplyConfirmResponse {
   reanchored: AnchorSummary;
 }
 
+/** Spec 05 §5.4 — one target, named by its index in `Thread.targets`. */
 export interface AnchorRestateRequest {
   threadId: string;
+  position: number;
   anchorState: AnchorState;
 }
 
@@ -110,7 +125,13 @@ export interface ApplyReadyEvent {
   applyRunId: string;
   threadId: string;
   diff: string;
+  /** Absolute paths of every file the agent changed. */
   files: string[];
+  /** Spec 05 §5.6.1 — what to outline, per file. Empty for a file with no
+      `data-src-line` stamps, which is the honest answer rather than a guess. */
+  regions: ChangedRegion[];
+  /** Spec 05 §5.6 — target documents Apply could not edit, and why. */
+  skipped: SkippedDocument[];
 }
 
 export interface CostEvent {
@@ -129,7 +150,7 @@ export interface RexApi {
   workspacePick(): Promise<WorkspaceRef | null>;
   workspaceTree(ref: WorkspaceRef): Promise<WorkspaceTree>;
   workspaceGraph(ref: WorkspaceRef): Promise<ReferenceGraph>;
-  threadList(documentId: string): Promise<ThreadWithMessages[]>;
+  threadList(request: ThreadListRequest): Promise<ThreadWithMessages[]>;
   threadCreate(request: ThreadCreateRequest): Promise<Thread>;
   threadAsk(threadId: string): Promise<void>;
   threadReply(request: ThreadReplyRequest): Promise<void>;

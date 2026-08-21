@@ -16,6 +16,7 @@ import {
   EVENT,
   type InitialTarget,
   type ThreadCreateRequest,
+  type ThreadListRequest,
   type ThreadReplyRequest,
   type ThreadResolveRequest,
   type ThreadSynthesiseRequest,
@@ -35,7 +36,7 @@ import { sessionIdFor } from "./agent/profiles.ts";
 import { askPrompt, synthesisPrompt } from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
 import { renderTranscript, replayPrompt, sessionExists } from "./agent/transcript.ts";
-import { confirmApply, startApply } from "./apply.ts";
+import { type ApplyContext, confirmApply, startApply } from "./apply.ts";
 import type { Db } from "./db/database.ts";
 import {
   appendMessage,
@@ -46,7 +47,7 @@ import {
   listMessages,
   listThreads,
   type MessageDraft,
-  setAnchorState,
+  setTargetState,
   setThreadSession,
   setThreadStatus,
   upsertDocument,
@@ -54,6 +55,7 @@ import {
 import { porcelainStatus, repositoryRoot } from "./git.ts";
 import { allowDirectory } from "./protocol.ts";
 import { renderDocument } from "./render/index.ts";
+import { documentsOf, withDetail } from "./threads.ts";
 import { buildReferenceGraph } from "./workspace/graph.ts";
 import { scanWorkspace } from "./workspace/tree.ts";
 
@@ -122,11 +124,11 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
    * Invariant I1 — the main process cannot resolve anchors, so the sweep §8.7
    * step 6 demands is run in the renderer and its summary handed back.
    */
-  const reanchor = async (documentId: string): Promise<AnchorSummary> => {
+  const reanchor = async (changedDocumentIds: string[]): Promise<AnchorSummary> => {
     const window = getWindow();
     if (!window) return { ok: 0, moved: 0, orphaned: 0, total: 0 };
     return (await window.webContents.executeJavaScript(
-      `window.__rexReanchor ? window.__rexReanchor(${JSON.stringify(documentId)}) : null`,
+      `window.__rexReanchor ? window.__rexReanchor(${JSON.stringify(changedDocumentIds)}) : null`,
     )) as AnchorSummary;
   };
 
@@ -288,23 +290,33 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
 
   // ── Threads ───────────────────────────────────────────────────
 
-  ipcMain.handle(COMMAND.threadList, (_event, documentId: string): ThreadWithMessages[] =>
-    listThreads(db, documentId),
-  );
+  /**
+   * Spec 05 §5.3 — the workspace's comments, not the open document's.
+   *
+   * With no workspace the scope is the open document's own directory, so a
+   * single file opened by path behaves as it did: its siblings' comments are in
+   * reach, and nothing else is.
+   */
+  ipcMain.handle(COMMAND.threadList, (_event, request: ThreadListRequest): ThreadWithMessages[] => {
+    const document = request.documentId ? getDocument(db, request.documentId) : null;
+    const root =
+      request.root ?? (document?.ref.kind === "file" ? dirname(document.ref.value) : null);
+    return listThreads(db, { root, documentId: request.documentId }).map((thread) =>
+      withDetail(db, thread),
+    );
+  });
 
-  ipcMain.handle(
-    COMMAND.threadCreate,
-    (_event, request: ThreadCreateRequest): Thread =>
-      createThread(db, {
-        documentId: request.documentId,
-        kind: "anchored",
-        anchor: request.anchor,
-        extraAnchors: request.extraAnchors ?? [],
-        anchorState: "ok",
-        note: request.note,
-        profile: "read",
-      }),
-  );
+  ipcMain.handle(COMMAND.threadCreate, (_event, request: ThreadCreateRequest): Thread => {
+    // §7 — a payload with no target has no document either, and a thread with
+    // neither is a comment about nothing.
+    if (request.targets.length === 0) throw new Error("A comment needs at least one place.");
+    return createThread(db, {
+      kind: "anchored",
+      targets: request.targets,
+      note: request.note,
+      profile: "read",
+    });
+  });
 
   ipcMain.handle(COMMAND.threadAsk, async (_event, threadId: string): Promise<void> => {
     const thread = getThread(db, threadId);
@@ -316,6 +328,12 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     const root =
       document?.ref.kind === "file" ? repositoryRoot(documentPath) : dirname(documentPath);
 
+    // Spec 05 §5.5 — every target's document, so the prompt can group them.
+    const documentPaths = new Map<string, string>();
+    for (const record of documentsOf(db, thread)) {
+      documentPaths.set(record.id, record.ref.value);
+    }
+
     const prompt =
       thread.kind === "synthesis"
         ? synthesisPrompt({
@@ -325,7 +343,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
               .filter((t): t is Thread => t !== null)
               .map((t) => ({ thread: t, messages: listMessages(db, t.id) })),
           })
-        : askPrompt({ thread, documentPath, repositoryRoot: root });
+        : askPrompt({ thread, documentPaths, repositoryRoot: root });
 
     recordUserText(threadId, thread.note);
     await runTurn(thread, prompt, sessionIdFor(threadId), false);
@@ -366,10 +384,11 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     COMMAND.threadSynthesise,
     (_event, request: ThreadSynthesiseRequest): Thread =>
       createThread(db, {
+        // A synthesis comment is about other comments, not about a passage, so
+        // it has no targets and carries its document directly.
         documentId: request.documentId,
         kind: "synthesis",
-        anchor: null,
-        anchorState: null,
+        targets: [],
         note: request.note,
         profile: "read",
         refThreadIds: request.refThreadIds,
@@ -377,21 +396,16 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
   );
 
   ipcMain.handle(COMMAND.anchorRestate, (_event, request: AnchorRestateRequest): void => {
-    setAnchorState(db, request.threadId, request.anchorState);
+    setTargetState(db, request.threadId, request.position, request.anchorState);
   });
 
   // ── Apply ─────────────────────────────────────────────────────
 
-  const applyContext = {
+  const applyContext: ApplyContext = {
     db,
     record,
     reanchor,
-    onApplyReady: (event: {
-      applyRunId: string;
-      threadId: string;
-      diff: string;
-      files: string[];
-    }) => send(EVENT.applyReady, event),
+    onApplyReady: (event) => send(EVENT.applyReady, event),
   };
 
   ipcMain.handle(COMMAND.threadApply, (_event, threadId: string) =>

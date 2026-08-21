@@ -17,9 +17,15 @@ interface Props {
   anchorState: AnchorState | null;
   /** What the anchor resolved onto, for a thread with no quote to show. */
   label: string | null;
+  /**
+   * The state of each target, in target order — spec 05 §5.4.
+   *
+   * Null means the sweep could not check it, because its document is not the
+   * one on screen. That is emphatically not orphaned, and the card says so in
+   * the words the design uses for absence.
+   */
+  targetStates: Array<AnchorState | null>;
   busy: boolean;
-  applyEnabled: boolean;
-  applyDisabledReason: string | null;
   onBack: () => void;
   onReply: (text: string) => void;
   onResolve: (resolved: boolean) => void;
@@ -108,9 +114,25 @@ function ToolSteps({ steps }: { steps: Step[] }): React.JSX.Element {
   );
 }
 
-/** "anchored", or "anchored in 3 places" when the comment has extra targets. */
-function anchoredIn(extras: number): string {
-  return extras === 0 ? "anchored" : `anchored in ${extras + 1} places`;
+/**
+ * One place's state, in words. Spec 05 §5.4.
+ *
+ * `null` is the case worth being careful about: it means nobody has looked,
+ * because that document has not been open. An orphan means the text is gone.
+ * Showing one as the other sends a reviewer hunting for damage that never
+ * happened, so it gets the muted grey the design uses for absence and never the
+ * red it uses for loss.
+ */
+function PlaceState({ state }: { state: AnchorState | null }): React.JSX.Element {
+  if (state === "orphaned") return <span className="rex-state-orphaned">anchor lost</span>;
+  if (state === "moved") return <span className="rex-state-moved">text moved</span>;
+  if (state === "ok") return <span className="rex-meta">found</span>;
+  return <span className="rex-meta">not checked here</span>;
+}
+
+/** "anchored", or "anchored in 3 places" when the comment has several targets. */
+function anchoredIn(targets: number): string {
+  return targets <= 1 ? "anchored" : `anchored in ${targets} places`;
 }
 
 export function CommentCard(props: Props): React.JSX.Element {
@@ -119,9 +141,14 @@ export function CommentCard(props: Props): React.JSX.Element {
   const steps = stepsOf(thread);
   const messages = conversation(thread);
   const { answered } = progressOf(thread);
-  const quote = thread.anchor?.quote?.exact ?? null;
+  const quote = thread.targets[0]?.anchor.quote?.exact ?? null;
+  const spansDocuments = thread.documentNames.length > 1;
 
   // The design's meta line: what the comment is attached to, and how that went.
+  //
+  // Spec 05 §5.4 — a null state is "nobody looked", which is neither good news
+  // nor bad. Reporting it as "resolved exactly" would be a claim REX cannot
+  // make about a document that has not been open.
   const anchorNote =
     thread.kind === "synthesis" ? null : thread.status === "resolved" ? (
       <span className="rex-state-resolved">closed</span>
@@ -129,6 +156,8 @@ export function CommentCard(props: Props): React.JSX.Element {
       <span className="rex-state-orphaned">the text it was written on is gone</span>
     ) : props.anchorState === "moved" ? (
       <span className="rex-state-moved">re-found after the file changed</span>
+    ) : props.anchorState === null ? (
+      <span className="rex-meta">not checked here</span>
     ) : (
       <span>resolved exactly</span>
     );
@@ -162,11 +191,32 @@ export function CommentCard(props: Props): React.JSX.Element {
                 : // A multi-target comment says so: the quote below is only the
                   // first of its places, and without this the card claims to be
                   // about one passage when the reader asked about several.
-                  anchoredIn(thread.extraAnchors.length)}
+                  anchoredIn(thread.targets.length)}
               {anchorNote ? " · " : null}
               {anchorNote}
             </span>
           </div>
+
+          {/* Spec 05 §5.3 — which documents, always. */}
+          <span className="rex-thread-docs">{thread.documentNames.join(" · ")}</span>
+
+          {/*
+            Spec 05 §3.2 and §5.4 — every place, numbered as the panel numbered
+            it, each saying where it is and how it last resolved. Without this a
+            comment about three places shows one quote and claims a single state
+            for all of them.
+          */}
+          {thread.targets.length > 1 ? (
+            <ol className="rex-places">
+              {thread.targets.map((target, position) => (
+                <li key={`${target.documentId}-${position}`}>
+                  <span className="rex-place-index">{position + 1}</span>
+                  <span className="rex-place-doc">{thread.targetNames[position] ?? ""}</span>
+                  <PlaceState state={props.targetStates[position] ?? null} />
+                </li>
+              ))}
+            </ol>
+          ) : null}
 
           {quote ? (
             <blockquote className="rex-quote">{quote}</blockquote>
@@ -242,11 +292,11 @@ export function CommentCard(props: Props): React.JSX.Element {
           <button
             type="button"
             className="rex-button rex-button-write"
-            disabled={props.busy || !answered || !props.applyEnabled}
+            disabled={props.busy || !answered || !thread.applyEnabled}
             title={
-              props.applyEnabled
-                ? "Let a write-capable agent make this change — you will see a diff first"
-                : (props.applyDisabledReason ?? "")
+              thread.applyEnabled
+                ? `Let a write-capable agent make this change in ${thread.documentNames.join(", ")} — you will see it before anything is kept`
+                : (thread.applyDisabledReason ?? "")
             }
             onClick={props.onApply}
           >
@@ -254,6 +304,18 @@ export function CommentCard(props: Props): React.JSX.Element {
             Apply…
           </button>
         </div>
+
+        {/*
+          Spec 05 §5.6 — said before the button is pressed, not after. A comment
+          about three documents leads to a change in three documents, and the
+          reviewer should know that while deciding, not while reading a diff.
+        */}
+        {spansDocuments && thread.applyEnabled ? (
+          <span className="rex-meta">
+            Apply edits {thread.documentNames.join(", ")}. You see every change, in each document,
+            before anything is kept.
+          </span>
+        ) : null}
       </div>
     </>
   );

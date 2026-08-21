@@ -1,0 +1,198 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #6f9fe0; }
+    a:hover { color: #9dc2f0; }
+  </style>
+</helmet>
+
+<!--
+  The other half of the palette. REX's chrome is dark and lives in one process;
+  the paper it draws documents on is written by the Markdown renderer in MAIN,
+  and the anchor highlights painted on top of it are written by the resolver in
+  the RENDERER. A drift between the two shows up as a highlight that can no
+  longer be read against the page it sits on, so both read one file:
+  `src/shared/tokens.ts`. Every value on this board is literal.
+-->
+
+<div style="width: 1440px; height: 1700px; box-sizing: border-box; padding: 34px 36px; background: #0d1420; color: #e4e9f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 1.5; display: flex; flex-direction: column; gap: 26px;">
+
+  <div style="display: flex; align-items: baseline; gap: 14px; flex: none;">
+    <span style="font-size: 26px; font-weight: 600; letter-spacing: -0.015em;">The paper</span>
+    <span style="font-size: 13px; color: #8ba0ba;">what a rendered document looks like, and the one stylesheet REX is entitled to write</span>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 700px minmax(0, 1fr); gap: 30px; flex: 1; min-height: 0;">
+
+    <!-- ── The sheet ────────────────────────────────────────── -->
+    <div style="display: flex; flex-direction: column; gap: 10px; min-width: 0;">
+      <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">MARKDOWN, RENDERED — 620px AT 15 / 1.68</span>
+
+      <div style="border-radius: 6px; background: #fbfaf8; padding: 30px 40px 34px; overflow: hidden;">
+        <div style="max-width: 620px; color: #3d3a36; font-size: 15px; line-height: 1.68;">
+
+          <div style="margin: 0 0 12px; color: #211f1c; font-size: 27px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.15;">Widget service notes</div>
+          <p style="margin: 0 0 18px;">The queue writes results through <span style="background: #f2f0ec; padding: 0.1em 0.35em; border-radius: 3px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.88em;">writeResult()</span>, described in <span style="color: #2f5da8;">the components document</span>. Every value on this page is the one in <span style="background: #f2f0ec; padding: 0.1em 0.35em; border-radius: 3px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.88em;">tokens.ts</span>.</p>
+
+          <div style="margin: 30px 0 12px; color: #211f1c; font-size: 20px; font-weight: 600; line-height: 1.2;">Alerts</div>
+          <div style="margin: 0 0 10px; padding: 10px 14px; border-left: 3px solid #2f5da8; border-radius: 0 4px 4px 0; background: #eef3fb; color: #3d3a36;">
+            <div style="margin-bottom: 4px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: #2f5da8;">Note</div>
+            <div style="font-size: 15px; line-height: 1.68;">The label is drawn by CSS with <span style="background: #f2f0ec; padding: 0.1em 0.35em; border-radius: 3px; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.88em;">::before</span> — never real text.</div>
+          </div>
+          <div style="margin: 0 0 10px; padding: 10px 14px; border-left: 3px solid #2f7d63; border-radius: 0 4px 4px 0; background: #eef6f2; color: #3d3a36;">
+            <div style="margin-bottom: 4px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: #2f7d63;">Tip</div>
+            <div style="font-size: 15px; line-height: 1.68;">Five kinds, generated from one table.</div>
+          </div>
+          <div style="margin: 0 0 10px; padding: 10px 14px; border-left: 3px solid #7a4fa3; border-radius: 0 4px 4px 0; background: #f4eff8; color: #3d3a36;">
+            <div style="margin-bottom: 4px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: #7a4fa3;">Important</div>
+            <div style="font-size: 15px; line-height: 1.68;">Purple appears here and in a code keyword, nowhere else.</div>
+          </div>
+          <div style="margin: 0 0 10px; padding: 10px 14px; border-left: 3px solid #c08a12; border-radius: 0 4px 4px 0; background: #fbf4e4; color: #3d3a36;">
+            <div style="margin-bottom: 4px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: #c08a12;">Warning</div>
+            <div style="font-size: 15px; line-height: 1.68;">The same amber a moved anchor uses — one meaning per colour.</div>
+          </div>
+          <div style="margin: 0 0 18px; padding: 10px 14px; border-left: 3px solid #b03a2e; border-radius: 0 4px 4px 0; background: #fbeeec; color: #3d3a36;">
+            <div style="margin-bottom: 4px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: #b03a2e;">Caution</div>
+            <div style="font-size: 15px; line-height: 1.68;">Not the mark's red. That one is spent elsewhere.</div>
+          </div>
+
+          <div style="margin: 30px 0 12px; color: #211f1c; font-size: 20px; font-weight: 600; line-height: 1.2;">Code</div>
+          <!-- One div per line rather than newlines inside a `pre`: the editor's
+               template parser normalises whitespace between elements, and the
+               first line ran into the second. Same rendering, no reliance on a
+               text node surviving a compile. -->
+          <div style="margin: 0 0 18px; padding: 14px 16px; border-radius: 5px; background: #f2f0ec; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.55; overflow-x: auto; color: #3d3a36;">
+            <div style="white-space: pre;"><span style="color: #6b655d; font-style: italic;">// nine classes cover every language REX will meet</span></div>
+            <div style="white-space: pre;"><span style="color: #7a4fa3;">export function</span> <span style="color: #2f5da8;">retryBudget</span>(<span style="color: #8a6d1f;">config</span>) {</div>
+            <div style="white-space: pre;">  <span style="color: #7a4fa3;">return</span> config.retries ?? <span style="color: #b03a2e;">3</span>;</div>
+            <div style="white-space: pre;">}</div>
+          </div>
+
+          <div style="margin: 30px 0 12px; color: #211f1c; font-size: 20px; font-weight: 600; line-height: 1.2;">Tables, figures and lists</div>
+          <table style="margin: 0 0 18px; border-collapse: collapse; width: 100%; font-size: 13.5px;">
+            <thead>
+              <tr>
+                <th style="border: 1px solid #e0ddd7; padding: 7px 10px; text-align: left; font-weight: 600; color: #211f1c; background: #f2f0ec;">Setting</th>
+                <th style="border: 1px solid #e0ddd7; padding: 7px 10px; text-align: left; font-weight: 600; color: #211f1c; background: #f2f0ec;">Default</th>
+                <th style="border: 1px solid #e0ddd7; padding: 7px 10px; text-align: left; font-weight: 600; color: #211f1c; background: #f2f0ec;">Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="border: 1px solid #e0ddd7; padding: 7px 10px;">Retries</td>
+                <td style="border: 1px solid #e0ddd7; padding: 7px 10px;">3</td>
+                <td style="border: 1px solid #e0ddd7; padding: 7px 10px;">no backoff between attempts</td>
+              </tr>
+              <tr>
+                <td style="border: 1px solid #e0ddd7; padding: 7px 10px;">Cache TTL</td>
+                <td style="border: 1px solid #e0ddd7; padding: 7px 10px;">60s</td>
+                <td style="border: 1px solid #e0ddd7; padding: 7px 10px;">keyed by request id</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <figure style="margin: 0 0 18px; padding: 9px; border-radius: 4px; background: #f2f0ec;">
+            <span style="display: flex; align-items: flex-end; gap: 6px; height: 84px; padding: 8px 10px; border-radius: 3px; background: #fbfaf8;">
+              <span style="flex: 1; height: 68%; background: #2f5da8; border-radius: 2px 2px 0 0;"></span>
+              <span style="flex: 1; height: 82%; background: #2f5da8; border-radius: 2px 2px 0 0;"></span>
+              <span style="flex: 1; height: 40%; background: #8fb0dd; border-radius: 2px 2px 0 0;"></span>
+              <span style="flex: 1; height: 28%; background: #8fb0dd; border-radius: 2px 2px 0 0;"></span>
+            </span>
+            <figcaption style="margin: 7px 0 0; font-size: 12.5px; color: #6b655d;">Figure 2 — writes per minute.</figcaption>
+          </figure>
+
+          <ul style="margin: 0 0 18px; padding-left: 20px; list-style: none;">
+            <li style="position: relative;"><span style="position: absolute; left: -20px; top: 0.35em; width: 13px; height: 13px; border: 1px solid #9a948a; border-radius: 2px; background: #2f5da8;"></span>Alerts, task lists and figures</li>
+            <li style="position: relative;"><span style="position: absolute; left: -20px; top: 0.35em; width: 13px; height: 13px; border: 1px solid #9a948a; border-radius: 2px; background: #fff;"></span>Tracked changes from a DOCX</li>
+          </ul>
+
+          <blockquote style="margin: 0 0 18px 0; padding-left: 14px; border-left: 2px solid #e0ddd7; color: #6b655d;">An ordinary quote, which is not an alert and does not carry a label.</blockquote>
+
+          <div style="margin: 30px 0 12px; color: #211f1c; font-size: 20px; font-weight: 600; line-height: 1.2;">Maths and diagrams</div>
+          <div style="margin: 0 0 18px; padding: 4px 0; text-align: center; font-family: Newsreader, Georgia, serif; font-size: 18px; font-style: italic; color: #211f1c;">p(drop) = (1 − s)<span style="font-size: 12px; vertical-align: super;">n</span></div>
+          <div style="margin: 0 0 18px; padding: 12px; border-radius: 4px; background: #f2f0ec; display: flex; align-items: center; justify-content: center; gap: 10px;">
+            <span style="padding: 5px 11px; border: 1px solid #9fb4d4; border-radius: 3px; background: #fbfaf8; font-size: 12.5px; color: #211f1c;">queue</span>
+            <span style="color: #6b655d;">→</span>
+            <span style="padding: 5px 11px; border: 1px solid #9fb4d4; border-radius: 3px; background: #fbfaf8; font-size: 12.5px; color: #211f1c;">writer</span>
+            <span style="color: #6b655d;">→</span>
+            <span style="padding: 5px 11px; border: 1px solid #9fb4d4; border-radius: 3px; background: #fbfaf8; font-size: 12.5px; color: #211f1c;">results</span>
+          </div>
+
+          <div style="margin-top: 36px; padding-top: 12px; border-top: 1px solid #e0ddd7;">
+            <ol style="margin: 0; padding-left: 20px; font-size: 13.5px; color: #6b655d;">
+              <li style="margin: 0 0 8px;">Footnotes keep markdown-it's own class names. <span style="color: #2f5da8;">↩</span></li>
+            </ol>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── The rules ────────────────────────────────────────── -->
+    <div style="display: flex; flex-direction: column; gap: 22px; min-width: 0;">
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">PAPER PALETTE — <span style="color: #5d7a9a;">shared/tokens.ts</span></span>
+        <div style="display: flex; flex-direction: column; gap: 1px; border-radius: 6px; background: #1c2a3d; overflow: hidden;">
+          <div style="display: grid; grid-template-columns: 40px 92px 76px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; background: #131d2e;"><span style="width: 26px; height: 26px; border-radius: 4px; background: #fbfaf8;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">bg</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8ba0ba;">#fbfaf8</span><span style="font-size: 12px; color: #8ba0ba;">the ground — deliberately not white</span></div>
+          <div style="display: grid; grid-template-columns: 40px 92px 76px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; background: #131d2e;"><span style="width: 26px; height: 26px; border-radius: 4px; background: #211f1c;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">ink</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8ba0ba;">#211f1c</span><span style="font-size: 12px; color: #8ba0ba;">headings, the strongest text</span></div>
+          <div style="display: grid; grid-template-columns: 40px 92px 76px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; background: #131d2e;"><span style="width: 26px; height: 26px; border-radius: 4px; background: #3d3a36;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">inkBody</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8ba0ba;">#3d3a36</span><span style="font-size: 12px; color: #8ba0ba;">body copy, one step back</span></div>
+          <div style="display: grid; grid-template-columns: 40px 92px 76px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; background: #131d2e;"><span style="width: 26px; height: 26px; border-radius: 4px; background: #6b655d;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">inkMuted</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8ba0ba;">#6b655d</span><span style="font-size: 12px; color: #8ba0ba;">captions, table notes, quotes</span></div>
+          <div style="display: grid; grid-template-columns: 40px 92px 76px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; background: #131d2e;"><span style="width: 26px; height: 26px; border-radius: 4px; background: #e0ddd7;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">rule</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8ba0ba;">#e0ddd7</span><span style="font-size: 12px; color: #8ba0ba;">rules, table borders</span></div>
+          <div style="display: grid; grid-template-columns: 40px 92px 76px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; background: #131d2e;"><span style="width: 26px; height: 26px; border-radius: 4px; background: #f2f0ec;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">wash</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8ba0ba;">#f2f0ec</span><span style="font-size: 12px; color: #8ba0ba;">table headers, code, figure grounds</span></div>
+          <div style="display: grid; grid-template-columns: 40px 92px 76px minmax(0, 1fr); align-items: center; gap: 12px; padding: 8px 12px; background: #131d2e;"><span style="width: 26px; height: 26px; border-radius: 4px; background: #2f5da8;"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">link</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: #8ba0ba;">#2f5da8</span><span style="font-size: 12px; color: #8ba0ba;">links — the chrome's steel, on paper</span></div>
+        </div>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">CODE — highlight.js CLASSES ONTO THE PAPER PALETTE</span>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px;">
+          <span style="color: #7a4fa3;">keyword · built_in <span style="color: #5d7a9a;">#7a4fa3</span></span>
+          <span style="color: #2f7d63;">string · regexp <span style="color: #5d7a9a;">#2f7d63</span></span>
+          <span style="color: #6b655d; font-style: italic;">comment · quote <span style="color: #5d7a9a;">#6b655d</span></span>
+          <span style="color: #b03a2e;">number · literal <span style="color: #5d7a9a;">#b03a2e</span></span>
+          <span style="color: #2f5da8;">title · section <span style="color: #5d7a9a;">#2f5da8</span></span>
+          <span style="color: #8a6d1f;">attr · attribute <span style="color: #5d7a9a;">#8a6d1f</span></span>
+        </div>
+        <span style="font-size: 11.5px; line-height: 1.55; color: #8ba0ba;">Nine classes cover every language REX will meet, and anything unmapped inherits <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">inkBody</span>, which is readable by construction. Shipping one of highlight.js's own stylesheets would have been a second, unowned palette beside this one.</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 9px; padding: 12px 14px; border-radius: 7px; border: 1px solid #1c2a3d; background: #101a29;">
+        <span style="font-size: 11.5px; font-weight: 600; color: #9dc2f0;">THE MEASURE APPLIES TO MARKDOWN ONLY</span>
+        <span style="font-size: 12px; line-height: 1.55; color: #b9c7d8;">620px at 15 / 1.68 is REX's own typography, and it is the one document REX is entitled to set. <strong style="color: #e4e9f0;">Sanitised author HTML keeps its own styles</strong> and never sees this sheet; a <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">&lt;webview&gt;</span> URL is untouchable. For those two the pane supplies only the paper ground and the gutter — so the design has to survive a document looking like anything at all.</span>
+        <span style="font-size: 12px; line-height: 1.55; color: #b9c7d8;">Light only, deliberately. Following the system into dark mode would make a Markdown file look nothing like the HTML file beside it in the explorer, and would put a review's two halves on different grounds.</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 9px; padding: 12px 14px; border-radius: 7px; border: 1px solid #3a2f10; background: #1c1708;">
+        <span style="font-size: 11.5px; font-weight: 600; color: #f0e0b0;">TWO RULES THAT LOOK LIKE DETAILS AND ARE NOT</span>
+        <span style="font-size: 12px; line-height: 1.55; color: #d8c58e;"><strong style="color: #f0e0b0;">An alert's label is generated content.</strong> It is drawn with <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">::before</span>, never as real text, so it never enters the anchor text index. Emit it as text and every comment below that callout moves.</span>
+        <span style="font-size: 12px; line-height: 1.55; color: #d8c58e;"><strong style="color: #f0e0b0;">The stylesheet string may not contain an angle bracket.</strong> DOMPurify's mXSS guard deletes any element whose text matches <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">/&lt;[/\w!]/</span>, and a style element holding CSS is exactly that shape. One bracket in a comment inside it deletes the whole sheet — the document renders completely unstyled and nothing logs a word. <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">test/markdown.spec.ts</span> asserts it.</span>
+      </div>
+
+      <div style="display: flex; flex-direction: column; gap: 9px; padding: 12px 14px; border-radius: 7px; border: 1px solid #1f2f4a; background: #141f31;">
+        <span style="font-size: 11.5px; font-weight: 600; color: #9dc2f0;">FOUR FORMATS, THREE PATHS</span>
+        <span style="font-size: 12px; line-height: 1.55; color: #b9c7d8;"><strong style="color: #e4e9f0;">Markdown</strong> takes this sheet. <strong style="color: #e4e9f0;">HTML</strong> is sanitised and served as its own bytes. <strong style="color: #e4e9f0;">DOCX</strong> goes through mammoth in main and takes the Markdown path — the cheapest of the three to add, and the opposite of what the old tier table implied. It loses page layout, fonts, text boxes and tracked changes, which is acceptable because REX anchors on <em style="color: #e4e9f0;">text</em>: a comment's unit is a passage, not a page.</span>
+        <span style="font-size: 12px; line-height: 1.55; color: #b9c7d8;"><strong style="color: #e4e9f0;">PDF</strong> is the odd one. Chromium never composites a <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">&lt;canvas&gt;</span> inside a frame sandboxed without <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">allow-scripts</span> — which is exactly what the document iframe must be. The bitmap is really there and the page still shows as blank paper. So PDF.js draws into the renderer's own document and only the finished picture crosses in, as an <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">&lt;img&gt;</span> beside the page, never inside it: a region anchor fingerprints the element's markup, and a page that gained a bitmap when it happened to be painted would orphan every region on it.</span>
+        <span style="font-size: 12px; line-height: 1.55; color: #b9c7d8;">Which is also why a PDF's selection colour is <strong style="color: #e4e9f0;">translucent</strong> — <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">rgb(47 93 168 / 30%)</span>, not the solid <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">#b6d0f2</span> a Markdown page uses. The glyphs are in the bitmap behind the text layer; the spans over it hold the same words in transparent ink so they can be selected. An opaque fill paints over the picture and the selected sentence turns into an empty blue bar.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1440,"height":1700}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

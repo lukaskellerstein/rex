@@ -613,6 +613,21 @@
   flex: none;
 }
 
+/*
+  Right-click copied this row's path.
+
+  It takes the comment counts' place for a moment rather than sitting beside
+  them: the row is 24px of a 272px column, and two things competing at its
+  right edge is how a tree stops being scannable. The counts come back.
+*/
+.rex-tree-copied {
+  flex: none;
+  color: var(--ok);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
 .rex-dot {
   width: 5px;
   height: 5px;
@@ -775,24 +790,68 @@
   border-color: #c08a12;
 }
 
+/*
+  Spec 05 §6 — the comment whose card is open, in violet.
+
+  Steel and amber say what state an anchor is in; neither can also say which
+  comment is being read. A ring in the selection's own blue was what this used
+  to be, and a reviewer holding a half-built selection while reading a comment
+  then had two blues on one page meaning two things. Violet is the fourth
+  colour and is spent on nothing else. The text half is `::highlight(rex-active)`
+  in `anchor/highlight.ts` — same colour, same meaning, painted by the API that
+  can paint a range.
+*/
 .rex-block-active {
-  box-shadow: 0 0 0 2px rgb(111 159 224 / 55%);
+  border-color: #7a4fa3;
+  background: rgb(122 79 163 / 10%);
 }
 
 /* Every place the comment being written is about. Dashed, and tinted, so it
-   reads as "not saved yet" beside the solid outline of a real thread. */
+   reads as "not saved yet" beside the solid outline of a real thread.
+
+   It takes no pointer events. The box sits over the prose, and one that
+   swallowed the mouse made the text under it impossible to select — measured
+   on 2026-08-21, where `elementsFromPoint` over a dashed box answered with the
+   box and never reached the document. The number badge carries the hover
+   pairing instead: it is small, it is deliberate, and it sits in the margin. */
 .rex-draft-outline {
   position: absolute;
   border: 2px dashed var(--link);
   border-radius: 3px;
   background: rgb(111 159 224 / 10%);
   pointer-events: none;
+  transition: background 120ms ease;
 }
 
-/* The number ties an outline to its row in the composer's list — with nine
-   cells picked, "which nine" is the whole question. */
+.rex-draft-outline-lit {
+  border-color: #a8c8f5;
+  background: rgb(111 159 224 / 26%);
+}
+
+/*
+  Spec 05 §5.6.1 — what an Apply changed, while the reviewer decides.
+
+  The write colour, never the selection's blue: a reviewer looking at a document
+  mid-Apply must not have to work out which marks are their own selection and
+  which are the agent's edit. Red is spent on exactly two things in this design,
+  and the write-capable agent is one of them.
+*/
+.rex-change-outline {
+  position: absolute;
+  border: 2px solid var(--lost);
+  border-radius: 3px;
+  background: rgb(210 64 47 / 12%);
+  pointer-events: none;
+}
+
+/* The number ties an outline to its row in the panel's list — with nine
+   cells picked, "which nine" is the whole question. It is also the only part
+   of the outline that takes the mouse: hovering it brightens its row, and it
+   is 18px in the margin rather than a box over the prose. */
 .rex-draft-index {
   position: absolute;
+  pointer-events: auto;
+  cursor: default;
   top: -9px;
   left: -9px;
   display: flex;
@@ -808,54 +867,133 @@
   line-height: 1;
 }
 
-/* ── Composer ────────────────────────────────────────────── */
+/* ── The selection panel (spec 05 §3) ────────────────────── */
 
-.rex-composer {
-  position: absolute;
-  right: 44px;
-  z-index: 6;
+/*
+  Selecting is a phase, and this is where it stands: at the top of the right
+  sidebar, above the comments, gone when there is nothing in it.
+
+  It replaces the floating composer, whose three faults were one fault — a
+  transient card is the wrong home for something built up over time. Being in the
+  sidebar is what fixes all three: it cannot steal a shortcut, cannot be
+  dismissed by a click in the document, and has nothing to inherit.
+*/
+.rex-selection {
   display: flex;
   flex-direction: column;
-  gap: 11px;
-  width: 330px;
-  padding: 13px;
-  border: 1px solid var(--rule);
-  border-radius: 7px;
-  background: var(--panel);
-  box-shadow: 0 14px 42px rgb(0 0 0 / 48%);
-
-  /* A card with many targets, in a short pane, scrolls inside itself. Composer
-     lifts it back into the pane; this is what keeps the Ask button reachable
-     when even the top of the pane is not enough room. */
-  max-height: calc(100% - 16px);
-  overflow-y: auto;
+  flex: none;
+  border-bottom: 1px solid var(--rule);
+  background: var(--well);
 }
 
-.rex-composer-head {
+/*
+  §3.3 — a maximum height, scrolling inside itself.
+
+  Twenty items must not push the comments off the bottom of the sidebar: the
+  comments are how you check you are not asking something already asked.
+*/
+.rex-selection-list {
   display: flex;
-  align-items: center;
-  gap: 7px;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 34vh;
+  margin: 0;
+  padding: 8px 10px;
+  overflow-y: auto;
+  list-style: none;
 }
 
-.rex-composer-head::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--link);
+.rex-selection-item {
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: var(--panel);
 }
 
-.rex-composer-where {
-  margin-left: auto;
+.rex-selection-item:hover,
+.rex-selection-lit {
+  border-color: var(--link);
+}
+
+.rex-selection-open {
+  border-color: var(--rule);
+  background: var(--sunk);
+}
+
+.rex-selection-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.rex-selection-main {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 4px 6px 7px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rex-selection-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.rex-selection-label {
+  overflow: hidden;
+  color: var(--fg);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* §3.2 — the document, always, not only when it differs. A list where the
+   document appears sometimes is a list you have to read twice. */
+.rex-selection-doc {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 9.5px;
 }
 
-.rex-scope-block {
+.rex-selection-remove {
+  flex: none;
+  width: 22px;
+  height: 26px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rex-selection-remove:hover {
+  color: var(--lost-text);
+}
+
+/* The chips, the strength meter and `a region of it` — on the expanded row
+   only. Nine collapsed rows each carrying a strength meter is a wall (§4). */
+.rex-selection-detail {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 2px 9px 9px;
+}
+
+.rex-selection-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+  padding: 10px 14px 12px;
+  border-top: 1px solid var(--rule-soft);
 }
 
 .rex-scopes {
@@ -889,57 +1027,44 @@
   color: var(--fg);
 }
 
-.rex-scope-detail {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 9px 11px;
-  border-radius: 5px;
-  background: var(--sunk);
-}
-
-.rex-scope-title {
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .rex-scope-note {
   color: var(--muted);
   font-size: 10.5px;
   line-height: 1.45;
 }
 
-.rex-scope-mono {
-  color: var(--muted);
+.rex-zoom {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
-/* The other places one comment is about. A list, not chips: each line has a
-   remove control beside it, and a name long enough to tell two table rows
-   apart does not fit in a chip. */
-.rex-extras {
+/* Spec 05 §3.2 — every place a comment is about, numbered as the panel numbered
+   it, each saying which document it is in and how it last resolved. */
+.rex-places {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.rex-extras li {
+.rex-places li {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding: 4px 6px;
-  border-radius: 4px;
-  background: var(--sunken, rgb(255 255 255 / 4%));
-  font-size: 11px;
+  gap: 7px;
+  font-size: 10.5px;
 }
 
-.rex-zoom {
+.rex-place-doc {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The card's copy of the number drawn on the outline in the document. */
@@ -958,20 +1083,6 @@
   font-size: 9px;
   line-height: 1;
   vertical-align: 1px;
-}
-
-.rex-add-place {
-  align-self: flex-start;
-  font-size: 11px;
-}
-
-.rex-extra-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .rex-readonly {
@@ -1239,6 +1350,20 @@
 
 .rex-thread-done .rex-thread-note {
   color: var(--fg-dim);
+}
+
+/*
+  Spec 05 §5.3 — the comment list is the workspace's, so every row names the
+  document or documents it is about. Monospace and faint: it is an address, and
+  it must never compete with the note above it.
+*/
+.rex-thread-docs {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rex-thread-meta {
@@ -1996,6 +2121,57 @@
   font-size: 11px;
 }
 
+/* ── The Apply review bar (spec 05 §5.6.1) ───────────────── */
+
+/*
+  A bar, not a dialog, and that is the whole point: a modal over the document
+  answers "what does this patch say" while hiding the thing it says it about.
+  The reviewer reads the document as it now stands, with the changed sections
+  outlined in it, and this sits under it carrying OK and Undo.
+
+  The write tint, because a write-capable agent has already touched the disk.
+*/
+.rex-review {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 12;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-height: 60vh;
+  padding: 11px 16px 13px;
+  border-top: 1px solid var(--write-edge);
+  background: var(--write-bg);
+  box-shadow: 0 -14px 42px rgb(0 0 0 / 44%);
+  overflow-y: auto;
+}
+
+.rex-review-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.rex-review-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rex-review-files {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rex-review-skipped {
+  margin: 0;
+}
+
 .rex-files {
   display: flex;
   align-items: center;
@@ -2014,6 +2190,14 @@
   color: var(--fg-dim);
   font-family: var(--mono);
   font-size: 11.5px;
+  cursor: pointer;
+}
+
+/* The document already on screen. Not a link, because there is nowhere to go. */
+.rex-file-open {
+  border-color: var(--action);
+  color: var(--fg);
+  cursor: default;
 }
 
 .rex-file-add {

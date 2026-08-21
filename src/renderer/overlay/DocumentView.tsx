@@ -14,61 +14,59 @@ import type { OpenedDocument, ThreadWithMessages } from "../../shared/types.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import {
   type DocumentSurface,
-  type DraftAnchor,
   FrameSurface,
   type ResolvedThread,
   type WebviewElement,
   WebviewSurface,
 } from "./anchoring.ts";
-import { Composer, type ExtraTarget } from "./Composer.tsx";
 import { enrichDocument } from "./enrich.ts";
 import { Gutter } from "./Gutter.tsx";
 import { PickLayer } from "./PickLayer.tsx";
 import { prepareDocumentHtml } from "./sanitise.ts";
+import type { SelectionItem } from "./selection.ts";
 
 interface Props {
   doc: OpenedDocument | null;
   resolved: ResolvedThread[];
   threads: ThreadWithMessages[];
   activeId: string | null;
-  draft: DraftAnchor | null;
-  /**
-   * Changes only when a *new* draft begins, never when its scope widens — so
-   * the composer keeps what has been typed while the reviewer moves from the
-   * cell to the row to the table.
-   */
-  draftKey: number;
+  /** Spec 05 §3 — the panel's items. Only this document's are drawn. */
+  selection: SelectionItem[];
+  /** The item the reviewer is pointing at, in the panel or here (§6). */
+  hoveredItemId: string | null;
+  onHoverItem: (id: string | null) => void;
+  /** Spec 05 §5.6.1 — what an Apply changed in this document, while it is pending. */
+  changeBoxes: ScopeRect[];
   picking: boolean;
   pickScopes: PickScope[] | null;
   pickActive: number;
   arming: boolean;
   onSurfaceReady: (surface: DocumentSurface) => void;
   onSelectionChanged: () => void;
+  /**
+   * The pane changed size, so every box the overlay draws was measured against
+   * a layout that no longer exists.
+   *
+   * Watched on the frame rather than on `window`, because most of what resizes
+   * this pane never touches the window: dragging either splitter, the explorer
+   * appearing when a folder is opened, the comments column being hidden behind
+   * the graph. Measured on 2026-08-21 — a splitter drag left every selection
+   * outline behind while the prose re-centred around it.
+   */
+  onPaneResized: () => void;
   onSelectMarker: (threadId: string) => void;
-  onCreateComment: (note: string) => void;
-  onCancelDraft: () => void;
-  onScope: (index: number) => void;
-  onArmRegion: () => void;
   onProbe: (x: number, y: number) => void;
   onPickActive: (index: number) => void;
-  onPickCommit: (index: number, additive: boolean) => void;
+  onPickCommit: (index: number) => void;
   onPickCancel: () => void;
   onRegion: (index: number, box: ScopeRect) => void;
   onScrollBy: (dx: number, dy: number) => void;
   /** The document's own zoom. 1 is 100%. */
   zoom: number;
-  /** The zoom the open draft's boxes were measured at. */
-  draftZoom: number;
   onZoomBy: (factor: number) => void;
   onZoomReset: () => void;
   /** Called once a new zoom is on the page, so the resolver can re-measure. */
   onZoomApplied: () => void;
-  /** The extra targets of the comment being written (design/selection/Multi). */
-  extras: ExtraTarget[];
-  /** True while the next click adds a target rather than starting a comment. */
-  adding: boolean;
-  onAddAnother: () => void;
-  onRemoveExtra: (position: number) => void;
 }
 
 function baseHref(directory: string): string {
@@ -180,17 +178,14 @@ function zoomFromInside(
   });
 }
 
-/** `widget-service.md:14` — where the composer says the comment will land. */
-function whereOf(draft: DraftAnchor): string | null {
-  const source = draft.anchor.source;
-  if (!source) return null;
-  return `${source.file.split("/").pop()}:${source.line}`;
-}
+/** A drag-resize fires continuously; answer once it stops. */
+const RESIZE_SETTLE_MS = 200;
 
 export function DocumentView(props: Props): React.JSX.Element {
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
   const frameRef = useRef<HTMLIFrameElement>(null);
   const webviewRef = useRef<WebviewElement>(null);
+  const paneRef = useRef<HTMLElement>(null);
 
   const { doc, onSurfaceReady, onSelectionChanged } = props;
   const isWebview = doc !== null && doc.presentation.kind === "url";
@@ -292,6 +287,26 @@ export function DocumentView(props: Props): React.JSX.Element {
     return () => window.clearInterval(timer);
   }, [isWebview, onSelectionChanged]);
 
+  // ── The pane's own size ─────────────────────────────────────
+
+  const { onPaneResized } = props;
+  useEffect(() => {
+    const pane = paneRef.current;
+    if (!pane) return;
+    let timer = 0;
+    // It fires once on observe, before there is a surface. That call is free —
+    // the sweep behind it returns early until one is handed up.
+    const observer = new ResizeObserver(() => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(onPaneResized, RESIZE_SETTLE_MS);
+    });
+    observer.observe(pane);
+    return () => {
+      window.clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [onPaneResized]);
+
   // ── Zoom ────────────────────────────────────────────────────
   //
   // Applied here rather than in the load effect, which must not re-run: it
@@ -315,29 +330,36 @@ export function DocumentView(props: Props): React.JSX.Element {
     onZoomApplied();
   }, [zoom, isWebview, onZoomApplied]);
 
-  // One outline per anchor, so a comment written against three rows shows all
-  // three. The thread id alone is no longer unique, hence the position.
+  // One outline per checked target, so a comment written against three rows
+  // shows all three. The thread id alone is not unique, hence the position.
   const blocks = props.resolved.flatMap((entry) =>
-    entry.boxes.map((box, position) => ({ entry, box, position })),
+    entry.checked
+      .filter((check) => check.box !== null)
+      .map((check) => ({ entry, check, box: check.box as ScopeRect })),
   );
 
-  // The comment being written: its primary target first, then the extras, in
-  // the order the card lists them.
-  //
-  // Each box is rescaled from the zoom it was measured at. A draft outlives a
-  // zoom change — reading a table more closely before deciding whether the
-  // fourth row belongs in the comment is exactly when someone zooms.
-  const draftBoxes = props.draft
-    ? [
-        { rect: props.draft.scopes[props.draft.active]?.rect, zoom: props.draftZoom },
-        ...props.extras.map((extra) => ({ rect: extra.rect, zoom: extra.zoom })),
-      ]
-        .filter((entry): entry is { rect: ScopeRect; zoom: number } => entry.rect !== undefined)
-        .map(({ rect, zoom }) => rescale(rect, props.zoom / zoom))
-    : [];
+  // Spec 05 §6 — the selection's own places, drawn only for this document. The
+  // number is the row's number in the panel, so nine cells and nine rows can be
+  // told apart, and a place in another document keeps its number without a box.
+  const marks = props.selection.flatMap((item, position) =>
+    // A row from another document keeps its number without a box, and so does
+    // one whose anchor stopped resolving here — see `SelectionItem.rect`.
+    item.documentId === props.doc?.documentId && item.rect
+      ? [
+          {
+            id: item.id,
+            number: position + 1,
+            // Rescaled from the zoom it was measured at: a selection outlives a
+            // zoom change, and reading a table closely before deciding whether
+            // the fourth row belongs is exactly when someone zooms.
+            box: rescale(item.rect, props.zoom / item.zoom),
+          },
+        ]
+      : [],
+  );
 
   return (
-    <main className="rex-doc">
+    <main className="rex-doc" ref={paneRef}>
       {doc === null ? (
         <div className="rex-empty">
           <h1>REX</h1>
@@ -361,37 +383,59 @@ export function DocumentView(props: Props): React.JSX.Element {
       )}
 
       {/*
-        An anchor on a whole element or a region of one is an outline, not a
-        fill: the Custom Highlight API paints ranges, so there is no range to
-        paint here — and drawing it as an overlay box keeps the promise that
-        REX never touches the document's own tree.
+        Spec 05 §5.6.1 — what an Apply just changed, in the write colour, while
+        the reviewer decides. Drawn first so a selection outline over the same
+        block still reads on top of it.
       */}
-      {/*
-        Every place the comment being written is about, outlined at once.
-        A list of nine cells in the card does not tell the reviewer *which*
-        nine, and the whole reason to comment on nine cells is that their
-        arrangement matters. Drawn from the rect captured at the click, so no
-        anchor has to be resolved before the comment exists.
-      */}
-      {draftBoxes.map((box, position) => (
+      {props.changeBoxes.map((box) => (
         <div
-          key={`draft-${position}`}
-          className="rex-draft-outline"
+          key={`change-${box.x}-${box.y}-${box.w}-${box.h}`}
+          className="rex-change-outline"
           style={{
             left: box.x - scroll.x,
             top: box.y - scroll.y,
             width: box.w,
             height: box.h,
           }}
+        />
+      ))}
+
+      {/*
+        Every place the selection is about, outlined at once. A list of nine
+        cells in the panel does not tell the reviewer *which* nine, and the whole
+        reason to comment on nine cells is that their arrangement matters. Drawn
+        from the rect captured at the click, so no anchor has to be resolved
+        before the comment exists.
+      */}
+      {marks.map((mark) => (
+        <div
+          key={mark.id}
+          className={`rex-draft-outline${
+            props.hoveredItemId === mark.id ? " rex-draft-outline-lit" : ""
+          }`}
+          style={{
+            left: mark.box.x - scroll.x,
+            top: mark.box.y - scroll.y,
+            width: mark.box.w,
+            height: mark.box.h,
+          }}
+          onMouseEnter={() => props.onHoverItem(mark.id)}
+          onMouseLeave={() => props.onHoverItem(null)}
         >
-          <span className="rex-draft-index">{position + 1}</span>
+          <span className="rex-draft-index">{mark.number}</span>
         </div>
       ))}
 
-      {blocks.map(({ entry, box, position }) => (
+      {/*
+        An anchor on a whole element or a region of one is an outline, not a
+        fill: the Custom Highlight API paints ranges, so there is no range to
+        paint here — and drawing it as an overlay box keeps the promise that
+        REX never touches the document's own tree.
+      */}
+      {blocks.map(({ entry, check, box }) => (
         <div
-          key={`${entry.threadId}-${position}`}
-          className={`rex-block-outline${entry.state === "moved" ? " rex-block-moved" : ""}${
+          key={`${entry.threadId}-${check.position}`}
+          className={`rex-block-outline${check.state === "moved" ? " rex-block-moved" : ""}${
             props.activeId === entry.threadId ? " rex-block-active" : ""
           }`}
           style={{
@@ -425,25 +469,6 @@ export function DocumentView(props: Props): React.JSX.Element {
           onCancel={props.onPickCancel}
           onScrollBy={props.onScrollBy}
           onZoomBy={props.onZoomBy}
-        />
-      ) : null}
-
-      {props.draft ? (
-        <Composer
-          key={props.draftKey}
-          draft={props.draft}
-          top={Math.max(8, props.draft.top - scroll.y)}
-          where={whereOf(props.draft)}
-          arming={props.arming}
-          picking={props.picking}
-          adding={props.adding}
-          extras={props.extras}
-          onAddAnother={props.onAddAnother}
-          onRemoveExtra={props.onRemoveExtra}
-          onScope={props.onScope}
-          onArmRegion={props.onArmRegion}
-          onCreate={props.onCreateComment}
-          onCancel={props.onCancelDraft}
         />
       ) : null}
     </main>

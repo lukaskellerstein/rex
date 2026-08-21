@@ -1,0 +1,301 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,600&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #6f9fe0; }
+    a:hover { color: #9dc2f0; }
+  </style>
+</helmet>
+
+<!--
+  HOW THE AGENT GOT THERE — the full trace, at a width its content can live in.
+
+  The split this board exists to draw: the sidebar keeps the CONVERSATION,
+  because an answer is about a passage and you read one against the other. The
+  MACHINERY — bash lines, paths, patterns, a refusal — is wide, technical, and
+  has nothing to do with the document being on screen. So it gets the document
+  pane, and only the document pane: the comment card stays beside it, so you
+  always see which comment you are auditing. Escape closes it.
+
+  It is a sheet rather than a third centre. The `Document | Graph` segment is a
+  WORKSPACE switch; a trace belongs to one comment. Making it a peer of the graph
+  would put a button in the bar that comes and goes, and leaving it would need a
+  decision. A sheet has one exit. Apply's review bar settled the same question
+  the same way.
+
+  Colour here distinguishes KIND, and it does it without inventing meanings:
+  steel is you and the answer, neutral is machinery, faint is thinking, and red
+  is the write-capable agent being refused — the same two things red is spent on
+  everywhere else in this design.
+-->
+
+<div style="width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; background: #0d1420; color: #e4e9f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 1.5;">
+
+  <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; height: 44px; flex: none; background: #131d2e; border-bottom: 1px solid #24344a;">
+    <img src="rex-mark-color-128.png" alt="REX" style="flex: none; display: block; height: 24px; width: auto;">
+    <span style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">
+      Open<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
+    </span>
+    <span style="display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;">
+      <span style="color: #8ba0ba;">docs</span><span style="color: #4a5f7a;"> / </span><span style="color: #8ba0ba;">architecture</span><span style="color: #4a5f7a;"> / </span><span style="color: #e4e9f0; font-weight: 500;">widget-service.md</span>
+    </span>
+    <span style="flex: 1;"></span>
+    <span style="display: flex; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420; gap: 2px;">
+      <span style="padding: 3px 12px; border-radius: 4px; background: #22304a; font-size: 12px; font-weight: 500;">Document</span>
+      <span style="padding: 3px 12px; border-radius: 4px; font-size: 12px; color: #8ba0ba;">Graph</span>
+    </span>
+    <span style="font-size: 12px; color: #8ba0ba; font-variant-numeric: tabular-nums;">$0.9330</span>
+    <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Ask all · 1</span>
+  </div>
+
+  <div style="display: flex; flex: 1; min-height: 0;">
+
+    <div style="width: 272px; flex: none; display: flex; flex-direction: column; background: #131d2e; border-right: 1px solid #24344a;">
+      <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; flex: none; border-bottom: 1px solid #1c2a3d;">
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">WORKSPACE · DOCS</span>
+        <span style="font-size: 11px; color: #6f9fe0;">reload</span>
+      </div>
+      <div style="display: flex; flex-direction: column; padding: 8px 0; overflow: hidden;">
+        <div style="display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 12px; font-size: 12px; font-weight: 600; color: #b9c7d8;">
+          <svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor" style="color: #5d7a9a;"><path d="M4 6h8l-4 5z"></path></svg><span>architecture</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;">
+          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">components.md</span>
+          <span style="display: flex; align-items: center; gap: 3px;"><span style="width: 5px; height: 5px; border-radius: 50%; background: #2f5da8;"></span><span style="font-size: 11px; color: #8ba0ba; font-variant-numeric: tabular-nums;">2</span></span>
+        </div>
+        <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;">overview.md</div>
+        <div style="display: flex; align-items: center; gap: 8px; height: 24px; padding: 0 12px 0 27px; font-size: 12px; font-weight: 500; color: #e4e9f0; background: #1a2638; box-shadow: inset 2px 0 0 #6f9fe0;">
+          <span style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">widget-service.md</span>
+          <span style="display: flex; align-items: center; gap: 3px;">
+            <span style="width: 5px; height: 5px; border-radius: 50%; background: #2f5da8;"></span><span style="font-size: 11px; color: #b9c7d8; font-variant-numeric: tabular-nums;">3</span>
+            <span style="width: 5px; height: 5px; border-radius: 50%; background: #d2402f; margin-left: 3px;"></span><span style="font-size: 11px; color: #d2402f; font-variant-numeric: tabular-nums;">1</span>
+          </span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; height: 24px; margin-top: 6px; padding: 0 12px; font-size: 12px; font-weight: 600; color: #b9c7d8;">
+          <svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor" style="color: #5d7a9a;"><path d="M4 6h8l-4 5z"></path></svg><span>review</span>
+        </div>
+        <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;">2026-08-19-pr-comments.html</div>
+        <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;" title="Apply cannot edit a PDF — there is no source line to write back to.">2026-07-30-audit.pdf</div>
+      </div>
+    </div>
+
+    <!-- ── THE SHEET, over the document pane and nothing else ─────────── -->
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; background: #0d1420; border-right: 1px solid #24344a;">
+
+      <div style="display: flex; align-items: center; gap: 10px; height: 44px; flex: none; padding: 0 16px; border-bottom: 1px solid #24344a; background: #131d2e;">
+        <span style="display: flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex: none; border-radius: 50%; background: #f0b429; color: #2b2000; font-size: 10px; font-weight: 700;">2</span>
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">TRACE</span>
+        <span style="flex: 1; min-width: 0; font-size: 12px; color: #b9c7d8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Three retries with no backoff will hammer a failing dependency…</span>
+        <span style="flex: none; display: flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: #1f1512; color: #e08a76; font-size: 10px; font-weight: 600; letter-spacing: 0.03em; white-space: nowrap;" title="One write was refused by the gate">
+          <span style="width: 5px; height: 5px; border-radius: 50%; background: #d2402f;"></span>1 DENIED
+        </span>
+        <span style="flex: none; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #5d7a9a; white-space: nowrap;" title="4.1k tokens">6 steps · 12.4s · $0.031</span>
+        <span style="display: flex; align-items: center; gap: 5px; font-size: 11px; color: #6f9fe0; cursor: pointer;" title="Back to the document — esc">
+          <span style="padding: 1px 5px; border: 1px solid #24344a; border-radius: 3px; background: #1a2638; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px;">esc</span>
+          close
+        </span>
+      </div>
+
+      <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; padding: 16px; overflow: hidden;">
+
+        <!-- YOU — the note that started it. Steel, because it is the reviewer's
+             own voice and steel is what REX spends on the reviewer's actions. -->
+        <div style="display: flex; gap: 12px; padding: 12px 14px; border: 1px solid #1f2f4a; border-left: 3px solid #2f5da8; border-radius: 0 6px 6px 0; background: #141f31;">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#6f9fe0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px;"><path d="M13.5 10.5a1.5 1.5 0 0 1-1.5 1.5H5l-2.5 2.5V4a1.5 1.5 0 0 1 1.5-1.5h8A1.5 1.5 0 0 1 13.5 4z"></path></svg>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #6f9fe0;">YOU</span>
+            <span style="font-size: 13px; line-height: 1.6; color: #e4e9f0;">Three retries with no backoff will hammer a failing dependency — and the components table says five. Which is right?</span>
+          </div>
+          <span style="flex: none; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #5d7a9a;">14:32</span>
+        </div>
+
+        <!-- THINKING — stored today and never drawn. Grey, italic and quiet: it
+             is subordinate to the answer everywhere, and it lives only here. -->
+        <div style="display: flex; gap: 12px; padding: 11px 14px; border: 1px solid #1c2a3d; border-left: 3px solid #3f4f68; border-radius: 0 6px 6px 0; background: #101a29;">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#5d7a9a" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px;"><path d="M8 2.5a4 4 0 0 1 2.5 7.1V12h-5V9.6A4 4 0 0 1 8 2.5zM6.5 14h3"></path></svg>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #5d7a9a;">THINKING</span>
+            <span style="font-size: 12.5px; font-style: italic; line-height: 1.55; color: #8ba0ba;">The comment is about a retry loop, so the first question is whether the loop is in this repository at all. If it is only prose, I can check the two documents against each other but not against the code — and I should say so rather than imply I read an implementation.</span>
+          </div>
+          <span style="flex: none; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #3f4f68;">0.8s · 240 tok</span>
+        </div>
+
+        <!-- A TOOL CALL, with the argument that matters rendered for that tool:
+             a command for Bash, a path for Read, a pattern for Grep. Neutral,
+             because “which tool ran” is not a state and colour means state. -->
+        <div style="display: flex; gap: 12px; padding: 11px 14px; border: 1px solid #1c2a3d; border-left: 3px solid #3f4f68; border-radius: 0 6px 6px 0; background: #131d2e;">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#8ba0ba" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px;"><path d="M3 4.5 6.5 8 3 11.5M8.5 12h4.5"></path></svg>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">BASH</span>
+            <span style="display: block; padding: 6px 10px; border-radius: 4px; background: #0a1018; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #b9c7d8; white-space: pre;">rg -n "retry|backoff" --glob '*.md' --hidden</span>
+            <!-- The result, collapsed to a summary. Open it only when the answer
+                 looks wrong; that is the one time it earns its height. -->
+            <span onClick="{{ toggleResult }}" style="display: flex; align-items: center; gap: 7px; margin-left: 8px; padding-left: 12px; border-left: 1px solid #24344a; font-size: 11px; color: #8ba0ba; cursor: pointer;">
+              <svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor" style="{{ caret }}"><path d="M6 4v8l5-4z"></path></svg>
+              4 matches in 2 files
+              <span style="color: #6f9fe0;"><sc-if value="{{ resultClosed }}" hint-placeholder-val="{{ true }}">show</sc-if><sc-if value="{{ resultOpen }}" hint-placeholder-val="{{ true }}">hide</sc-if></span>
+            </span>
+            <sc-if value="{{ resultOpen }}" hint-placeholder-val="{{ true }}">
+              <span style="display: block; margin-left: 8px; padding: 8px 12px; border-left: 1px solid #24344a; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; line-height: 1.7; color: #8ba0ba; white-space: pre;">notes.md:18: retried three times with no backoff
+notes.md:24: no backoff between attempts
+components.md:41: Retries are capped at five.
+components.md:42: backoff is exponential</span>
+            </sc-if>
+          </div>
+          <span style="flex: none; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #3f4f68;">120ms</span>
+        </div>
+
+        <div style="display: flex; gap: 12px; padding: 11px 14px; border: 1px solid #1c2a3d; border-left: 3px solid #3f4f68; border-radius: 0 6px 6px 0; background: #131d2e;">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#8ba0ba" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px;"><path d="M4 2.5h5l3 3V13a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 4 13z"></path><path d="M9 2.5v3.5h3"></path></svg>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">READ</span>
+            <span style="display: block; padding: 6px 10px; border-radius: 4px; background: #0a1018; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #b9c7d8;">docs/architecture/components.md</span>
+          </div>
+          <span style="flex: none; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #3f4f68;">18ms</span>
+        </div>
+
+        <!-- THE GATE FIRING. Open by default and in the write red — this is the
+             one step nobody should have to unfold, because it is the whole
+             safety story of the read profile made visible. -->
+        <div style="display: flex; gap: 12px; padding: 11px 14px; border: 1px solid #3f2a24; border-left: 3px solid #d2402f; border-radius: 0 6px 6px 0; background: #1f1512;">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#e08a76" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px;"><circle cx="8" cy="8" r="6"></circle><path d="M4 12 12 4"></path></svg>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #e08a76;">DENIED</span>
+            <span style="font-size: 12.5px; line-height: 1.55; color: #cfa79c;">The agent tried to write <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #e08a76;">docs/architecture/widget-service.md</span> and the gate refused it. Only Apply may write, and only after you have seen the change.</span>
+            <span style="display: block; padding: 6px 10px; border-radius: 4px; background: #1a1211; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px; color: #e08a76;">Write — blocked by the read profile</span>
+          </div>
+        </div>
+
+        <!-- THE ANSWER wins by contrast, not by colour — the same way it wins in
+             the sidebar. Steel edge, full-contrast body, no tint. -->
+        <div style="display: flex; gap: 12px; padding: 13px 14px; border: 1px solid #2f5da8; border-left: 3px solid #2f5da8; border-radius: 0 6px 6px 0; background: #141f31;">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#6f9fe0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="flex: none; margin-top: 1px;"><path d="M8 2.2 9.7 6.3 13.8 8l-4.1 1.7L8 13.8 6.3 9.7 2.2 8l4.1-1.7z"></path></svg>
+          <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #6f9fe0;">ANSWER</span>
+            <span style="font-size: 13px; line-height: 1.6; color: #e4e9f0;">The comment is right on both counts. Three immediate retries against a dependency that is already failing is a thundering herd, and the queue keeps no record of what was dropped. The two documents also disagree: this one says three, and components.md says five.</span>
+          </div>
+          <span style="flex: none; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px; color: #5d7a9a;">2.1s · 1.4k tok</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- The comment stays beside the trace, so you always see which one you are
+         auditing — and the reply box is still reachable without closing. -->
+    <div style="width: 384px; flex: none; display: flex; flex-direction: column; background: #131d2e; border-left: 1px solid #24344a; overflow: hidden;">
+      <div style="display: flex; align-items: center; height: 40px; flex: none; padding: 0 14px; border-bottom: 1px solid #1c2a3d;">
+        <div style="display: flex; flex: 1; gap: 2px; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420;">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 3px 12px; border-radius: 4px; color: #5d7a9a; font-size: 12px;">
+            Selection<span style="padding: 0 6px; border-radius: 999px; background: #22304a; color: #5d7a9a; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;">0</span>
+          </span>
+          <span style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 3px 12px; border-radius: 4px; background: #22304a; color: #e4e9f0; font-size: 12px; font-weight: 500;">
+            Comments<span style="padding: 0 6px; border-radius: 999px; background: #6f9fe0; color: #0d1420; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;">6</span>
+          </span>
+        </div>
+      </div>
+
+      <div style="display: flex; align-items: center; gap: 10px; padding: 0 14px; height: 40px; flex: none; border-bottom: 1px solid #1c2a3d;">
+        <span style="display: flex; align-items: center; gap: 5px; font-size: 12px; color: #6f9fe0;">
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 4 5.5 8l4 4"></path></svg>all comments
+        </span>
+        <span style="flex: 1;"></span>
+        <span style="display: flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 999px; background: #3a2f10; color: #f0b429; font-size: 10px; font-weight: 600; letter-spacing: 0.03em;">
+          <span style="width: 5px; height: 5px; border-radius: 50%; background: #f0b429;"></span>TEXT MOVED
+        </span>
+      </div>
+
+      <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 14px; overflow: hidden;">
+        <div style="display: flex; flex-direction: column; gap: 9px; padding: 12px 13px; border: 1px solid #3a2f10; border-radius: 6px; background: #1c1708;">
+          <div style="display: flex; align-items: center; gap: 7px;">
+            <span style="width: 18px; height: 18px; flex: none; border-radius: 50%; background: #f0b429; color: #2b2000; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">2</span>
+            <span style="font-size: 11px; color: #8ba0ba;">anchored in 2 places · <span style="color: #f0b429;">re-found after the file changed</span></span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="flex: 1; min-width: 0; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9.5px; color: #5d7a9a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">widget-service.md · components.md</span>
+            <span style="flex: none; display: flex; align-items: center; gap: 3px; font-size: 11px; color: #6f9fe0; cursor: pointer;">
+              go to
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4 10.5 8l-4 4"></path></svg>
+            </span>
+          </div>
+          <div style="font-size: 13px; font-weight: 600; line-height: 1.45;">Three retries with no backoff will hammer a failing dependency — and the components table says five. Which is right?</div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 7px 9px; border-radius: 4px; background: #101a29; font-size: 10px; color: #5d7a9a;">
+          <span style="display: flex; align-items: center; gap: 5px; color: #8ba0ba;">
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 13 4v4.2C13 11 10.8 13.2 8 14 5.2 13.2 3 11 3 8.2V4z"></path></svg>
+            read
+          </span>
+          <span style="color: #24344a;">|</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace;">2 turns</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace;">6 steps</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace;">12.4s</span>
+          <span style="font-family: 'IBM Plex Mono', ui-monospace, monospace;">$0.031</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="display: flex; align-items: baseline; gap: 8px;">
+            <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">ANSWER</span>
+            <span style="margin-left: auto; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; color: #5d7a9a;">12.4s · $0.031</span>
+          </div>
+          <div style="font-size: 13px; line-height: 1.6; color: #e4e9f0;">The comment is right on both counts. Three immediate retries against a dependency that is already failing is a thundering herd, and the queue keeps no record of what was dropped.</div>
+        </div>
+
+        <!-- The strip, with the trace open: the same bars, now lit. -->
+        <div style="display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 1px solid #2f5da8; border-radius: 5px; background: #141f31;">
+          <span style="display: flex; align-items: flex-end; gap: 2px; flex: none; height: 12px;">
+            <i style="width: 3px; height: 10px; border-radius: 1px; background: #5d7a9a;"></i>
+            <i style="width: 3px; height: 10px; border-radius: 1px; background: #5d7a9a;"></i>
+            <i style="width: 3px; height: 10px; border-radius: 1px; background: #5d7a9a;"></i>
+            <i style="width: 3px; height: 10px; border-radius: 1px; background: #5d7a9a;"></i>
+            <i style="width: 3px; height: 12px; border-radius: 1px; background: #d2402f;"></i>
+            <i style="width: 3px; height: 10px; border-radius: 1px; background: #5d7a9a;"></i>
+          </span>
+          <span style="font-size: 11px; color: #e4e9f0;">6 steps</span>
+          <span style="font-size: 11px; color: #e08a76;">· 1 denied</span>
+          <span style="margin-left: auto; font-size: 11px; color: #6f9fe0;">showing</span>
+        </div>
+      </div>
+
+      <div style="flex: none; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; border-top: 1px solid #1c2a3d; background: #101a29;">
+        <div style="min-height: 42px; padding: 9px 11px; border: 1px solid #24344a; border-radius: 5px; background: #1a2638; font-size: 13px; color: #5d7a9a;">Reply to this thread</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Send</span>
+          <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">Resolve</span>
+          <span style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px; border: 1px solid #3f2a24; border-radius: 4px; background: #1f1512; color: #e08a76; font-size: 12px;">
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.8 13.2 4.8 5.6 12.4 2.8 13.2 3.6 10.4z"></path></svg>Apply…
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { result: false };
+  }
+
+  renderVals() {
+    const open = this.state.result;
+    return {
+      resultOpen: open,
+      toggleResult: () => this.setState({ result: !open }),
+      // A tool result is collapsed until the answer looks wrong. That is the one
+      // time its height earns itself, and it is Vex's rule too.
+      caret: open ? "color: #5d7a9a; transform: rotate(90deg);" : "color: #5d7a9a;",
+      resultClosed: !open,
+    };
+  }
+}
+</script>
+</body>
+</html>

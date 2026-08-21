@@ -35,6 +35,26 @@ CREATE TABLE IF NOT EXISTS thread (
 CREATE INDEX IF NOT EXISTS idx_thread_doc
   ON thread(document_id, status);
 
+-- Spec 05 §5.2 — one row per place a comment is about, in panel order.
+--
+-- This is what lets one comment span documents: the target carries its own
+-- document_id, which `thread.anchor_json` never could. Those older columns are
+-- left in place and stop being read — dropping a column rewrites the table, and
+-- a half-finished rewrite of somebody's comments is not worth the tidiness.
+CREATE TABLE IF NOT EXISTS thread_target (
+  thread_id     TEXT NOT NULL REFERENCES thread(id) ON DELETE CASCADE,
+  position      INTEGER NOT NULL,
+  document_id   TEXT NOT NULL REFERENCES document(id) ON DELETE CASCADE,
+  anchor_json   TEXT NOT NULL,
+  -- NULL means "that document has not been open, so nobody looked". It is not
+  -- orphaned, and §5.7 must never count it as one.
+  anchor_state  TEXT CHECK (anchor_state IN ('ok','moved','orphaned')),
+  PRIMARY KEY (thread_id, position)
+);
+
+-- What makes the explorer's counts and the workspace-wide list cheap (§5.2).
+CREATE INDEX IF NOT EXISTS idx_target_document ON thread_target(document_id);
+
 CREATE TABLE IF NOT EXISTS message (
   id              TEXT PRIMARY KEY,
   thread_id       TEXT NOT NULL REFERENCES thread(id) ON DELETE CASCADE,

@@ -87,4 +87,14 @@ export const HIGHLIGHT = {
   movedRule: "#c08a12",
   /** A resolved thread, drained of colour but still findable. */
   resolvedBg: "#e9e7e2",
+  /**
+   * The comment whose card is open — violet, and deliberately a fourth colour.
+   *
+   * Steel and amber say what *state* an anchor is in; they cannot also say
+   * which comment is being read. Blue is the selection's (spec 05 §6) and red
+   * is the write-capable agent's, so a reviewer holding a half-built selection
+   * while reading a comment had two blues on the page meaning two things.
+   */
+  activeBg: "#ece1f7",
+  activeRule: "#7a4fa3",
 } as const;

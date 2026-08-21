@@ -18,23 +18,20 @@
 <div style="width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; background: #0d1420; color: #e4e9f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 1.5;">
 
   <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; height: 44px; flex: none; background: #131d2e; border-bottom: 1px solid #24344a;">
-    <span style="width: 22px; height: 22px; flex: none; border-radius: 5px; background: #d2402f; color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center;">R</span>
+    <img src="rex-mark-color-128.png" alt="REX" style="flex: none; display: block; height: 24px; width: auto;">
+    <span style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">
+      Open<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
+    </span>
     <span style="display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;">
-      <span style="color: #8ba0ba;">review</span><span style="color: #4a5f7a;">/</span><span style="color: #e4e9f0; font-weight: 500;">2026-08-19-protobot-review.html</span>
+      <span style="color: #8ba0ba;">review</span><span style="color: #4a5f7a;"> / </span><span style="color: #e4e9f0; font-weight: 500;">2026-08-19-protobot-review.html</span>
     </span>
     <span style="flex: 1;"></span>
-    <span style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;" title="Pick an element — E, or hold ⌥">
-      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M2.5 2.5h4M9.5 2.5h4v4M13.5 9.5v4h-4M6.5 13.5h-4v-4"></path><path d="M6.4 6.4 12 8.6l-2.3.9-.9 2.3z" fill="currentColor" stroke="none"></path></svg>
-      Pick element
-    </span>
     <span style="display: flex; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420; gap: 2px;">
       <span style="padding: 3px 12px; border-radius: 4px; background: #22304a; font-size: 12px; font-weight: 500;">Document</span>
       <span style="padding: 3px 12px; border-radius: 4px; font-size: 12px; color: #8ba0ba;">Graph</span>
     </span>
     <span style="font-size: 12px; color: #8ba0ba; font-variant-numeric: tabular-nums;">$0.2280</span>
-    <span style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">
-      Open<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
-    </span>
+    <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Ask all · 2</span>
   </div>
 
   <div style="display: flex; flex: 1; min-height: 0;">
@@ -135,12 +132,30 @@
         <span onClick="{{ goCell }}" style="{{ crumbCell }}">td</span>
         <span style="margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 10px; color: #8a837a;">
           <span style="display: flex; align-items: center; gap: 4px;"><span style="padding: 1px 5px; border: 1px solid #d6d1c8; border-radius: 3px; background: #fff; font-family: 'IBM Plex Mono', monospace;">↑</span><span style="padding: 1px 5px; border: 1px solid #d6d1c8; border-radius: 3px; background: #fff; font-family: 'IBM Plex Mono', monospace;">↓</span>widen / narrow</span>
+          <!-- Every plain click adds. Spec 05 §3.1 removed the modifiers: on
+               macOS ctrl-click IS a right-click, the OS owns that gesture, and
+               building selection on top of it was the bug this fixed. -->
+          <span style="display: flex; align-items: center; gap: 4px;"><span style="padding: 1px 5px; border: 1px solid #d6d1c8; border-radius: 3px; background: #fff; font-family: 'IBM Plex Mono', monospace;">click</span>adds to the selection</span>
           <span style="display: flex; align-items: center; gap: 4px;"><span style="padding: 1px 5px; border: 1px solid #d6d1c8; border-radius: 3px; background: #fff; font-family: 'IBM Plex Mono', monospace;">esc</span>leave</span>
         </span>
       </div>
     </div>
 
     <div style="width: 384px; flex: none; display: flex; flex-direction: column; background: #131d2e; border-left: 1px solid #24344a; overflow: hidden;">
+      <!-- The tab bar is furniture: it is here on every screen that shows the
+           comments column, whatever is in it. With nothing selected the
+           Selection tab is dimmed and reads 0. -->
+      <div style="display: flex; align-items: center; height: 40px; flex: none; padding: 0 14px; border-bottom: 1px solid #1c2a3d;">
+        <div style="display: flex; flex: 1; gap: 2px; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420;">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 3px 12px; border-radius: 4px; color: #5d7a9a; font-size: 12px;">
+            Selection<span style="padding: 0 6px; border-radius: 999px; background: #22304a; color: #5d7a9a; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;">0</span>
+          </span>
+          <span style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 3px 12px; border-radius: 4px; background: #22304a; color: #e4e9f0; font-size: 12px; font-weight: 500;">
+            Comments<span style="padding: 0 6px; border-radius: 999px; background: #6f9fe0; color: #0d1420; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;">2</span>
+          </span>
+        </div>
+      </div>
+
       <div style="display: flex; align-items: center; padding: 0 14px; height: 40px; flex: none; border-bottom: 1px solid #1c2a3d;">
         <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">WHAT YOU WOULD ANCHOR</span>
       </div>
@@ -161,7 +176,7 @@
             <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #b9c7d8; line-height: 1.6;">element.css = "#retry-policy &gt; table"<br>quote = "Setting Default Range Notes…"</span>
             <span style="display: flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 4px; background: #1c1708;">
               <span style="display: flex; gap: 2px;"><span style="width: 4px; height: 11px; border-radius: 1px; background: #f0b429;"></span><span style="width: 4px; height: 11px; border-radius: 1px; background: #f0b429;"></span><span style="width: 4px; height: 11px; border-radius: 1px; background: #3a2f10;"></span></span>
-              <span style="font-size: 11px; color: #d8c58e;"><strong>Fair</strong> — no id, but its text is distinctive</span>
+              <span style="font-size: 11px; color: #d8c58e;"><strong>Fair</strong> — no id, but its text carries it if it moves</span>
             </span>
           </sc-if>
           <sc-if value="{{ atRow }}" hint-placeholder-val="{{ true }}">
@@ -169,7 +184,7 @@
             <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #b9c7d8; line-height: 1.6;">element.css = "…table tbody tr:nth-child(2)"<br>quote = "cache ttl 60s 0–600s keyed by…"</span>
             <span style="display: flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 4px; background: #1c1708;">
               <span style="display: flex; gap: 2px;"><span style="width: 4px; height: 11px; border-radius: 1px; background: #f0b429;"></span><span style="width: 4px; height: 11px; border-radius: 1px; background: #f0b429;"></span><span style="width: 4px; height: 11px; border-radius: 1px; background: #3a2f10;"></span></span>
-              <span style="font-size: 11px; color: #d8c58e;"><strong>Fair</strong> — the quote carries it if the row moves</span>
+              <span style="font-size: 11px; color: #d8c58e;"><strong>Fair</strong> — no id, but its text carries it if it moves</span>
             </span>
           </sc-if>
           <sc-if value="{{ atCell }}" hint-placeholder-val="{{ true }}">
@@ -177,20 +192,20 @@
             <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #b9c7d8; line-height: 1.6;">element.css = "…tr:nth-child(2) td:nth-child(4)"<br>quote = "keyed by request id"</span>
             <span style="display: flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 4px; background: #1c1708;">
               <span style="display: flex; gap: 2px;"><span style="width: 4px; height: 11px; border-radius: 1px; background: #f0b429;"></span><span style="width: 4px; height: 11px; border-radius: 1px; background: #f0b429;"></span><span style="width: 4px; height: 11px; border-radius: 1px; background: #3a2f10;"></span></span>
-              <span style="font-size: 11px; color: #d8c58e;"><strong>Fair</strong> — short quote, but unique in this document</span>
+              <span style="font-size: 11px; color: #d8c58e;"><strong>Fair</strong> — no id, but its text carries it if it moves</span>
             </span>
           </sc-if>
-          <span style="display: flex; gap: 7px; margin-top: 1px;">
-            <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Comment on this</span>
-            <span style="display: flex; align-items: center; height: 28px; padding: 0 12px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">Cancel</span>
-          </span>
+          <!-- There is no “Comment on this” button any more. A click adds this
+               place to the selection panel and pick mode stays on, so the next
+               click adds the next one. Nothing replaces anything. -->
+          <span style="font-size: 11px; line-height: 1.5; color: #8ba0ba; margin-top: 1px;">Click adds this place to the selection panel — pick mode stays on for the next one.</span>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 7px;">
           <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">HOW IT BEHAVES</span>
-          <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">The mode is explicit — the toolbar button, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">E</span>, or holding <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">⌥</span> for a moment. Hover never outlines things while you are only reading, and it never competes with dragging a text selection.</span>
+          <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">The mode is explicit — the hint at the foot of the page, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">P</span>, or holding <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">⌥</span> for a moment. It left the top bar: it was the only mode in a row of facts about the document, and it belongs where it acts. Hover never outlines things while you are only reading, and it never competes with dragging a text selection.</span>
           <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">Hovering lands on the <strong style="color: #e4e9f0;">smallest anchorable</strong> element under the cursor. Inline runs — <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">span</span>, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">em</span>, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">a</span> — resolve up to their block, which is what <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">nearestElement()</span> already does.</span>
-          <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">The path bar is the widening control: click a crumb, or <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">↑</span> / <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">↓</span>. It is the same widening as the composer's chips, moved before the click instead of after — both write the same <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">Anchor</span>.</span>
+          <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">The path bar is the widening control: click a crumb, or <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">↑</span> / <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">↓</span>. It is the same widening as the chips on a selection-panel row, moved before the click instead of after — both write the same <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #d8dfe8;">Anchor</span>. The panel rebuilds its chain from the row's stored anchor, so a row can still be widened after the document has been reloaded.</span>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 7px; padding: 11px 12px; border-radius: 6px; border: 1px solid #1f2f4a; background: #141f31;">

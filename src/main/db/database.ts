@@ -7,6 +7,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { DB_PATH } from "./location.ts";
+import { migrateThreadTargets } from "./migrate.ts";
 import schema from "./schema.sql?raw";
 
 export type Db = Database.Database;
@@ -26,6 +27,9 @@ export function openDatabase(): Db {
   db.pragma("foreign_keys = ON");
   db.exec(schema);
   addMissingColumns(db);
+  // Spec 05 §5.2 — anchors move out of `thread` and into `thread_target`. After
+  // the columns exist, because it reads them.
+  migrateThreadTargets(db);
 
   handle = db;
   return db;

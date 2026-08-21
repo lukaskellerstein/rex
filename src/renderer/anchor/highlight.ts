@@ -6,10 +6,11 @@
 // highlight registry and its CSS arrives as a constructed stylesheet rather
 // than a <style> element.
 //
-// Three registries rather than two: the design gives an exact anchor and a
+// Four registries rather than two: the design gives an exact anchor and a
 // re-found one different colours in the document, the same steel and amber the
 // gutter marker and the card wash use, so state reads the same in all three
-// places. A resolved thread is drained of colour but still findable.
+// places. A resolved thread is drained of colour but still findable. The
+// comment whose card is open outranks all three — see `ACTIVE_HIGHLIGHT`.
 
 import { HIGHLIGHT } from "../../shared/tokens.ts";
 import type { AnchorState, ThreadStatus } from "../../shared/types.ts";
@@ -17,6 +18,15 @@ import type { AnchorState, ThreadStatus } from "../../shared/types.ts";
 const OK_HIGHLIGHT = "rex-ok";
 const MOVED_HIGHLIGHT = "rex-moved";
 const RESOLVED_HIGHLIGHT = "rex-resolved";
+/**
+ * The open comment's own passages, in violet.
+ *
+ * It wins over state, because a reviewer reading one comment is asking "where
+ * is this one?", not "what state is it in" — the card beside them already says
+ * the state in words. It is a fourth colour and not a brighter blue: the
+ * selection panel can be half-built at the same time, and its places are blue.
+ */
+const ACTIVE_HIGHLIGHT = "rex-active";
 
 /**
  * The design draws the underline as `box-shadow: 0 1.5px 0`. A highlight
@@ -38,9 +48,15 @@ const HIGHLIGHT_CSS = `
 ::highlight(${RESOLVED_HIGHLIGHT}) {
   background-color: ${HIGHLIGHT.resolvedBg};
 }
+::highlight(${ACTIVE_HIGHLIGHT}) {
+  background-color: ${HIGHLIGHT.activeBg};
+  text-decoration: underline 2px ${HIGHLIGHT.activeRule};
+  text-underline-offset: 3px;
+}
 `;
 
 export interface HighlightHit {
+  threadId: string;
   range: Range;
   status: ThreadStatus;
   state: AnchorState;
@@ -70,7 +86,11 @@ function ensureStylesheet(win: Window): void {
  * `win` is the window owning the ranges: for tier 1 that is the document
  * iframe, not the renderer, and its `CSS.highlights` is a different registry.
  */
-export function paintHighlights(win: Window, hits: HighlightHit[]): void {
+export function paintHighlights(
+  win: Window,
+  hits: HighlightHit[],
+  activeThreadId: string | null,
+): void {
   const scope = win as Window & typeof globalThis;
   if (typeof scope.Highlight === "undefined" || typeof scope.CSS?.highlights === "undefined")
     return;
@@ -80,9 +100,11 @@ export function paintHighlights(win: Window, hits: HighlightHit[]): void {
   const ok = new scope.Highlight();
   const moved = new scope.Highlight();
   const resolved = new scope.Highlight();
+  const active = new scope.Highlight();
 
   for (const hit of hits) {
-    if (hit.status === "resolved") resolved.add(hit.range);
+    if (hit.threadId === activeThreadId) active.add(hit.range);
+    else if (hit.status === "resolved") resolved.add(hit.range);
     else if (hit.state === "moved") moved.add(hit.range);
     else ok.add(hit.range);
   }
@@ -90,6 +112,7 @@ export function paintHighlights(win: Window, hits: HighlightHit[]): void {
   scope.CSS.highlights.set(OK_HIGHLIGHT, ok);
   scope.CSS.highlights.set(MOVED_HIGHLIGHT, moved);
   scope.CSS.highlights.set(RESOLVED_HIGHLIGHT, resolved);
+  scope.CSS.highlights.set(ACTIVE_HIGHLIGHT, active);
 }
 
 /** Drops every REX highlight from `win`, leaving other registrations alone. */
@@ -98,4 +121,5 @@ export function clearHighlights(win: Window): void {
   scope.CSS?.highlights?.delete(OK_HIGHLIGHT);
   scope.CSS?.highlights?.delete(MOVED_HIGHLIGHT);
   scope.CSS?.highlights?.delete(RESOLVED_HIGHLIGHT);
+  scope.CSS?.highlights?.delete(ACTIVE_HIGHLIGHT);
 }

@@ -25,8 +25,8 @@ interface Props {
   arming: boolean;
   onProbe: (x: number, y: number) => void;
   onActive: (index: number) => void;
-  /** `additive` is a shift-click: add this element to the comment being written. */
-  onCommit: (index: number, additive: boolean) => void;
+  /** Adds this element to the selection panel. Every click adds — spec 05 §3.1. */
+  onCommit: (index: number) => void;
   onRegion: (index: number, box: ScopeRect) => void;
   onCancel: () => void;
   /**
@@ -44,18 +44,6 @@ interface Props {
 
 /** Ignore a click that was really a very small drag, and vice versa. */
 const DRAG_MINIMUM = 6;
-
-/**
- * True when this click means "add this one too" rather than "start over".
- *
- * All three modifiers, because all three are somebody's habit: ⌘ from every
- * macOS list, ctrl from every Windows one, ⇧ from the design. The composer's
- * `+ another place` button does the same thing without any of them, and is the
- * route the app actually teaches.
- */
-function isAdditive(event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): boolean {
-  return event.shiftKey || event.ctrlKey || event.metaKey;
-}
 
 interface Drag {
   fromX: number;
@@ -104,10 +92,10 @@ export function PickLayer(props: Props): React.JSX.Element {
         return;
       }
       if (!scopes || scopes.length === 0) return;
-      // Pick mode and the composer are open together while extra targets are
-      // being added, and there ↑ belongs to the caret in the note, not to the
-      // scope chain. `composedPath()[0]` because the shadow boundary retargets
-      // `event.target` to the host — see App.tsx.
+      // Pick mode and the selection panel are open together, and there ↑ belongs
+      // to the caret in the note, not to the scope chain. `composedPath()[0]`
+      // because the shadow boundary retargets `event.target` to the host — see
+      // App.tsx.
       const focused = event.composedPath()[0];
       if (
         focused instanceof HTMLElement &&
@@ -123,7 +111,7 @@ export function PickLayer(props: Props): React.JSX.Element {
         onActive(Math.max(active - 1, 0));
       } else if (event.key === "Enter") {
         event.preventDefault();
-        onCommit(active, isAdditive(event));
+        onCommit(active);
       }
     };
     document.addEventListener("keydown", onKey);
@@ -180,7 +168,14 @@ export function PickLayer(props: Props): React.JSX.Element {
       onPointerDown={(event) => {
         if (!props.arming) return;
         const point = toDocument(event);
-        event.currentTarget.setPointerCapture(event.pointerId);
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId);
+        } catch {
+          // Capture is an optimisation — it keeps a fast drag from tearing off
+          // the layer. Splitter.tsx guards the same call for the same reason:
+          // letting it throw out of the handler abandons the drag before it
+          // starts, and the region is never cut.
+        }
         const at = { x: point.x + props.scrollX, y: point.y + props.scrollY };
         setDrag({ fromX: at.x, fromY: at.y, toX: at.x, toY: at.y });
       }}
@@ -190,17 +185,15 @@ export function PickLayer(props: Props): React.JSX.Element {
         setDrag(null);
         if (box.w >= DRAG_MINIMUM && box.h >= DRAG_MINIMUM) props.onRegion(props.active, box);
       }}
-      onClick={(event) => {
-        if (!props.arming && scope) props.onCommit(props.active, isAdditive(event));
+      onClick={() => {
+        if (!props.arming && scope) props.onCommit(props.active);
       }}
       onContextMenu={(event) => {
-        // On macOS ctrl-click *is* a right-click: the system turns it into
-        // button 2, so no `click` ever fires and ctrl-to-add did nothing at all
-        // (measured on 2026-08-21). It arrives here instead. Only a real
-        // ctrl-click adds — a plain right-click carries `ctrlKey: false` and is
-        // simply swallowed, which is what should happen over a pick layer.
+        // Swallowed, and nothing more. Spec 05 §3.1 removed the modifiers: on
+        // macOS ctrl-click *is* a right-click, the OS owns that gesture, and
+        // building selection on top of it is fault 1 of §1. Every plain click
+        // adds now, so no modifier has anything left to do.
         event.preventDefault();
-        if (!props.arming && scope && event.ctrlKey) props.onCommit(props.active, true);
       }}
     >
       {scope && !props.arming ? (
@@ -262,9 +255,8 @@ export function PickLayer(props: Props): React.JSX.Element {
               widen / narrow
             </span>
             <span>
-              <span className="rex-key">⇧</span>
-              <span className="rex-key">⌘</span>
-              click to add
+              <span className="rex-key">click</span>
+              adds to the selection
             </span>
             <span>
               <span className="rex-key">esc</span>
