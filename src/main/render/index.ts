@@ -1,16 +1,26 @@
 // SPEC.md §5.2 — dispatch on DocumentRef, and say honestly when Apply cannot
-// work. Tier 3 (PDF, DOCX) is not scheduled and must not be guessed at.
+// work.
 
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { basename, dirname, extname } from "node:path";
-import { MEASURE, PAPER } from "../../shared/tokens.ts";
-import type { DocumentRef } from "../../shared/types.ts";
+import type { DocumentPresentation, DocumentRef } from "../../shared/types.ts";
+import { allowDirectory, baseHrefFor } from "../protocol.ts";
+import { renderDocx } from "./docx.ts";
+import {
+  applyDisabledReason,
+  isDocxPath,
+  isHtmlPath,
+  isMarkdownPath,
+  isPdfPath,
+} from "./formats.ts";
 import { loadHtmlFile, sha256 } from "./html.ts";
 import { markdownTitle, renderMarkdown } from "./markdown.ts";
+import { MARKDOWN_STYLESHEET } from "./stylesheet.ts";
 
 export interface RenderedDocument {
-  /** Full HTML document for tiers 1; null for a URL shown in a <webview>. */
-  html: string | null;
+  /** Spec 03 §9 — what the renderer should draw, and how. */
+  presentation: DocumentPresentation;
   contentHash: string | null;
   title: string | null;
   baseDir: string | null;
@@ -18,101 +28,61 @@ export interface RenderedDocument {
   applyDisabledReason: string | null;
 }
 
-const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown", ".mdown", ".mkd"]);
-const HTML_EXTENSIONS = new Set([".html", ".htm", ".xhtml"]);
-
-export function isMarkdownPath(path: string): boolean {
-  return MARKDOWN_EXTENSIONS.has(extname(path).toLowerCase());
-}
-
-/** Spec 02 §4.1 — the same test §5.2 already uses, shared with the explorer. */
-export function isDocumentPath(path: string): boolean {
-  const extension = extname(path).toLowerCase();
-  return MARKDOWN_EXTENSIONS.has(extension) || HTML_EXTENSIONS.has(extension);
+/**
+ * KaTeX's stylesheet, served over `rex-doc://` (spec 03 §5.6).
+ *
+ * Resolved through `require.resolve` rather than assembled from
+ * `import.meta.dirname`, because the two differ: in development the package
+ * sits in the repo's `node_modules`, and in a packaged build it sits inside
+ * `app.asar`. `readFile` works in both, and `require.resolve` is what knows
+ * which one is true right now.
+ *
+ * The stylesheet's own font URLs are relative, so they resolve against its
+ * `rex-doc://` URL and come from the same allowed root. Serving `katex/dist`
+ * is therefore all that is needed for the fonts as well — without them KaTeX
+ * falls back to system glyphs and the maths is subtly wrong rather than
+ * visibly broken.
+ */
+function katexStylesheetUrl(): string {
+  const require = createRequire(import.meta.url);
+  const cssPath = require.resolve("katex/dist/katex.min.css");
+  const dist = dirname(cssPath);
+  allowDirectory(dist);
+  return `${baseHrefFor(dist)}${basename(cssPath)}`;
 }
 
 /**
- * Why a listed file cannot be opened. Spec 02 §4.1 shows this rather than
- * hiding the file: a reviewer needs to see the PDF is there even though REX
- * cannot render it.
+ * PDF.js's own asset directories — `standard_fonts/`, `cmaps/`, `wasm/`,
+ * `iccs/` — served over `rex-doc://` by the same route, and for the same
+ * reason: only main knows where the package sits, and a checkout and an
+ * `app.asar` disagree.
+ *
+ * This is not a nicety. A PDF that uses the base-14 fonts embeds none of them,
+ * and without `standardFontDataUrl` PDF.js's render task never settles: the
+ * page fills white and no glyph is ever drawn, with one warning in the console
+ * and no rejection to catch.
  */
-export function unopenableReason(path: string): string {
-  const extension = extname(path).toLowerCase();
-  if (extension === ".pdf" || extension === ".docx") {
-    return `${extension} is tier 3 (SPEC.md §5.2) and is not scheduled.`;
-  }
-  return "REX renders Markdown and HTML.";
+function pdfjsAssetsUrl(): string {
+  const require = createRequire(import.meta.url);
+  const root = dirname(require.resolve("pdfjs-dist/package.json"));
+  allowDirectory(root);
+  return baseHrefFor(root);
 }
 
-/**
- * The stylesheet REX supplies for Markdown, which has none of its own.
- *
- * This is the one document REX is entitled to set: the 620px measure at 15/1.68
- * and the paper ground are its own typography, not the author's. HTML documents
- * keep their styles untouched (§5.4 point 3) and never see this, and a
- * `<webview>` URL is untouchable — for both of those the pane supplies only the
- * paper ground and the gutter.
- *
- * Light only, deliberately. The design draws documents on paper and REX's
- * chrome in the dark around them; following the system into dark mode would
- * make a Markdown file look nothing like the HTML file beside it in the
- * explorer, and would put a review's two halves on different grounds.
- */
-const MARKDOWN_STYLESHEET = `
-  :root { color-scheme: light; }
-  body {
-    margin: 0 auto;
-    padding: 40px 24px 96px;
-    max-width: ${MEASURE.width};
-    background: ${PAPER.bg};
-    color: ${PAPER.inkBody};
-    font: ${MEASURE.fontSize}/${MEASURE.lineHeight} "IBM Plex Sans", system-ui, -apple-system, sans-serif;
-  }
-  h1, h2, h3, h4, h5, h6 { color: ${PAPER.ink}; line-height: 1.2; margin: 30px 0 12px; }
-  h1 { font-size: 27px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.15; margin-top: 0; }
-  h2 { font-size: 20px; font-weight: 600; }
-  h3 { font-size: 17px; font-weight: 600; }
-  h4, h5, h6 { font-size: 15px; font-weight: 600; }
-  p, ul, ol, blockquote, table, figure, pre { margin: 0 0 18px; }
-  a { color: ${PAPER.link}; }
-  code {
-    background: ${PAPER.wash};
-    padding: 0.1em 0.35em;
-    border-radius: 3px;
-    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 0.88em;
-  }
-  pre {
-    background: ${PAPER.wash};
-    padding: 14px 16px;
-    border-radius: 5px;
-    overflow-x: auto;
-    font-size: 13px;
-    line-height: 1.55;
-  }
-  pre code { background: none; padding: 0; font-size: inherit; }
-  blockquote {
-    margin-left: 0;
-    padding-left: 14px;
-    border-left: 2px solid ${PAPER.rule};
-    color: ${PAPER.inkMuted};
-  }
-  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
-  th, td { border: 1px solid ${PAPER.rule}; padding: 7px 10px; text-align: left; }
-  th { background: ${PAPER.wash}; font-weight: 600; color: ${PAPER.ink}; }
-  figure { padding: 9px; border-radius: 4px; background: ${PAPER.wash}; }
-  figcaption { margin-top: 7px; font-size: 12.5px; color: ${PAPER.inkMuted}; }
-  hr { border: none; border-top: 1px solid ${PAPER.rule}; margin: 30px 0; }
-  img { max-width: 100%; }
-  ::selection { background: #b6d0f2; }
-`;
+/** Resolved once each: neither path can change while the process is running. */
+let pdfAssets: string | null = null;
+
+/** Resolved once: the path cannot change while the process is running. */
+let katexUrl: string | null = null;
 
 function markdownPage(title: string, body: string): string {
+  katexUrl ??= katexStylesheetUrl();
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <title>${escapeHtml(title)}</title>
+<link rel="stylesheet" href="${katexUrl}">
 <style>${MARKDOWN_STYLESHEET}</style>
 </head>
 <body>
@@ -128,12 +98,17 @@ function escapeHtml(value: string): string {
   );
 }
 
-export function renderDocument(ref: DocumentRef): RenderedDocument {
+/**
+ * Asynchronous because of DOCX: `mammoth.convertToHtml` is a promise and
+ * spec 03 §8.1 prefers making the whole dispatch async over giving DOCX a
+ * separate path. The IPC handler that calls this already awaits.
+ */
+export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument> {
   if (ref.kind === "url") {
     // Tier 2 (§5.2): shown in a <webview>, so there is no HTML to hand over
     // and no local file to write back into.
     return {
-      html: null,
+      presentation: { kind: "url" },
       contentHash: null,
       title: null,
       baseDir: null,
@@ -142,14 +117,12 @@ export function renderDocument(ref: DocumentRef): RenderedDocument {
     };
   }
 
-  const extension = extname(ref.value).toLowerCase();
-
-  if (MARKDOWN_EXTENSIONS.has(extension)) {
+  if (isMarkdownPath(ref.value)) {
     const bytes = readFileSync(ref.value);
     const source = bytes.toString("utf8");
     const title = markdownTitle(source) ?? basename(ref.value);
     return {
-      html: markdownPage(title, renderMarkdown(source)),
+      presentation: { kind: "html", html: markdownPage(title, renderMarkdown(source)) },
       contentHash: sha256(bytes),
       title,
       baseDir: dirname(ref.value),
@@ -158,10 +131,10 @@ export function renderDocument(ref: DocumentRef): RenderedDocument {
     };
   }
 
-  if (HTML_EXTENSIONS.has(extension)) {
+  if (isHtmlPath(ref.value)) {
     const loaded = loadHtmlFile(ref.value);
     return {
-      html: loaded.source,
+      presentation: { kind: "html", html: loaded.source },
       contentHash: loaded.contentHash,
       title: loaded.title ?? basename(ref.value),
       baseDir: dirname(ref.value),
@@ -170,7 +143,47 @@ export function renderDocument(ref: DocumentRef): RenderedDocument {
     };
   }
 
+  if (isDocxPath(ref.value)) {
+    // Spec 03 §8.1 — mammoth needs no DOM, so DOCX arrives as static HTML on
+    // exactly the Markdown path and runs no enrichment pass at all.
+    const bytes = readFileSync(ref.value);
+    const rendered = await renderDocx(ref.value);
+    const title = rendered.title ?? basename(ref.value);
+    return {
+      presentation: { kind: "html", html: markdownPage(title, rendered.html) },
+      contentHash: sha256(bytes),
+      title,
+      baseDir: dirname(ref.value),
+      applyEnabled: false,
+      applyDisabledReason: applyDisabledReason(ref.value),
+    };
+  }
+
+  if (isPdfPath(ref.value)) {
+    // Spec 03 §7.1 — main does not read the bytes. It hands over a rex-doc://
+    // URL and PDF.js range-fetches it from the renderer, which is where the
+    // canvas is. The hash still comes from the bytes, so §6.6 can tell whether
+    // the file changed under the anchors.
+    const bytes = readFileSync(ref.value);
+    const directory = dirname(ref.value);
+    allowDirectory(directory);
+    pdfAssets ??= pdfjsAssetsUrl();
+    return {
+      presentation: {
+        kind: "pdf",
+        url: `${baseHrefFor(directory)}${encodeURIComponent(basename(ref.value))}`,
+        assetsUrl: pdfAssets,
+      },
+      contentHash: sha256(bytes),
+      title: basename(ref.value),
+      baseDir: directory,
+      applyEnabled: false,
+      applyDisabledReason: applyDisabledReason(ref.value),
+    };
+  }
+
+  const extension = extname(ref.value).toLowerCase();
   throw new Error(
-    `REX renders Markdown and HTML. ${extension || "This file"} is tier 3 (SPEC.md §5.2) and is not scheduled.`,
+    `REX renders Markdown, HTML, PDF and DOCX. ${extension || "This file"} is none of them.`,
   );
 }

@@ -20,7 +20,8 @@ import {
   type WebviewElement,
   WebviewSurface,
 } from "./anchoring.ts";
-import { Composer } from "./Composer.tsx";
+import { Composer, type ExtraTarget } from "./Composer.tsx";
+import { enrichDocument } from "./enrich.ts";
 import { Gutter } from "./Gutter.tsx";
 import { PickLayer } from "./PickLayer.tsx";
 import { prepareDocumentHtml } from "./sanitise.ts";
@@ -50,9 +51,24 @@ interface Props {
   onArmRegion: () => void;
   onProbe: (x: number, y: number) => void;
   onPickActive: (index: number) => void;
-  onPickCommit: (index: number) => void;
+  onPickCommit: (index: number, additive: boolean) => void;
   onPickCancel: () => void;
   onRegion: (index: number, box: ScopeRect) => void;
+  onScrollBy: (dx: number, dy: number) => void;
+  /** The document's own zoom. 1 is 100%. */
+  zoom: number;
+  /** The zoom the open draft's boxes were measured at. */
+  draftZoom: number;
+  onZoomBy: (factor: number) => void;
+  onZoomReset: () => void;
+  /** Called once a new zoom is on the page, so the resolver can re-measure. */
+  onZoomApplied: () => void;
+  /** The extra targets of the comment being written (design/selection/Multi). */
+  extras: ExtraTarget[];
+  /** True while the next click adds a target rather than starting a comment. */
+  adding: boolean;
+  onAddAnother: () => void;
+  onRemoveExtra: (position: number) => void;
 }
 
 function baseHref(directory: string): string {
@@ -61,6 +77,107 @@ function baseHref(directory: string): string {
     .map((segment) => encodeURIComponent(segment))
     .join("/");
   return `rex-doc://doc${encoded}/`;
+}
+
+/**
+ * The empty page a PDF is drawn into (spec 03 §7.2).
+ *
+ * REX's own markup, not the author's, so it does not go through DOMPurify. Its
+ * stylesheet arrives with the pass that creates the elements it styles.
+ */
+const PDF_SHELL =
+  '<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body></body></html>';
+
+/**
+ * Fragment links, which `<base href>` breaks.
+ *
+ * The document sits in a srcdoc iframe, and its own images and stylesheets can
+ * only find themselves through a `<base href="rex-doc://…/">` (sanitise.ts).
+ * That same base also resolves `#installation` against `rex-doc://…/`, so a
+ * table-of-contents link stops being a jump inside the page and becomes a
+ * navigation to a URL that 404s. Measured on 2026-08-21: all nine links in
+ * `sample-document.md` were dead this way even after the headings gained their
+ * ids, and the only symptom was a 404 in the console.
+ *
+ * The iframe runs no script (spec 01 §5.4 step 2), so the renderer scrolls it
+ * from outside — the same reaching-in the anchor resolver has always done, and
+ * the mechanism spec 03 §4.1 describes.
+ */
+function jumpToFragmentsInsteadOfNavigating(inner: Document): void {
+  inner.addEventListener("click", (event: MouseEvent) => {
+    // Not `event.target instanceof Element`. The target belongs to the iframe's
+    // realm and `Element` here is the overlay's own constructor, so instanceof
+    // across the two documents is always false — the listener would run, match
+    // nothing, and let every link navigate exactly as if it were not there.
+    const start = event.target as Element | null;
+    const link = typeof start?.closest === "function" ? start.closest("a[href]") : null;
+    const href = link?.getAttribute("href");
+    if (!href?.startsWith("#") || href.length < 2) return;
+
+    const heading = inner.getElementById(decodeURIComponent(href.slice(1)));
+    if (!heading) return;
+    event.preventDefault();
+    heading.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+/** One wheel notch, or one press of ⌘+. */
+const ZOOM_IN = 1.1;
+const ZOOM_OUT = 1 / 1.1;
+
+/**
+ * CSS `zoom`, not `transform: scale`.
+ *
+ * `zoom` takes part in layout, so `getBoundingClientRect()` and `scrollY`
+ * inside the frame both report the scaled geometry and keep agreeing with each
+ * other — which is the only reason the overlay's boxes still land on the right
+ * things. `transform` would leave layout at 1× and every rect the resolver
+ * reads would be a lie. It also reflows a Markdown document to the new size
+ * instead of letting a scaled page run off the side.
+ */
+function applyZoom(inner: Document | null, zoom: number): void {
+  if (!inner) return;
+  inner.documentElement.style.zoom = String(zoom);
+}
+
+/** A box measured at one zoom, drawn at another. */
+function rescale(rect: ScopeRect, by: number): ScopeRect {
+  return by === 1 ? rect : { x: rect.x * by, y: rect.y * by, w: rect.w * by, h: rect.h * by };
+}
+
+/**
+ * ⌘/ctrl with the wheel, or with + − 0, while the pointer or the caret is
+ * inside the document itself.
+ *
+ * The listeners have to live *in* the frame's document. An event that happens
+ * inside an iframe never reaches the parent, so a wheel over the prose is
+ * invisible to the overlay — and `preventDefault` here is what stops Chromium
+ * from applying its own page zoom on top of ours.
+ */
+function zoomFromInside(
+  inner: Document,
+  commands: { current: { by: (factor: number) => void; reset: () => void } },
+): void {
+  inner.addEventListener(
+    "wheel",
+    (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      commands.current.by(event.deltaY < 0 ? ZOOM_IN : ZOOM_OUT);
+    },
+    // Wheel listeners are passive by default, and a passive one cannot
+    // preventDefault — the browser would zoom the whole frame as well.
+    { passive: false },
+  );
+
+  inner.addEventListener("keydown", (event: KeyboardEvent) => {
+    if ((!event.ctrlKey && !event.metaKey) || event.altKey) return;
+    if (event.key === "+" || event.key === "=") commands.current.by(ZOOM_IN);
+    else if (event.key === "-" || event.key === "_") commands.current.by(ZOOM_OUT);
+    else if (event.key === "0") commands.current.reset();
+    else return;
+    event.preventDefault();
+  });
 }
 
 /** `widget-service.md:14` — where the composer says the comment will land. */
@@ -76,16 +193,40 @@ export function DocumentView(props: Props): React.JSX.Element {
   const webviewRef = useRef<WebviewElement>(null);
 
   const { doc, onSurfaceReady, onSelectionChanged } = props;
-  const isWebview = doc !== null && doc.html === null;
+  const isWebview = doc !== null && doc.presentation.kind === "url";
 
-  // ── Tier 1: load the sanitised HTML, then hand up a surface ──
+  /**
+   * The live zoom and the live zoom callback, for listeners that live inside
+   * the document frame.
+   *
+   * Those listeners are attached once per document load, and the load effect
+   * must not re-run when the zoom changes — re-running it rewrites `srcdoc`,
+   * which reloads the document under review and throws away its scroll
+   * position. So they read through refs instead of closing over the value.
+   */
+  const zoomRef = useRef(props.zoom);
+  const zoomCommands = useRef({ by: props.onZoomBy, reset: props.onZoomReset });
+  zoomRef.current = props.zoom;
+  zoomCommands.current = { by: props.onZoomBy, reset: props.onZoomReset };
+
+  // ── Tiers 1 and 3: fill the iframe, enrich it, then hand up a surface ──
 
   useEffect(() => {
     const frame = frameRef.current;
-    if (!doc || doc.html === null || !frame) return;
+    if (!doc || doc.presentation.kind === "url" || !frame) return;
+
+    // Spec 03 §9 — `presentation` is a union so this stays exhaustive.
+    // `noFallthroughCasesInSwitch` is on, so a format added later is a compile
+    // error here rather than a blank pane.
+    const srcdoc =
+      doc.presentation.kind === "html"
+        ? prepareDocumentHtml(doc.presentation.html, doc.baseDir ? baseHref(doc.baseDir) : null)
+        : // A PDF starts as an empty page; the §7 pass builds every page into
+          // it before the surface is handed up.
+          PDF_SHELL;
 
     let live = true;
-    const onLoad = (): void => {
+    const onLoad = async (): Promise<void> => {
       if (!live) return;
       const view = frame.contentWindow;
       const inner = frame.contentDocument;
@@ -95,14 +236,34 @@ export function DocumentView(props: Props): React.JSX.Element {
       follow();
       view.addEventListener("scroll", follow, { passive: true });
       inner.addEventListener("mouseup", onSelectionChanged);
+      jumpToFragmentsInsteadOfNavigating(inner);
+      zoomFromInside(inner, zoomCommands);
+
+      // Before the surface is handed up, so the text index and every rect the
+      // resolver takes are measured at the size the reader is actually seeing.
+      applyZoom(inner, zoomRef.current);
+
+      // Spec 03 §4.3 — the DOM must be final before the surface is handed up,
+      // because `onSurfaceReady` is what makes the resolver build its text
+      // index. An anchor created against a half-drawn document records offsets
+      // into text that is about to move: it resolves, it reports `ok`, and it
+      // points at the wrong place.
+      await enrichDocument(inner, doc);
+      if (!live) return;
+
       onSurfaceReady(new FrameSurface(frame, doc.ref.kind === "file" ? doc.ref.value : null));
     };
 
-    frame.addEventListener("load", onLoad);
-    frame.srcdoc = prepareDocumentHtml(doc.html, doc.baseDir ? baseHref(doc.baseDir) : null);
+    // `load` cannot await, so the async work is fired and the `live` flag is
+    // what stops a stale document from handing up a surface after the reviewer
+    // has already opened another one.
+    const onLoadEvent = (): void => void onLoad();
+
+    frame.addEventListener("load", onLoadEvent);
+    frame.srcdoc = srcdoc;
     return () => {
       live = false;
-      frame.removeEventListener("load", onLoad);
+      frame.removeEventListener("load", onLoadEvent);
     };
   }, [doc, onSurfaceReady, onSelectionChanged]);
 
@@ -110,7 +271,7 @@ export function DocumentView(props: Props): React.JSX.Element {
 
   useEffect(() => {
     const webview = webviewRef.current;
-    if (!doc || doc.html !== null || !webview) return;
+    if (doc?.presentation.kind !== "url" || !webview) return;
 
     const onReady = (): void => {
       onSurfaceReady(new WebviewSurface(webview));
@@ -131,14 +292,56 @@ export function DocumentView(props: Props): React.JSX.Element {
     return () => window.clearInterval(timer);
   }, [isWebview, onSelectionChanged]);
 
-  const blocks = props.resolved.filter((entry) => entry.box !== null);
+  // ── Zoom ────────────────────────────────────────────────────
+  //
+  // Applied here rather than in the load effect, which must not re-run: it
+  // rewrites `srcdoc` and would reload the document on every notch of the
+  // wheel. The load effect applies the *current* zoom once, this one applies
+  // every change after that.
+  const { zoom, onZoomApplied } = props;
+  useEffect(() => {
+    if (isWebview) {
+      // A remote page is another process, so the same one line is executed
+      // inside it. Electron's own `setZoomFactor` would scale the whole
+      // <webview> chrome-side, which is a different thing.
+      void webviewRef.current?.executeJavaScript(
+        `document.documentElement.style.zoom = ${JSON.stringify(String(zoom))}`,
+      );
+    } else {
+      applyZoom(frameRef.current?.contentDocument ?? null, zoom);
+    }
+    // Every box the overlay draws was measured at the old size, so the
+    // resolver has to run again before any of them is believable.
+    onZoomApplied();
+  }, [zoom, isWebview, onZoomApplied]);
+
+  // One outline per anchor, so a comment written against three rows shows all
+  // three. The thread id alone is no longer unique, hence the position.
+  const blocks = props.resolved.flatMap((entry) =>
+    entry.boxes.map((box, position) => ({ entry, box, position })),
+  );
+
+  // The comment being written: its primary target first, then the extras, in
+  // the order the card lists them.
+  //
+  // Each box is rescaled from the zoom it was measured at. A draft outlives a
+  // zoom change — reading a table more closely before deciding whether the
+  // fourth row belongs in the comment is exactly when someone zooms.
+  const draftBoxes = props.draft
+    ? [
+        { rect: props.draft.scopes[props.draft.active]?.rect, zoom: props.draftZoom },
+        ...props.extras.map((extra) => ({ rect: extra.rect, zoom: extra.zoom })),
+      ]
+        .filter((entry): entry is { rect: ScopeRect; zoom: number } => entry.rect !== undefined)
+        .map(({ rect, zoom }) => rescale(rect, props.zoom / zoom))
+    : [];
 
   return (
     <main className="rex-doc">
       {doc === null ? (
         <div className="rex-empty">
           <h1>REX</h1>
-          <p>Open a Markdown or HTML document, or a folder, to start commenting.</p>
+          <p>Open a Markdown, HTML, PDF or DOCX document, or a folder, to start commenting.</p>
         </div>
       ) : null}
 
@@ -163,17 +366,39 @@ export function DocumentView(props: Props): React.JSX.Element {
         paint here — and drawing it as an overlay box keeps the promise that
         REX never touches the document's own tree.
       */}
-      {blocks.map((entry) => (
+      {/*
+        Every place the comment being written is about, outlined at once.
+        A list of nine cells in the card does not tell the reviewer *which*
+        nine, and the whole reason to comment on nine cells is that their
+        arrangement matters. Drawn from the rect captured at the click, so no
+        anchor has to be resolved before the comment exists.
+      */}
+      {draftBoxes.map((box, position) => (
         <div
-          key={entry.threadId}
+          key={`draft-${position}`}
+          className="rex-draft-outline"
+          style={{
+            left: box.x - scroll.x,
+            top: box.y - scroll.y,
+            width: box.w,
+            height: box.h,
+          }}
+        >
+          <span className="rex-draft-index">{position + 1}</span>
+        </div>
+      ))}
+
+      {blocks.map(({ entry, box, position }) => (
+        <div
+          key={`${entry.threadId}-${position}`}
           className={`rex-block-outline${entry.state === "moved" ? " rex-block-moved" : ""}${
             props.activeId === entry.threadId ? " rex-block-active" : ""
           }`}
           style={{
-            left: (entry.box?.x ?? 0) - scroll.x,
-            top: (entry.box?.y ?? 0) - scroll.y,
-            width: entry.box?.w ?? 0,
-            height: entry.box?.h ?? 0,
+            left: box.x - scroll.x,
+            top: box.y - scroll.y,
+            width: box.w,
+            height: box.h,
           }}
         />
       ))}
@@ -198,6 +423,8 @@ export function DocumentView(props: Props): React.JSX.Element {
           onCommit={props.onPickCommit}
           onRegion={props.onRegion}
           onCancel={props.onPickCancel}
+          onScrollBy={props.onScrollBy}
+          onZoomBy={props.onZoomBy}
         />
       ) : null}
 
@@ -208,6 +435,11 @@ export function DocumentView(props: Props): React.JSX.Element {
           top={Math.max(8, props.draft.top - scroll.y)}
           where={whereOf(props.draft)}
           arming={props.arming}
+          picking={props.picking}
+          adding={props.adding}
+          extras={props.extras}
+          onAddAnother={props.onAddAnother}
+          onRemoveExtra={props.onRemoveExtra}
           onScope={props.onScope}
           onArmRegion={props.onArmRegion}
           onCreate={props.onCreateComment}

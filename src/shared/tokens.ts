@@ -35,6 +35,41 @@ export const MEASURE = {
 } as const;
 
 /**
+ * GitHub alert callouts (spec 03 §5.2). Each is a rule colour, the wash behind
+ * it, and the label CSS draws with `::before` — never real text, or it would
+ * enter the anchor text index and move every comment below it.
+ *
+ * `note` reuses `PAPER.link` and `warning` reuses `HIGHLIGHT.movedRule`, on
+ * purpose: a warning callout and a moved anchor are the same amber, so the page
+ * carries one meaning per colour.
+ */
+export const ALERT = {
+  note: { rule: "#2f5da8", bg: "#eef3fb", label: "Note" },
+  tip: { rule: "#2f7d63", bg: "#eef6f2", label: "Tip" },
+  important: { rule: "#7a4fa3", bg: "#f4eff8", label: "Important" },
+  warning: { rule: "#c08a12", bg: "#fbf4e4", label: "Warning" },
+  caution: { rule: "#b03a2e", bg: "#fbeeec", label: "Caution" },
+} as const;
+
+/**
+ * Syntax colours for highlight.js's classes (spec 03 §5.7).
+ *
+ * Mapped onto the paper palette rather than shipping one of highlight.js's own
+ * stylesheets, which would be a second, unowned palette beside `PAPER`. Nine
+ * classes cover every language REX will meet; anything unmapped inherits
+ * `PAPER.inkBody`, which is readable by construction.
+ */
+export const CODE = {
+  keyword: "#7a4fa3",
+  string: "#2f7d63",
+  comment: PAPER.inkMuted,
+  number: "#b03a2e",
+  title: PAPER.link,
+  attr: "#8a6d1f",
+  meta: PAPER.inkMuted,
+} as const;
+
+/**
  * Anchor highlights, painted with the CSS Custom Highlight API (§6.7).
  *
  * The design draws the underline as `box-shadow: 0 1.5px 0`, which a highlight

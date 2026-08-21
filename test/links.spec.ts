@@ -131,3 +131,17 @@ test("a wikilink resolves by basename, and a tie is left broken", () => {
   assert.equal(tie.kind, "file");
   if (tie.kind === "file") assert.equal(tie.exists, false);
 });
+
+test("a PDF or a DOCX yields no links, whatever its bytes look like", () => {
+  // A DOCX is a zip. Read as UTF-8 it becomes mojibake, and the mojibake still
+  // matches `href="…"` and `[[…]]` — which put a node labelled with
+  // replacement characters into the reference graph, linked from the DOCX.
+  // Measured on 2026-08-21 against `sample-files/sample-document.docx`.
+  const noise = `PK href="��t3C" [[��z=h]] href="real.md"`;
+
+  assert.deepEqual(extractLinks("/w/report.docx", noise), []);
+  assert.deepEqual(extractLinks("/w/report.pdf", noise), []);
+
+  // The same bytes in a file REX *can* read as text are still read.
+  assert.equal(extractLinks("/w/notes.html", noise).length, 3);
+});

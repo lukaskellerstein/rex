@@ -115,6 +115,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/playwright-post-navigate.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "SessionEnd": [

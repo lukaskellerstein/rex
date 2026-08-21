@@ -6,7 +6,7 @@
 
 import { existsSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
-import { isDocumentPath, isMarkdownPath } from "../render/index.ts";
+import { isDocumentPath, isMarkdownPath, isTextDocumentPath } from "../render/formats.ts";
 import { parseMarkdownLinks } from "../render/markdown.ts";
 
 /** A link exactly as the document wrote it, before resolution. */
@@ -38,6 +38,12 @@ const HTML_HREF = /href\s*=\s*["']([^"']+)["']/gi;
  * main, which spec 01 §5.4 already declined for the same reason.
  */
 export function extractLinks(path: string, source: string): RawLink[] {
+  // A PDF or a DOCX has no text to read links out of, and pattern-matching its
+  // bytes invents them — `isTextDocumentPath` records what that looked like.
+  // Guarded here as well as at the caller, because the caller is the one that
+  // would be forgotten.
+  if (!isTextDocumentPath(path)) return [];
+
   const links: RawLink[] = isMarkdownPath(path)
     ? parseMarkdownLinks(source)
     : extractHtmlLinks(source);

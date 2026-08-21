@@ -39,6 +39,7 @@ interface ThreadRow {
   kind: ThreadKind;
   status: "open" | "resolved";
   anchor_json: string | null;
+  extra_anchors_json: string | null;
   anchor_state: AnchorState | null;
   note: string;
   session_id: string | null;
@@ -93,6 +94,9 @@ function toThread(row: ThreadRow, refThreadIds: string[]): Thread {
     kind: row.kind,
     status: row.status,
     anchor: row.anchor_json ? (JSON.parse(row.anchor_json) as Anchor) : null,
+    // A row written before the column existed has NULL here, which is the same
+    // thing as a comment with one target.
+    extraAnchors: row.extra_anchors_json ? (JSON.parse(row.extra_anchors_json) as Anchor[]) : [],
     anchorState: row.anchor_state,
     note: row.note,
     sessionId: row.session_id,
@@ -201,6 +205,7 @@ export function createThread(
     documentId: string;
     kind: ThreadKind;
     anchor: Anchor | null;
+    extraAnchors?: Anchor[];
     anchorState: AnchorState | null;
     note: string;
     profile: Profile;
@@ -209,17 +214,20 @@ export function createThread(
 ): Thread {
   const id = uuidv4();
   const timestamp = now();
+  const extraAnchors = input.extraAnchors ?? [];
 
   const insert = db.transaction(() => {
     db.prepare(
-      `INSERT INTO thread (id, document_id, kind, status, anchor_json, anchor_state, note,
+      `INSERT INTO thread (id, document_id, kind, status, anchor_json, extra_anchors_json,
+                           anchor_state, note,
                            session_id, profile, model, created_at, updated_at, resolved_at)
-       VALUES (?, ?, ?, 'open', ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
+       VALUES (?, ?, ?, 'open', ?, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
     ).run(
       id,
       input.documentId,
       input.kind,
       input.anchor ? JSON.stringify(input.anchor) : null,
+      extraAnchors.length > 0 ? JSON.stringify(extraAnchors) : null,
       input.anchorState,
       input.note,
       input.profile,
@@ -238,6 +246,7 @@ export function createThread(
     kind: input.kind,
     status: "open",
     anchor: input.anchor,
+    extraAnchors,
     anchorState: input.anchorState,
     note: input.note,
     sessionId: null,

@@ -4,7 +4,19 @@
 import type { TextPosition } from "../../shared/types.ts";
 
 /** Never contributes visible prose, so never enters the index (§6.3 rule 2). */
-const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD", "TITLE"]);
+const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD", "TITLE", "DESC"]);
+
+/**
+ * `tagName` is upper-cased for HTML elements and left as written for SVG and
+ * MathML ones, so an SVG `<style>` reports `"style"` and a plain `has()` misses
+ * it. Measured on 2026-08-21: Mermaid's SVG carries about four thousand
+ * characters of its own CSS in an inline `<style>`, and every one of them
+ * entered the text index — shifting every anchor offset below the diagram and
+ * making the CSS quotable as if it were the author's prose.
+ */
+function isSkipped(el: Element): boolean {
+  return SKIP_TAGS.has(el.tagName.toUpperCase());
+}
 
 /**
  * Marks REX's own overlay host. Its text must stay out of the index — if the UI
@@ -90,7 +102,7 @@ export function buildTextIndex(root: Node): TextIndex {
     }
     if (node.nodeType === Node.ELEMENT_NODE) {
       const el = node as Element;
-      if (SKIP_TAGS.has(el.tagName)) return;
+      if (isSkipped(el)) return;
       if (el.hasAttribute(REX_OVERLAY_ATTR)) return;
 
       if (el.tagName === "IFRAME") {

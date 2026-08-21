@@ -9,7 +9,7 @@ import { join } from "node:path";
 import type { TreeEntry, WorkspaceTree } from "../../shared/types.ts";
 import type { Db } from "../db/database.ts";
 import { commentCountsByDocument } from "../db/queries.ts";
-import { isDocumentPath, unopenableReason } from "../render/index.ts";
+import { isDocumentPath, unopenableReason } from "../render/formats.ts";
 
 /** Build output and dependency trees are never review material (§4.2). */
 const SKIP_DIRECTORIES = new Set([

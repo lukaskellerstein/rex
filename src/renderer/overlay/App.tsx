@@ -18,6 +18,7 @@ import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import { ApplyResult } from "./ApplyResult.tsx";
 import type { DocumentSurface, DraftAnchor, ResolvedThread } from "./anchoring.ts";
 import { CommentCard } from "./CommentCard.tsx";
+import type { ExtraTarget } from "./Composer.tsx";
 import { DiffDialog } from "./DiffDialog.tsx";
 import { DocumentView } from "./DocumentView.tsx";
 import { Explorer } from "./Explorer.tsx";
@@ -32,6 +33,24 @@ const FAN_OUT_CONFIRM = 10;
 const ESTIMATED_USD_PER_ASK = 0.05;
 /** How long ⌥ must be held before it means "pick", not "I am typing ⌥-something". */
 const ALT_PICK_DELAY = 250;
+/** A drag-resize fires continuously; re-resolve once it stops. */
+const RESIZE_SETTLE_MS = 200;
+
+/**
+ * How far the document can be zoomed, and by how much per notch.
+ *
+ * The zoom is the *document's*, not REX's: it scales what is under review and
+ * leaves the bar, the explorer and the cards alone. That is why it is CSS
+ * `zoom` inside the frame rather than Electron's `setZoomFactor`, which would
+ * scale the whole window and make the comment cards grow with the prose.
+ */
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 3;
+const ZOOM_STEP = 1.1;
+
+function clampZoom(value: number): number {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+}
 
 interface ApplyOutcome {
   summary: AnchorSummary;
@@ -72,6 +91,20 @@ export function App(): React.JSX.Element {
   const [pickScopes, setPickScopes] = useState<PickScope[] | null>(null);
   const [pickActive, setPickActive] = useState(0);
   const [arming, setArming] = useState(false);
+  /** Further places the comment being written is about — shift-click adds one. */
+  const [extras, setExtras] = useState<ExtraTarget[]>([]);
+  /** True while every click adds a place instead of starting a new comment. */
+  const [adding, setAdding] = useState(false);
+  /** The document's own zoom. 1 is 100%. */
+  const [zoom, setZoom] = useState(1);
+  /**
+   * The zoom at which the open draft's own rect was measured.
+   *
+   * A `DraftAnchor` carries a box in document pixels, and zooming moves every
+   * document pixel. Without this the outline of what you are writing about
+   * drifts off it the moment you zoom in to read.
+   */
+  const [draftZoom, setDraftZoom] = useState(1);
 
   const surfaceRef = useRef<DocumentSurface | null>(null);
   const docRef = useRef<OpenedDocument | null>(null);
@@ -128,6 +161,40 @@ export function App(): React.JSX.Element {
     return summary;
   }, []);
 
+  /**
+   * A resize re-resolves, because an outline is geometry.
+   *
+   * An anchor on a whole element or a region of one is stored as fractions and
+   * drawn as a box in document pixels, and only `sweep()` turns one into the
+   * other. Without this the stored anchor stays perfectly correct while the box
+   * on screen keeps the size it had at the old width — measured on 2026-08-21
+   * on a PDF, where narrowing the window left a region outline 1.23× the width
+   * of the page it was cut from. It matters most for a PDF, whose pages scale
+   * with the pane instead of reflowing, but it is wrong for every format.
+   */
+  useEffect(() => {
+    let timer = 0;
+    const onResize = (): void => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void sweep(), RESIZE_SETTLE_MS);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [sweep]);
+
+  /**
+   * A zoom is geometry, exactly as a resize is, so it re-resolves for the same
+   * reason (see the resize effect above). Skipped before there is a surface:
+   * this fires once on mount, and sweeping then would clear the list the load
+   * is about to fill.
+   */
+  const onZoomApplied = useCallback((): void => {
+    if (surfaceRef.current) void sweep();
+  }, [sweep]);
+
   const onSurfaceReady = useCallback(
     async (surface: DocumentSurface): Promise<void> => {
       surfaceRef.current = surface;
@@ -143,11 +210,44 @@ export function App(): React.JSX.Element {
 
   // ── Opening documents ───────────────────────────────────────
 
+  /**
+   * Read through refs rather than closed over, so the pick callbacks keep one
+   * identity for the life of the app — DocumentView's tier 1 effect depends on
+   * that, and a new identity there rewrites the iframe's `srcdoc`.
+   */
+  const pickActiveRef = useRef(0);
+  const draftRef = useRef<DraftAnchor | null>(null);
+  const addingRef = useRef(false);
+  const zoomRef = useRef(1);
+  pickActiveRef.current = pickActive;
+  draftRef.current = draft;
+  addingRef.current = adding;
+  zoomRef.current = zoom;
+
+  /** Every draft is recorded with the zoom its box was measured at. */
+  const showDraft = useCallback((next: DraftAnchor): void => {
+    setDraft(next);
+    setDraftZoom(zoomRef.current);
+  }, []);
+
+  const zoomBy = useCallback((factor: number): void => {
+    setZoom((current) => clampZoom(current * factor));
+  }, []);
+
+  const resetZoom = useCallback((): void => setZoom(1), []);
+
   const leavePick = useCallback((): void => {
     setPicking(false);
     setArming(false);
+    setAdding(false);
     setPickScopes(null);
     setPickActive(0);
+  }, []);
+
+  /** The composer's "+ another place": the next click adds rather than replaces. */
+  const addAnother = useCallback((): void => {
+    setPicking(true);
+    setAdding(true);
   }, []);
 
   const openDocument = useCallback(
@@ -319,9 +419,13 @@ export function App(): React.JSX.Element {
     const surface = surfaceRef.current;
     if (!surface || armingRef.current) return;
     const next = await surface.anchorFromSelection();
-    setDraft(next);
-    if (next) setDraftKey((key) => key + 1);
-  }, []);
+    if (!next) {
+      setDraft(null);
+      return;
+    }
+    showDraft(next);
+    setDraftKey((key) => key + 1);
+  }, [showDraft]);
 
   const withBusy = useCallback(
     async (threadId: string, task: () => Promise<void>): Promise<void> => {
@@ -346,16 +450,18 @@ export function App(): React.JSX.Element {
       const thread = await window.rex.threadCreate({
         documentId: current.documentId,
         anchor: draft.anchor,
+        extraAnchors: extras.map((extra) => extra.anchor),
         note,
       });
       setDraft(null);
+      setExtras([]);
       leavePick();
       await refreshThreads();
       await sweep();
       setActiveId(thread.id);
       await withBusy(thread.id, () => window.rex.threadAsk(thread.id));
     },
-    [draft, leavePick, refreshThreads, sweep, withBusy],
+    [draft, extras, leavePick, refreshThreads, sweep, withBusy],
   );
 
   const askAll = useCallback(async (): Promise<void> => {
@@ -379,34 +485,60 @@ export function App(): React.JSX.Element {
 
   const probe = useCallback((x: number, y: number) => {
     void (async () => {
-      const scopes = (await surfaceRef.current?.probeAt(x, y)) ?? null;
-      if (!scopes) return;
-      setPickScopes(scopes);
-      // A fresh probe lands on the smallest anchorable element; the path bar
-      // and ↑/↓ widen from there.
-      setPickActive(0);
+      const found = (await surfaceRef.current?.probeAt(x, y, pickActiveRef.current)) ?? null;
+      if (!found) return;
+      setPickScopes(found.scopes);
+      // Usually the smallest anchorable element; the surface says otherwise when
+      // the reviewer had already widened and that element is still in the chain.
+      setPickActive(found.active);
     })();
   }, []);
 
-  const commitScope = useCallback((index: number) => {
-    void (async () => {
-      const next = await surfaceRef.current?.anchorFromScope(index);
-      if (!next) return;
-      setDraft(next);
-      setDraftKey((key) => key + 1);
-      setPicking(false);
-      setPickScopes(null);
-    })();
+  const scrollDocument = useCallback((dx: number, dy: number) => {
+    surfaceRef.current?.scrollBy(dx, dy);
   }, []);
+
+  const commitScope = useCallback(
+    (index: number, additive: boolean) => {
+      void (async () => {
+        const next = await surfaceRef.current?.anchorFromScope(index);
+        if (!next) return;
+
+        // One more place for the comment already being written — either from
+        // "+ another place", or from a shift-click for anyone who knows it.
+        // Pick mode stays on so a fourth and a fifth cost one click each.
+        if ((additive || addingRef.current) && draftRef.current) {
+          const scope = next.scopes[next.active];
+          if (!scope) return;
+          setExtras((list) => [
+            ...list,
+            { anchor: next.anchor, label: scope.title, rect: scope.rect, zoom: zoomRef.current },
+          ]);
+          return;
+        }
+
+        showDraft(next);
+        setExtras([]);
+        setDraftKey((key) => key + 1);
+        setPicking(false);
+        setAdding(false);
+        setPickScopes(null);
+      })();
+    },
+    [showDraft],
+  );
 
   /** Widening from the composer's chips: the anchor changes, the note stays. */
-  const changeScope = useCallback((index: number) => {
-    void (async () => {
-      const next = await surfaceRef.current?.anchorFromScope(index);
-      if (next) setDraft(next);
-      setArming(false);
-    })();
-  }, []);
+  const changeScope = useCallback(
+    (index: number) => {
+      void (async () => {
+        const next = await surfaceRef.current?.anchorFromScope(index);
+        if (next) showDraft(next);
+        setArming(false);
+      })();
+    },
+    [showDraft],
+  );
 
   const armRegion = useCallback(() => {
     if (!draft) return;
@@ -418,34 +550,99 @@ export function App(): React.JSX.Element {
     setArming(true);
   }, [draft]);
 
-  const takeRegion = useCallback((index: number, box: ScopeRect) => {
-    void (async () => {
-      const next = await surfaceRef.current?.anchorFromRegion(index, box);
-      setArming(false);
-      setPicking(false);
-      if (next) setDraft(next);
-    })();
-  }, []);
+  const takeRegion = useCallback(
+    (index: number, box: ScopeRect) => {
+      void (async () => {
+        const next = await surfaceRef.current?.anchorFromRegion(index, box);
+        setArming(false);
+        setPicking(false);
+        if (next) showDraft(next);
+      })();
+    },
+    [showDraft],
+  );
 
-  // `E`, or ⌥ held for a moment. Hover never outlines things while you are only
-  // reading, and it never competes with dragging a text selection.
+  // ── Keyboard (design/screens/Main) ──────────────────────────
+  //
+  // Bare letters, because every one of these is a thing the reviewer does
+  // dozens of times in a session and a chord would be slower than the mouse.
+  // They are all suppressed while a field has focus — `typing()` — so writing
+  // the word "pd" in a comment never switches panes.
+  //
+  // ⌥ held for a moment is pick mode too: hover never outlines things while you
+  // are only reading, and it never competes with dragging a text selection.
   useEffect(() => {
-    if (!doc || centre !== "document") return;
     let altTimer: number | null = null;
 
-    const typing = (target: EventTarget | null): boolean =>
-      target instanceof HTMLElement &&
-      (target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.isContentEditable);
+    /**
+     * `composedPath()[0]`, not `event.target`.
+     *
+     * REX draws inside a shadow root (§7), and an event that crosses that
+     * boundary is retargeted: by the time it reaches `document` the target is
+     * the shadow *host*, never the field that has focus. So this test never
+     * matched, every bare letter fired its shortcut while the reviewer was
+     * typing a comment, and `preventDefault` swallowed the character on the way
+     * out. Measured on 2026-08-21: typing "pdga" into the note left the note
+     * empty and the app showing the graph.
+     */
+    const typing = (event: KeyboardEvent): boolean => {
+      const node = event.composedPath()[0];
+      return (
+        node instanceof HTMLElement &&
+        (node.tagName === "TEXTAREA" || node.tagName === "INPUT" || node.isContentEditable)
+      );
+    };
+
+    const canPick = doc !== null && centre === "document";
 
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Alt" && altTimer === null && !arming) {
+      if (event.key === "Alt" && altTimer === null && !arming && canPick && !typing(event)) {
         altTimer = window.setTimeout(() => setPicking(true), ALT_PICK_DELAY);
         return;
       }
-      if (event.key !== "e" && event.key !== "E") return;
-      if (event.metaKey || event.ctrlKey || event.altKey || typing(event.target)) return;
+      // Zoom the document, the way every reader expects: ⌘/ctrl with + − 0.
+      // Handled before the modifier guard below, because the modifier is the
+      // binding. `=` as well as `+`, so the key does not need ⇧ on a US layout.
+      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+        if (event.key === "+" || event.key === "=") zoomBy(ZOOM_STEP);
+        else if (event.key === "-" || event.key === "_") zoomBy(1 / ZOOM_STEP);
+        else if (event.key === "0") setZoom(1);
+        else return;
+        event.preventDefault();
+        return;
+      }
+
+      // ⇧ is a modifier one of these bindings uses, so it is not disqualifying;
+      // the rest are.
+      if (event.metaKey || event.ctrlKey || event.altKey || typing(event)) return;
+
+      switch (event.key) {
+        case "p":
+        case "P":
+          if (!canPick) return;
+          setPicking((on) => !on);
+          break;
+        case "d":
+        case "D":
+          void showCentre("document");
+          break;
+        case "g":
+        case "G":
+          // The graph is a view of a workspace; without one there is nothing to
+          // draw, and the button is not offered either.
+          if (!workspace) return;
+          void showCentre("graph");
+          break;
+        case "A":
+          // Shift+A only. A bare `a` would fire a fan-out of paid sessions on a
+          // keystroke, which §8.8 point 4 already treats as worth confirming.
+          if (!event.shiftKey) return;
+          void askAll();
+          break;
+        default:
+          return;
+      }
       event.preventDefault();
-      setPicking((on) => !on);
     };
 
     const onKeyUp = (event: KeyboardEvent): void => {
@@ -464,7 +661,7 @@ export function App(): React.JSX.Element {
       document.removeEventListener("keyup", onKeyUp);
       if (altTimer !== null) window.clearTimeout(altTimer);
     };
-  }, [arming, centre, doc]);
+  }, [arming, askAll, centre, doc, showCentre, workspace, zoomBy]);
 
   // ── Apply (§8.7) ────────────────────────────────────────────
 
@@ -518,6 +715,8 @@ export function App(): React.JSX.Element {
         unanswered={unanswered}
         picking={picking}
         canPick={doc !== null && centre === "document"}
+        zoom={zoom}
+        onResetZoom={resetZoom}
         onCentre={showCentre}
         onAskAll={askAll}
         onTogglePick={() => setPicking((on) => !on)}
@@ -575,11 +774,27 @@ export function App(): React.JSX.Element {
               pickScopes={pickScopes}
               pickActive={pickActive}
               arming={arming}
+              extras={extras}
+              adding={adding}
+              onAddAnother={addAnother}
               onSurfaceReady={onSurfaceReady}
               onSelectionChanged={onSelectionChanged}
               onSelectMarker={setActiveId}
               onCreateComment={createComment}
-              onCancelDraft={() => setDraft(null)}
+              onCancelDraft={() => {
+                setDraft(null);
+                setExtras([]);
+                leavePick();
+              }}
+              onRemoveExtra={(position) =>
+                setExtras((list) => list.filter((_, at) => at !== position))
+              }
+              onScrollBy={scrollDocument}
+              zoom={zoom}
+              draftZoom={draftZoom}
+              onZoomBy={zoomBy}
+              onZoomReset={resetZoom}
+              onZoomApplied={onZoomApplied}
               onScope={changeScope}
               onArmRegion={armRegion}
               onProbe={probe}

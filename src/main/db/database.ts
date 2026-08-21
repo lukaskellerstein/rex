@@ -25,9 +25,34 @@ export function openDatabase(): Db {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(schema);
+  addMissingColumns(db);
 
   handle = db;
   return db;
+}
+
+/**
+ * Columns added after a database was first created.
+ *
+ * `schema.sql` is all `CREATE TABLE IF NOT EXISTS`, so a table that already
+ * exists is left exactly as it was — a column added to the file reaches a fresh
+ * database and no existing one. Every column here must therefore be nullable
+ * and have a meaning when absent, because old rows will not have it.
+ */
+function addMissingColumns(db: Db): void {
+  const wanted: ReadonlyArray<{ table: string; column: string; type: string }> = [
+    // Multi-target comments. NULL reads as "one target", which is what every
+    // row written before this column existed was.
+    { table: "thread", column: "extra_anchors_json", type: "TEXT" },
+  ];
+
+  for (const { table, column, type } of wanted) {
+    const present = db
+      .prepare<[], { name: string }>(`PRAGMA table_info(${table})`)
+      .all()
+      .some((row) => row.name === column);
+    if (!present) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+  }
 }
 
 export function closeDatabase(): void {

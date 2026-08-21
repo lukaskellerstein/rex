@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS thread (
   status        TEXT NOT NULL DEFAULT 'open'
                   CHECK (status IN ('open','resolved')),
   anchor_json   TEXT,
+  -- Further anchors for the same comment, as a JSON array. NULL and '[]' both
+  -- mean the ordinary one-target comment.
+  extra_anchors_json TEXT,
   anchor_state  TEXT CHECK (anchor_state IN ('ok','moved','orphaned')),
   note          TEXT NOT NULL,
   session_id    TEXT,

@@ -28,6 +28,14 @@ function createWindow(): BrowserWindow {
       sandbox: true,
       // Tier 2 (§5.2, milestone 7) shows a remote page in a <webview>.
       webviewTag: true,
+      // Chromium suspends the "update the rendering" steps for a window it
+      // considers hidden — behind another window, on another Space, minimised.
+      // Everything that hangs off those steps stops with them:
+      // `requestAnimationFrame`, `IntersectionObserver` delivery and `scroll`
+      // dispatch. PDF.js paints its pages from a `requestAnimationFrame` loop
+      // (spec 03 §7.2), so a PDF opened while REX is not frontmost would sit
+      // there blank, with no error to see. Measured on 2026-08-21.
+      backgroundThrottling: false,
     },
   });
 

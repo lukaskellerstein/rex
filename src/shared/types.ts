@@ -80,6 +80,17 @@ export interface Thread {
   kind: ThreadKind;
   status: ThreadStatus;
   anchor: Anchor | null; // null for synthesis threads
+  /**
+   * Further places the same comment is about, when the reviewer shift-clicked
+   * more than one element. Empty for the ordinary one-target comment.
+   *
+   * `anchor` stays the primary one and keeps every meaning it had: it is what
+   * Apply writes back through, what the gutter marker sits beside, and what the
+   * card quotes. These are additional evidence for the same question — "these
+   * three rows disagree with each other" is one comment, not three.
+   */
+  extraAnchors: Anchor[];
+  /** The worst state across `anchor` and `extraAnchors` — §6.6. */
   anchorState: AnchorState | null;
   note: string; // the comment the user typed
   sessionId: string | null;
@@ -236,12 +247,36 @@ export interface AnchorSummary {
   total: number;
 }
 
+/**
+ * How the renderer is meant to present this document (spec 03 §9).
+ *
+ * A discriminated union rather than a nullable `html`. `html === null` used to
+ * mean "this is a webview" — an overload that was unambiguous while there were
+ * two cases and is ambiguous now there are three. A union makes the renderer's
+ * `switch` exhaustive, so `tsc` finds the branch anybody forgets.
+ */
+export type DocumentPresentation =
+  /** Markdown, HTML and DOCX — main rendered it to a string. */
+  | { kind: "html"; html: string }
+  /**
+   * A `rex-doc://` URL; the renderer draws the pages itself (§7).
+   *
+   * `assetsUrl` is the same scheme over PDF.js's own `pdfjs-dist` directory.
+   * It is not optional: a PDF whose fonts are the base-14 set embeds nothing,
+   * and without `standardFontDataUrl` the render task hangs rather than
+   * failing — measured on 2026-08-21, the page filled white and never drew a
+   * glyph. Only main knows where the package sits, and it differs between a
+   * checkout and a packaged `app.asar`.
+   */
+  | { kind: "pdf"; url: string; assetsUrl: string }
+  /** Tier 2 — a remote page in a <webview>. */
+  | { kind: "url" };
+
 /** What `doc:open` hands the renderer. */
 export interface OpenedDocument {
   documentId: string;
   ref: DocumentRef;
-  /** Rendered HTML for tiers 1; null for a tier-2 URL shown in a <webview>. */
-  html: string | null;
+  presentation: DocumentPresentation;
   contentHash: string | null;
   title: string | null;
   /** Directory the document's relative assets resolve against. */

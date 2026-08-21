@@ -36,7 +36,7 @@ re-checks the space for foreign windows on every run and abandons it -- label
 cleared, state forgotten -- the moment one appears; a new scratch is created and
 the browsers already there move along.
 
-Ownership has two grains. `is_playwright_browser()` says "spawned by *some*
+Ownership has two grains. `is_playwright_browser()` says "driven by *some*
 Playwright" and is enough for parking, which is harmless across sessions.
 Closing is not: several Claude Code sessions run at once on this machine, each
 with its own MCP server, and a SessionEnd that closed every Playwright browser
@@ -99,6 +99,22 @@ PLAYWRIGHT_ANCESTORS = ("playwright", "npx", "node", "npm")
 # a bare "playwright" would also match a user browsing playwright.dev, and this
 # predicate decides what the cleanup hook is allowed to close.
 PLAYWRIGHT_COMMAND_MARKERS = ("ms-playwright", "playwright_", "playwright-core")
+
+# An attached app leaves none of those markers, and no usable ancestry either.
+# With `--cdp-endpoint` the app is launched by the dev server (electron-vite),
+# detached -- so `ps` reports launchd as its parent, its ancestry is the single
+# word "electron", and its command line names the project's own node_modules and
+# never Playwright. What it does carry is the debugging port Playwright attaches
+# to, which is on the command line and therefore survives the reparenting that
+# erases everything else. A window that was started with a CDP port open is
+# under automation by construction; nothing a person opens has this flag.
+# Measured 2026-08-21 in `rex`: pid ppid=1, ancestry ['electron'], every other
+# signal absent, so the window sat unparked on the user's own space.
+#
+# Deliberately *not* folded into PLAYWRIGHT_COMMAND_MARKERS: that set also
+# decides what `SessionEnd` may close, and an app the dev server owns and
+# restarts is not this session's to kill.
+ATTACHED_COMMAND_MARKERS = ("--remote-debugging-port",)
 
 I3_SCRATCH_MIN = 100
 I3_SCRATCH_MAX = 120
@@ -174,6 +190,18 @@ def _process_table() -> dict[int, tuple[int, str]]:
     return _PROCESS_TABLE
 
 
+def forget_processes() -> None:
+    """Drop the cached process table.
+
+    The cache is right for a single pass -- one `ps` instead of one per window.
+    It is wrong across a wait: a hook that sleeps for a window to appear is
+    waiting on a process that did not exist when the table was built, and would
+    keep answering from the snapshot that predates it.
+    """
+    global _PROCESS_TABLE
+    _PROCESS_TABLE = None
+
+
 def _ancestors_darwin(pid: int) -> list[str]:
     table = _process_table()
     names: list[str] = []
@@ -200,11 +228,20 @@ def _command_line(pid: int) -> str:
 
 
 def is_playwright_browser(pid: int | None) -> bool:
-    """True when this browser was spawned by Playwright rather than by the user."""
+    """True when this window is driven by Playwright rather than opened by the user.
+
+    Three signals, any one of which is enough, in cost order: a Playwright-owned
+    command line (spawned browser), a CDP port on the command line (attached
+    app), or a Playwright process in the ancestry.
+    """
     if not pid:
         return False
 
-    if any(marker in _command_line(pid) for marker in PLAYWRIGHT_COMMAND_MARKERS):
+    command = _command_line(pid)
+    if any(marker in command for marker in PLAYWRIGHT_COMMAND_MARKERS):
+        return True
+
+    if any(marker in command for marker in ATTACHED_COMMAND_MARKERS):
         return True
 
     ancestors = _ancestors_darwin(pid) if platform.system() == "Darwin" else _ancestors_linux(pid)
