@@ -81,6 +81,32 @@ function baseName(identifier: string): string {
   return identifier.split("/").pop() ?? identifier;
 }
 
+/**
+ * Spec 06 §7.2 — how much of this file the comment covers.
+ *
+ * The mechanism of Apply does not change, but one thing does and it must be
+ * said in the dialog rather than left to be discovered: **a comment on a whole
+ * document authorises an edit anywhere in that file.** The diff gate is what
+ * makes that safe; the reviewer should still know what they are about to read
+ * before they read it.
+ *
+ * The widest extent among the targets in that file wins, because that is what
+ * was authorised. Null for an ordinary passage comment, where the +/− counts
+ * already say everything.
+ */
+function coveredScope(thread: ThreadWithMessages | null, file: string): string | null {
+  if (!thread) return null;
+  const here = thread.targets.filter((_, position) => {
+    const name = thread.targetNames[position];
+    return name !== undefined && (file === name || file.endsWith(`/${name}`));
+  });
+  if (here.some((target) => target.anchor.extent === "document")) return "the whole document";
+  const section = here.find((target) => target.anchor.extent === "section");
+  if (!section) return null;
+  const heading = section.anchor.quote?.exact?.trim();
+  return heading ? `Section “${heading}”` : "one section";
+}
+
 function tallyFor(counts: Map<string, Tally>, file: string): Tally {
   // Main reports absolute paths; git's own headers are repository-relative, so
   // the two are matched by suffix rather than by equality.
@@ -153,6 +179,7 @@ export function DiffDialog(props: Props): React.JSX.Element {
           event.files.map((file) => {
             const tally = tallyFor(counts, file);
             const open = file === props.openDocumentPath;
+            const scope = coveredScope(thread, file);
             return (
               <button
                 key={file}
@@ -163,6 +190,10 @@ export function DiffDialog(props: Props): React.JSX.Element {
                 onClick={() => props.onOpenFile(file)}
               >
                 {baseName(file)}
+                {/* §7.2 — what the comment covers here, before the counts of
+                    what changed. A whole-document comment authorised an edit
+                    anywhere in this file, and that is worth reading first. */}
+                {scope ? <span className="rex-file-scope">{scope}</span> : null}
                 <span className="rex-file-add">+{tally.added}</span>
                 <span className="rex-file-del">−{tally.removed}</span>
                 {/* No count of "sections" here: the heading already says how

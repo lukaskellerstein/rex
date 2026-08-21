@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 // copied into src/, so there is one source of truth for the brand.
 import logo from "../../../docs/logo/mark/rex-mark-color-128.png";
 import type { OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
-import { ChevronDown, PickTarget } from "./Icons.tsx";
+import { ChevronDown, PenNib, PickTarget } from "./Icons.tsx";
 
 interface Props {
   doc: OpenedDocument | null;
@@ -21,12 +21,16 @@ interface Props {
   unanswered: number;
   picking: boolean;
   canPick: boolean;
+  /** Spec 06 §5.1 — the pen, beside pick and on the same terms. */
+  penning: boolean;
+  canDraw: boolean;
   /** The document's own zoom. 1 is 100%, and then nothing is shown. */
   zoom: number;
   onResetZoom: () => void;
   onCentre: (centre: "document" | "graph") => void;
   onAskAll: () => void;
   onTogglePick: () => void;
+  onTogglePen: () => void;
   onOpenFile: () => void;
   onOpenFolder: () => void;
   onOpenUrl: (url: string) => void;
@@ -200,6 +204,23 @@ export function TopBar(props: Props): React.JSX.Element {
         >
           <PickTarget />
           Pick element
+        </button>
+      ) : null}
+
+      {/*
+        Beside Pick element, because they are the same kind of thing: a mode
+        that changes what the pointer does to the document. §5.1.
+      */}
+      {props.canDraw ? (
+        <button
+          type="button"
+          className={props.penning ? "rex-button rex-primary" : "rex-button"}
+          title="Circle what the comment is about — N"
+          aria-pressed={props.penning}
+          onClick={props.onTogglePen}
+        >
+          <PenNib />
+          Pen
         </button>
       ) : null}
 

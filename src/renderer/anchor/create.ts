@@ -186,6 +186,46 @@ export function createElementAnchor(
 }
 
 /**
+ * Spec 06 §4.3 — a section: the anchor for its **heading**, plus the extent.
+ *
+ * It stores the heading and not the contents, and the alternative fails twice.
+ * A text anchor whose quote is the whole section writes thousands of characters
+ * into the database per comment, and it orphans the moment anyone edits a word
+ * inside the section, because the stored quote no longer matches. A heading is
+ * short, distinctive, and in Markdown carries a hand-written slug id
+ * (`markdown-it-anchor`), which is the strongest anchor REX has. It is the same
+ * trick `resolveRegion` already uses for a figure: name the thing that
+ * identifies it, not the thing you want.
+ */
+export function createSectionAnchor(
+  index: TextIndex,
+  heading: Element,
+  sourceFile: string | null,
+): Anchor {
+  return { ...createElementAnchor(index, heading, sourceFile), extent: "section" };
+}
+
+/**
+ * Spec 06 §4.3 — the whole document.
+ *
+ * All four layers are null, and that is not a degenerate anchor: its target is
+ * the file, and the file is identified by `AnchorTarget.documentId`, which every
+ * target already carries. Nothing inside the document is named, so there is
+ * nothing inside the document that can be edited away — §4.5's one anchor that
+ * cannot move.
+ */
+export function createDocumentAnchor(): Anchor {
+  return {
+    quote: null,
+    position: null,
+    element: null,
+    region: null,
+    source: null,
+    extent: "document",
+  };
+}
+
+/**
  * A cheap content hash — FNV-1a, 32 bits, hex.
  *
  * Not a security primitive and not trying to be: it answers one question, "is

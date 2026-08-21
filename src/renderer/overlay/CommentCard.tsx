@@ -141,7 +141,13 @@ export function CommentCard(props: Props): React.JSX.Element {
   const steps = stepsOf(thread);
   const messages = conversation(thread);
   const { answered } = progressOf(thread);
-  const quote = thread.targets[0]?.anchor.quote?.exact ?? null;
+  // Spec 06 §4.3 — a section anchor stores its *heading's* text, so showing
+  // that as the card's blockquote would claim the comment is about eight words
+  // when it is about everything under them. `label` says `Section · "…"`, which
+  // is what the panel row and the prompt both say.
+  const quote = thread.targets[0]?.anchor.extent
+    ? null
+    : (thread.targets[0]?.anchor.quote?.exact ?? null);
   const spansDocuments = thread.documentNames.length > 1;
 
   // The design's meta line: what the comment is attached to, and how that went.

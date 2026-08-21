@@ -21,6 +21,8 @@ interface Props {
   selected: boolean;
   busy: boolean;
   onSelect: () => void;
+  /** Spec 06 §6.4 — the ink follows the pointer down the comment list. */
+  onHover?: (over: boolean) => void;
 }
 
 /** The wash: status first, because a resolved thread is not an alarm. */
@@ -55,7 +57,11 @@ export function StateWord({
 
 export function ThreadRow(props: Props): React.JSX.Element {
   const { thread } = props;
-  const quote = thread.targets[0]?.anchor.quote?.exact ?? null;
+  // Spec 06 §4.3 — a section anchor stores its *heading's* text, so quoting it
+  // here would claim the comment is about a title. `label` says `Section · "…"`.
+  const quote = thread.targets[0]?.anchor.extent
+    ? null
+    : (thread.targets[0]?.anchor.quote?.exact ?? null);
   const { answered, steps } = progressOf(thread);
   const word = <StateWord status={thread.status} state={props.state} />;
 
@@ -68,7 +74,13 @@ export function ThreadRow(props: Props): React.JSX.Element {
     .join(" ");
 
   return (
-    <button type="button" className={classes} onClick={props.onSelect}>
+    <button
+      type="button"
+      className={classes}
+      onClick={props.onSelect}
+      onMouseEnter={() => props.onHover?.(true)}
+      onMouseLeave={() => props.onHover?.(false)}
+    >
       <span
         className={`rex-token ${tokenClass(thread.status, props.state)} ${
           props.selected ? "rex-token-active" : ""

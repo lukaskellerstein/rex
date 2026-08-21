@@ -315,6 +315,9 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
       targets: request.targets,
       note: request.note,
       profile: "read",
+      // Spec 06 §5.4 — the ink, when the places were circled rather than
+      // clicked. Absent for every other comment, which is most of them.
+      stroke: request.stroke,
     });
   });
 

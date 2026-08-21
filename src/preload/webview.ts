@@ -11,13 +11,13 @@
 
 import { contextBridge } from "electron";
 import { type HighlightHit, paintHighlights } from "../renderer/anchor/highlight.ts";
+import type { Stroke } from "../renderer/anchor/lasso.ts";
 import {
   type ScopeChain,
   type ScopeRect,
   scopeChainAt,
   scopeChainForAnchor,
 } from "../renderer/anchor/pick.ts";
-import { resolveAnchor } from "../renderer/anchor/resolve.ts";
 import type { TextIndex } from "../renderer/anchor/textIndex.ts";
 import {
   type AnchorToMeasure,
@@ -25,6 +25,8 @@ import {
   anchorFromSelectionIn,
   rectForAnchorIn,
   resolveAgainst,
+  scrollToAnchorIn,
+  targetsFromDrawingIn,
 } from "../renderer/overlay/anchoring.ts";
 import type { Anchor, Thread } from "../shared/types.ts";
 
@@ -37,11 +39,17 @@ let hits: HighlightHit[] = [];
 /** A remote page has no local source file, so `Anchor.source` stays null (§5.2). */
 const NO_SOURCE = null;
 
-/** Spec 05 §4.1 — the chain for an anchor already in the panel. */
-function chainForAnchor(anchorJson: string, kind: "text" | "element"): ScopeChain | null {
+/**
+ * Spec 05 §4.1 — the chain for an anchor already in the panel, and which of it
+ * the anchor already is (spec 06 §4.1 — for a section that is not scope 0).
+ */
+function chainForAnchor(
+  anchorJson: string,
+  kind: "text" | "element",
+): { chain: ScopeChain; active: number } | null {
   if (!index) return null;
   const rebuilt = scopeChainForAnchor(index, JSON.parse(anchorJson) as Anchor, kind);
-  if (rebuilt) chain = rebuilt;
+  if (rebuilt) chain = rebuilt.chain;
   return rebuilt;
 }
 
@@ -114,10 +122,17 @@ contextBridge.exposeInMainWorld("__rexAnchor", {
     return selected ? JSON.stringify(selected) : null;
   },
 
+  /** Spec 06 §5.3 — the lasso, run inside the page whose DOM it measures. */
+  targetsFromDrawing(strokesJson: string, zoom: number): string {
+    const strokes = JSON.parse(strokesJson) as Stroke[];
+    return JSON.stringify(targetsFromDrawingIn(window, document, index, strokes, zoom, NO_SOURCE));
+  },
+
   scopesForAnchor(anchorJson: string, kind: "text" | "element"): string | null {
     const rebuilt = chainForAnchor(anchorJson, kind);
-    // Always 0 — see the note beside FrameSurface.scopesForAnchor.
-    return rebuilt ? JSON.stringify({ scopes: rebuilt.scopes, active: 0 }) : null;
+    return rebuilt
+      ? JSON.stringify({ scopes: rebuilt.chain.scopes, active: rebuilt.active })
+      : null;
   },
 
   anchorFromAnchorScope(
@@ -126,22 +141,20 @@ contextBridge.exposeInMainWorld("__rexAnchor", {
     scopeIndex: number,
   ): string | null {
     const rebuilt = chainForAnchor(anchorJson, kind);
-    const selected = anchorFromScopeIn(window, index, rebuilt, scopeIndex, NO_SOURCE, null);
+    const selected = anchorFromScopeIn(
+      window,
+      index,
+      rebuilt?.chain ?? null,
+      scopeIndex,
+      NO_SOURCE,
+      null,
+    );
     return selected ? JSON.stringify(selected) : null;
   },
 
   /** §3.3 — a panel row clicked while its page is open scrolls to it. */
   scrollToAnchor(anchorJson: string): void {
     if (!index) return;
-    const resolution = resolveAnchor(index, JSON.parse(anchorJson) as Anchor);
-    if (!resolution) return;
-    const rect =
-      resolution.kind === "range"
-        ? resolution.range.getBoundingClientRect()
-        : resolution.element.getBoundingClientRect();
-    window.scrollTo({
-      top: rect.top + window.scrollY - window.innerHeight / 3,
-      behavior: "smooth",
-    });
+    scrollToAnchorIn(window, index, JSON.parse(anchorJson) as Anchor);
   },
 });

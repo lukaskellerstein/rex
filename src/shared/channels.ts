@@ -14,6 +14,7 @@ import type {
   OpenedDocument,
   ReferenceGraph,
   SkippedDocument,
+  StrokeRef,
   Thread,
   ThreadWithMessages,
   WorkspaceRef,
@@ -87,6 +88,15 @@ export interface ThreadListRequest {
 export interface ThreadCreateRequest {
   targets: Array<{ documentId: string; anchor: Anchor }>;
   note: string;
+  /**
+   * Spec 06 §5.4 — the reviewer's ink, when the places were circled.
+   *
+   * It rides inside this payload rather than in a channel of its own: §2 leaves
+   * §10's IPC contract **unchanged**, because a drawing is not a second way to
+   * make a comment. It is a fast way to fill the panel, and the panel already
+   * has a way to send what it holds.
+   */
+  stroke?: StrokeRef;
 }
 
 export interface ThreadReplyRequest {

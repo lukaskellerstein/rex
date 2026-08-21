@@ -250,6 +250,16 @@ function editHtml(html: string): string {
     "EARS is the pinch point of the whole pipeline. Above the line everything is discussion; below it everything is automation.",
   );
 
+  // Spec 06 §10 milestone 9 — a section keys on its *heading*, so rewording
+  // one is the edit that tests it. Section 04 is chosen because it survives the
+  // deletion below, which is what makes the wrong-place question live: its
+  // positional path still matches a heading afterwards, just not its own.
+  out = replaceOnce(
+    out,
+    "<h2>Two stores, joined by two strings</h2>",
+    "<h2>Where the two stores meet, and what joins them</h2>",
+  );
+
   return deleteHtmlSection(out, '<div class="plate">02</div>');
 }
 
@@ -267,6 +277,10 @@ function editMarkdown(source: string): string {
     "The WMS Adapter is a thin, pluggable integration layer between\nProtoBot and the user's chosen work management backend.",
     "The WMS Adapter is a slim, swappable bridge that connects ProtoBot\nto whichever work management backend the user picked.",
   );
+
+  // §10 milestone 9 — the reworded heading. Its slug id changes with it, which
+  // is the whole point: the strongest key a Markdown section has stops matching.
+  out = replaceOnce(out, "## Content Storage Model", "## How project content is stored");
 
   return deleteMarkdownSection(out, "## Specification Toolkit");
 }
@@ -507,6 +521,203 @@ async function runRegionGate(bundle: string, html: string): Promise<number> {
   return failures;
 }
 
+// ── The section gate (spec 06 §10 milestone 9) ──────────────────
+//
+// A section anchor names its *heading* and means everything under it (§4.3), so
+// the failure it can hide is different from a text anchor's: not "the quote
+// moved" but "the heading is gone and something else answered to its
+// description". A positional path like `section:nth-of-type(4) > div > h2`
+// still matches a heading after a section above it is deleted — it is just not
+// the same heading. That resolves, reports `moved`, and outlines the wrong four
+// thousand characters.
+//
+// So this case does not assert that a section resolved. It prints the heading
+// each one *landed on* and fails when that is not the heading it was created
+// from.
+
+interface SectionMarker {
+  id: string;
+  /** The heading's exact text in the original document. */
+  heading: string;
+  expect: AnchorState | "moved-or-orphaned";
+  why: string;
+}
+
+interface SectionResult {
+  id: string;
+  layer: number | null;
+  state: AnchorState;
+  /** The heading it landed on — the thing that must not change. */
+  landedOn: string | null;
+  /** Where the run ends, so a run that swallowed the next section is visible. */
+  endsAt: string | null;
+  blocks: number;
+}
+
+function createSectionsInPage(input: {
+  markers: SectionMarker[];
+  sourceFile: string | null;
+}): Array<{ id: string; anchor: Anchor; signature: string }> {
+  const rex = (window as any).__rexAnchor;
+  const index = rex.buildTextIndex(document);
+  const headings = [...document.querySelectorAll("h1,h2,h3,h4,h5,h6")];
+
+  return input.markers.map((marker) => {
+    const heading = headings.find((h) => (h.textContent ?? "").trim() === marker.heading);
+    if (!heading) throw new Error(`section heading not present: ${marker.heading}`);
+    return {
+      id: marker.id,
+      anchor: rex.createSectionAnchor(index, heading, input.sourceFile),
+      signature: marker.heading,
+    };
+  });
+}
+
+function resolveSectionsInPage(
+  created: Array<{ id: string; anchor: Anchor; signature: string }>,
+): SectionResult[] {
+  const rex = (window as any).__rexAnchor;
+  const index = rex.buildTextIndex(document);
+
+  return created.map((record) => {
+    const resolution = rex.resolveAnchor(index, record.anchor);
+    const run = resolution && resolution.kind === "run" ? resolution : null;
+
+    let blocks = 0;
+    if (run) {
+      let el: Element | null = run.first;
+      while (el) {
+        blocks++;
+        if (el === run.last) break;
+        el = el.nextElementSibling;
+      }
+    }
+
+    return {
+      id: record.id,
+      layer: resolution ? resolution.layer : null,
+      state: rex.anchorStateFor(resolution, false) as AnchorState,
+      landedOn: run ? (run.first.textContent ?? "").trim() : null,
+      // The tag too: the last block of a run is often a table or a figure whose
+      // own text is empty, and a diagnostic that prints blank is one nobody
+      // trusts.
+      endsAt: run
+        ? `<${run.last.tagName.toLowerCase()}> ${(run.last.textContent ?? "").trim().slice(0, 50)}`
+        : null,
+      blocks,
+    };
+  });
+}
+
+async function runSectionGate(
+  bundle: string,
+  name: string,
+  markers: SectionMarker[],
+  original: string,
+  edited: string,
+  sourceFile: string | null,
+): Promise<number> {
+  const created = await withPage(bundle, original, (page) =>
+    page.evaluate(createSectionsInPage, { markers, sourceFile }),
+  );
+  const results = await withPage(bundle, edited, (page) =>
+    page.evaluate(resolveSectionsInPage, created),
+  );
+
+  const byId = new Map(markers.map((m) => [m.id, m]));
+  const signatures = new Map(created.map((c) => [c.id, c.signature]));
+  let failures = 0;
+
+  console.log(`\n── Sections · ${name} ${"─".repeat(Math.max(0, 44 - name.length))}`);
+  for (const row of results) {
+    const marker = byId.get(row.id);
+    const expected = marker?.expect ?? "ok";
+    const ok =
+      expected === "moved-or-orphaned"
+        ? row.state === "moved" || row.state === "orphaned"
+        : row.state === expected;
+
+    // The failure this case exists for: a section that resolved onto a heading
+    // it was never created from. Checked whatever the state says, because
+    // `moved` is exactly what a wrong-place resolution reports.
+    const signature = signatures.get(row.id);
+    const wrongPlace = row.landedOn !== null && norm(row.landedOn) !== norm(signature ?? "");
+
+    if (!ok || wrongPlace) failures++;
+    const verdict = wrongPlace ? "WRONG PLACE" : ok ? "pass" : "FAIL";
+    console.log(
+      `  ${verdict.padEnd(11)} ${row.id.padEnd(24)} state=${row.state.padEnd(9)} layer=${row.layer ?? "-"}  expected=${expected}`,
+    );
+    if (marker) console.log(`              ${marker.why}`);
+    if (row.landedOn) {
+      console.log(
+        `              heading: ${norm(row.landedOn).slice(0, 70)} · ${row.blocks} block(s), ends at: ${norm(row.endsAt ?? "")}`,
+      );
+    }
+  }
+  return failures;
+}
+
+const MD_SECTIONS: SectionMarker[] = [
+  {
+    id: "md/overview",
+    heading: "Overview",
+    expect: "ok",
+    why: "the insertion lands inside its run — a section grows without moving",
+  },
+  {
+    id: "md/drafting-table",
+    heading: "Drafting Table",
+    expect: "ok",
+    why: "below the insertion; its slug id carries it whatever the offsets do",
+  },
+  {
+    id: "md/deleted",
+    heading: "Specification Toolkit",
+    expect: "orphaned",
+    why: "the whole section was deleted — there is no heading to walk from",
+  },
+  {
+    id: "md/reworded-inside",
+    heading: "WMS Adapter",
+    expect: "ok",
+    why: "a sentence inside it was rewritten; the heading is what the anchor names",
+  },
+  {
+    id: "md/reworded-heading",
+    heading: "Content Storage Model",
+    expect: "moved-or-orphaned",
+    why: "THE REWORDED HEADING — must never resolve to the neighbouring section",
+  },
+];
+
+const HTML_SECTIONS: SectionMarker[] = [
+  {
+    id: "html/phases",
+    heading: "Four phases, and one line that matters",
+    expect: "ok",
+    why: "above every edit",
+  },
+  {
+    id: "html/deleted",
+    heading: "Dual-model isolation, the idea that half the architecture protects",
+    expect: "orphaned",
+    why: "section 02, deleted outright",
+  },
+  {
+    id: "html/components",
+    heading: "The six components",
+    expect: "ok",
+    why: "below the deletion — no id here, so it resolves on its heading's text",
+  },
+  {
+    id: "html/reworded-heading",
+    heading: "Two stores, joined by two strings",
+    expect: "moved-or-orphaned",
+    why: "THE REWORDED HEADING — its positional path still matches a heading, just not its own",
+  },
+];
+
 async function main(): Promise<void> {
   mkdirSync(WORK, { recursive: true });
 
@@ -577,6 +788,25 @@ async function main(): Promise<void> {
   }
 
   failures += await runRegionGate(bundle, html);
+
+  // Spec 06 §10 milestone 9 — both hostile documents, the same three edits, plus
+  // the one edit a section can actually feel: its heading reworded.
+  failures += await runSectionGate(
+    bundle,
+    "components.md",
+    MD_SECTIONS,
+    mdOriginal,
+    mdEdited,
+    MD_DOC,
+  );
+  failures += await runSectionGate(
+    bundle,
+    "architecture-explained.html",
+    HTML_SECTIONS,
+    htmlOriginal,
+    htmlEdited,
+    null,
+  );
 
   // §13 step 6 — the number that justifies owning the Markdown renderer.
   console.log(`\nSurvival after the same three edits — ${survival.join("  ·  ")}`);

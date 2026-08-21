@@ -1,0 +1,100 @@
+/*
+  The shell — the surface every other component stands on.
+
+  In the app this is the shadow root's own host rule. Here it is a class, so a
+  single card can carry the palette with it. Nothing outside `.rex-shell` is
+  styled by this package: a design system that restyles the page around it is
+  the fault the shadow root exists to prevent.
+*/
+
+.rex-shell {
+  color: var(--fg);
+  background: var(--bg);
+  font: 13px / 1.5 var(--sans);
+}
+
+.rex-shell *,
+.rex-shell *::before,
+.rex-shell *::after {
+  box-sizing: border-box;
+}
+
+/* A surface one step up from the shell: the explorer, the comments column. */
+.rex-panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+}
+
+.rex-panel-sunk {
+  background: var(--sunk);
+}
+
+.rex-panel-well {
+  background: var(--well);
+}
+
+.rex-panel-flush {
+  border: 0;
+  border-radius: 0;
+}
+
+.rex-panel-pad {
+  padding: 12px 14px;
+}
+
+/* ── Swatch ──────────────────────────────────────────────── */
+
+.rex-swatch {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.rex-swatch-chip {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+}
+
+.rex-swatch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.rex-swatch-name {
+  color: var(--fg-dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-swatch-value {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: lowercase;
+}
+
+/* ── Shared atoms ────────────────────────────────────────── */
+
+.rex-icon {
+  flex: none;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.rex-icon-solid {
+  flex: none;
+  fill: currentcolor;
+  stroke: none;
+}

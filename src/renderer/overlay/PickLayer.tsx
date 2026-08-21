@@ -196,20 +196,39 @@ export function PickLayer(props: Props): React.JSX.Element {
         event.preventDefault();
       }}
     >
+      {/*
+        Spec 06 §6.4 — the whole document draws no box. Its two edges are never
+        on screen together, so the "outline" would be a pair of vertical lines
+        down the viewport saying nothing. The badge alone says what is chosen,
+        pinned where it can always be read.
+
+        A section is outlined but not filled, for the reason §6.4 gives about
+        the mark: a wash over four thousand characters is a page you cannot
+        read, and pick mode is exactly when the reviewer is still reading.
+      */}
       {scope && !props.arming ? (
-        <>
-          <div className="rex-pick-outline" style={place(scope.rect)} />
-          <div
-            className="rex-pick-badge"
-            style={{
-              left: scope.rect.x - props.scrollX - 2,
-              top: scope.rect.y - props.scrollY - 20,
-            }}
-          >
-            {scope.label.split("#")[0]}
-            {scope.label.includes("#") ? <span>#{scope.label.split("#")[1]}</span> : null}
-          </div>
-        </>
+        scope.extent === "document" ? (
+          <div className="rex-pick-badge rex-pick-badge-pinned">the whole document</div>
+        ) : (
+          <>
+            <div
+              className={
+                scope.extent ? "rex-pick-outline rex-pick-outline-run" : "rex-pick-outline"
+              }
+              style={place(scope.rect)}
+            />
+            <div
+              className="rex-pick-badge"
+              style={{
+                left: scope.rect.x - props.scrollX - 2,
+                top: scope.rect.y - props.scrollY - 20,
+              }}
+            >
+              {scope.label.split("#")[0]}
+              {scope.label.includes("#") ? <span>#{scope.label.split("#")[1]}</span> : null}
+            </div>
+          </>
+        )
       ) : null}
 
       {props.arming && scope ? (

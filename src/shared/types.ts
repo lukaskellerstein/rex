@@ -58,12 +58,29 @@ export interface SourceRef {
   line: number; // 1-indexed
 }
 
+/**
+ * Spec 06 §4.3 — how much of the document an anchor covers.
+ *
+ * `section` names a *heading* and means everything under it; `document` names
+ * nothing inside the file and means all of it. Both are read before the four
+ * layers, exactly as `region` is.
+ */
+export type AnchorExtent = "section" | "document";
+
 export interface Anchor {
   quote: TextQuote | null; // null for pure element/region anchors
   position: TextPosition | null;
   element: ElementRef | null;
   region: RegionRef | null;
   source: SourceRef | null; // only when REX rendered the document
+  /**
+   * Spec 06 §4.3. Absent — every anchor written before spec 06 — means the
+   * anchor covers the thing it names and nothing more.
+   *
+   * `anchor_json` is a JSON blob (§9), so this needs no migration, no new
+   * column and no change to any query: an old row simply reads as `undefined`.
+   */
+  extent?: AnchorExtent;
 }
 
 export type AnchorState = "ok" | "moved" | "orphaned";
@@ -73,6 +90,30 @@ export type AnchorState = "ok" | "moved" | "orphaned";
 export type ThreadKind = "anchored" | "synthesis";
 export type ThreadStatus = "open" | "resolved";
 export type Profile = "read" | "write";
+
+/**
+ * Spec 06 §5.4 — the reviewer's own ink, kept so the comment still shows it.
+ *
+ * It is a record of a gesture, not a measurement. The *targets* are what carry
+ * the comment's meaning; this is what makes the gesture recognisable a month
+ * later.
+ */
+export interface StrokeRef {
+  /**
+   * One entry per stroke; each is an ordered list of points.
+   *
+   * Fractions of the **union box of the comment's targets**, not pixels and not
+   * fractions of any one element. Pixels fail on the first window resize.
+   * Fractions of one element fail as soon as the drawing spans more than that
+   * element. Fractions of the union box are self-correcting: resolve the
+   * targets, take the union of their boxes now, and map these onto it — if the
+   * paragraphs reflow, the ink reflows with them, because the ink is defined in
+   * terms of them.
+   */
+  paths: Array<Array<{ x: number; y: number }>>;
+  /** Pen width in CSS pixels. Ink does not get thicker when a table does. */
+  width: number;
+}
 
 /**
  * One place a comment is about. Spec 05 §5.1.
@@ -109,6 +150,15 @@ export interface Thread {
   profile: Profile;
   model: string | null;
   refThreadIds: string[]; // synthesis threads only
+  /**
+   * Spec 06 §5.4 — absent for every comment that was not drawn.
+   *
+   * Its own column rather than a field inside `anchor_json`, because a stroke is
+   * not a property of any one anchor: it is drawn across all of them. Storing it
+   * on target 0 would make the ink a possession of whichever block happened to
+   * sort first, and deleting that one target would take the drawing with it.
+   */
+  stroke?: StrokeRef;
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;

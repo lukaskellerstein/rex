@@ -3,7 +3,7 @@
 
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
-import type { Anchor, Message, Thread } from "../../shared/types.ts";
+import type { Anchor, LineRange, Message, Thread } from "../../shared/types.ts";
 
 export const READ_SYSTEM_PROMPT = `You answer questions about a document. The user has highlighted a passage and
 written a comment about it. Answer that comment.
@@ -107,9 +107,21 @@ function displayPath(repositoryRoot: string, path: string): string {
  * meant a comment about a table and a paragraph reached the agent as a comment
  * about a paragraph — and the agent answered confidently about the half it could
  * see. The selector is not pretty, but it is true and it is findable.
+ *
+ * Spec 06 §7.1 adds the two scopes that cover more than the thing they name.
+ * Both are named by what they *are*: a section anchor stores its heading's text
+ * (§4.3), and printing that bare would tell the agent the comment is about a
+ * title rather than about the section under it.
  */
-function describeTarget(anchor: Anchor): string {
+function describeTarget(anchor: Anchor, documentPath: string | null): string {
+  if (anchor.extent === "document") return "the whole document";
+
   const quote = anchor.quote?.exact?.trim();
+  if (anchor.extent === "section") {
+    const named = quote ? `Section "${quote}"` : "(a section whose heading has no text)";
+    const range = documentPath ? sectionLineRange(documentPath, anchor) : null;
+    return range ? `${named} — lines ${range.from}–${range.to}` : named;
+  }
   if (quote) return quote;
 
   const named = anchor.element?.id ? `#${anchor.element.id}` : anchor.element?.css;
@@ -117,6 +129,52 @@ function describeTarget(anchor: Anchor): string {
   return named
     ? `(no text — an element anchor: ${named}${region})`
     : "(no text and no element — a stored position only)";
+}
+
+/**
+ * Spec 06 §7.1 — "the whole document" is a phrase with no action behind it, so
+ * the one instruction that gives it one is stated outright.
+ */
+const READ_IN_FULL = `Read the document in full before answering. This comment is about all of it,
+not about a passage.`;
+
+/** §7.1 — a drawn comment gains one line, and the agent never hears "pen". */
+const DREW_A_CIRCLE = "The reviewer drew a circle around these, in this order.";
+
+/**
+ * Spec 06 §7.1 — where a section starts and ends in the source, when that can
+ * be **computed** rather than guessed.
+ *
+ * It needs two things: `data-src-line` on the heading, which only the Markdown
+ * renderer stamps (spec 03 §5.3), and that line still holding a heading of the
+ * rank the run was built from. DOCX has neither, and there the section is named
+ * by its heading alone — §8.6 already refuses a guessed line for the same
+ * reason, and a range that had to be guessed is worse than none.
+ */
+function sectionLineRange(documentPath: string, anchor: Anchor): LineRange | null {
+  const from = anchor.source?.line;
+  if (!from) return null;
+
+  let source: string;
+  try {
+    source = readFileSync(documentPath, "utf8");
+  } catch {
+    return null;
+  }
+
+  const lines = source.split("\n");
+  const rank = /^(#{1,6})\s/.exec(lines[from - 1] ?? "")?.[1].length;
+  // Not a Markdown heading any more — the file was edited under the anchor, or
+  // it never was one. Either way there is nothing here to measure.
+  if (!rank) return null;
+
+  // §4.2 — the run ends at the next heading of the same or higher rank, so the
+  // section is the line before it. `lines[i]` is line number `i + 1`.
+  for (let i = from; i < lines.length; i++) {
+    const next = /^(#{1,6})\s/.exec(lines[i]);
+    if (next && next[1].length <= rank) return { from, to: i };
+  }
+  return { from, to: lines.length };
 }
 
 /**
@@ -148,9 +206,12 @@ export function passageSection(input: {
     const path = documentPaths.get(target.documentId) ?? target.documentId;
     const name = displayPath(repositoryRoot, path);
     const lines = groups.get(name) ?? [];
-    const line = input.lineOf?.(path, target.anchor) ?? null;
+    // Spec 06 §7.1 — an extent target carries its own range, or deliberately
+    // none. A single line for a section would name where it *starts* as though
+    // that were the passage.
+    const line = target.anchor.extent ? null : (input.lineOf?.(path, target.anchor) ?? null);
     const where = line === null ? "" : ` — line ${line}`;
-    lines.push(`${position + 1}. ${describeTarget(target.anchor)}${where}`);
+    lines.push(`${position + 1}. ${describeTarget(target.anchor, path)}${where}`);
     groups.set(name, lines);
   });
 
@@ -162,6 +223,9 @@ export function passageSection(input: {
     if (!single) parts.push("", `### ${name}`);
     parts.push(...lines);
   }
+  // §7.1 — one line, and the agent still never hears the word "pen". The order
+  // is the panel's, which is the order the reviewer left them in.
+  if (thread.stroke) parts.push("", DREW_A_CIRCLE);
   parts.push("");
   return parts;
 }
@@ -178,6 +242,12 @@ export function askPrompt(input: {
   const primary = thread.targets[0] ?? null;
   const primaryPath = primary ? (documentPaths.get(primary.documentId) ?? null) : null;
 
+  // Spec 06 §7.1 — a document target has no line, and a wrong one sends the
+  // agent to the wrong place. It carries no `source` at all (§4.3), so the
+  // header below is already omitted for it; this names why, so nobody adds a
+  // fallback line later.
+  const wholeDocument = primary?.anchor.extent === "document";
+
   const parts: string[] = [];
   if (primaryPath) parts.push(`Document: ${displayPath(repositoryRoot, primaryPath)}`);
   if (primary?.anchor.source) parts.push(`Line: ${primary.anchor.source.line}`);
@@ -192,9 +262,18 @@ export function askPrompt(input: {
     }),
   );
 
+  if (thread.targets.some((target) => target.anchor.extent === "document")) {
+    parts.push(READ_IN_FULL, "");
+  }
+
   // §8.6 — emitted for the primary target only. Nine of these would bury the
   // question the comment is actually asking.
-  const section = primary && primaryPath ? enclosingSection(primaryPath, primary.anchor) : null;
+  //
+  // Spec 06 §7.1 — skipped for a document target: the surrounding section of
+  // the whole document is the whole document, and printing it twice buys
+  // nothing.
+  const section =
+    primary && primaryPath && !wholeDocument ? enclosingSection(primaryPath, primary.anchor) : null;
   if (section) parts.push("## Surrounding section", section, "");
 
   parts.push("## Comment", thread.note);

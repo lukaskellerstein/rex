@@ -76,8 +76,13 @@ const CHIP_WORDS: Record<string, string> = {
  * A PDF's two scopes already arrive as words — `line` and `page 3` — because
  * "span" and "div" tell a reviewer nothing about a page of a document
  * (`pick.ts`, `labelOf`). They fall through the table unchanged.
+ *
+ * Spec 06 §6.1 — so do `section` and `document`, and for the same reason: the
+ * tag under a section scope is an `<h2>`, which is not what the reviewer is
+ * pointing at.
  */
 function chipWord(scope: PickScope): string {
+  if (scope.extent) return scope.extent;
   if (scope.kind === "text") return "text";
   const tag = scope.label.split("#")[0];
   return CHIP_WORDS[tag] ?? tag;

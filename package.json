@@ -1,7 +1,7 @@
 {
   "name": "rex",
   "version": "0.1.0",
-  "description": "Review EX — comment on documents and discuss each comment with an AI agent",
+  "description": "Review EX \u2014 comment on documents and discuss each comment with an AI agent",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -18,7 +18,9 @@
     "test:markdown": "node --test test/markdown.spec.ts",
     "test:prompts": "node --test test/prompts.spec.ts",
     "test:targets": "node --test test/targets.spec.ts",
-    "test:diff": "node --test test/diff.spec.ts"
+    "test:diff": "node --test test/diff.spec.ts",
+    "test:lasso": "node --test test/lasso.spec.ts",
+    "test:migrate": "node --test test/migrate.spec.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.237",

@@ -11,20 +11,37 @@
 
 import { worstState } from "../../shared/targets.ts";
 import type { Anchor, AnchorState, LineRange, Thread } from "../../shared/types.ts";
-import { createElementAnchor, createRegionAnchor, createTextAnchor } from "../anchor/create.ts";
+import {
+  createDocumentAnchor,
+  createElementAnchor,
+  createRegionAnchor,
+  createSectionAnchor,
+  createTextAnchor,
+} from "../anchor/create.ts";
 import { type HighlightHit, paintHighlights } from "../anchor/highlight.ts";
+import {
+  blocksInDrawing,
+  boundsOf,
+  containerOfDrawing,
+  polygonOf,
+  type Stroke,
+} from "../anchor/lasso.ts";
 import {
   changedBlocks,
   describeElement,
   type PickScope,
+  rectOfRun,
   type ScopeChain,
   type ScopeRect,
   scopeChainAt,
   scopeChainForAnchor,
+  scopeChainForElement,
   scopeChainForRange,
   toDocumentRect,
+  unionRect,
 } from "../anchor/pick.ts";
-import { anchorStateFor, resolveAnchor } from "../anchor/resolve.ts";
+import { anchorStateFor, type Resolution, resolveAnchor } from "../anchor/resolve.ts";
+import { headingTextOf } from "../anchor/section.ts";
 import { buildTextIndex, rangeToOffsets, type TextIndex } from "../anchor/textIndex.ts";
 
 /** One target the sweep could actually check — spec 05 §5.4. */
@@ -58,6 +75,15 @@ export interface ResolvedThread {
    * would otherwise have a blank line where the quote goes.
    */
   label: string | null;
+  /**
+   * Spec 06 §5.4 — the union of every checked target's box, measured now.
+   *
+   * This is the frame a stored stroke's fractions are mapped onto, and
+   * measuring it every sweep is what makes the ink survive a reflow, a resize
+   * and a zoom: the ink is defined in terms of the targets, so when they move
+   * it moves. Null when nothing here resolved.
+   */
+  union: ScopeRect | null;
 }
 
 /**
@@ -80,7 +106,12 @@ export interface Selected {
   anchor: Anchor;
   /** The row's own words — the quote, or `Table · 7 rows × 4 columns`. */
   label: string;
-  rect: ScopeRect;
+  /**
+   * Null for a document target, which has no box: spec 06 §6.4 refuses to draw
+   * an outline whose two edges are never on screen together. Spec 05 §6 already
+   * defines that state and `DocumentView` already skips it.
+   */
+  rect: ScopeRect | null;
   /** The chain to widen through, and which of it produced `anchor`. */
   scopes: PickScope[];
   active: number;
@@ -93,6 +124,18 @@ export interface Selected {
 export interface Probe {
   scopes: PickScope[];
   active: number;
+}
+
+/**
+ * Spec 06 §5.3 — what a finished drawing yields.
+ *
+ * The strokes come back beside the targets, converted into the same document
+ * coordinates the targets' boxes are in, because that is the space the ink is
+ * stored from (§5.4) and only the surface can do the conversion.
+ */
+export interface Drawn {
+  targets: Selected[];
+  strokes: Stroke[];
 }
 
 /** One panel row, in the form the surface needs to measure it again. */
@@ -161,6 +204,20 @@ export interface DocumentSurface {
   anchorFromScope(index: number): Promise<Selected | null>;
   /** design/selection/Region — a dragged box, in document coordinates. */
   anchorFromRegion(index: number, box: ScopeRect): Promise<Selected | null>;
+
+  /**
+   * Spec 06 §5.3 — the blocks a drawing enclosed, as ordinary targets.
+   *
+   * Strokes arrive as `PenLayer` keeps them: CSS pixels from the document's
+   * content origin, which is the only frame that survives a zoom (see its own
+   * note). Only a surface holds the document, so only a surface can put them
+   * back into document coordinates — which is why the converted strokes come
+   * back too, for the ink to be stored from.
+   *
+   * The targets are what a click would have produced for each block, in
+   * document order, so nothing downstream knows the pen exists.
+   */
+  targetsFromDrawing(strokes: Stroke[], zoom: number): Promise<Drawn>;
 
   /**
    * §4.1 — the chain for an item already in the panel, rebuilt from its anchor.
@@ -249,7 +306,19 @@ export function resolveAgainst(
   for (const thread of threads) {
     let top: number | null = null;
     let label: string | null = null;
+    let union: ScopeRect | null = null;
     const checked: CheckedTarget[] = [];
+
+    /**
+     * Spec 06 §5.4 — the frame the stroke's fractions are mapped onto.
+     *
+     * Every target's box, including a text target's, which `CheckedTarget.box`
+     * deliberately leaves null because the Custom Highlight API paints that one
+     * as a fill. The ink still has to span it.
+     */
+    const widen = (box: ScopeRect): void => {
+      union = union ? unionRect(union, box) : box;
+    };
 
     for (const [position, target] of thread.targets.entries()) {
       // §5.4 — a target in a document that is not open has no live DOM. It is
@@ -264,14 +333,32 @@ export function resolveAgainst(
       if (resolution?.kind === "range") {
         hits.push({ threadId: thread.id, range: resolution.range, status: thread.status, state });
         checked.push({ position, state, box: null });
+        widen(toDocumentRect(view, resolution.range.getBoundingClientRect()));
         if (first) top = documentTop(resolution.range.getBoundingClientRect(), view);
       } else if (resolution?.kind === "element") {
         const outline = toDocumentRect(view, resolution.element.getBoundingClientRect());
         const box = anchor.region ? regionWithin(outline, anchor) : outline;
         checked.push({ position, state, box });
+        widen(box);
         if (first) {
           top = box.y;
-          label = describeResolved(index, resolution.element, anchor);
+          label = describeResolved(index, resolution, anchor);
+        }
+      } else if (resolution?.kind === "run") {
+        // Spec 06 §6.4 — a run is outlined, never filled, around the union of
+        // its ends. A document target draws nothing at all: an outline round
+        // the whole file is a rectangle whose two edges are never on screen
+        // together, it would lie over every other mark, and it teaches nothing.
+        // Its gutter marker at the top of the document is where it belongs.
+        const whole = resolution.extent === "document";
+        const box = rectOfRun(resolution);
+        checked.push({ position, state, box: whole ? null : box });
+        // A document target is left out of the union for the same reason it
+        // draws no box: it would stretch the ink over the whole file.
+        if (!whole) widen(box);
+        if (first) {
+          top = whole ? 0 : box.y;
+          label = describeResolved(index, resolution, anchor);
         }
       } else {
         // Orphaned: nothing to paint and nowhere to draw it, but the target is
@@ -288,6 +375,7 @@ export function resolveAgainst(
       checked,
       top,
       label,
+      union,
     });
   }
 
@@ -309,10 +397,15 @@ export function rectForAnchorIn(
   anchor: Anchor,
   kind: SelectedKind,
 ): ScopeRect | null {
-  const resolution = resolveAnchor(index, kind === "element" ? { ...anchor, quote: null } : anchor);
+  const probe = kind === "element" && !anchor.extent ? { ...anchor, quote: null } : anchor;
+  const resolution = resolveAnchor(index, probe);
   if (!resolution) return null;
   if (resolution.kind === "range") {
     return toDocumentRect(view, resolution.range.getBoundingClientRect());
+  }
+  if (resolution.kind === "run") {
+    // §6.4 again — the whole file has no box a reviewer could read.
+    return resolution.extent === "document" ? null : rectOfRun(resolution);
   }
   const outline = toDocumentRect(view, resolution.element.getBoundingClientRect());
   return anchor.region ? regionWithin(outline, anchor) : outline;
@@ -333,10 +426,19 @@ function regionWithin(element: ScopeRect, anchor: Anchor): ScopeRect {
 /**
  * A one-line name for a resolved block anchor, so a card with no quote has
  * something true to show rather than a blank line or an invented description.
+ *
+ * A run always gets one, quote or no quote. A section anchor stores its
+ * heading's text (§4.3), and showing that as the card's blockquote would claim
+ * the comment is about eight words when it is about everything under them.
  */
-function describeResolved(index: TextIndex, element: Element, anchor: Anchor): string | null {
-  if (anchor.quote?.exact) return null;
-  const { title } = describeElement(index, element);
+function describeResolved(index: TextIndex, resolution: Resolution, anchor: Anchor): string | null {
+  if (resolution.kind === "run") {
+    return resolution.extent === "document"
+      ? "The whole document"
+      : `Section · “${headingTextOf(resolution.first)}”`;
+  }
+  if (resolution.kind === "range" || anchor.quote?.exact) return null;
+  const { title } = describeElement(index, resolution.element);
   const region = anchor.region;
   if (!region) return title;
   return `Region of ${title} · x ${region.x.toFixed(2)} · w ${region.w.toFixed(2)}`;
@@ -466,13 +568,22 @@ export function anchorFromScopeIn(
   const scope = chain.scopes[scopeIndex];
   if (!scope) return null;
 
-  const made = (anchor: Anchor, rect: ScopeRect, cut: boolean): Selected => ({
+  const made = (anchor: Anchor, rect: ScopeRect | null, cut: boolean): Selected => ({
     anchor,
     label: labelFor(scope, cut),
     rect,
     scopes: chain.scopes,
     active: scopeIndex,
   });
+
+  // Spec 06 §4.3 — both write the same `Anchor` shape as everything else, and
+  // both are read before the four layers on the way back out.
+  if (scope.extent === "document") return made(createDocumentAnchor(), null, false);
+  if (scope.extent === "section") {
+    const heading = chain.elements[scopeIndex];
+    if (!heading) return null;
+    return made(createSectionAnchor(index, heading, sourceFile), scope.rect, false);
+  }
 
   if (scope.kind === "text") {
     if (!chain.range) return null;
@@ -520,6 +631,80 @@ export function anchorFromScopeIn(
   }
 
   return made(createElementAnchor(index, element, sourceFile), scope.rect, false);
+}
+
+/**
+ * Spec 06 §5.3 step 6 — a drawing becomes targets.
+ *
+ * The load-bearing step. A drawn target is an **ordinary element or region
+ * anchor**: it resolves through the same four layers, it reports `ok`, `moved`
+ * or `orphaned` the same way, and Apply treats it exactly as it treats a target
+ * that was clicked. Nothing downstream learns a new kind of target, and an
+ * agent that never hears the word "pen" still answers correctly — which is the
+ * test of whether §5.3 was designed properly.
+ *
+ * Shared by both surfaces, like `resolveAgainst`: in tier 2 the work has to
+ * happen inside the webview's own process, which is why `lasso.ts` is pure DOM.
+ */
+export function targetsFromDrawingIn(
+  view: Window,
+  doc: Document,
+  index: TextIndex | null,
+  strokes: ReadonlyArray<Stroke>,
+  zoom: number,
+  sourceFile: string | null,
+): Drawn {
+  if (!index || !doc.body) return { targets: [], strokes: [] };
+
+  // The layer keeps points as CSS pixels from the content's top-left corner, so
+  // that they survive a zoom re-centring the prose. Every box below is in
+  // document coordinates at the zoom on screen, so the strokes come up to meet
+  // them: scale by the zoom, then shift by where that content now starts.
+  const base = toDocumentRect(view, doc.body.getBoundingClientRect());
+  const scaled: Stroke[] = strokes.map((stroke) =>
+    stroke.map((point) => ({ x: point.x * zoom + base.x, y: point.y * zoom + base.y })),
+  );
+
+  const made = (element: Element, anchor: Anchor, rect: ScopeRect, cut: boolean): Selected => {
+    const chain = scopeChainForElement(index, element);
+    return {
+      anchor,
+      label: labelFor(chain.scopes[0], cut),
+      rect,
+      scopes: chain.scopes,
+      active: 0,
+    };
+  };
+
+  const blocks = blocksInDrawing(view, doc, scaled);
+  if (blocks.length > 0) {
+    return {
+      targets: blocks.map((element) =>
+        made(
+          element,
+          createElementAnchor(index, element, sourceFile),
+          toDocumentRect(view, element.getBoundingClientRect()),
+          false,
+        ),
+      ),
+      strokes: scaled,
+    };
+  }
+
+  // §5.3 — when the circle encloses nothing, the floor. Refusing a gesture the
+  // reviewer clearly meant is worse than answering it imprecisely.
+  const container = containerOfDrawing(view, doc, scaled);
+  const bounds = boundsOf(polygonOf(scaled));
+  if (!container || !bounds) return { targets: [], strokes: scaled };
+
+  const box = toDocumentRect(view, container.getBoundingClientRect());
+  const anchor = createRegionAnchor(
+    index,
+    container,
+    { x: bounds.x - box.x, y: bounds.y - box.y, w: bounds.w, h: bounds.h },
+    sourceFile,
+  );
+  return { targets: [made(container, anchor, bounds, true)], strokes: scaled };
 }
 
 /**
@@ -628,17 +813,21 @@ export class FrameSurface implements DocumentSurface {
     return anchorFromScopeIn(view, this.index, this.chain, index, this.sourceFile, box);
   }
 
+  async targetsFromDrawing(strokes: Stroke[], zoom: number): Promise<Drawn> {
+    const view = this.frame.contentWindow;
+    const doc = this.frame.contentDocument;
+    if (!view || !doc) return { targets: [], strokes: [] };
+    return targetsFromDrawingIn(view, doc, this.index, strokes, zoom, this.sourceFile);
+  }
+
   async scopesForAnchor(anchor: Anchor, kind: SelectedKind): Promise<Probe | null> {
     if (!this.index) return null;
-    const chain = scopeChainForAnchor(this.index, anchor, kind);
-    if (!chain) return null;
+    const rebuilt = scopeChainForAnchor(this.index, anchor, kind);
+    if (!rebuilt) return null;
     // It becomes the current chain, so widening and region-dragging both act on
     // the row the reviewer expanded rather than on the last thing hovered.
-    this.chain = chain;
-    // Always 0, by construction: `scopeChainForAnchor` builds the chain outward
-    // from whatever the anchor resolved to, so the anchor's own scope is its
-    // head — the text selection for a quote, the element itself otherwise.
-    return { scopes: chain.scopes, active: 0 };
+    this.chain = rebuilt.chain;
+    return { scopes: rebuilt.chain.scopes, active: rebuilt.active };
   }
 
   async anchorFromAnchorScope(
@@ -648,10 +837,10 @@ export class FrameSurface implements DocumentSurface {
   ): Promise<Selected | null> {
     const view = this.frame.contentWindow;
     if (!view || !this.index) return null;
-    const chain = scopeChainForAnchor(this.index, anchor, kind);
-    if (!chain) return null;
-    this.chain = chain;
-    return anchorFromScopeIn(view, this.index, chain, index, this.sourceFile, null);
+    const rebuilt = scopeChainForAnchor(this.index, anchor, kind);
+    if (!rebuilt) return null;
+    this.chain = rebuilt.chain;
+    return anchorFromScopeIn(view, this.index, rebuilt.chain, index, this.sourceFile, null);
   }
 
   scrollBy(dx: number, dy: number): void {
@@ -672,14 +861,22 @@ export class FrameSurface implements DocumentSurface {
   }
 }
 
-/** §3.3 — bring an anchor into view, without touching the document's own tree. */
-function scrollToAnchorIn(view: Window, index: TextIndex, anchor: Anchor): void {
+/**
+ * §3.3 — bring an anchor into view, without touching the document's own tree.
+ *
+ * Exported because the tier 2 preload needs exactly this, and a second copy of
+ * it there is a second place for the run case to be forgotten.
+ */
+export function scrollToAnchorIn(view: Window, index: TextIndex, anchor: Anchor): void {
   const resolution = resolveAnchor(index, anchor);
   if (!resolution) return;
   const rect =
     resolution.kind === "range"
       ? resolution.range.getBoundingClientRect()
-      : resolution.element.getBoundingClientRect();
+      : // A run is brought into view by its *start*: scrolling to the middle of
+        // a four-thousand-character section shows the reviewer neither end of
+        // what their comment is about.
+        (resolution.kind === "run" ? resolution.first : resolution.element).getBoundingClientRect();
   // A third of the way down rather than at the very top: a passage pinned to
   // the top edge reads as if its context has been cut off.
   view.scrollTo({ top: rect.top + view.scrollY - view.innerHeight / 3, behavior: "smooth" });
@@ -757,6 +954,17 @@ export class WebviewSurface implements DocumentSurface {
 
   async anchorFromRegion(index: number, box: ScopeRect): Promise<Selected | null> {
     return await this.call<Selected>("anchorFromRegion", [index, box]);
+  }
+
+  /**
+   * Spec 06 §11 — the pen is not offered on a remote page in this milestone
+   * set, so nothing calls this here. It exists because `lasso.ts` was written to
+   * run in the preload, which is what keeps tier 2 possible later; the bridge
+   * being in place is the difference between "possible" and "a rewrite".
+   */
+  async targetsFromDrawing(strokes: Stroke[], zoom: number): Promise<Drawn> {
+    const result = await this.call<Drawn>("targetsFromDrawing", [JSON.stringify(strokes), zoom]);
+    return result ?? { targets: [], strokes: [] };
   }
 
   async scopesForAnchor(anchor: Anchor, kind: SelectedKind): Promise<Probe | null> {

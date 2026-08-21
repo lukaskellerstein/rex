@@ -1,0 +1,460 @@
+/* ── Thread card — treatment C, the wash ─────────────────── */
+
+/*
+  A card carries its state as a wash with a matching border. Selection deepens
+  that same wash and brightens that same border; it never changes hue, because a
+  reviewer must be able to read state and selection at the same time.
+*/
+.rex-thread {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid var(--wash-ok-edge);
+  border-radius: 6px;
+  background: var(--wash-ok);
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rex-thread-moved {
+  border-color: var(--wash-moved-edge);
+  background: var(--wash-moved);
+}
+
+.rex-thread-orphaned {
+  border-color: var(--wash-lost-edge);
+  background: var(--wash-lost);
+}
+
+.rex-thread-done {
+  border-color: var(--wash-done-edge);
+  background: var(--wash-done);
+}
+
+/* Hover sits between resting and selected, on the same hue. */
+.rex-thread:hover {
+  border-color: #2a3f60;
+}
+
+.rex-thread-moved:hover {
+  border-color: #52410e;
+}
+
+.rex-thread-orphaned:hover {
+  border-color: #5b2a21;
+}
+
+.rex-thread-done:hover {
+  border-color: #24483d;
+}
+
+/* Selected deepens the same wash and brightens the same border. Never a hue. */
+.rex-thread-on {
+  border-color: var(--wash-ok-edge-on);
+  background: var(--wash-ok-on);
+  box-shadow: var(--lift);
+}
+
+.rex-thread-on.rex-thread-moved {
+  border-color: var(--wash-moved-edge-on);
+  background: var(--wash-moved-on);
+}
+
+.rex-thread-on.rex-thread-orphaned {
+  border-color: var(--wash-lost-edge-on);
+  background: var(--wash-lost-on);
+}
+
+.rex-thread-on.rex-thread-done {
+  border-color: var(--wash-done-edge-on);
+  background: var(--wash-done-on);
+}
+
+.rex-thread-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rex-thread-note {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.rex-thread-done .rex-thread-note {
+  color: var(--fg-dim);
+}
+
+/*
+  The comment list is the workspace's, so every row names the document or
+  documents it is about. Monospace and faint: it is an address, and it must
+  never compete with the note above it.
+*/
+.rex-thread-docs {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-thread-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* State is named in words as well as colour, so nothing rests on hue alone. */
+.rex-state-moved {
+  color: var(--moved);
+  font-weight: 500;
+}
+
+.rex-state-orphaned {
+  color: var(--lost-text);
+  font-weight: 500;
+}
+
+.rex-state-resolved {
+  color: var(--ok);
+  font-weight: 500;
+}
+
+/* ── The open thread's anchor block ──────────────────────── */
+
+.rex-card-anchor {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 13px;
+  border: 1px solid var(--wash-ok-edge);
+  border-radius: 6px;
+  background: var(--wash-ok);
+}
+
+.rex-card-anchor.rex-thread-moved {
+  border-color: var(--wash-moved-edge);
+  background: var(--wash-moved);
+}
+
+.rex-card-anchor.rex-thread-orphaned {
+  border-color: var(--wash-lost-edge);
+  background: var(--wash-lost);
+}
+
+.rex-card-anchor.rex-thread-done {
+  border-color: var(--wash-done-edge);
+  background: var(--wash-done);
+}
+
+.rex-card-anchor-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rex-card-note {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+/* ── Answer ──────────────────────────────────────────────── */
+
+/* The answer outranks the machinery: body text, full contrast, no chrome. */
+.rex-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rex-answer p {
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Your own turn is dim and ruled — it is the question, not the answer. */
+.rex-answer-user p {
+  color: var(--fg-dim);
+  border-left: 2px solid var(--rule);
+  padding-left: 10px;
+}
+
+.rex-answer-error p {
+  color: var(--lost-text);
+}
+
+/* ── Tool steps ──────────────────────────────────────────── */
+
+/*
+  Machinery collapses to one row and keeps its own monospace register when
+  opened, so it can never be mistaken for the answer.
+*/
+.rex-steps {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/*
+  The fold and `show trace ›` are two buttons in one row, not one button with a
+  clickable span inside it. A button inside a button is invalid HTML, and the
+  inner one is unreachable by keyboard — which would put the whole trace behind
+  a mouse.
+*/
+.rex-steps-head {
+  display: flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 11px;
+}
+
+.rex-steps-open .rex-steps-head {
+  border-bottom: 1px solid var(--rule);
+}
+
+.rex-steps-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rex-steps-toggle .rex-icon-solid {
+  color: var(--faint);
+}
+
+.rex-steps-show {
+  flex: none;
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rex-steps-show:hover {
+  color: #9dc2f0;
+}
+
+.rex-steps-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 15rem;
+  padding: 10px 11px;
+  overflow-y: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.rex-step {
+  display: flex;
+  gap: 10px;
+}
+
+/*
+  76px, not the 34px the board drew. That column was drawn against `Bash`,
+  `Read` and `deny`; a real transcript also carries `ToolSearch` and `WebFetch`,
+  which at 34px printed straight over the argument beside them.
+*/
+.rex-step-name {
+  flex: none;
+  width: 76px;
+  color: var(--faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-step-arg {
+  color: var(--fg-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A denied write stays visible in red — that gate firing is worth seeing. */
+.rex-step-deny .rex-step-name,
+.rex-step-deny .rex-step-arg {
+  color: var(--lost);
+  white-space: normal;
+}
+
+/* ── Orphan tray ─────────────────────────────────────────── */
+
+/*
+  Dashed, because an orphan is a comment with nowhere to point. It is the one
+  strip that survives being empty of a position: it says how many, and opens
+  them.
+*/
+.rex-tray {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px dashed var(--write-edge);
+  border-radius: 6px;
+  background: #1a1211;
+  color: var(--lost-text);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rex-tray::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lost);
+}
+
+.rex-tray-more {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* ── The Apply review bar ────────────────────────────────── */
+
+/*
+  A bar, not a dialog, and that is the whole point: a modal over the document
+  answers "what does this patch say" while hiding the thing it says it about.
+  The reviewer reads the document as it now stands, with the changed sections
+  outlined in it, and this sits under it carrying OK and Undo.
+
+  The write tint, because a write-capable agent has already touched the disk.
+*/
+.rex-review {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 11px 16px 13px;
+  border-top: 1px solid var(--write-edge);
+  background: var(--write-bg);
+  box-shadow: 0 -14px 42px rgb(0 0 0 / 44%);
+}
+
+.rex-review-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.rex-review-title {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.rex-files {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.rex-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--sunk);
+  color: var(--fg-dim);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+/* The document already on screen. Not a link, because there is nowhere to go. */
+.rex-file-open {
+  border-color: var(--action);
+  color: var(--fg);
+  cursor: default;
+}
+
+.rex-file-add {
+  color: #6fca8b;
+}
+
+.rex-file-del {
+  color: #e8836f;
+}
+
+.rex-diff {
+  display: flex;
+  flex-direction: column;
+  max-height: 42vh;
+  margin: 0;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: #0a1018;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  overflow: auto;
+}
+
+.rex-diff span {
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.rex-diff-file {
+  background: var(--well);
+  color: var(--faint);
+}
+
+.rex-diff-hunk {
+  background: #16233a;
+  color: var(--link);
+}
+
+.rex-diff-add {
+  background: #10281a;
+  color: #6fca8b;
+}
+
+.rex-diff-del {
+  background: #2a1512;
+  color: #e8836f;
+}
