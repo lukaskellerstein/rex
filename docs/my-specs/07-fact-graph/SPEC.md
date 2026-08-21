@@ -1,27 +1,49 @@
-# REX 06 — the fact graph
+# REX 07 — the fact graph
 
-**Version:** 1.0 · 2026-08-21
+**Version:** 1.2 · 2026-08-21
 **Status:** specified, not implemented
 **Depends on:** [`01-initial/SPEC.md`](../01-initial/SPEC.md),
 [`02-workspace-and-graph/SPEC.md`](../02-workspace-and-graph/SPEC.md),
 [`03-rich-rendering/SPEC.md`](../03-rich-rendering/SPEC.md),
-[`04-selection-and-shortcuts/SPEC.md`](../04-selection-and-shortcuts/SPEC.md)
-and [`05-selection-as-a-phase/SPEC.md`](../05-selection-as-a-phase/SPEC.md).
+[`04-selection-and-shortcuts/SPEC.md`](../04-selection-and-shortcuts/SPEC.md),
+[`05-selection-as-a-phase/SPEC.md`](../05-selection-as-a-phase/SPEC.md) and
+[`06-document-section-and-pen/SPEC.md`](../06-document-section-and-pen/SPEC.md).
 
 > [!note]
-> This document extends specs 01 to 05. It does not restate them. §2 says
+> **1.2 was numbered 06 and is now 07**, swapped with the document-section-and-pen
+> spec, which continues spec 05's selection work and belongs first. 1.2 also
+> filled the three gaps 1.1 left: **§10.1** says where the pipeline runs (an
+> Electron `utilityProcess`, not the main thread and not a server), **§8.5**
+> says when a build starts (clicking the Facts tab), and **§5.6** caps how many
+> gateway calls run at once.
+
+> [!note]
+> **1.1 removed the graph database.** 1.0 specified FalkorDB through
+> `falkordblite`, and accepted a `redis-server` child process as a deviation
+> from invariant I3. Working through the queries showed that REX has a graph
+> *shape* and not a graph *workload* — every operation is rows, joins, vector
+> search, or an in-memory algorithm — so §6 is now SQLite plus `sqlite-vec`,
+> with no second process and no deviation to accept. §6.5 records FalkorDB,
+> Qdrant, Kuzu and Oxigraph, why each was rejected, and the trigger that would
+> make one worth revisiting. Nothing else in the design moved.
+
+> [!note]
+> This document extends specs 01 to 06. It does not restate them. §2 says
 > exactly what changes; everywhere else the earlier specs still govern,
 > including the anchoring model of spec 01 §6 and the Apply safety story of
 > spec 01 §8.7.
 
 > [!warning]
-> This is the first feature in REX that makes **outbound network calls** — to
-> the machine's local LiteLLM gateway. §5 records what that means and the
-> boundary it may not cross. Read it before writing any code.
+> Two firsts for REX, and each has a section that fixes its boundary. Read both
+> before writing any code.
 >
-> It adds **no second storage engine and no second process**. §6.2 records why,
-> and §6.5 records which engines were rejected and the trigger that would make
-> one worth revisiting.
+> 1. **Outbound network calls**, to the machine's local LiteLLM gateway. §5.
+> 2. **A second process** — an Electron `utilityProcess` that runs the build.
+>    §10.1. It is not a server, it opens no port, and it exists because a build
+>    is measured in hours (§5.3) and would otherwise stutter the main thread.
+>
+> It adds **no second storage engine**. §6.2 records why, and §6.5 records which
+> engines were rejected and the trigger that would make one worth revisiting.
 
 ---
 
@@ -38,9 +60,13 @@ and [`05-selection-as-a-phase/SPEC.md`](../05-selection-as-a-phase/SPEC.md).
    2,000.
 4. **§6.1** — the one rule that decides what may be stored where. It is also
    what makes every storage decision in §6 reversible.
-5. **§11** — the trust rules. They are not decoration. The feature reports
+5. **§10.1 and §8.5** — where the build runs, and what starts it. Both are
+   easy to get wrong in a way that only shows up on a large folder: a build on
+   the main thread stutters the app for an hour, and a build started by a tab
+   click can be a three-day job nobody asked for.
+6. **§11** — the trust rules. They are not decoration. The feature reports
    *candidates*, and a build that claims more than that is wrong.
-6. **§12** — the milestones, in order, with their acceptance checks.
+7. **§12** — the milestones, in order, with their acceptance checks.
 
 **Milestone 0 (§12) is a gate**, the same way spec 01's anchor spike is a gate.
 It asks one question: can the local model return the claim schema reliably? If
@@ -89,16 +115,16 @@ and everything downstream already exists.
 
 ---
 
-## 2. What changes in specs 01 to 05
+## 2. What changes in specs 01 to 06
 
 Almost nothing. This is an addition, not a rework.
 
 | Area | Change |
 |:--|:--|
 | Invariant I1 (anchors resolve in the renderer) | unchanged. Evidence stores an `Anchor`; it is resolved in the renderer like every other anchor |
-| Invariant I2 (only main touches storage and models) | unchanged, and extended: only main talks to the gateway |
-| Invariant I3 (no HTTP server, no listening port) | **unchanged, and nothing is deviated from.** REX listens on nothing, opens no port and starts no child process. It gains one outbound HTTP client, to `localhost:24000`. §5.1 |
-| Spec 01 §9 — the SQLite schema | gains nine tables (§6.3, §6.4) and one loadable extension, `sqlite-vec`. Existing tables are untouched |
+| Invariant I2 (only main touches storage and models) | **widened, in the letter but not the spirit.** A `utilityProcess` forked by main also holds a database handle and the gateway key. It holds no untrusted content and has no DOM, so I2's reason — "the renderer displays untrusted document content" — is untouched. The renderer still holds neither. §10.1 |
+| Invariant I3 (no HTTP server, no listening port) | **unchanged.** REX listens on nothing and opens no port. The `utilityProcess` talks over a Chromium `MessagePort`, not a socket. The one outbound HTTP client goes to `localhost:24000`. §5.1, §10.1 |
+| Spec 01 §9 — the SQLite schema | gains nine tables (§6.3, §6.4), two `vec0` virtual tables, and one loadable extension, `sqlite-vec`. Existing tables are untouched |
 | Spec 02 — the reference graph | untouched. The fact graph is a second lens in the same view (§8.2) |
 | Spec 05 — comments across documents | untouched, and reused. A finding becomes one of those comments (§8.4) |
 | Spec 01 §8 — the agent runner and its profiles | untouched. This pipeline does **not** use the Agent SDK. §5.2 |
@@ -190,7 +216,7 @@ Four kinds in version 1. No more.
 | `CONTRADICTS` | claim ↔ claim | same subject, values that cannot both hold | red |
 | `REFINES` | claim → claim | "TypeScript" → "TypeScript 5.4, strict mode" | grey |
 | `SUPERSEDES` | claim → claim | the newer decision replaced the older one | amber, arrowed |
-| `CO_OCCURS` | subject ↔ subject | the two subjects appear in the same chunk | not drawn; feeds §4.6 |
+| `co-occurs` | subject ↔ subject | the two subjects appear in the same chunk | not drawn; feeds §4.6 |
 
 `CONTRADICTS` is symmetric and is stored once, from the lower claim id to the
 higher one, so the pair cannot be written twice.
@@ -271,6 +297,33 @@ built from a quote in stage 2.
 One gateway call per chunk. Alias `local` (§5.1). Structured output against
 the `ExtractedClaim` schema.
 
+The system prompt is a starting point, not a finished artefact — milestone 0
+exists to tune it, and whatever survives that tuning replaces this block:
+
+```text
+You extract claims from one passage of a document.
+
+A claim is one thing asserted about one subject. Return every claim the
+passage makes, and nothing the passage does not say.
+
+Rules:
+- subject: a short noun phrase naming what is talked about. Never a sentence.
+  Good: "implementation language". Bad: "the project uses TypeScript".
+- value: what is asserted about that subject. Short.
+- quote: the sentence from the passage, copied exactly, character for
+  character. If you cannot copy it exactly, do not return the claim.
+- modality: decided | proposed | rejected | observed. An option that was
+  considered and turned down is "rejected", not "decided".
+- statedAt: a date the passage itself gives for this claim, ISO 8601, or null.
+  Never today's date, and never a date you inferred.
+
+Return an empty list if the passage asserts nothing.
+```
+
+The `modality` and verbatim-`quote` rules carry the most weight. Together they
+prevent the two failure modes that produce false red lines: a rejected option
+read as a decision, and a quote that was never in the document.
+
 For each returned claim, in code:
 
 1. **Check the quote appears verbatim in the chunk.** If not, drop the claim
@@ -307,8 +360,9 @@ prints the merge counts so a bad threshold is visible rather than silent. Too
 low and unrelated subjects collapse into one; too high and nothing merges and
 every document invents its own vocabulary.
 
-Also in this stage: write `CO_OCCURS` between every pair of subjects that
-appear in the same chunk, incrementing `count`. Stage 5 needs it.
+Also in this stage: write a `fact_co_occurrence` row for every pair of subjects
+that appear in the same chunk, incrementing `count` when the pair is already
+there. Stage 5 needs it, and nothing else does.
 
 ### 4.5 Stage 4 — pair and judge
 
@@ -510,6 +564,34 @@ Two guards, because a local model is less reliable at this than a frontier one:
 
 Milestone 0 exists to find out how often these fire.
 
+### 5.6 How many calls run at once
+
+**Default: four in flight, and it is one number in one place.**
+
+LMStudio serves few requests at a time (§5.3). Beyond its own limit, extra
+requests queue inside LMStudio rather than finishing sooner, and a queued
+request still counts against the 3,600-second route timeout — so too much
+concurrency turns a slow build into a failing one.
+
+| Alias | In flight | Why |
+|:--|:--|:--|
+| `local` (extract) | 4 | the volume stage. Tune it at milestone 1 against the real machine |
+| `local-31b` (judge, topics) | 2 | the dense model. It is the memory-hungry one on this hardware |
+| `embed` | 8, and batch 64 inputs per call | embedding is cheap. The batch matters more than the concurrency |
+| any cloud alias (§5.4) | 16 | no local hardware limit. The gateway's own key ceiling is the real bound |
+
+The limiter lives in `gateway.ts` (§10.2) and nothing else may issue a call, so
+the number is changed in one place. It applies **per alias**, not globally —
+embedding and extraction are different stages and never contend.
+
+Two rules that stop concurrency from hiding failures:
+
+- **A retry does not take a new slot.** It reuses the one it had, or a slow
+  stage silently becomes a fast one that fails more.
+- **A build never runs two stages at once.** Stages are ordered (§4) and stage
+  3 needs every claim stage 2 produced. Overlapping them would make the cursor
+  of §4.7 meaningless and the build unresumable.
+
 ---
 
 ## 6. Storage
@@ -630,8 +712,9 @@ CREATE TABLE fact_co_occurrence (
 );
 
 CREATE INDEX fact_claim_subject  ON fact_claim(subject_id, valid_to);
-CREATE INDEX fact_evidence_claim ON fact_claim(id);
+CREATE INDEX fact_evidence_claim ON fact_evidence(claim_id);
 CREATE INDEX fact_evidence_doc   ON fact_evidence(document_path);
+CREATE INDEX fact_subject_root   ON fact_subject(workspace_root);
 ```
 
 Two `sqlite-vec` virtual tables hold the embeddings. They are separate from the
@@ -663,89 +746,9 @@ Three rules the implementer must not get wrong:
 
 ### 6.4 The bookkeeping tables
 
-### 6.2 FalkorDB, and the deviation it costs
-
-**Decision: FalkorDB, embedded through `falkordblite`.**
-
-What it gives:
-
-| Capability | Why it matters here |
-|:--|:--|
-| Cypher | §4.5's candidate query is six lines. In SQL with recursive CTEs it is not |
-| Built-in HNSW vector index, 1–4,096 dimensions, cosine | §4.4's nearest-neighbour search comes free. `embed` returns 768, well inside the range |
-| One store for graph and vectors | **this removes the vector-database question entirely** (§6.5) |
-| Graph algorithms (`algo.WCC`, `algo.pageRank`, `algo.betweenness`) | useful later; not needed for version 1 |
-
-What it costs, stated plainly:
-
-1. **It spawns a `redis-server` child process** with the FalkorDB module
-   loaded, and connects over a **Unix socket**. Electron must start it, stop
-   it, and handle it dying.
-2. **`falkordblite` is young** — version 0.3.0, 9 stars, 119 commits, last
-   published 2026-05-02. The remote client `falkordb` (6.7.0, published
-   2026-07-30) is the mature half of the pair.
-3. **Platforms**: Linux x64 and macOS arm64 ship binaries. macOS x64 needs a
-   system `redis-server`. Windows needs WSL2.
-4. **It is memory-resident.** 60,000 claims with 768-dimension vectors is
-   roughly 200 MB of RAM on top of Electron's own.
-
-**How invariant I3 reads.** I3 forbids REX from running an HTTP server, an
-SSE stream, a message broker or a listening port. A Unix socket to a database
-engine in a child process is none of those: REX still accepts no connection
-from anything, and the renderer still reaches main only through
-`ipcRenderer.invoke`. Redis is used here as a storage engine, not as a bus —
-nothing publishes and nothing subscribes.
-
-**This is still a deviation from the shape spec 01 describes, and it is
-recorded here rather than assumed.** The boundary it may not cross:
-
-- The socket is a Unix domain socket. Never TCP.
-- Only main opens it. The renderer has no FalkorDB handle, exactly as it has
-  no SQLite handle (invariant I2).
-- No user-authored data goes in it (§6.1).
-
-**The fallback if `falkordblite` fails.** `falkordblite` and `falkordb` expose
-the same client API — only the import and the connection line differ. So the
-code targets one thin interface (§10) and the escape hatch is to run FalkorDB
-as a container beside the existing gateway stack, which this machine already
-runs under `podman compose`. That is a configuration change, not a rewrite.
-
-**GraphRAG-SDK is not a dependency.** FalkorDB's
-[GraphRAG-SDK](https://github.com/FalkorDB/GraphRAG-SDK) is Python, and spec
-01 §14 rules out a Python runtime. It is worth reading as a design reference —
-its pipeline is the same five stages as §4, and its examples call models
-through LiteLLM, which is the same gateway this document uses. Read it. Do not
-import it.
-
-### 6.3 The graph schema
-
-```cypher
-CREATE VECTOR INDEX FOR (s:Subject) ON (s.embedding)
-  OPTIONS {dimension: 768, similarityFunction: 'cosine'};
-
-CREATE VECTOR INDEX FOR (c:Claim) ON (c.embedding)
-  OPTIONS {dimension: 768, similarityFunction: 'cosine'};
-
-CREATE INDEX FOR (c:Claim) ON (c.validTo);
-CREATE INDEX FOR (e:Evidence) ON (e.documentPath);
-```
-
-Node properties:
-
-| Node | Properties |
-|:--|:--|
-| `Subject` | `id`, `label`, `embedding`, `topicId`, `topicName` |
-| `Claim` | `id`, `value`, `embedding`, `modality`, `validFrom`, `validTo`, `statedAt` |
-| `Evidence` | `id`, `documentPath`, `anchor` (JSON), `quote`, `chunkIndex` |
-
-`Evidence.anchor` is a serialised `Anchor` from spec 01 §6. It is stored, never
-resolved, in main — invariant I1.
-
-### 6.4 The SQLite tables
-
-Four tables in `~/.rex/rex.db`, beside the existing ones. These hold the two
-things a graph rebuild must not destroy: what the user decided, and what the
-build already did.
+Four more tables, in the same file. These hold the two things a graph rebuild
+must not destroy: what the user decided, and what the build already did. Unlike
+§6.3, **these are never dropped.**
 
 ```sql
 -- One row per document the pipeline has seen. Drives the incremental skip.
@@ -795,25 +798,48 @@ regenerated on every rebuild, and a verdict keyed to one would be lost. Keyed
 to the quotes, a dismissed finding stays dismissed across rebuilds, which §11
 requires.
 
-### 6.5 Why not LanceDB, and why not Qdrant
+### 6.5 The engines that were rejected, and the trigger to revisit
 
-Because FalkorDB already indexes vectors, a separate vector store would be a
-third engine holding a copy of the same embeddings.
+Recorded so a later reader does not re-open a settled question, and so the
+question can be re-opened for the right reason.
 
-If FalkorDB is ever dropped, the choice between them is not close:
+**The trigger. Both halves must be true, not one:**
 
-| | Shape | Verdict |
+1. A real multi-hop question appears in the product — "everything transitively
+   affected if this claim is wrong", or "chains where A supersedes B supersedes
+   C" — **and**
+2. the edge list stops fitting comfortably in memory. Call it 2 million edges.
+
+If only (1) is true, load the graph into `graphology` and traverse it there.
+If only (2) is true, SQLite's `WITH RECURSIVE` does transitive closure — uglier
+than Cypher, but it is not a cliff.
+
+**Graph engines, as they stand on 2026-08-21:**
+
+| Option | State | Verdict |
 |:--|:--|:--|
-| **LanceDB** (`@lancedb/lancedb` 0.37.1) | truly embedded, in-process, no server | the right fallback. Actively maintained |
-| **Qdrant** (`@qdrant/js-client-rest` 1.19.0) | a **server**, reached over REST | wrong shape here. Another container, another port, for a store only this app reads |
+| **FalkorDB**, server in a container | client `falkordb` 6.7.0, published 2026-07-30. Cypher, HNSW vector index, `algo.*` procedures | the best of them **if REX stays a personal tool**. This machine already runs `podman compose` for the gateway |
+| **FalkorDB**, embedded via `falkordblite` | 0.3.0, 9 stars, 119 commits. Spawns `redis-server`, Unix socket. Binaries only `@falkordblite/linux-x64` and `@falkordblite/darwin-arm64`, both pinned at 0.1.1 | fine on this machine, **not shippable**. No Windows, no Intel Mac, no Linux arm64 |
+| **Kuzu** | `kuzu` and `kuzu-wasm` both frozen at 0.11.3 since 2025-10-10; the project was archived when Apple acquired the company | do not start here |
+| **Oxigraph** | 0.5.9, published 2026-06-18. Embedded, in-process, alive | RDF and SPARQL, not a property graph. A different data model to learn for no gain here |
+| **Neo4j, Memgraph** | servers | wrong shape for a desktop application |
+
+**Vector stores, for the day `sqlite-vec`'s scan stops being noise:**
+
+| Option | Shape | Verdict |
+|:--|:--|:--|
+| **LanceDB** `@lancedb/lancedb` 0.37.1 | truly in-process, like `better-sqlite3`. Prebuilt for macOS arm64, Windows x64 and arm64, Linux x64 and arm64 (gnu and musl) | **the fallback.** One warning: it pulls `openai` and `@huggingface/transformers` as optional dependencies, a large footprint for features REX would not use. No Intel Mac build |
+| **Qdrant** `@qdrant/js-client-rest` 1.19.0 | a **server**. Prebuilt binaries exist for every platform (26–30 MB), so Docker is *not* required — you would bundle and spawn it | **no.** It binds TCP ports 6333/6334 with no Unix socket on Windows. That is a firewall prompt on first run, a port collision between two windows, and a listening port on the user's machine — the exact thing invariant I3 names |
 
 Qdrant is excellent when several services share a vector store over a network.
-REX is one desktop app reading its own cache. It never gets that benefit and
-pays the whole cost.
+REX is one desktop application reading its own cache. It never gets that
+benefit and pays the whole cost.
 
-`sqlite-vec` remains a third option — it would put vectors in the database REX
-already has. It is only worth revisiting if FalkorDB is dropped *and* the graph
-queries turn out to be simple enough for SQL after all.
+**GraphRAG-SDK is not a dependency, under any of these choices.** FalkorDB's
+[GraphRAG-SDK](https://github.com/FalkorDB/GraphRAG-SDK) is Python, and spec 01
+§14 rules out a Python runtime. It is worth reading as a design reference — its
+pipeline is the same five stages as §4, and its examples call models through
+LiteLLM, the same gateway this document uses. Read it. Do not import it.
 
 ---
 
@@ -841,10 +867,12 @@ Three filters, applied in order, all before a model sees anything:
 3. **Filter by state and modality** (§4.5). Superseded claims and rejected
    options are dropped before pairing.
 
-The subject index in FalkorDB is HNSW, so step 1's lookup is approximate
-nearest neighbour, not a scan. This is the standard **blocking** technique
-from entity resolution, and it is what the field uses to take pairwise work
-from billions to thousands.
+Step 1 is the standard **blocking** technique from entity resolution, and it is
+what the field uses to take pairwise work from billions to thousands. The
+literature reaches for an approximate nearest-neighbour index here;
+`sqlite-vec` scans instead, which at 68,000 vectors costs tens of milliseconds
+per lookup and does not change the shape of the problem. §6.2 has the
+arithmetic and §6.5 the escape hatch.
 
 ### 7.3 The numbers
 
@@ -885,6 +913,11 @@ not, and §11 forbids that.
 ---
 
 ## 8. The interface
+
+The whole feature lives behind one **Facts** tab in the workspace view, beside
+the existing explorer and graph. **Read §8.5 first.** It decides what clicking
+that tab does, and it is the difference between a tab that opens instantly and
+a tab that starts a three-day job.
 
 ### 8.1 The findings list
 
@@ -938,6 +971,55 @@ as spec 01 §8 and spec 05 §5.6 already describe, including the diff gate. The
 row is linked to the thread through `fact_finding_thread`, so a resolved
 thread can mark its finding resolved.
 
+### 8.5 What clicking the Facts tab does
+
+**Clicking the tab is the trigger. Nothing else is.** Opening a workspace never
+starts a build — §7.3 puts a first local build of 2,000 documents at three
+days, and a folder-open that quietly begins one would be indefensible.
+
+Clicking the tab calls `facts:status` and then branches on what comes back.
+Five states, and only two of them start work:
+
+| State | What the tab shows | Does it build? |
+|:--|:--|:--|
+| **Never built** | the document count, the §7.3 estimate for that count and the chosen alias, and one **Build** button | **No.** The user presses Build |
+| **Built, nothing changed** | the findings list, immediately | **No.** Zero model calls |
+| **Built, N documents changed** | the findings list from last time, with an inline progress bar above it | **Yes, at once.** This is the incremental path — seconds to minutes (§7.3) |
+| **Build running** | the progress bar and a **Cancel** button | already running; it attaches to it |
+| **Build interrupted** | what was done, and a **Resume** button | **No.** The user presses Resume |
+
+The judgment behind the first row: a build that costs seconds should just
+happen, and a build that costs days must be asked for. The dividing line is
+whether a previous build exists, because that is exactly what separates the
+incremental path from the first one.
+
+**The "changed" count comes from stage 0** (§4.1) — hashing every document in
+the tree. That is disk I/O, not model calls, and it runs on the tab click
+before anything else. On a large tree it is not instant, so the tab shows its
+last findings while it hashes rather than an empty view.
+
+#### The progress bar
+
+Fed by `facts:progress` (§9), which fires at most once per second. It shows:
+
+- the stage name, in words: *"Reading documents"*, *"Extracting claims"*,
+  *"Merging subjects"*, *"Comparing claims"*, *"Naming topics"*,
+- `done` of `total` for that stage,
+- an estimate of the time left for the whole build, from the measured rate of
+  the current stage rather than from the §7.3 table,
+- **Cancel**.
+
+Two things it must do that a plain progress bar does not:
+
+1. **Survive the app closing.** A build is a separate process (§10.1) and a row
+   in `fact_run` (§6.4). If REX is quit and reopened, the tab reattaches to a
+   running build, or offers Resume for one that was interrupted.
+2. **Never block the tab.** The findings from the previous build stay readable,
+   sortable and clickable while a new build runs. A build is not a modal state.
+
+When the build ends the bar is replaced by the build summary of §8.1, including
+everything §7.4 requires it to admit.
+
 ---
 
 ## 9. IPC
@@ -965,31 +1047,226 @@ Events, main → renderer via `webContents.send`:
 `facts:progress` fires at most once per second. A build emitting an event per
 chunk would flood the renderer for hours.
 
+### 9.1 The shapes
+
+These go in `src/shared/types.ts`, which spec 01 §4 makes the single source of
+truth for every shape crossing the boundary. `ExtractedClaim` (§3.2) goes there
+too, even though it never crosses — it is the contract between the prompt and
+the parser, and it belongs beside the rest.
+
+```typescript
+export interface FactRunSummary {
+  runId: string;
+  root: string;
+  state: "running" | "done" | "cancelled" | "failed";
+  stage: "scan" | "chunk" | "extract" | "canonical" | "judge" | "topics";
+  done: number;
+  total: number;
+  startedAt: string;
+  finishedAt: string | null;
+  aliasExtract: string;
+  aliasJudge: string;
+  /** §7.4 — what the build did not cover. Never omitted, even when zero. */
+  droppedQuotes: number;
+  failedChunks: number;
+  /** §4.4 — visible so a bad similarity threshold is caught, not guessed at. */
+  subjectsMerged: number;
+  claimsMerged: number;
+}
+
+export interface FactSide {
+  claimId: string;
+  value: string;
+  quote: string;
+  documentPath: string;
+  anchor: Anchor;
+  modality: ExtractedClaim["modality"];
+  statedAt: string | null;
+  /** How many documents state this claim. Drives the sort in §8.1. */
+  evidenceCount: number;
+}
+
+export interface Finding {
+  /** §6.4 — a hash of both quotes and paths. Stable across rebuilds. */
+  key: string;
+  kind: "contradicts" | "supersedes";
+  subject: string;
+  topicName: string | null;
+  /** For `supersedes`, `a` is the newer claim. */
+  a: FactSide;
+  b: FactSide;
+  verdict: "confirmed" | "dismissed" | null;
+  threadIds: string[];
+}
+
+export interface FactNode {
+  id: string;
+  kind: "subject" | "claim";
+  label: string;
+  topicId: number | null;
+  topicName: string | null;
+  /** Claims only: how many documents state it. Sizes the node. */
+  evidenceCount: number;
+  /** Claims only: false once superseded. Drawn faded. */
+  live: boolean;
+}
+
+export interface FactEdge {
+  source: string;
+  target: string;
+  kind: "about" | "contradicts" | "refines" | "supersedes";
+}
+
+export interface FactGraph {
+  root: string;
+  nodes: FactNode[];
+  edges: FactEdge[];
+  topics: Array<{ id: number; name: string; subjectCount: number }>;
+}
+
+export type FindingFilter = {
+  kind?: Finding["kind"];
+  topicId?: number;
+  /** Default false. Dismissed findings stay hidden unless asked for. §8.3 */
+  includeDismissed?: boolean;
+};
+```
+
+`FactGraph` deliberately carries no co-occurrence edges. They exist to feed
+Louvain (§4.6) and would make the lens unreadable.
+
 ---
 
-## 10. Where the code goes
+## 10. Where the code runs, and where it goes
+
+### 10.1 The build runs in a `utilityProcess`
+
+**Decision: `utilityProcess.fork()`. Not the main thread, not a worker thread,
+and not a server.**
+
+**Why not the main thread.** Most of a build is awaited network I/O, which does
+not block anything. But stage 3 (§4.4) is different: 60,000 claims, each
+needing two `sqlite-vec` scans, and `better-sqlite3` is synchronous by
+design — its own README calls that a feature. That is roughly an hour of
+30-millisecond blocks, back to back, on the thread that also runs the window.
+The app would not freeze; it would stutter for an hour, which is worse because
+it looks like a bug.
+
+**Why not `worker_threads`.** A worker shares the process. A native module that
+crashes takes the whole app with it, and `better-sqlite3` plus a loadable
+extension is exactly the kind of thing that can. A `utilityProcess` is a
+separate operating-system process: it can die, be noticed, and be restarted.
+
+**Why not a server.** A server means a listening port, which is invariant I3 —
+plus lifecycle, plus authentication, plus something to package and code-sign.
+`utilityProcess` is Electron's own answer to this problem, has full Node
+integration, and **can load native modules**, which is the requirement that
+rules out most alternatives.
+
+```mermaid
+flowchart LR
+  R["renderer<br/>Facts tab"]
+  M["main<br/>reads, IPC"]
+  U["utilityProcess<br/>the build"]
+  G["LiteLLM gateway<br/>localhost:24000"]
+  D[("~/.rex/rex.db<br/>WAL")]
+  R -->|"ipcRenderer.invoke"| M
+  M -->|"webContents.send"| R
+  M <-->|"MessagePort"| U
+  U -->|"HTTPS out"| G
+  U -->|"writes"| D
+  M -->|"reads"| D
+```
+
+**One writer, many readers.** The `utilityProcess` is the only writer of the
+§6.3 and §6.4 tables. Main reads them to answer `facts:findings` and
+`facts:graph`. WAL is already on (`src/main/db/database.ts`), and WAL exists
+for exactly this shape: readers never block the writer and the writer never
+blocks readers.
+
+> [!warning]
+> **Set `pragma busy_timeout` on both handles.** It is not set today. Without
+> it, the two processes will meet on a write and one throws `SQLITE_BUSY`
+> instead of waiting — intermittently, under load, which is the worst way to
+> find a bug. 5,000 milliseconds is a sane default.
+
+**Lifecycle, and the rules that make it safe:**
+
+1. Main forks the process on `facts:build`, and only then. An idle REX runs one
+   process, as it does today.
+2. Main kills it on `before-quit`, and on `facts:cancel`.
+3. On an unexpected `exit`, main marks the `fact_run` row `failed` and **leaves
+   the cursor where it was**. The user sees "interrupted" and a Resume button
+   (§8.5), not a lost build.
+4. Only **one build at a time**, per application, not per workspace. Two builds
+   would contend for the same LMStudio.
+5. The process holds the gateway key and a database handle. It holds no
+   document content beyond the chunk it is working on, and it never touches
+   the DOM. This is what makes the I2 widening in §2 acceptable.
+
+**Messages over the `MessagePort`**, which is a Chromium message channel and
+not a socket:
+
+| Direction | Message |
+|:--|:--|
+| main → worker | `{ type: "start", runId, root, aliases }` |
+| main → worker | `{ type: "cancel" }` |
+| worker → main | `{ type: "progress", stage, done, total, message }` |
+| worker → main | `{ type: "done", summary }` |
+| worker → main | `{ type: "failed", stage, error }` |
+
+Main forwards `progress` to the renderer as `facts:progress` (§9). It does not
+invent progress events of its own, so what the user sees is what the build
+actually did.
+
+**Milestone 1 must prove the native modules load there.** `better-sqlite3` is
+built by `electron-rebuild` against Electron's ABI, and a `utilityProcess` runs
+that same runtime — but "should work" is not "was seen to work", and this is
+the kind of thing that fails only in the packaged build.
+
+### 10.2 The file layout
 
 ```text
 src/main/facts/
-  gateway.ts      OpenAI-compatible client for localhost:24000; retries, schema validation
-  chunk.ts        stage 1
-  extract.ts      stage 2, including the verbatim-quote check
-  canonical.ts    stage 3, embeddings and thresholds
-  pairs.ts        stage 4, the candidate query
-  judge.ts        stage 4, batched labelling
-  topics.ts       stage 5, Louvain over CO_OCCURS
-  store.ts        the thin FalkorDB interface — the ONLY file that imports falkordblite
-  build.ts        the resumable job and its cursor
+  supervisor.ts   MAIN — forks, kills and watches the utilityProcess (§10.1)
+  reads.ts        MAIN — the queries behind facts:findings and facts:graph
+  worker.ts       WORKER entry point — the utilityProcess forks into this
+  gateway.ts      WORKER — client for localhost:24000; retries, schema validation,
+                  and the per-alias concurrency limiter of §5.6
+  chunk.ts        WORKER — stage 1
+  extract.ts      WORKER — stage 2, including the verbatim-quote check
+  canonical.ts    WORKER — stage 3, embeddings and thresholds
+  pairs.ts        WORKER — stage 4, the candidate query
+  judge.ts        WORKER — stage 4, batched labelling
+  topics.ts       WORKER — stage 5, Louvain over fact_co_occurrence
+  build.ts        WORKER — the stage order, the cursor, cancellation
+  store.ts        BOTH — every read and write of the §6.3 and §6.4 tables
 src/renderer/overlay/
-  FactsView.tsx   the findings list
+  FactsView.tsx   the Facts tab: the state machine of §8.5, the progress bar,
+                  and the findings list
   FactGraph.tsx   the fact lens for the existing graph view
 ```
 
-`store.ts` is the seam that makes §6.2's fallback cheap. Nothing else in the
-tree may import a graph client.
+The `MAIN` / `WORKER` markers are load-bearing. **No `WORKER` file may be
+imported from main**, and vice versa — a stray import is how an hour of
+synchronous vector scanning ends up back on the thread that draws the window,
+with nothing to show it happened.
+
+`worker.ts` must be a separate entry point in `electron.vite.config.ts`.
+`utilityProcess.fork()` takes a path to a built script, so it cannot be bundled
+into `out/main/index.js`.
+
+`store.ts` is the seam that makes §6.5's trigger cheap to act on. **No other
+file may issue a query against the fact tables or call `sqlite-vec`**, so
+swapping the engine later touches one file and nothing else.
+
+The schema of §6.3 and §6.4 goes in `src/main/db/schema.sql`, with a migration
+step in `src/main/db/migrate.ts`, exactly as the existing tables do. The
+`sqlite-vec` extension is loaded once, in `src/main/db/database.ts`, on the same
+handle.
 
 Per spec 01 §3, none of this may live in the renderer: `src/renderer/` gains no
-graph handle, no gateway client and no embedding call.
+database handle, no gateway client and no embedding call.
 
 ---
 
@@ -1017,7 +1294,7 @@ human's documents, and overstating it is the way it becomes useless.
 
 ### Milestone 0 — the gate
 
-**A standalone script. No Electron, no FalkorDB, no UI.**
+**A standalone script. No Electron, no database, no UI.**
 
 Point it at
 `~/Projects/Github/redhat/ProtoBot/docs/architecture/components.md` (1,063
@@ -1045,22 +1322,32 @@ assumes claims are well-formed.
 
 ### Milestone 1 — extract and store
 
-Extraction over a whole small folder, written to SQLite and a JSONL dump. No
-graph database yet.
+Extraction over a whole small folder, written to the §6.3 and §6.4 tables. No
+canonicalization yet — every claim gets its own subject.
 
 - [ ] 20 documents extract end to end without manual intervention
 - [ ] a second run over an unchanged folder does zero model calls
 - [ ] changing one document re-extracts only that document
+- [ ] deleting a document removes its evidence, and any claim whose last
+      evidence went with it
 - [ ] every evidence row carries an `Anchor` that the renderer resolves to the
       right place, checked by inspection on five of them
+- [ ] **the build runs in a `utilityProcess`, and `better-sqlite3` loads there**
+      — in `electron-vite dev` **and** in the packaged build (§10.1)
+- [ ] killing the `utilityProcess` mid-build leaves a `fact_run` row marked
+      `failed` with its cursor intact, and the next run resumes from it
+- [ ] the concurrency of §5.6 is tuned against this machine and the chosen
+      numbers are written back into §5.6
 
-### Milestone 2 — the graph store
+### Milestone 2 — the vector tables
 
-- [ ] `falkordblite` opens, creates the schema of §6.3 and closes cleanly
-- [ ] the process is stopped when REX quits, and REX quits when it dies
-- [ ] claims, subjects and evidence write and read back
-- [ ] the vector index returns sensible nearest subjects for 10 hand-picked
+- [ ] `sqlite-vec` loads on the existing `better-sqlite3` handle, in the packaged
+      build as well as in `electron-vite dev`
+- [ ] the two `vec0` tables of §6.3 create and accept 768-dimension vectors
+- [ ] a nearest-neighbour query returns sensible subjects for 10 hand-picked
       probes
+- [ ] the scan time for one lookup is measured at 1,000 and at 10,000 vectors,
+      and written into §6.2
 
 ### Milestone 3 — canonicalization
 
@@ -1076,6 +1363,11 @@ graph database yet.
 - [ ] judging labels them, batched, without a schema failure per batch
 - [ ] the findings list renders, and **Open** jumps to the right sentence in
       both documents
+- [ ] the Facts tab reaches all five states of §8.5, and only the two that
+      should build actually build
+- [ ] the findings list stays scrollable and clickable **while a build runs**,
+      and the window does not stutter during stage 3
+- [ ] quitting REX mid-build and reopening it offers Resume
 - [ ] a deliberately planted contradiction in two test documents is found
 - [ ] a deliberately planted *rejected option* is **not** reported
 - [ ] the §7.3 table is replaced with measured numbers
@@ -1106,6 +1398,7 @@ Deliberately not in this document. Each was considered.
 | A local ONNX NLI cross-encoder as a pre-filter | it would cut judging time hard, and it is the standard tool for this. But it adds `onnxruntime-node`, a model download and a second inference path. Revisit only if §7.3's judging figure turns out to be the bottleneck |
 | GraphRAG-SDK, LightRAG, Graphiti as dependencies | all Python. Spec 01 §14 rules out a Python runtime. Read them, port the ideas |
 | Leiden community detection | no JavaScript implementation exists. Louvain is available and good enough (§4.6) |
+| A graph database of any kind | REX has a graph shape, not a graph workload. §6.2 lists every operation; none is a traversal. §6.5 has the rejected engines and the two-part trigger to revisit |
 | Cross-workspace fact graphs | one workspace, one graph. Merging two corpora is a different product |
 | Editing a claim by hand | the graph is a cache (§6.1). A hand edit would be lost on rebuild. Correct the document instead — which is what Apply is for |
 | Question answering over the graph | this is a review tool, not a chatbot. The comment thread is where questions go |
@@ -1125,7 +1418,12 @@ can check them rather than trust them.
 | Bi-temporal edges and validity windows instead of deletion (§3.4) | [Graphiti](https://neo4j.com/blog/developer/graphiti-knowledge-graph-memory/), [Zep](https://www.getzep.com/ai-agents/temporal-knowledge-graph/) |
 | Embedding plus approximate nearest neighbour as the blocking method (§4.4, §7.2) | [Pre-trained Embeddings for Entity Resolution (VLDB)](https://www.vldb.org/pvldb/vol16/p2225-skoutas.pdf) |
 | Communities found by algorithm, then named by a model (§4.6) | [GraphRAG](https://github.com/DEEP-PolyU/Awesome-GraphRAG), [LLM-empowered knowledge graph construction: a survey](https://arxiv.org/html/2510.20345v1) |
-| FalkorDB vector index: HNSW, 1–4,096 dimensions, cosine or euclidean (§6.2) | [FalkorDB vector index docs](https://docs.falkordb.com/cypher/indexing/vector-index.html) |
-| `falkordblite` spawns redis-server and connects over a Unix socket (§6.2) | [falkordblite-ts](https://github.com/FalkorDB/falkordblite-ts) |
-| GraphRAG-SDK is Python and calls models through LiteLLM (§6.2) | [GraphRAG-SDK](https://github.com/FalkorDB/GraphRAG-SDK) |
+| `sqlite-vec` is a brute-force scan, and struggles only past about a million vectors (§6.2) | [sqlite-vec](https://github.com/asg017/sqlite-vec) |
+| FalkorDB vector index: HNSW, 1–4,096 dimensions, cosine or euclidean (§6.5) | [FalkorDB vector index docs](https://docs.falkordb.com/cypher/indexing/vector-index.html) |
+| `falkordblite` spawns redis-server on a Unix socket; binaries for `linux-x64` and `darwin-arm64` only (§6.5) | [falkordblite-ts](https://github.com/FalkorDB/falkordblite-ts) |
+| Kuzu archived after the Apple acquisition; npm frozen since 2025-10-10 (§6.5) | [Kuzu's legacy and the new wave of embedded graph databases](https://gdotv.com/blog/kuzu-legacy-embedded-graph-database-landscape/) |
+| Qdrant ships standalone binaries for macOS, Windows and Linux — no Docker needed (§6.5) | [Qdrant releases](https://github.com/qdrant/qdrant/releases) |
+| GraphRAG-SDK is Python and calls models through LiteLLM (§6.5) | [GraphRAG-SDK](https://github.com/FalkorDB/GraphRAG-SDK) |
+| `utilityProcess` has full Node integration and can load native modules; it talks over `MessagePort` (§10.1) | [Electron `utilityProcess` docs](https://www.electronjs.org/docs/latest/api/utility-process) |
+| `better-sqlite3` is synchronous by design (§10.1) | its own README, line 7: *"Easy-to-use synchronous API"* |
 | Gateway aliases, windows, timeouts and fallback chains (§5.1, §5.3) | `~/Projects/Github/lukaskellerstein/ai-gateway` — `README.md` and `NOTES.md` |

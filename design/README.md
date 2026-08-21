@@ -6,10 +6,10 @@ be rebuilt.
 
 Nothing here ships. It is a design record you can edit, extend and re-publish.
 
-## Four things here are proposals, not records
+## Five things here are proposals, not records
 
-Everything else on these boards is drawn from the code as it stands. These four
-are not. Nothing in `src/` was changed for any of them, and spec 05 has not been
+Everything else on these boards is drawn from the code as it stands. These five
+are not. Nothing in `src/` was changed for any of them, and no spec has been
 amended.
 
 ### 1. The sidebar is two tabs
@@ -87,7 +87,41 @@ messages are stored today and **thrown away** — `conversation()` in
 `CommentCard.tsx` keeps only `text` and `error`. Thinking is drawn in the trace
 and nowhere else.
 
-### 4. A comment can take you to its places
+### 4. The whole of spec 07 — the fact graph
+
+`facts/Findings.dc.html` and `facts/Lens.dc.html` draw §8 of
+[spec 07](../docs/my-specs/07-fact-graph/SPEC.md). None of it exists in `src/`;
+the spec itself is marked *specified, not implemented*.
+
+**The list is the product**, and the picture is a second view — §1.1 says so.
+The findings board carries the build strip in three states, on a click: **built**
+(counts, the three aliases, and what it skipped), **building** (a first local
+build of 2,000 documents is an overnight job, so stage, progress, cancel, and
+"you can close REX"), and **cannot start** (the preflight found `embed` and
+`local-31b` missing — neither has a fallback, on purpose, so it is a stop rather
+than a wait).
+
+The word that governs every screen is **candidates**. §11.1 forbids implying
+completeness, so the strip says so in plain words and names what it dropped.
+
+Three design decisions the spec does not make:
+
+- **Facts is a peer of Document and Graph in the centre segment.** It is a view
+  of the *workspace*, exactly like the graph — unlike the trace sheet, which
+  belongs to one comment. Same reason the comments column is hidden behind it:
+  the list needs the width for two quotes side by side.
+- **Facts is one mode with two presentations, not a lens on the graph.** §8.2
+  draws the picture as a fact lens over the reference graph, which would leave
+  the centre segment reading `Graph` while every node on screen is a fact. Here
+  the segment reads `Facts` for both boards, and `VIEW · List | Graph` switches
+  between them — in the same corner of the centre pane on each. `Graph` mode
+  keeps the reference graph to itself, and neither mode ever shows the other
+  one's nodes. **Open**: the build strip is above the switch on the list board
+  and absent from the picture, so the switch is not at the same height on the
+  two. The strip reports the build behind both views, so it belongs above both.
+- **Three topic colours, and only three.** See below.
+
+### 5. A comment can take you to its places
 
 A comment card gains `go to ›` beside its documents line: it opens the document
 of its **first** place and scrolls there. Below it, every place is a row you can
@@ -114,9 +148,9 @@ Affected boards: `screens/Main.dc.html`, `screens/Threads.dc.html`,
 Two words that both sound like "page":
 
 - An **artboard** is one `.dc.html` file: one screen, drawn once. There are
-  thirteen.
+  fifteen.
 - A **page** is a tab in the canvas's page menu, holding as many artboards as
-  you like. There are five.
+  you like. There are six.
 
 So a page is a grouping, not a file — the Screens page holds six artboards
 because REX has six states worth drawing. **There is no entry file per page.**
@@ -136,6 +170,7 @@ design/
 ├── screens/             the app doing its job
 ├── selection/           how you point at something
 ├── document/            the paper REX draws documents on
+├── facts/               spec 07 — what the documents claim
 ├── cards/               the comment card, explored
 └── system/              tokens, controls, states
 ```
@@ -153,6 +188,8 @@ design/
 | Selection | `selection/Region.dc.html` | Figures, and dragging a region inside one. |
 | Selection | `selection/Kinds.dc.html` | The five anchor kinds — the implementation reference. |
 | Document | `document/Paper.dc.html` | Markdown rendered: alerts, code, tables, figures, maths. The paper palette. |
+| Facts | `facts/Findings.dc.html` | Contradiction candidates, and the build that produced them. |
+| Facts | `facts/Lens.dc.html` | The Facts mode's graph view, and one claim's evidence. |
 | Cards | `cards/Cards.dc.html` | Four comment-card treatments; **C · Wash** is the one built. |
 | System | `system/Components.dc.html` | Tokens, type ramp, metrics, controls, anchor states. |
 
@@ -257,6 +294,21 @@ Changing any of these changes the design, not just a pixel.
   gets a sheet over the document pane, where a bash line can be read. The
   sidebar keeps a step strip so the shape of a run is visible without opening
   anything. **Proposed, not built.**
+- **The fact graph's topic colours are computed, and capped at three.** A
+  node-link graph is an all-pairs surface — any two topics can end up adjacent —
+  and with steel, amber, red and green ruled out (colour on an *edge* means
+  something there), no four hues clear the colour-blindness and normal-vision
+  floors on the graph's ground. `#2a9fb3` cyan, `#9085e9` violet, `#d55181`
+  magenta do, at the deuteranopia target exactly. That is legal only because the
+  topic is also carried by its cluster's centre of gravity, its name drawn at
+  that centre, and the legend — colour is never the only thing saying which
+  topic a node is in. The fourth community and every one after it fold into
+  neutral rather than inventing a hue. **Proposed, not built.**
+- **Red now means three things, deliberately.** A lost anchor, the
+  write-capable agent, and a contradiction candidate. The register holds — red
+  is what is wrong and needs your eye. A **supersede stays amber**, because an
+  old decision replaced by a new one is not a fault, and painting the third one
+  red teaches the reviewer to ignore red.
 - **A comment points back at its places.** `go to ›` opens the first place's
   document and scrolls there; pointing at a place row lights it and draws its
   number on the mark in the document, in the open comment's violet. Across

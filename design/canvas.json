@@ -13,6 +13,10 @@
       "name": "Document"
     },
     {
+      "id": "page-6",
+      "name": "Facts"
+    },
+    {
       "id": "page-3",
       "name": "Cards"
     },
@@ -138,6 +142,24 @@
       "y": 1020,
       "w": 1440,
       "h": 900
+    },
+    {
+      "file": "Findings.dc.html",
+      "title": "Findings — the product",
+      "page": "page-6",
+      "x": 0,
+      "y": 0,
+      "w": 1440,
+      "h": 900
+    },
+    {
+      "file": "Lens.dc.html",
+      "title": "Facts · the graph view",
+      "page": "page-6",
+      "x": 1560,
+      "y": 0,
+      "w": 1440,
+      "h": 900
     }
   ],
   "annotations": [
@@ -196,10 +218,34 @@
       "y": 1160,
       "w": 400,
       "text": "Why the trace is not in the sidebar.\n\n384px cannot hold a bash line, a path or a diff without wrapping it into mush — which is exactly what Vex's per-tool renderers exist to avoid.\n\nAnd why it does not replace the document either: an answer is ABOUT a passage, so the answer stays beside it. Only the machinery leaves, because the machinery has nothing to do with the document being on screen.\n\nREX's own rule, one step further: the answer outranks the machinery."
+    },
+    {
+      "id": "facts-candidates",
+      "page": "page-6",
+      "x": -460,
+      "y": 0,
+      "w": 400,
+      "text": "SPEC 06 — PROPOSED, NOT BUILT. Nothing of this exists in src/ yet.\n\nThe list is the product. The picture is a second view of the same data: good for seeing shape, bad for doing work.\n\nThe word that governs every screen here is CANDIDATES. The best measured method in the literature reaches about 60% recall, and this will do worse. The build strip says so in plain words, every time, and it also says what it skipped — dropped claims, failed chunks, a subject that hit the pairing cap.\n\nClick the strip at the top of Findings to walk its three states: built, building, and the gateway refusing to start."
+    },
+    {
+      "id": "facts-palette",
+      "page": "page-6",
+      "x": -460,
+      "y": 420,
+      "w": 400,
+      "text": "THE TOPIC COLOURS ARE COMPUTED, AND THERE ARE ONLY THREE.\n\nStack #2a9fb3 · Reliability #9085e9 · Deployment #d55181 · everything else neutral.\n\nA node-link graph is an all-pairs surface — any two topics can end up side by side. On the graph's ground, with steel, amber, red and green ruled out because colour on an EDGE means something here, no four hues clear the colour-blindness and normal-vision floors. Three do.\n\nSo Louvain's fourth community and every one after it fold into neutral rather than inventing a hue.\n\nThe worst pair is at the deuteranopia target, not comfortably past it, so the topic is carried three more ways: its own centre of gravity, its name drawn at that centre, and the legend. Colour is never the only thing saying which topic a node is in."
+    },
+    {
+      "id": "facts-red",
+      "page": "page-6",
+      "x": -460,
+      "y": 900,
+      "w": 400,
+      "text": "RED NOW MEANS THREE THINGS, AND THAT IS A DELIBERATE WIDENING.\n\nIt was a lost anchor and the write-capable agent. Spec 06 §3.3 spends it on a contradiction too.\n\nThat holds, because the register is the same: red is what is wrong and needs your eye. A superseded claim is NOT wrong — an old decision replaced by a new one — so it is amber, the colour this design already spends on “this changed”. Paint the third supersede red and the reviewer learns to ignore red."
     }
   ],
   "launch": {
     "view": "canvas",
-    "page": "page-1"
+    "page": "page-6"
   }
 }
