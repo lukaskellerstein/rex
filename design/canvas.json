@@ -225,7 +225,7 @@
       "x": -460,
       "y": 0,
       "w": 400,
-      "text": "SPEC 06 — PROPOSED, NOT BUILT. Nothing of this exists in src/ yet.\n\nThe list is the product. The picture is a second view of the same data: good for seeing shape, bad for doing work.\n\nThe word that governs every screen here is CANDIDATES. The best measured method in the literature reaches about 60% recall, and this will do worse. The build strip says so in plain words, every time, and it also says what it skipped — dropped claims, failed chunks, a subject that hit the pairing cap.\n\nClick the strip at the top of Findings to walk its three states: built, building, and the gateway refusing to start."
+      "text": "SPEC 06 — PROPOSED, NOT BUILT. Nothing of this exists in src/ yet.\n\nThe list is the product. The picture is a second view of the same data: good for seeing shape, bad for doing work.\n\nThe word that governs every screen here is CANDIDATES. The best measured method in the literature reaches about 60% recall, and this will do worse. The build strip says so in plain words, every time, and it also says what it skipped — dropped claims, failed chunks, a subject that hit the pairing cap.\n\nClick the build strip on Findings — it sits under the view switch — to walk its three states: built, building, and the gateway refusing to start. Every finding row carries a details control too: the notes about a finding are closed until you ask for them."
     },
     {
       "id": "facts-palette",

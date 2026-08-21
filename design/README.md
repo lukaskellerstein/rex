@@ -104,7 +104,7 @@ than a wait).
 The word that governs every screen is **candidates**. §11.1 forbids implying
 completeness, so the strip says so in plain words and names what it dropped.
 
-Three design decisions the spec does not make:
+Four design decisions the spec does not make:
 
 - **Facts is a peer of Document and Graph in the centre segment.** It is a view
   of the *workspace*, exactly like the graph — unlike the trace sheet, which
@@ -114,11 +114,22 @@ Three design decisions the spec does not make:
   draws the picture as a fact lens over the reference graph, which would leave
   the centre segment reading `Graph` while every node on screen is a fact. Here
   the segment reads `Facts` for both boards, and `VIEW · List | Graph` switches
-  between them — in the same corner of the centre pane on each. `Graph` mode
-  keeps the reference graph to itself, and neither mode ever shows the other
-  one's nodes. **Open**: the build strip is above the switch on the list board
-  and absent from the picture, so the switch is not at the same height on the
-  two. The strip reports the build behind both views, so it belongs above both.
+  between them — **first in the centre pane on each board**, 16px in from its
+  top left, so the switch is in the same corner *and* at the same height on the
+  two and does not move when you switch. The build strip follows it on the list
+  board. `Graph` mode keeps the reference graph to itself, and neither mode ever
+  shows the other one's nodes. **Open**: the picture draws no build strip, so it
+  reports nothing about the build behind it — not to be fixed by putting the
+  strip above the switch, which is what made the two boards disagree.
+- **A note about a finding is not part of the finding.** Every row used to end
+  in a quiet grey line — `stated in 3 documents · 1 against`, `dated by the text
+  itself, never by the model's opinion`, `stays hidden across rebuilds` — set in
+  the same register as the row itself, so it read as more of the finding rather
+  than as a note about it. They sit behind a `details ⌄` control now, closed
+  until asked for, each labelled inside (`EVIDENCE`, `OLDER CLAIM`, `DATES`,
+  `DISMISSED`) so the label says what the line is. A disclosure rather than a
+  tooltip: the notes are longer than a tooltip holds, and a tooltip is not
+  reachable by touch or keyboard.
 - **Three topic colours, and only three.** See below.
 
 ### 5. A comment can take you to its places

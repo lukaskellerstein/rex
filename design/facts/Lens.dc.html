@@ -21,8 +21,9 @@
   would read Graph while every node on screen is a fact. It reads Facts here
   instead. Facts is one centre mode with two presentations — the findings list
   and this picture — and VIEW · List | Graph switches between them, in the same
-  corner on both boards. The reference graph keeps the Graph mode to itself, so
-  neither mode ever shows the other one's nodes.
+  corner and at the same height on both boards: 16px in from the top left of the
+  centre pane, the first thing in it. The reference graph keeps the Graph mode to
+  itself, so neither mode ever shows the other one's nodes.
 
   The picture is the SECOND view. §1.1 says so plainly: it is good for seeing
   shape and bad for doing work, and the findings list is the product. What this
@@ -209,10 +210,11 @@
         </g>
       </svg>
 
-      <!-- The view switch, top left, mirroring the zoom controls opposite. It
-           is in the same corner on Findings. Not at the same HEIGHT there: the
-           build strip sits above it. The strip reports the build behind both
-           views and so belongs above both — this board does not draw it yet. -->
+      <!-- The view switch, top left, mirroring the zoom controls opposite. Same
+           corner and same 16px inset on Findings, where it is now the first
+           thing in the centre pane and the build strip sits below it. OPEN:
+           this board draws no strip at all, so the picture reports nothing
+           about the build behind it. -->
       <div style="position: absolute; left: 16px; top: 16px; display: flex; align-items: center; gap: 8px;">
         <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #5d7a9a;">VIEW</span>
         <span style="display: flex; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: rgb(13 20 32 / 88%); gap: 2px;">

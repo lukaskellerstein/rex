@@ -33,21 +33,33 @@
   contradictions”. The best measured method in the literature reaches about 60%
   recall. The strip says so, in the plainest words available, every time.
 
+  A NOTE ABOUT A FINDING IS NOT PART OF THE FINDING. Every row used to end in a
+  quiet grey line — “stated in 3 documents · 1 against”, “dated by the text
+  itself”, “stays hidden across rebuilds” — set in the same register as the row
+  itself, so it read as more of the finding rather than as a note about it.
+  Those lines are behind `details ⌄` now, closed until asked for, and each one
+  carries a label inside that says what it is. Click it on any row.
+
   Facts is a peer of Graph in the centre segment, and the trace was not — a
   trace belongs to one comment, a fact graph belongs to the workspace. Same
   reason the comments column is hidden here, exactly as it is behind the graph:
   the list needs the width for two quotes side by side.
 
   Facts is ONE mode with TWO presentations: this list and the picture on the
-  next board. VIEW · List | Graph switches between them, in the same corner of
-  the centre pane on both. §8.2 would have made the picture a lens over the
-  reference graph instead — which leaves the segment reading Graph while every
-  node is a fact. It does not here. Graph mode keeps the reference graph to
-  itself.
+  next board. VIEW · List | Graph switches between them, in the same corner AND
+  at the same height on both — 16px in from the top left of the centre pane, the
+  first thing in it. §8.2 would have made the picture a lens over the reference
+  graph instead — which leaves the segment reading Graph while every node is a
+  fact. It does not here. Graph mode keeps the reference graph to itself.
 
-  OPEN: the build strip is above the switch here and absent from the picture
-  board, so the switch is not at the same HEIGHT on the two. The strip reports
-  the build behind both views, so it belongs above both.
+  The switch used to sit BELOW the build strip here, which put it at a different
+  height from the picture board and read as a different control. It goes first
+  on both now, and the strip follows it: what you are looking at, then what
+  built it, then what is filtered out of it.
+
+  OPEN: the picture board draws no build strip, so it reports nothing about the
+  build behind it. Not to be fixed by putting the strip above the switch — that
+  is what made the two boards disagree in the first place.
 -->
 
 <div style="width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; background: #0d1420; color: #e4e9f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 1.5;">
@@ -98,6 +110,21 @@
     </div>
 
     <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; background: #0d1420;">
+
+      <!-- ══ THE VIEW SWITCH ══
+
+           The two presentations of the Facts mode. First thing in the centre
+           pane, 16px in from its top left — the same corner and the same height
+           as the floating switch on the graph board, so the one control does not
+           move when you switch views. -->
+
+      <div style="display: flex; align-items: center; gap: 8px; flex: none; padding: 16px;">
+        <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #5d7a9a;">VIEW</span>
+        <span style="display: flex; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420; gap: 2px;">
+          <span style="padding: 3px 12px; border-radius: 4px; background: #22304a; font-size: 12px; font-weight: 500;">List</span>
+          <span style="padding: 3px 12px; border-radius: 4px; font-size: 12px; color: #8ba0ba;">Graph</span>
+        </span>
+      </div>
 
       <!-- ══ THE BUILD STRIP · click it to walk the three states ══ -->
 
@@ -179,16 +206,8 @@
       <!-- ══ THE LIST ══ -->
 
       <div style="display: flex; align-items: center; gap: 8px; flex: none; height: 40px; padding: 0 16px; border-bottom: 1px solid #1c2a3d;">
-        <!-- The two presentations of the Facts mode. Same control, same corner
-             of the centre pane, on this board and on the graph one. -->
-        <span style="display: flex; align-items: center; gap: 8px;">
-          <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #5d7a9a;">VIEW</span>
-          <span style="display: flex; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420; gap: 2px;">
-            <span style="padding: 3px 12px; border-radius: 4px; background: #22304a; font-size: 12px; font-weight: 500;">List</span>
-            <span style="padding: 3px 12px; border-radius: 4px; font-size: 12px; color: #8ba0ba;">Graph</span>
-          </span>
-        </span>
-        <span style="width: 1px; height: 20px; background: #24344a;"></span>
+        <!-- Filters, and nothing else. They act on the list, so they sit with
+             the list — not with the switch that chooses the presentation. -->
         <span style="display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 11px; border: 1px solid #2f5da8; border-radius: 999px; background: #1b2c47; font-size: 12px;">
           candidates<span style="padding: 0 6px; border-radius: 999px; background: #6f9fe0; color: #0d1420; font-size: 10px; font-weight: 600;">7</span>
         </span>
@@ -258,8 +277,25 @@
               Comment
             </span>
             <span style="display: flex; align-items: center; height: 26px; padding: 0 12px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 11.5px; color: #8ba0ba;">Dismiss</span>
-            <span style="margin-left: auto; font-size: 11px; color: #5d7a9a;">stated in 3 documents · 1 against</span>
+            <!-- ══ DETAILS · closed until you ask for it ══
+
+                 What used to sit here was a grey line of prose in the same
+                 register as everything else on the card, so it read as more of
+                 the finding rather than as a note about it. It is behind this
+                 control now, and every line inside carries a label that says
+                 what it is. -->
+            <span onClick="{{ language.toggle }}" style="margin-left: auto; display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border-radius: 4px; font-size: 11px; color: #5d7a9a; cursor: pointer;">
+              details
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate({{ language.turn }});"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
+            </span>
           </div>
+
+          <sc-if value="{{ language.open }}" hint-placeholder-val="{{ false }}">
+            <div style="display: grid; grid-template-columns: 96px 1fr; gap: 6px 14px; padding-top: 9px; border-top: 1px solid #3a221c;">
+              <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #5d7a9a; line-height: 1.7;">EVIDENCE</span>
+              <span style="font-size: 11.5px; line-height: 1.6; color: #b9c7d8;">Stated in 3 documents, 1 against. That is not a vote — REX reports the pair and you decide.</span>
+            </div>
+          </sc-if>
         </div>
 
         <!-- A SUPERSEDE. Amber, arrowed, and NOT red — most apparent
@@ -274,8 +310,6 @@
             <span style="display: flex; align-items: center; gap: 5px; font-size: 11px; color: #8ba0ba;">
               <span style="width: 7px; height: 7px; border-radius: 2px; background: #9085e9;"></span>Reliability
             </span>
-            <span style="flex: 1;"></span>
-            <span style="font-size: 11px; color: #8ba0ba;">the older claim's window is closed, not deleted</span>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 32px 1fr; align-items: center; gap: 10px;">
@@ -308,21 +342,45 @@
               Comment
             </span>
             <span style="display: flex; align-items: center; height: 26px; padding: 0 12px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 11.5px; color: #8ba0ba;">Dismiss</span>
-            <span style="margin-left: auto; font-size: 11px; color: #5d7a9a;">dated by the text itself, never by the model's opinion</span>
+            <span onClick="{{ retry.toggle }}" style="margin-left: auto; display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 8px; border-radius: 4px; font-size: 11px; color: #5d7a9a; cursor: pointer;">
+              details
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate({{ retry.turn }});"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
+            </span>
           </div>
+
+          <sc-if value="{{ retry.open }}" hint-placeholder-val="{{ false }}">
+            <div style="display: grid; grid-template-columns: 96px 1fr; gap: 6px 14px; padding-top: 9px; border-top: 1px solid #3a2f10;">
+              <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #5d7a9a; line-height: 1.7;">OLDER CLAIM</span>
+              <span style="font-size: 11.5px; line-height: 1.6; color: #b9c7d8;">Its window is closed, not deleted.</span>
+              <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #5d7a9a; line-height: 1.7;">DATES</span>
+              <span style="font-size: 11.5px; line-height: 1.6; color: #b9c7d8;">Taken from the text itself, never from the model's opinion.</span>
+            </div>
+          </sc-if>
         </div>
 
         <!-- A DISMISSED ROW. Kept, collapsed and quiet: it stays dismissed
              across rebuilds, because the key is the two quotes. -->
-        <div style="display: flex; align-items: center; gap: 10px; padding: 9px 14px; border: 1px dashed #24344a; border-radius: 6px; background: #101a29;">
-          <span style="font-size: 12px; color: #5d7a9a;">dismissed</span>
-          <span style="font-size: 12px; color: #8ba0ba;">supported language runtimes</span>
-          <span style="display: flex; align-items: center; gap: 5px; font-size: 11px; color: #5d7a9a;">
-            <span style="width: 7px; height: 7px; border-radius: 2px; background: #d55181;"></span>Deployment
-          </span>
-          <span style="flex: 1;"></span>
-          <span style="font-size: 11px; color: #5d7a9a;">stays hidden across rebuilds</span>
-          <span style="font-size: 11px; color: #6f9fe0;">restore</span>
+        <div style="display: flex; flex-direction: column; gap: 8px; padding: 9px 14px; border: 1px dashed #24344a; border-radius: 6px; background: #101a29;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 12px; color: #5d7a9a;">dismissed</span>
+            <span style="font-size: 12px; color: #8ba0ba;">supported language runtimes</span>
+            <span style="display: flex; align-items: center; gap: 5px; font-size: 11px; color: #5d7a9a;">
+              <span style="width: 7px; height: 7px; border-radius: 2px; background: #d55181;"></span>Deployment
+            </span>
+            <span style="flex: 1;"></span>
+            <span onClick="{{ runtimes.toggle }}" style="display: flex; align-items: center; gap: 5px; font-size: 11px; color: #5d7a9a; cursor: pointer;">
+              details
+              <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate({{ runtimes.turn }});"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
+            </span>
+            <span style="font-size: 11px; color: #6f9fe0;">restore</span>
+          </div>
+
+          <sc-if value="{{ runtimes.open }}" hint-placeholder-val="{{ false }}">
+            <div style="display: grid; grid-template-columns: 96px 1fr; gap: 6px 14px; padding-top: 8px; border-top: 1px solid #1c2a3d;">
+              <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #5d7a9a; line-height: 1.7;">DISMISSED</span>
+              <span style="font-size: 11.5px; line-height: 1.6; color: #b9c7d8;">Stays hidden across rebuilds.</span>
+            </div>
+          </sc-if>
         </div>
       </div>
     </div>
@@ -333,16 +391,32 @@
 class Component extends DCLogic {
   constructor(props) {
     super(props);
-    this.state = { phase: 0 };
+    // `notes` holds one flag per row, so opening the details on one finding
+    // never opens them on the next.
+    this.state = { phase: 0, notes: {} };
+  }
+
+  toggleNotes(key) {
+    const notes = this.state.notes;
+    this.setState({ notes: { ...notes, [key]: !notes[key] } });
   }
 
   renderVals() {
     const phase = this.state.phase;
+    const notes = this.state.notes;
+    const row = (key) => ({
+      open: !!notes[key],
+      turn: notes[key] ? '180deg' : '0deg',
+      toggle: () => this.toggleNotes(key),
+    });
     return {
       isDone: phase === 0,
       isBuilding: phase === 1,
       isGateway: phase === 2,
       next: () => this.setState({ phase: (phase + 1) % 3 }),
+      language: row('language'),
+      retry: row('retry'),
+      runtimes: row('runtimes'),
     };
   }
 }
