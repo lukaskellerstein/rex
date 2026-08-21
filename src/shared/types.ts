@@ -383,6 +383,113 @@ export type DocumentPresentation =
   /** Tier 2 — a remote page in a <webview>. */
   | { kind: "url" };
 
+// ── The fact graph ──────────────────────────────────────────
+// Spec 07 §9.1. `ExtractedClaim` (§3.2) lives here too even though it never
+// crosses the boundary — it is the contract between the prompt and the parser,
+// and it belongs beside the rest.
+
+/**
+ * Spec 07 §3.2 — the only shape extraction may return.
+ *
+ * A model output that does not fit is rejected and retried (§4.3); one that
+ * fits but whose `quote` is not in the chunk is dropped and counted, which is
+ * the cheapest hallucination guard available and costs one string search.
+ */
+export interface ExtractedClaim {
+  /** What is being talked about. A noun phrase, not a sentence. */
+  subject: string;
+  /** What is asserted about it. Short. */
+  value: string;
+  /** The exact sentence from the source. Must appear verbatim in the chunk. */
+  quote: string;
+  /**
+   * How firmly it is stated. `decided` outranks `proposed` when two claims
+   * disagree — a rejected option is not a contradiction.
+   */
+  modality: "decided" | "proposed" | "rejected" | "observed";
+  /** A date the text itself carries, if any. ISO 8601. Drives SUPERSEDES. */
+  statedAt: string | null;
+}
+
+export type FactStage = "scan" | "chunk" | "extract" | "canonical" | "judge" | "topics";
+export type FactRunState = "running" | "done" | "cancelled" | "failed";
+
+export interface FactRunSummary {
+  runId: string;
+  root: string;
+  state: FactRunState;
+  stage: FactStage;
+  done: number;
+  total: number;
+  startedAt: string;
+  finishedAt: string | null;
+  aliasExtract: string;
+  aliasJudge: string;
+  /** §7.4 — what the build did not cover. Never omitted, even when zero. */
+  droppedQuotes: number;
+  failedChunks: number;
+  /** §4.4 — visible so a bad similarity threshold is caught, not guessed at. */
+  subjectsMerged: number;
+  claimsMerged: number;
+}
+
+export interface FactSide {
+  claimId: string;
+  value: string;
+  quote: string;
+  documentPath: string;
+  anchor: Anchor;
+  modality: ExtractedClaim["modality"];
+  statedAt: string | null;
+  /** How many documents state this claim. Drives the sort in §8.1. */
+  evidenceCount: number;
+}
+
+export interface Finding {
+  /** §6.4 — a hash of both quotes and paths. Stable across rebuilds. */
+  key: string;
+  kind: "contradicts" | "supersedes";
+  subject: string;
+  topicName: string | null;
+  /** For `supersedes`, `a` is the newer claim. */
+  a: FactSide;
+  b: FactSide;
+  verdict: "confirmed" | "dismissed" | null;
+  threadIds: string[];
+}
+
+export interface FactNode {
+  id: string;
+  kind: "subject" | "claim";
+  label: string;
+  topicId: number | null;
+  topicName: string | null;
+  /** Claims only: how many documents state it. Sizes the node. */
+  evidenceCount: number;
+  /** Claims only: false once superseded. Drawn faded. */
+  live: boolean;
+}
+
+export interface FactEdge {
+  source: string;
+  target: string;
+  kind: "about" | "contradicts" | "refines" | "supersedes";
+}
+
+export interface FactGraph {
+  root: string;
+  nodes: FactNode[];
+  edges: FactEdge[];
+  topics: Array<{ id: number; name: string; subjectCount: number }>;
+}
+
+export type FindingFilter = {
+  kind?: Finding["kind"];
+  topicId?: number;
+  /** Default false. Dismissed findings stay hidden unless asked for. §8.3 */
+  includeDismissed?: boolean;
+};
+
 /** What `doc:open` hands the renderer. */
 export interface OpenedDocument {
   documentId: string;

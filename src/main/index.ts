@@ -3,6 +3,7 @@
 import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import { closeDatabase, openDatabase } from "./db/database.ts";
+import { stopBuild } from "./facts/supervisor.ts";
 import { registerIpc } from "./ipc.ts";
 import { registerDocProtocol, registerDocSchemePrivileges } from "./protocol.ts";
 
@@ -62,6 +63,12 @@ void app.whenReady().then(() => {
   registerIpc(db, () => window);
 
   window = createWindow();
+
+  // Spec 07 §10.1 rule 2 — the fact build's utilityProcess is killed before the
+  // app goes away. What survives a quit is the `fact_run` row and its cursor, so
+  // reopening REX offers Resume (§8.5); what must not survive is an orphaned
+  // process still calling the gateway with no window to report to.
+  app.on("before-quit", () => stopBuild(db));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) window = createWindow();

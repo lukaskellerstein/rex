@@ -9,7 +9,16 @@ export default defineConfig({
     // external and is resolved from node_modules at runtime.
     plugins: [externalizeDepsPlugin()],
     build: {
-      rollupOptions: { input: { index: resolve("src/main/index.ts") } },
+      rollupOptions: {
+        input: {
+          index: resolve("src/main/index.ts"),
+          // Spec 07 §10.2 — the fact build's `utilityProcess`. Its own entry
+          // because `utilityProcess.fork()` takes a path to a built script, so
+          // it cannot be bundled into `out/main/index.js`. `supervisor.ts`
+          // forks `out/main/facts-worker.js`, which is this.
+          "facts-worker": resolve("src/main/facts/worker.ts"),
+        },
+      },
     },
   },
   preload: {
