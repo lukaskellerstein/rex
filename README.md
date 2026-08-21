@@ -1,7 +1,15 @@
+<p align="center">
+  <img src="docs/logo/combined/rex-combined-color-512.png" alt="REX" width="300">
+</p>
+
 # REX
 
 *Review EX* — a desktop app for commenting on documents and discussing each
 comment with an AI agent. Third in the family after **VEX** and **DEX**.
+
+The logo kit — every lockup, treatment and icon size — is in
+[`docs/logo/`](docs/logo/README.md), generated from `docs/logo/rex-logo.png` by
+`docs/logo/build.sh`.
 
 Select text → write a comment → **Ask**. One agent answers that one comment.
 Keep chatting in the thread. When the discussion concludes, **Apply** lets a
