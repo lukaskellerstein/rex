@@ -12,10 +12,12 @@ import type {
   Message,
   OpenedDocument,
   ReferenceGraph,
+  StrokeRef,
   ThreadWithMessages,
   WorkspaceRef,
   WorkspaceTree,
 } from "../../shared/types.ts";
+import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import { ApplyResult } from "./ApplyResult.tsx";
 import {
@@ -29,6 +31,8 @@ import { DiffDialog } from "./DiffDialog.tsx";
 import { DocumentView } from "./DocumentView.tsx";
 import { Explorer } from "./Explorer.tsx";
 import { GraphView } from "./GraphView.tsx";
+import { rescaleRect, strokeRefFrom, unionOfRects } from "./ink.ts";
+import { PEN_WIDTH } from "./PenLayer.tsx";
 import { SelectionPanel } from "./SelectionPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { Splitter } from "./Splitter.tsx";
@@ -117,6 +121,8 @@ export function App(): React.JSX.Element {
   const [pickScopes, setPickScopes] = useState<PickScope[] | null>(null);
   const [pickActive, setPickActive] = useState(0);
   const [arming, setArming] = useState(false);
+  /** Spec 06 §5.1 — the pen, a mode like pick and off by default. */
+  const [penning, setPenning] = useState(false);
   /** The document's own zoom. 1 is 100%. */
   const [zoom, setZoom] = useState(1);
 
@@ -128,7 +134,17 @@ export function App(): React.JSX.Element {
   // database — a half-built selection restored three days later is a puzzle.
   const [selection, setSelection] = useState<SelectionItem[]>([]);
   const [selectionNote, setSelectionNote] = useState("");
+  /**
+   * Spec 06 §5.4 — the ink for the comment being built, already in the form it
+   * will be stored in: fractions of the union box of the panel's places.
+   *
+   * It belongs to the panel, not to any one row, which is the whole reason it
+   * is not a field on `SelectionItem`.
+   */
+  const [selectionStroke, setSelectionStroke] = useState<StrokeRef | null>(null);
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
+  /** §6.4 — a saved comment shows its ink when its row is hovered, too. */
+  const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   /** The chain rebuilt from the expanded row's anchor — §4.1. */
   const [rowScopes, setRowScopes] = useState<PickScope[] | null>(null);
@@ -427,6 +443,9 @@ export function App(): React.JSX.Element {
 
   const resetZoom = useCallback((): void => setZoom(1), []);
 
+  /** Spec 06 §5.1 — `esc`, and every route that leaves a mode behind. */
+  const leavePen = useCallback((): void => setPenning(false), []);
+
   const leavePick = useCallback((): void => {
     setPicking(false);
     setArming(false);
@@ -457,10 +476,11 @@ export function App(): React.JSX.Element {
       // chain holds live elements that are about to stop existing.
       setRowScopes(null);
       leavePick();
+      leavePen();
       setThreads(list);
       setDoc(opened);
     },
-    [leavePick, listRequest],
+    [leavePen, leavePick, listRequest],
   );
 
   const guard = useCallback(async (task: () => Promise<void>): Promise<void> => {
@@ -534,9 +554,10 @@ export function App(): React.JSX.Element {
           return;
         }
         leavePick();
+        leavePen();
         if (workspace) setGraph(await window.rex.workspaceGraph(workspace));
       }),
-    [guard, leavePick, sweep, workspace],
+    [guard, leavePen, leavePick, sweep, workspace],
   );
 
   // ── §8.7 step 6 — main drives the post-Apply sweep through here ──
@@ -638,26 +659,70 @@ export function App(): React.JSX.Element {
   const armingRef = useRef(false);
   armingRef.current = arming;
 
-  /** §3.1 — everything selected is added. The three rules live in selection.ts. */
-  const addSelected = useCallback((next: Selected): void => {
-    const current = docRef.current;
-    if (!current) return;
-    setSelection((items) =>
-      addSelectionItem(
-        items,
-        newSelectionItem({
-          kind: next.scopes[next.active]?.kind ?? "text",
-          documentId: current.documentId,
-          documentRef: current.ref,
-          documentName: nameOf(current.ref),
-          anchor: next.anchor,
-          label: next.label,
-          rect: next.rect,
-          zoom: zoomRef.current,
-        }),
-      ),
-    );
+  /** One `Selected` as the panel stores it. */
+  const itemFor = useCallback((next: Selected, current: OpenedDocument): SelectionItem => {
+    return newSelectionItem({
+      kind: next.scopes[next.active]?.kind ?? "text",
+      documentId: current.documentId,
+      documentRef: current.ref,
+      documentName: nameOf(current.ref),
+      anchor: next.anchor,
+      label: next.label,
+      rect: next.rect,
+      zoom: zoomRef.current,
+    });
   }, []);
+
+  /** §3.1 — everything selected is added. The three rules live in selection.ts. */
+  const addSelected = useCallback(
+    (next: Selected): void => {
+      const current = docRef.current;
+      if (!current) return;
+      setSelection((items) => addSelectionItem(items, itemFor(next, current)));
+    },
+    [itemFor],
+  );
+
+  /**
+   * Spec 06 §5.3 and §6.2 — a finished drawing fills the panel.
+   *
+   * It adds its places the same way a click does, through the same three rules,
+   * so everything spec 05 provides comes free: reorder the rows, drop one that
+   * was caught by accident, widen one with the chips, add a sixth by clicking.
+   * A drawing is a fast way to fill the panel, not a second way to make a
+   * comment.
+   */
+  const finishDrawing = useCallback(
+    (strokes: Stroke[]): void => {
+      void guard(async () => {
+        const surface = surfaceRef.current;
+        const current = docRef.current;
+        setPenning(false);
+        if (!surface || !current) return;
+
+        const found = await surface.targetsFromDrawing(strokes, zoomRef.current);
+        if (found.targets.length === 0) return;
+
+        let next = selectionRef.current;
+        for (const one of found.targets) next = addSelectionItem(next, itemFor(one, current));
+        setSelection(next);
+        selectionRef.current = next;
+
+        // §5.4 — fractions of the union box of the comment's targets, taken
+        // *after* the drawn places have joined it. Anything else and the ink
+        // would be stretched the moment it was first drawn.
+        const union = unionOfRects(
+          next
+            .filter((item) => item.documentId === current.documentId)
+            .map((item) =>
+              item.rect ? rescaleRect(item.rect, zoomRef.current / item.zoom) : null,
+            ),
+        );
+        setSelectionStroke(union ? strokeRefFrom(found.strokes, union, PEN_WIDTH) : null);
+      });
+    },
+    [guard, itemFor],
+  );
 
   const onSelectionChanged = useCallback(async () => {
     const surface = surfaceRef.current;
@@ -694,10 +759,14 @@ export function App(): React.JSX.Element {
       const thread = await window.rex.threadCreate({
         targets: items.map((item) => ({ documentId: item.documentId, anchor: item.anchor })),
         note,
+        // §5.4 — the ink rides inside the payload that already exists; §10's
+        // IPC contract is unchanged.
+        stroke: selectionStroke ?? undefined,
       });
 
       setSelection([]);
       setSelectionNote("");
+      setSelectionStroke(null);
       setExpandedItemId(null);
       setRowScopes(null);
       // §3.4 — the panel is empty, so nothing in REX is about that passage any
@@ -706,20 +775,35 @@ export function App(): React.JSX.Element {
       // document with nothing left pointing at it.
       surfaceRef.current?.clearTextSelection();
       leavePick();
+      leavePen();
 
       await refreshThreads();
       await sweep();
       setActiveId(thread.id);
       await withBusy(thread.id, () => window.rex.threadAsk(thread.id));
     });
-  }, [guard, leavePick, refreshThreads, selection, selectionNote, sweep, withBusy]);
+  }, [
+    guard,
+    leavePen,
+    leavePick,
+    refreshThreads,
+    selection,
+    selectionNote,
+    selectionStroke,
+    sweep,
+    withBusy,
+  ]);
 
   const removeItem = useCallback((id: string): void => {
     setSelection((items) => {
       const next = items.filter((item) => item.id !== id);
       // §3.4 — a note with nothing to attach it to is not a thing REX has a
       // place for, and keeping it invisibly to reappear later is worse.
-      if (next.length === 0) setSelectionNote("");
+      if (next.length === 0) {
+        setSelectionNote("");
+        // Nor is ink with nothing left to be drawn around.
+        setSelectionStroke(null);
+      }
       return next;
     });
     setExpandedItemId((current) => (current === id ? null : current));
@@ -728,6 +812,7 @@ export function App(): React.JSX.Element {
   const clearSelection = useCallback((): void => {
     setSelection([]);
     setSelectionNote("");
+    setSelectionStroke(null);
     setExpandedItemId(null);
     setRowScopes(null);
     // The same reason as Ask's — see the note there.
@@ -936,9 +1021,19 @@ export function App(): React.JSX.Element {
     };
 
     const canPick = doc !== null && centre === "document";
+    // Spec 06 §11 — the pen is not offered on a remote page in this milestone
+    // set: a `<webview>` has no local source file and therefore no Apply.
+    const canDraw = canPick && doc.presentation.kind !== "url";
 
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Alt" && altTimer === null && !arming && canPick && !typing(event)) {
+      if (
+        event.key === "Alt" &&
+        altTimer === null &&
+        !arming &&
+        !penning &&
+        canPick &&
+        !typing(event)
+      ) {
         altTimer = window.setTimeout(() => setPicking(true), ALT_PICK_DELAY);
         return;
       }
@@ -962,7 +1057,16 @@ export function App(): React.JSX.Element {
         case "p":
         case "P":
           if (!canPick) return;
+          setPenning(false);
           setPicking((on) => !on);
+          break;
+        case "n":
+        case "N":
+          // Spec 06 §5.1 — `P` is already pick, and `N` is the free letter in
+          // "pen". Both layers swallow the pointer, so only one can be on.
+          if (!canDraw) return;
+          setPicking(false);
+          setPenning((on) => !on);
           break;
         case "d":
         case "D":
@@ -1003,7 +1107,7 @@ export function App(): React.JSX.Element {
       document.removeEventListener("keyup", onKeyUp);
       if (altTimer !== null) window.clearTimeout(altTimer);
     };
-  }, [arming, askAll, centre, doc, showCentre, workspace, zoomBy]);
+  }, [arming, askAll, centre, doc, penning, showCentre, workspace, zoomBy]);
 
   // ── Apply (§8.7, spec 05 §5.6.1) ────────────────────────────
 
@@ -1068,7 +1172,16 @@ export function App(): React.JSX.Element {
         onResetZoom={resetZoom}
         onCentre={showCentre}
         onAskAll={askAll}
-        onTogglePick={() => setPicking((on) => !on)}
+        penning={penning}
+        canDraw={doc !== null && centre === "document" && doc.presentation.kind !== "url"}
+        onTogglePick={() => {
+          setPenning(false);
+          setPicking((on) => !on);
+        }}
+        onTogglePen={() => {
+          setPicking(false);
+          setPenning((on) => !on);
+        }}
         onOpenFile={pick}
         onOpenFolder={pickFolder}
         onOpenUrl={openUrl}
@@ -1125,6 +1238,11 @@ export function App(): React.JSX.Element {
               pickScopes={pickScopes}
               pickActive={pickActive}
               arming={arming}
+              penning={penning}
+              selectionStroke={selectionStroke}
+              hoveredThreadId={hoveredThreadId}
+              onDrawn={finishDrawing}
+              onPenCancel={leavePen}
               onSurfaceReady={onSurfaceReady}
               onSelectionChanged={onSelectionChanged}
               onPaneResized={onPaneResized}
@@ -1248,6 +1366,7 @@ export function App(): React.JSX.Element {
               labelById={labelById}
               busyThreads={busyThreads}
               onSelect={setActiveId}
+              onHover={setHoveredThreadId}
               onSynthesise={(refThreadIds, note) =>
                 void guard(async () => {
                   const current = docRef.current;

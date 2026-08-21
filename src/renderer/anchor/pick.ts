@@ -9,9 +9,18 @@
 // Pure DOM on purpose. It runs unchanged inside the tier 1 iframe and inside
 // the tier 2 preload, and it holds nothing React, IPC or database shaped.
 
-import type { Anchor, LineRange } from "../../shared/types.ts";
+import type { Anchor, AnchorExtent, LineRange } from "../../shared/types.ts";
 import { generateCssPath, isStableId } from "./create.ts";
 import { resolveAnchor } from "./resolve.ts";
+import {
+  documentRunFor,
+  type ElementRun,
+  headingTextOf,
+  runMembers,
+  sectionHeadingFor,
+  sectioningElementFor,
+  sectionRunFor,
+} from "./section.ts";
 import { elementToOffsets, type TextIndex } from "./textIndex.ts";
 
 /**
@@ -32,6 +41,11 @@ export interface PickScope {
   /** Position in the chain, narrow to wide. What the surface takes back. */
   index: number;
   kind: "text" | "element";
+  /**
+   * Spec 06 §4.1 — set on the two scopes that cover more than the element they
+   * name. Absent everywhere else, which is the old behaviour.
+   */
+  extent?: AnchorExtent;
   /** Crumb and chip label — `td`, `tr`, `table`, `section#retry-policy`. */
   label: string;
   /** Card heading — `Cell · row 2, "Notes"`. */
@@ -170,6 +184,24 @@ export function smallestAnchorable(from: Element | null): Element | null {
   let el = from;
   while (el && INLINE_TAGS.has(tagOf(el))) el = el.parentElement;
   return el;
+}
+
+/**
+ * Spec 06 §5.3 step 2 — a block the lasso may take.
+ *
+ * The same three exclusions the chain already applies, asked as a predicate
+ * instead of as a walk: the page itself is not an anchor, a `<tbody>` is a name
+ * for a table nobody means, and an inline run is not a thing you comment on —
+ * its block is.
+ *
+ * A PDF's text items are `<span>`s and are therefore excluded, which is
+ * deliberate rather than incidental: circling a paragraph of a PDF selects no
+ * line, so the drawing falls through to §5.3's floor and becomes a region of
+ * the page — which is what spec 03 §7.3 says a PDF comment is.
+ */
+export function isAnchorableBlock(el: Element): boolean {
+  const tag = tagOf(el);
+  return !CHAIN_STOP.has(tag) && !INLINE_TAGS.has(tag) && !transparent(el);
 }
 
 function textOf(index: TextIndex, el: Element): string | null {
@@ -320,6 +352,23 @@ function rectOf(el: Element): ScopeRect {
   return toDocumentRect(el.ownerDocument?.defaultView ?? null, el.getBoundingClientRect());
 }
 
+/** The smallest box holding both. Spec 06 §4.4 — the box for a run. */
+export function unionRect(a: ScopeRect, b: ScopeRect): ScopeRect {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  return {
+    x,
+    y,
+    w: Math.max(a.x + a.w, b.x + b.w) - x,
+    h: Math.max(a.y + a.h, b.y + b.h) - y,
+  };
+}
+
+/** A run's box, measured live, so it re-flows exactly like every other box. */
+export function rectOfRun(run: ElementRun): ScopeRect {
+  return unionRect(rectOf(run.first), rectOf(run.last));
+}
+
 /**
  * The crumb and chip word. A tag name everywhere except in a PDF, where "div"
  * and "span" say nothing at all: there they are the page and a line on it.
@@ -362,6 +411,102 @@ export function describeElement(index: TextIndex, el: Element, position = 0): Pi
   };
 }
 
+/**
+ * Spec 06 §4.2 — the heading, and everything under it.
+ *
+ * The stored anchor is the *heading's*, so the strength is the heading's too:
+ * in Markdown it carries a hand-written slug id, which is the strongest anchor
+ * REX has; elsewhere its own text carries it.
+ */
+function describeSection(heading: Element, run: ElementRun, position: number): PickScope {
+  const name = headingTextOf(heading);
+  const blocks = runMembers(run).length;
+  const durable = isStableId(heading.id);
+  const stored = durable
+    ? `element.id = "${heading.id}"`
+    : `element.css = "${generateCssPath(heading)}"`;
+
+  return {
+    index: position,
+    kind: "element",
+    extent: "section",
+    label: `section “${name}”`,
+    title: `Section · “${name}”`,
+    detail: `${stored} · extent = section · covers ${blocks} block${blocks === 1 ? "" : "s"}`,
+    quote: name.length > 0 ? name : null,
+    strength: durable ? "durable" : "fair",
+    strengthNote: durable
+      ? "hand-written id, survives a rebuild"
+      : "no id, but its heading carries it if it moves",
+    rect: rectOfRun(run),
+    regionCapable: false,
+  };
+}
+
+/** Spec 06 §4.3 — the file itself, named by nothing inside it. */
+function describeDocument(run: ElementRun, position: number): PickScope {
+  return {
+    index: position,
+    kind: "element",
+    extent: "document",
+    label: "document",
+    title: "The whole document",
+    detail: "no element and no quote — the file itself",
+    quote: null,
+    strength: "durable",
+    strengthNote: "the file itself — it cannot move",
+    rect: rectOfRun(run),
+    regionCapable: false,
+  };
+}
+
+/**
+ * Spec 06 §4.1 — `section` and `document`, appended at the wide end.
+ *
+ * Both sit **outside `MAX_SCOPES`**, which caps walked ancestors only. Without
+ * that exemption a cell deep in a `div`-wrapped table fills the chain and loses
+ * exactly these two scopes, at the depth where they are most wanted.
+ *
+ * Rule 2 — a real sectioning element wins over a synthetic run. When the
+ * heading's enclosing `<section>`, `<article>` or `<aside>` already holds the
+ * whole run it *is* the section scope: a true DOM subtree is a stronger anchor
+ * than a rule about siblings. If the walk above already offered it there is
+ * nothing to do; if the cap cut it off, it is appended here, because the same
+ * exemption applies to it.
+ */
+function appendWideScopes(
+  index: TextIndex,
+  from: Element,
+  scopes: PickScope[],
+  elements: Array<Element | null>,
+  offset: number,
+): void {
+  const at = (): number => scopes.length + offset;
+
+  const heading = sectionHeadingFor(from);
+  if (heading) {
+    const run = sectionRunFor(heading);
+    const real = sectioningElementFor(run);
+    if (!real) {
+      scopes.push(describeSection(heading, run, at()));
+      elements.push(heading);
+    } else if (!elements.includes(real)) {
+      scopes.push(describeElement(index, real, at()));
+      elements.push(real);
+    }
+  }
+
+  const whole = documentRunFor(index.doc);
+  if (whole) {
+    scopes.push(describeDocument(whole, at()));
+    // `<body>` is never offered as an element scope (CHAIN_STOP), but it is a
+    // real node and `keptIndex` compares by identity: without one here, widening
+    // to `document` and then moving the pointer one pixel would silently drop
+    // back to the paragraph.
+    elements.push(index.doc.body);
+  }
+}
+
 /** The ancestor chain from `el` outward, narrow first, capped and stopped. */
 function chainFrom(index: TextIndex, el: Element | null, offset: number): ScopeChain {
   const scopes: PickScope[] = [];
@@ -376,7 +521,20 @@ function chainFrom(index: TextIndex, el: Element | null, offset: number): ScopeC
     current = current.parentElement;
   }
 
+  if (el) appendWideScopes(index, el, scopes, elements, offset);
+
   return { scopes, elements, range: null };
+}
+
+/**
+ * Spec 06 §5.3 step 6 — the chain around one element, from outside this file.
+ *
+ * A drawn target is an **ordinary element anchor**, so its panel row must offer
+ * the same chips a clicked one does: widen a paragraph the circle caught to its
+ * section, or drop to the cell inside it.
+ */
+export function scopeChainForElement(index: TextIndex, el: Element): ScopeChain {
+  return chainFrom(index, el, 0);
 }
 
 /**
@@ -490,21 +648,50 @@ export function scopeChainForRange(index: TextIndex, range: Range): ScopeChain {
  *
  * Null when the anchor does not resolve, which is the honest answer: the thing
  * it named is not in this document any more, so there is nothing to widen from.
+ *
+ * `active` is which scope of the rebuilt chain the anchor already *is*. It used
+ * to be 0 by construction, because the chain was always built outward from
+ * whatever the anchor resolved to. Spec 06 breaks that: a section anchor
+ * resolves to a run whose chain is built from its heading, so the anchor's own
+ * scope is the `section` chip and not the `heading` one below it.
  */
 export function scopeChainForAnchor(
   index: TextIndex,
   anchor: Anchor,
   kind: "text" | "element",
-): ScopeChain | null {
+): { chain: ScopeChain; active: number } | null {
   // Nulling the quote forces `resolveAnchor` past layer 1 and onto the element
   // the anchor names — which for an element anchor is the thing it is about.
-  const resolution = resolveAnchor(index, kind === "element" ? { ...anchor, quote: null } : anchor);
+  // An extent anchor is exempt: `resolveSection` already leads with the element
+  // and keeps the quote as its strongest fallback.
+  const probe = kind === "element" && !anchor.extent ? { ...anchor, quote: null } : anchor;
+  const resolution = resolveAnchor(index, probe);
   if (!resolution) return null;
-  const chain =
-    resolution.kind === "range"
-      ? scopeChainForRange(index, resolution.range)
-      : chainFrom(index, resolution.element, 0);
-  return chain.scopes.length > 0 ? chain : null;
+
+  if (resolution.kind === "range") {
+    const chain = scopeChainForRange(index, resolution.range);
+    return chain.scopes.length > 0 ? { chain, active: 0 } : null;
+  }
+
+  if (resolution.kind === "element") {
+    const chain = chainFrom(index, resolution.element, 0);
+    return chain.scopes.length > 0 ? { chain, active: 0 } : null;
+  }
+
+  // Spec 06 §6.2 — a document target has nothing to widen to and nothing to
+  // narrow back to, so its chain is the one chip that says what it is.
+  if (resolution.extent === "document") {
+    const scope = describeDocument({ first: resolution.first, last: resolution.last }, 0);
+    return { chain: { scopes: [scope], elements: [index.doc.body], range: null }, active: 0 };
+  }
+
+  // A section: the chain is built from its heading, which appends the section
+  // scope again by §4.1. Falling back to 0 covers the case where the document
+  // has since gained a real `<section>` and rule 2 now wins.
+  const chain = chainFrom(index, resolution.first, 0);
+  if (chain.scopes.length === 0) return null;
+  const at = chain.scopes.findIndex((scope) => scope.extent === "section");
+  return { chain, active: at >= 0 ? at : 0 };
 }
 
 /**

@@ -17,6 +17,8 @@ interface Props {
   labelById: Map<string, string | null>;
   busyThreads: string[];
   onSelect: (threadId: string) => void;
+  /** Spec 06 §6.4 — hovering a row shows that comment's ink, if it was drawn. */
+  onHover: (threadId: string | null) => void;
   onSynthesise: (refThreadIds: string[], note: string) => void;
 }
 
@@ -97,6 +99,7 @@ export function Sidebar(props: Props): React.JSX.Element {
                 selected={false}
                 busy={props.busyThreads.includes(thread.id)}
                 onSelect={() => props.onSelect(thread.id)}
+                onHover={(over) => props.onHover(over ? thread.id : null)}
               />
             </div>
           ))

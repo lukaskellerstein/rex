@@ -1,0 +1,10 @@
+/* @rex/design-system — full stylesheet.
+   Import once at the root of the app:  import '@rex/design-system/styles.css'; */
+
+@import "./fonts.css";
+@import "./tokens.css";
+@import "./base.css";
+@import "./components/type.css";
+@import "./components/controls.css";
+@import "./components/anchor.css";
+@import "./components/thread.css";

@@ -70,6 +70,30 @@ export function migrateThreadTargets(db: Db): number {
 }
 
 /**
+ * Spec 06 §5.4 — `thread.stroke_json`, for a database created before the pen.
+ *
+ * `schema.sql` is all `CREATE TABLE IF NOT EXISTS`, so a column added to the
+ * file reaches a fresh database and no existing one. This is the guarded
+ * `ALTER TABLE` that closes that gap, and it is idempotent for the same reason
+ * `migrateThreadTargets` is: it asks the table what it already has.
+ *
+ * NULL has a meaning — "this comment was not drawn" — which is what every row
+ * written before the column existed in fact was.
+ *
+ * Returns true when it added the column, so a caller can say whether anything
+ * happened. Running it twice returns false the second time.
+ */
+export function migrateThreadStroke(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(thread)")
+    .all()
+    .some((row) => row.name === "stroke_json");
+  if (present) return false;
+  db.exec("ALTER TABLE thread ADD COLUMN stroke_json TEXT");
+  return true;
+}
+
+/**
  * The primary anchor, then the extras.
  *
  * Both columns are parsed defensively. They were written by an earlier build and

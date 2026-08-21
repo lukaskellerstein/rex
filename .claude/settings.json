@@ -39,15 +39,6 @@
       "Workflow",
       "Write"
     ],
-    "ask": [
-      "Bash(git push --force:*)",
-      "Bash(git reset --hard:*)",
-      "Bash(terraform apply:*)",
-      "Bash(terraform destroy:*)",
-      "Bash(kubectl delete:*)",
-      "Bash(npm publish:*)",
-      "Bash(docker system prune:*)"
-    ],
     "deny": [
       "Bash(rm -rf /)",
       "Bash(rm -rf /*)",
@@ -98,11 +89,16 @@
       "Read(./**/keys.txt)",
       "Read(./**/*.tfstate)",
       "Read(./**/*.tfstate.backup)"
+    ],
+    "ask": [
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(kubectl delete:*)",
+      "Bash(npm publish:*)",
+      "Bash(docker system prune:*)"
     ]
-  },
-  "enabledPlugins": {
-    "dev-tools-plugin@claude-my-marketplace": true,
-    "lsp-typescript@claude-my-marketplace": false
   },
   "hooks": {
     "PostToolUse": [
@@ -138,5 +134,9 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "dev-tools-plugin@claude-my-marketplace": true,
+    "lsp-typescript@claude-my-marketplace": true
   }
 }

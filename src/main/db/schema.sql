@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS thread (
   extra_anchors_json TEXT,
   anchor_state  TEXT CHECK (anchor_state IN ('ok','moved','orphaned')),
   note          TEXT NOT NULL,
+  -- Spec 06 §5.4 — the reviewer's ink, as fractions of the union box of this
+  -- comment's targets. A column and not a field inside anchor_json, because a
+  -- stroke is not a property of any one anchor: it is drawn across all of them,
+  -- and storing it on target 0 would make the ink a possession of whichever
+  -- block happened to sort first. NULL for every comment that was not drawn.
+  stroke_json   TEXT,
   session_id    TEXT,
   profile       TEXT NOT NULL DEFAULT 'read'
                   CHECK (profile IN ('read','write')),

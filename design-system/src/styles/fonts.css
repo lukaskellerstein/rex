@@ -1,0 +1,71 @@
+/*
+  IBM Plex Sans and IBM Plex Mono for REX's own chrome; Newsreader for text
+  quoted out of a document, and for nothing else — so a quote never reads as
+  REX's own voice.
+
+  Latin subset only, at the five weights and the one italic the design uses.
+  Seven files, 152 KB. The app loads the same seven from @fontsource; they are
+  copied in here so a card renders correctly with no host app around it.
+*/
+
+/* --- IBM Plex Sans — REX's chrome ---------------------------------------- */
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+}
+
+/* --- IBM Plex Mono — paths, addresses, tool steps ------------------------ */
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+}
+
+/* --- Newsreader — quoted document text, and nothing else ----------------- */
+
+@font-face {
+  font-family: Newsreader;
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/newsreader-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: Newsreader;
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/newsreader-latin-400-italic.woff2") format("woff2");
+}

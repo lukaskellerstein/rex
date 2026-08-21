@@ -101,6 +101,26 @@ export const PickTarget = (p: Props): React.JSX.Element => (
   </svg>
 );
 
+/**
+ * The pen — a nib with a freehand stroke behind it.
+ *
+ * Deliberately not the `Pencil`: that one is Apply's, it is the only place an
+ * agent writes to disk, and the two must not read as the same act. This one
+ * draws on REX's own glass and changes nothing.
+ */
+export const PenNib = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M2.6 13.4c1.6-3.4 3.4-5.6 6-7.4" />
+    <path d="M9.4 4.2 11.8 6.6 13.4 3.6 12.4 2.6z" />
+  </svg>
+);
+
 /** A table, for a card whose anchor has no quote to show. */
 export const TableGlyph = (p: Props): React.JSX.Element => (
   <svg

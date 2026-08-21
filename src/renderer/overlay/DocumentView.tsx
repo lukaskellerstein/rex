@@ -9,8 +9,9 @@
 // The pane is a row — frame, then a 32px gutter — rather than a gutter floating
 // over the frame, so nothing the author wrote ever sits under REX's markers.
 
-import { useEffect, useRef, useState } from "react";
-import type { OpenedDocument, ThreadWithMessages } from "../../shared/types.ts";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { OpenedDocument, StrokeRef, ThreadWithMessages } from "../../shared/types.ts";
+import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import {
   type DocumentSurface,
@@ -21,6 +22,8 @@ import {
 } from "./anchoring.ts";
 import { enrichDocument } from "./enrich.ts";
 import { Gutter } from "./Gutter.tsx";
+import { pointsOfStroke, rescaleRect, unionOfRects } from "./ink.ts";
+import { PenLayer, pathData } from "./PenLayer.tsx";
 import { PickLayer } from "./PickLayer.tsx";
 import { prepareDocumentHtml } from "./sanitise.ts";
 import type { SelectionItem } from "./selection.ts";
@@ -41,6 +44,14 @@ interface Props {
   pickScopes: PickScope[] | null;
   pickActive: number;
   arming: boolean;
+  /** Spec 06 §5.1 — the pen layer, mounted only while the mode is on. */
+  penning: boolean;
+  /** §5.4 — the ink for the comment being built, if it was drawn. */
+  selectionStroke: StrokeRef | null;
+  /** §6.4 — a saved comment's ink shows when its row is hovered, too. */
+  hoveredThreadId: string | null;
+  onDrawn: (strokes: Stroke[]) => void;
+  onPenCancel: () => void;
   onSurfaceReady: (surface: DocumentSurface) => void;
   onSelectionChanged: () => void;
   /**
@@ -138,11 +149,6 @@ function applyZoom(inner: Document | null, zoom: number): void {
   inner.documentElement.style.zoom = String(zoom);
 }
 
-/** A box measured at one zoom, drawn at another. */
-function rescale(rect: ScopeRect, by: number): ScopeRect {
-  return by === 1 ? rect : { x: rect.x * by, y: rect.y * by, w: rect.w * by, h: rect.h * by };
-}
-
 /**
  * ⌘/ctrl with the wheel, or with + − 0, while the pointer or the caret is
  * inside the document itself.
@@ -189,6 +195,28 @@ export function DocumentView(props: Props): React.JSX.Element {
 
   const { doc, onSurfaceReady, onSelectionChanged } = props;
   const isWebview = doc !== null && doc.presentation.kind === "url";
+
+  /**
+   * Spec 06 §5.4 — where the document's content starts, in pane coordinates,
+   * measured at the moment it is asked for.
+   *
+   * A callback rather than a number because it moves with every scroll and with
+   * every zoom, and the pen has to store points relative to it — see the note
+   * on `PenLayer`'s own `origin` prop for what happens when it does not.
+   */
+  const contentOrigin = useCallback((): { x: number; y: number } => {
+    const frame = frameRef.current;
+    const pane = paneRef.current;
+    const body = frame?.contentDocument?.body;
+    if (!frame || !pane || !body) return { x: 0, y: 0 };
+    const paneBox = pane.getBoundingClientRect();
+    const frameBox = frame.getBoundingClientRect();
+    const bodyBox = body.getBoundingClientRect();
+    return {
+      x: frameBox.left - paneBox.left + bodyBox.left,
+      y: frameBox.top - paneBox.top + bodyBox.top,
+    };
+  }, []);
 
   /**
    * The live zoom and the live zoom callback, for listeners that live inside
@@ -332,11 +360,20 @@ export function DocumentView(props: Props): React.JSX.Element {
 
   // One outline per checked target, so a comment written against three rows
   // shows all three. The thread id alone is not unique, hence the position.
-  const blocks = props.resolved.flatMap((entry) =>
-    entry.checked
+  const blocks = props.resolved.flatMap((entry) => {
+    // Spec 06 §6.4 — a run is outlined, never filled, so it needs to be told
+    // apart from an ordinary block box. The anchor already says: only the two
+    // scopes that cover more than the thing they name carry an extent.
+    const thread = props.threads.find((one) => one.id === entry.threadId);
+    return entry.checked
       .filter((check) => check.box !== null)
-      .map((check) => ({ entry, check, box: check.box as ScopeRect })),
-  );
+      .map((check) => ({
+        entry,
+        check,
+        box: check.box as ScopeRect,
+        run: Boolean(thread?.targets[check.position]?.anchor.extent),
+      }));
+  });
 
   // Spec 05 §6 — the selection's own places, drawn only for this document. The
   // number is the row's number in the panel, so nine cells and nine rows can be
@@ -352,11 +389,34 @@ export function DocumentView(props: Props): React.JSX.Element {
             // Rescaled from the zoom it was measured at: a selection outlives a
             // zoom change, and reading a table closely before deciding whether
             // the fourth row belongs is exactly when someone zooms.
-            box: rescale(item.rect, props.zoom / item.zoom),
+            box: rescaleRect(item.rect, props.zoom / item.zoom),
           },
         ]
       : [],
   );
+
+  /**
+   * Spec 06 §6.4 — whose ink is on the glass right now.
+   *
+   * The selection's while the panel holds it, and a saved comment's when that
+   * comment is the open one or its row is hovered. **Not always:** twelve
+   * drawings on one page, all showing at once, is a scribbled-on document
+   * rather than a reviewed one.
+   *
+   * Each maps its stored fractions onto a union box measured by the last sweep,
+   * which is what makes the ink follow a reflow, a resize and a zoom — §5.4.
+   */
+  const shownStroke = ((): { stroke: StrokeRef; union: ScopeRect } | null => {
+    if (props.selectionStroke) {
+      const union = unionOfRects(marks.map((mark) => mark.box));
+      if (union) return { stroke: props.selectionStroke, union };
+    }
+    const showing = props.activeId ?? props.hoveredThreadId;
+    if (!showing) return null;
+    const thread = props.threads.find((one) => one.id === showing);
+    const union = props.resolved.find((entry) => entry.threadId === showing)?.union ?? null;
+    return thread?.stroke && union ? { stroke: thread.stroke, union } : null;
+  })();
 
   return (
     <main className="rex-doc" ref={paneRef}>
@@ -432,12 +492,12 @@ export function DocumentView(props: Props): React.JSX.Element {
         paint here — and drawing it as an overlay box keeps the promise that
         REX never touches the document's own tree.
       */}
-      {blocks.map(({ entry, check, box }) => (
+      {blocks.map(({ entry, check, box, run }) => (
         <div
           key={`${entry.threadId}-${check.position}`}
           className={`rex-block-outline${check.state === "moved" ? " rex-block-moved" : ""}${
             props.activeId === entry.threadId ? " rex-block-active" : ""
-          }`}
+          }${run ? " rex-block-run" : ""}`}
           style={{
             left: box.x - scroll.x,
             top: box.y - scroll.y,
@@ -447,6 +507,24 @@ export function DocumentView(props: Props): React.JSX.Element {
         />
       ))}
 
+      {/*
+        Above the document and below the pen's own toolbar, offset by scroll
+        like every other mark. Drawn here rather than in `PenLayer` because the
+        ink outlives the layer: the layer is mounted only while the mode is on.
+      */}
+      {shownStroke ? (
+        <svg className="rex-ink rex-ink-shown" aria-hidden="true">
+          {pointsOfStroke(shownStroke.stroke, shownStroke.union).map((path, position) => (
+            // A stroke has no id of its own; its place in the drawing is it.
+            <path
+              key={position}
+              d={pathData(path, (point) => ({ x: point.x - scroll.x, y: point.y - scroll.y }))}
+              strokeWidth={shownStroke.stroke.width * props.zoom}
+            />
+          ))}
+        </svg>
+      ) : null}
+
       <Gutter
         resolved={props.resolved}
         threads={props.threads}
@@ -454,6 +532,17 @@ export function DocumentView(props: Props): React.JSX.Element {
         scrollY={scroll.y}
         onSelect={props.onSelectMarker}
       />
+
+      {props.penning ? (
+        <PenLayer
+          origin={contentOrigin}
+          zoom={props.zoom}
+          onDone={props.onDrawn}
+          onCancel={props.onPenCancel}
+          onScrollBy={props.onScrollBy}
+          onZoomBy={props.onZoomBy}
+        />
+      ) : null}
 
       {props.picking ? (
         <PickLayer

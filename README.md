@@ -8,12 +8,29 @@ Keep chatting in the thread. When the discussion concludes, **Apply** lets a
 second, write-capable agent make the change in the source document.
 
 Not everything worth commenting on is a run of text. **Pick element** — the
-toolbar button, `E`, or holding `⌥` — hovers the smallest anchorable thing under
+toolbar button, `P`, or holding `⌥` — hovers the smallest anchorable thing under
 the cursor and offers what encloses it along a path bar (`↑` / `↓` to widen),
 so a comment can be written against a table, a row, a cell, a section or a
-figure. Dragging inside a figure cuts a region out of it. The composer offers
-the same widening after a text selection, and shows how well each choice would
+figure. Dragging inside a figure cuts a region out of it. The panel offers the
+same widening after a text selection, and shows how well each choice would
 survive an edit before you commit to it.
+
+Two scopes sit at the wide end of that path bar. **`section`** is one heading's
+worth — the heading, plus everything under it up to the next heading of the same
+or higher rank — and it is anchored on the *heading*, which is short and in
+Markdown carries a hand-written slug id. **`document`** is the file itself: it
+names nothing inside the file, so it is the one comment whose subject cannot be
+edited away. "Is this still accurate?" is still waiting a month later, whatever
+happened to the prose.
+
+And some subjects have no structure to point at — a table, the two paragraphs
+under it and a picture. The **pen** — the toolbar button or `N` — draws a circle
+on REX's own glass, and every block whose centre falls inside it becomes a place
+in the panel, in document order. Circle something with no block inside it, like
+a region of a chart, and you get that region instead. The ink is kept with the
+comment as fractions of what it was drawn around, so it reflows when the
+document does; the *targets* are ordinary anchors, and nothing downstream — not
+resolution, not Apply, not the agent — knows the pen exists.
 
 Comments persist. Reopening a document shows every comment, open and resolved,
 still attached to the right place in the text — even after the document has
@@ -27,8 +44,12 @@ shows where the unfinished discussion is.
 The specs are the authority on everything below:
 [01 — the app](docs/my-specs/01-initial/SPEC.md),
 [02 — workspace and graph](docs/my-specs/02-workspace-and-graph/SPEC.md),
-[03 — rich rendering](docs/my-specs/03-rich-rendering/SPEC.md) (specified, not
-built).
+[03 — rich rendering](docs/my-specs/03-rich-rendering/SPEC.md),
+[04 — selection and shortcuts](docs/my-specs/04-selection-and-shortcuts/SPEC.md),
+[05 — selection as a phase](docs/my-specs/05-selection-as-a-phase/SPEC.md),
+[06 — the document, the section and the pen](docs/my-specs/06-document-section-and-pen/SPEC.md).
+[07 — the fact graph](docs/my-specs/07-fact-graph/SPEC.md) is specified and not
+built.
 
 ## Running it
 
@@ -54,9 +75,15 @@ be committed by accident.
 | `npm run build` | build main, preload and renderer into `out/` |
 | `npm run rebuild` | rebuild `better-sqlite3` for the current Electron |
 | `npm run typecheck` | `tsc --noEmit` over everything |
-| `npm run test:anchor` | the milestone 0 anchor gate, against two real documents |
+| `npm run test:anchor` | the anchor gate, against two real documents |
 | `npm run test:gate` | the read profile's deny gate |
+| `npm run test:lasso` | what a drawn circle selects, as pure geometry |
 | `npm run test:links` | link extraction and resolution, for the graph |
+| `npm run test:markdown` | the Markdown renderer and its `data-src-line` stamps |
+| `npm run test:migrate` | the schema migrations, run twice |
+| `npm run test:prompts` | what a comment's places look like to the agent |
+| `npm run test:targets` | multi-target comments and their worst-state rule |
+| `npm run test:diff` | which lines an Apply changed, from its patch |
 | `npm run export -- <doc>` | a document's threads as Markdown (`--json`, `--out`) |
 
 ## The tests, and why these ones
@@ -76,6 +103,25 @@ It then does the same for a **region** — a box dragged inside a figure. Geomet
 always resolves, so a redrawn chart would otherwise report success while
 pointing at whatever now occupies the box. The case redraws one figure and
 requires that anchor to orphan, while its untouched neighbour still resolves.
+
+It then does the same for **sections**, which fail differently: a section is
+anchored on its heading, and a positional path like `section:nth-of-type(4) >
+div > h2` still matches a heading after a section above it is deleted — just not
+the same one. Measured with the guard removed, a comment on a *deleted* section
+resolved onto "The six components" and reported `moved`. The case reports which
+heading each section landed on and fails when that is not the one it was created
+from.
+
+**`test:lasso`** puts fixture boxes in and reads selected boxes out, with no DOM
+involved: an open circle must select what a closed one does, a `td` inside its
+`tr` inside its `table` must yield only the table, and a circle that encloses
+nothing must yield nothing. A circle that quietly takes the wrong paragraph
+looks exactly like a circle that worked.
+
+**`test:migrate`** runs each schema migration against a real SQLite file and
+then runs it again. A migration executes on every open, against a database that
+already holds somebody's comments, so its *second* run matters as much as its
+first.
 
 **`test:gate`** checks that a `read` agent cannot write, against the write
 vectors spec 01 §8.4 names — `python -c`, `tee`, `sh -c`, a plain redirect —
@@ -119,6 +165,14 @@ own normal operation. Anchors therefore degrade in layers (`SPEC.md` §6):
 | 1 | the quoted text, disambiguated by its surrounding 32 characters | reflow, restyling, most edits |
 | 2 | a bounded fuzzy search, verified over the whole quote | small rewordings |
 | 3 | an element's identity — its id, or a selector built from what identifies it | images, SVG, anything with no text |
+
+Two things are read *before* the layers. A **region** — a box dragged inside a
+figure — carries a fingerprint of what that figure held, because geometry always
+resolves and a redrawn chart would otherwise report success while pointing at new
+content. An **extent** says the anchor covers more than the thing it names: a
+`section` resolves its heading through the layers above and then walks siblings
+to find where the run ends, and a `document` names nothing inside the file and so
+can never move.
 
 When every layer fails the thread is **orphaned**, which is a normal outcome
 rather than an error: it keeps its note and its original quote in the orphan

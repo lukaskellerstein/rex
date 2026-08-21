@@ -65,3 +65,17 @@ claude_tokens.md
 
 # Test outputs
 test_output/
+
+# design-system/ syncs to a Claude Design project. Four kinds of derived state,
+# none of it worth versioning:
+#   .ds-sync/    the converter scripts, staged from the design-sync skill
+#   ds-bundle/   the generated upload bundle — rebuilt from src/ every time
+#   .cache/      machine-local grades and the remote anchor
+#   learnings/   scratch from a fan-out run, folded into NOTES.md and deleted
+# Everything else under .design-sync/ IS committed: config.json, NOTES.md,
+# conventions.md and previews/ are the inputs a future sync reuses.
+design-system/.ds-sync/
+design-system/ds-bundle/
+design-system/.design-sync/.cache/
+design-system/.design-sync/learnings/
+design-system/.design-sync/node_modules
