@@ -20,7 +20,12 @@
     "test:targets": "node --test test/targets.spec.ts",
     "test:diff": "node --test test/diff.spec.ts",
     "test:lasso": "node --test test/lasso.spec.ts",
-    "test:migrate": "node --test test/migrate.spec.ts"
+    "test:migrate": "node --test test/migrate.spec.ts",
+    "test:text": "node --test test/text.spec.ts",
+    "test:facts": "node --test test/facts.spec.ts",
+    "test:claims": "node test/claims.spec.ts",
+    "test:build": "node --test test/build.spec.ts",
+    "test:findings": "node --test --test-timeout=5400000 test/findings.spec.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.237",
@@ -32,6 +37,9 @@
     "d3-force": "^3.0.0",
     "diff-match-patch": "^1.0.5",
     "dompurify": "^3.4.14",
+    "entities": "^8.0.0",
+    "graphology": "^0.26.0",
+    "graphology-communities-louvain": "^2.0.2",
     "highlight.js": "^11.12.0",
     "katex": "^0.16",
     "mammoth": "^1.12.1",
@@ -42,6 +50,7 @@
     "pdfjs-dist": "^6.2.108",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "sqlite-vec": "^0.1.9",
     "uuid": "^14.0.2"
   },
   "devDependencies": {

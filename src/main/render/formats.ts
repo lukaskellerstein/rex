@@ -37,6 +37,25 @@ export function isDocumentPath(path: string): boolean {
 }
 
 /**
+ * Spec 07 §4.1 — a document the fact pipeline can turn into text *itself*.
+ *
+ * PDF is a document REX renders and is deliberately not one of these: spec 03
+ * §7.1 draws it with PDF.js on a canvas in the renderer, and a build has no
+ * canvas. A build therefore reports every PDF as skipped (§7.4) rather than
+ * pretending to have read it.
+ *
+ * Its own predicate because the difference is load-bearing in a way that stays
+ * invisible until it bites: a workspace's "has anything changed?" count has to
+ * be over documents that *can* be read. Counting one that cannot makes the
+ * workspace permanently stale, and §8.5's incremental path then rebuilds on
+ * every status refresh, for ever. Measured on 2026-08-21 — a workspace holding
+ * a single PDF produced 113 builds before the app was stopped.
+ */
+export function isFactReadablePath(path: string): boolean {
+  return isMarkdownPath(path) || isHtmlPath(path) || isDocxPath(path);
+}
+
+/**
  * True when the file's own bytes are prose that a link can be read out of.
  *
  * PDF and DOCX are documents REX renders and are not this. A DOCX is a zip and

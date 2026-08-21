@@ -1,7 +1,30 @@
 # REX 07 — the fact graph
 
-**Version:** 1.2 · 2026-08-21
-**Status:** specified, not implemented
+**Version:** 1.3 · 2026-08-21
+**Status:** implemented; milestone 0 passed, §12's measurements written back
+
+> [!note]
+> **1.3 is the implementation pass.** No design changed. What changed is that
+> the numbers §12 asked to be measured now are, and four of them were wrong
+> enough to matter:
+>
+> - **§4.4** — the subject threshold moves **0.90 → 0.62**. Measured, 0.90
+>   rejected four of seven pairs that plainly mean the same thing. The claim
+>   threshold stays at 0.93, and §4.4 now records *why* it cannot be tuned into
+>   a boundary at all.
+> - **§5.3** — one extract call is **301 s, not 20–30 s**, because §5.4's
+>   local-only default runs the dense reasoning model rather than `local`.
+> - **§5.6** — `local-31b` is **1 in flight, not 2**. LMStudio decodes one
+>   request at a time, so the second buys nothing.
+> - **§7.3** — gains a `local-31b` row. Three days becomes thirty.
+> - **§6.2** — the scan estimate is confirmed: 47 ms at 68,000 vectors.
+>
+> Two places the implementation had to depart from the text, both recorded where
+> they happen rather than here: stages 2 and 3 run **per chunk** (§4.3 step 3
+> asks for an evidence row whose claim is unknown, which §6.3's `NOT NULL`
+> forbids — see the header of `src/main/facts/build.ts`), and resume is counted
+> **per document** rather than per run (a run-level cursor is meaningless once
+> stage 0 shortens the document list — see `chunks_done` in `schema.sql`).
 **Depends on:** [`01-initial/SPEC.md`](../01-initial/SPEC.md),
 [`02-workspace-and-graph/SPEC.md`](../02-workspace-and-graph/SPEC.md),
 [`03-rich-rendering/SPEC.md`](../03-rich-rendering/SPEC.md),
@@ -348,17 +371,48 @@ For each extracted claim:
 
 1. Embed `subject` with the `embed` alias — 768 dimensions (§5.1).
 2. Search the subject vector index for the nearest existing subject
-   (§6.3). If cosine similarity is at or above **0.90**, reuse that subject.
-   Otherwise create a new one.
+   (§6.3). If cosine similarity is at or above **0.62** *(was 0.90)*, reuse that
+   subject. Otherwise create a new one.
 3. Inside that subject, embed `value` and compare it to the subject's existing
    claims the same way. At or above **0.93**, it is the same claim — attach
    the evidence to it. Otherwise create a new claim.
 
-Both thresholds are configurable and both defaults are guesses. **They must be
-tuned against a real folder before milestone 4 closes**, and the build report
-prints the merge counts so a bad threshold is visible rather than silent. Too
-low and unrelated subjects collapse into one; too high and nothing merges and
-every document invents its own vocabulary.
+**Both were tuned on 2026-08-21** against
+`text-embedding-nomic-embed-text-v1.5`, and the two thresholds turned out to be
+different kinds of number.
+
+**The subject threshold is a real boundary.** The two populations separate
+cleanly, and 0.90 sat *inside* the wrong one:
+
+| | range | examples |
+|:--|:--|:--|
+| should merge | 0.686 – 0.913 | "build tool" ~ "build system" 0.705 · "agent permissions" ~ "agent tool permissions" 0.913 |
+| should not merge | 0.345 – 0.495 | "build tool" vs "agent permissions" 0.449 |
+
+0.90 rejected **four of seven** pairs that plainly mean the same thing — nothing
+would have merged, and the graph would have been fog. 0.62 sits in the empty gap
+with margin either side.
+
+**The claim threshold is not a boundary at all**, and cannot be tuned into one —
+the populations overlap:
+
+| | range | examples |
+|:--|:--|:--|
+| same claim | 0.517 – 1.000 | "TypeScript" ~ "TS" **0.517** |
+| different claim | 0.385 – 0.703 | "TypeScript" vs "TypeScript 5.4, strict mode" **0.703** |
+
+So it is chosen to fail in the recoverable direction instead. A false **merge**
+is permanent and silent: two claims become one, no pair is ever formed, and the
+contradiction can never be reported by anything downstream. A false **split**
+costs one judge call, and §4.5's `same` label exists precisely to undo it — which
+is how "TypeScript" and "TS" are reunited despite scoring 0.517. The overlapping
+pair is not even an error: "TypeScript" versus "TypeScript 5.4, strict mode" is
+§3.3's `REFINES`, which is the judge's answer to give.
+
+Both remain configurable, and the build report prints the merge counts so a bad
+threshold stays visible rather than silent. Too low and unrelated subjects
+collapse into one; too high and nothing merges and every document invents its own
+vocabulary.
 
 Also in this stage: write a `fact_co_occurrence` row for every pair of subjects
 that appear in the same chunk, incrementing `count` when the pair is already
@@ -526,14 +580,34 @@ cancelled at 576 s and 590 s under the old 600 s default. A local model on
 this machine answers in seconds to minutes, not milliseconds, and LMStudio
 serves few requests at a time.
 
-Working figures for planning, to be replaced by measurements at milestone 0:
+**Measured at milestone 0 on 2026-08-21**, extracting 10 chunks of
+`components.md` through the gateway, one call in flight (§5.6):
 
-| Item | Estimate |
-|:--|:--|
-| One extract call, 1,500-token chunk, ~800 tokens out, on `local` | 20–30 s |
-| One 5,000-word document, about 4 chunks | about 2 minutes |
-| One judge batch of 20 pairs on `local-31b` | 40–60 s |
-| Embedding 1,000 claims on `embed`, batched | under a minute |
+| Item | Estimate | **Measured** |
+|:--|:--|:--|
+| One extract call, 1,500-token chunk, on `local-31b` | 20–30 s *(assumed `local`)* | **median 301 s** · min 158 s, max 694 s |
+| Completion tokens per extract call | ~800 | **median 2,214** · 1,460–3,585 |
+| One 5,000-word document, about 4 chunks | about 2 minutes | **about 20 minutes** |
+| Embedding a batch on `embed` | under a minute | **26–55 ms** for 2 inputs |
+| One `sqlite-vec` nearest-neighbour lookup at 68,000 vectors | — | **47 ms** (§6.2) |
+
+The extract row is **ten times** the estimate, and the reason is not the
+hardware. §5.1 assigns extraction to `local`, a mixture-of-experts model with
+~4B active parameters; §5.4's local-only default uses `local-31b`, which is
+*dense* and a *reasoning* model. It spends 1,460–3,585 tokens thinking before
+each answer, at roughly 11 tokens/second. The estimate was right about the task
+and wrong about which model would do it.
+
+Two consequences the design has to carry:
+
+- **§7.3's totals are an order of magnitude optimistic** whenever the local-only
+  default is in force. They are right for `local`; multiply by ten for
+  `local-31b`.
+- **Killing a build does not cancel it.** Measured: after two runs were killed,
+  a bare "Say OK" sent straight to LMStudio took 206 s, because the abandoned
+  generations were still decoding ahead of it. This is exactly why §4.7's cancel
+  sets a flag and lets the running call finish rather than tearing the process
+  down.
 
 So a build is a **background job measured in hours**, not a spinner. §7.3 has
 the totals.
@@ -575,10 +649,18 @@ concurrency turns a slow build into a failing one.
 
 | Alias | In flight | Why |
 |:--|:--|:--|
-| `local` (extract) | 4 | the volume stage. Tune it at milestone 1 against the real machine |
-| `local-31b` (judge, topics) | 2 | the dense model. It is the memory-hungry one on this hardware |
+| `local` (extract) | 4 | the volume stage. Untested — §5.4's default never selects it |
+| `local-31b` (extract, judge, topics) | **1** *(was 2)* | **measured.** LMStudio decodes one request at a time on this hardware, so a second in flight buys no throughput and only adds a 31B context to hold |
 | `embed` | 8, and batch 64 inputs per call | embedding is cheap. The batch matters more than the concurrency |
 | any cloud alias (§5.4) | 16 | no local hardware limit. The gateway's own key ceiling is the real bound |
+
+**How the 2 was found to be wrong**, on 2026-08-21. With two extract calls in
+flight, no chunk of `components.md` finished in 15 minutes. During that window a
+bare "Say OK" sent *straight to LMStudio*, bypassing the gateway entirely, also
+timed out — at 120 s, for two tokens. With one in flight the same chunks answered
+in 158–694 s each. The prose above this table predicted exactly this ("extra
+requests queue *inside* LMStudio rather than finishing sooner"); only the number
+beside it was one too high.
 
 The limiter lives in `gateway.ts` (§10.2) and nothing else may issue a call, so
 the number is changed in one place. It applies **per alias**, not globally —
@@ -664,6 +746,20 @@ holds about 68,000 vectors of 768 dimensions. A scan is tens of milliseconds,
 and canonicalization does roughly 60,000 of them — call it 30 minutes, once,
 inside a build whose extraction stage already takes days. It is noise. **If it
 ever stops being noise, §6.5 has the answer, and it is not a graph database.**
+
+**Measured on 2026-08-21**, 768 dimensions, cosine, median of 50 lookups —
+linear in the row count, as a scan must be:
+
+| Vectors | Per lookup |
+|:--|:--|
+| 1,000 | 0.54 ms |
+| 10,000 | 5.9 ms |
+| 68,000 *(the §7.3 ceiling)* | **47 ms** |
+
+So the 60,000 lookups come to about **47 minutes** rather than 30 — the same
+answer to the same significant figure, and still noise beside an extraction
+stage measured in days (§5.3 makes that worse, not better). The argument holds
+as written.
 
 ### 6.3 The graph tables
 
@@ -885,10 +981,22 @@ estimates. Every one of these must be replaced by a measurement at milestone 4.
 | Claims | ~800 | ~8,000 | ~60,000 |
 | Subjects after merge | ~200 | ~1,500 | ~8,000 |
 | Judge batches | ~5 | ~40 | ~130 |
-| **Local build, first run** | ~40 min | ~7 h | **~3 days** |
+| **Local build on `local`, first run** | ~40 min | ~7 h | **~3 days** |
+| **Local build on `local-31b`, first run** | **~7 h** | **~3 days** | **~30 days** |
 | **Local build, one document changed** | seconds | seconds | ~2 min |
 | Cloud build on `cheap`, first run | minutes | ~20 min | ~2 h |
 | Cloud cost on `cheap` ($0.12 in / $0.35 out per 1M) | pennies | under $1 | **about $4** |
+
+The `local-31b` row is the one that was missing, and it is the row §5.4's
+local-only default actually selects. It is the `local` row multiplied by the
+measured ratio in §5.3 — 301 s per chunk against an assumed 25 s. The claim
+counts are unchanged and remain estimates; only the durations were measured.
+
+**Three days becomes thirty**, and that changes what the feature is for. A
+local-only build is realistic for a folder of tens of documents, not thousands.
+At 2,000 documents the honest options are `local` (if LMStudio is serving it),
+a cloud alias at about $4, or leaving it running for a month. §8.5's estimate on
+the Build button says so before the reviewer commits.
 
 Two conclusions the design must carry:
 

@@ -29,9 +29,19 @@ const api: RexApi = {
   applyConfirm: (request) => ipcRenderer.invoke(COMMAND.applyConfirm, request),
   anchorRestate: (request) => ipcRenderer.invoke(COMMAND.anchorRestate, request),
 
+  factsStatus: (request) => ipcRenderer.invoke(COMMAND.factsStatus, request),
+  factsBuild: (request) => ipcRenderer.invoke(COMMAND.factsBuild, request),
+  factsCancel: (runId) => ipcRenderer.invoke(COMMAND.factsCancel, runId),
+  factsFindings: (request) => ipcRenderer.invoke(COMMAND.factsFindings, request),
+  factsGraph: (request) => ipcRenderer.invoke(COMMAND.factsGraph, request),
+  factsVerdict: (request) => ipcRenderer.invoke(COMMAND.factsVerdict, request),
+  factsComment: (request) => ipcRenderer.invoke(COMMAND.factsComment, request),
+  factsEvidence: (request) => ipcRenderer.invoke(COMMAND.factsEvidence, request),
+
   onStreamStep: (listener) => subscribe(EVENT.streamStep, listener),
   onStreamCost: (listener) => subscribe(EVENT.streamCost, listener),
   onApplyReady: (listener) => subscribe(EVENT.applyReady, listener),
+  onFactsProgress: (listener) => subscribe(EVENT.factsProgress, listener),
 };
 
 contextBridge.exposeInMainWorld("rex", api);

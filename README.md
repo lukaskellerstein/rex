@@ -92,6 +92,11 @@ be committed by accident.
 | `npm run test:prompts` | what a comment's places look like to the agent |
 | `npm run test:targets` | multi-target comments and their worst-state rule |
 | `npm run test:diff` | which lines an Apply changed, from its patch |
+| `npm run test:text` | worker document text against the renderer's live DOM |
+| `npm run test:facts` | the fact graph's storage, thresholds and verdicts |
+| `npm run test:build` | incremental builds and resuming an interrupted one |
+| `npm run test:claims` | the fact-graph gate — claim extraction through the local model |
+| `npm run test:findings` | a planted contradiction is found, a planted rejected option is not |
 | `npm run export -- <doc>` | a document's threads as Markdown (`--json`, `--out`) |
 
 ## The tests, and why these ones
@@ -135,6 +140,49 @@ first.
 vectors spec 01 §8.4 names — `python -c`, `tee`, `sh -c`, a plain redirect —
 and against redirects appended to otherwise-allowed commands.
 
+**`test:text`** is the cheap test that decides whether an expensive feature
+works. The fact pipeline builds an anchor from a quote, and anchoring resolves at
+layer 1 by *exact string match* — so the text the build reads has to be
+character-for-character the text the renderer will hold. It asserts that against
+a real DOM in a real browser, over both hostile documents, rather than against a
+second implementation of the same idea. It caught exactly the failure it exists
+for: `&middot;` surviving undecoded, which shifts every offset after it and would
+have orphaned every anchor downstream while looking like a bad model.
+
+**`test:facts`** covers the fact graph's storage, and two things in it that fail
+silently. A **verdict** is keyed by the quotes rather than by claim ids, because
+claim ids are regenerated on every rebuild — so the test dismisses a finding,
+drops the whole graph, rebuilds it, and requires the dismissal to still be there.
+And a **similarity threshold** is checked as a *separation*: unrelated subjects
+must stay apart, not merely related ones come together, because a threshold low
+enough to merge anything passes the easy half trivially and then manufactures
+contradictions between claims that were never about the same thing. Its
+embeddings are real, from the gateway, because the thresholds are only meaningful
+against a specific model — which is how §4.4's suggested 0.90 was found to reject
+four of seven subject pairs that plainly mean the same thing.
+
+**`test:build`** covers the difference between a tool you can leave pointed at a
+folder and one you cannot: the *second* build of an unchanged folder must cost
+**zero** model calls, changing one document must re-read only that one, and a
+build interrupted half-way through a long document must resume inside it rather
+than pay for all of it again. Its gateway is a stub, deliberately — every one of
+those properties is bookkeeping, and asserting them against a real local model
+would cost an hour each and prove nothing more.
+
+**`test:claims`** is the fact graph's gate, the way `test:anchor` is anchoring's.
+It asks one question — can the local model return the claim schema reliably? — and
+if the answer is no, nothing built on top of it can work. It is slow (minutes per
+passage on a local 31B) and is never run by the editor or by `nvim-tools`.
+
+**`test:findings`** is the only test that reaches **judging** and **topics**,
+because both need two claims about one subject and no unit fixture produces
+that. It builds a corpus whose answers are known: two documents that disagree
+twice, agree once, and contain one trap. The trap is the assertion that matters —
+"the team evaluated MongoDB and rejected it" must **not** be reported as
+disagreeing with "data is stored in PostgreSQL". A tool that paints that red
+teaches its reader to ignore red, and it is the single largest source of false
+findings. Like `test:claims` it runs a real model and takes minutes.
+
 **`test:links`** checks the half of the reference graph that has a right
 answer. A link inside a fenced code block is not a link, a reference-style link
 resolves to its definition, a fragment does not create a second node, and an
@@ -155,6 +203,7 @@ everything (`SPEC.md` §3):
 ```text
 src/
 ├── main/        SQLite, the Agent SDK, document renderers, Apply
+│   ├── facts/      the fact graph: its store, and the build utilityProcess
 │   └── workspace/  the folder scan and the reference graph
 ├── renderer/    the document view, the shadow-root overlay, the anchor resolver
 ├── preload/     the contextBridge surface, and the tier 2 webview resolver
@@ -223,3 +272,63 @@ background to pan, scroll to zoom, and **fit** re-frames.
 Ranking is by **total incoming links**, not in-degree. Measured on a real docs
 folder: five documents that all cite each other have an in-degree of 4 apiece
 and the hub is invisible, while link count puts it first with 19.
+
+## The fact graph
+
+The reference graph says what links to what. The fact graph says **what the
+documents claim** — and, where two of them disagree, says so with both quotes and
+an anchor into each.
+
+It is one **Facts** tab in the workspace. Its output is a list, not a picture:
+each row is two quotes from two places that make different claims about the same
+subject, with **Open**, **Dismiss** and **Comment**. The lens on the graph view is
+a second view of the same data — good for seeing shape, bad for doing work.
+
+The model is three levels deep rather than two, because a flat list of "facts"
+neither merges nor compares:
+
+| Level | What it is | What it buys |
+|:--|:--|:--|
+| subject | the thing being talked about | the merge key that makes comparison cheap |
+| claim | one value asserted about one subject | the node that can contradict |
+| evidence | one place in one document stating it | the anchor back to the text |
+
+"The same fact in five documents" is then one claim with five evidence rows, and
+a contradiction candidate is found by *counting* — a subject with two or more
+live claims — before any model runs.
+
+**The model is never asked to find contradictions.** Asked to, an LLM answers
+"no contradiction" nearly every time and scores well because contradictions are
+rare — 0% recall in the study this design follows. So the search is a `GROUP BY
+… HAVING` in SQL and the model only ever labels one candidate pair at a time.
+Two filters do most of the work first: a superseded claim is not a candidate, and
+neither is a rejected option, which is what stops "we considered Python and
+rejected it" contradicting "we use TypeScript".
+
+Three things shape the implementation more than anything in the data model:
+
+- **A local model is slow.** Measured here at roughly 11 tokens/second on a 31B,
+  with each passage costing thousands of *reasoning* tokens before its JSON — so a
+  first build is a background job measured in hours, and it has to be resumable,
+  cancellable, and survive the app closing. After the first build, an unchanged
+  folder costs zero model calls.
+- **Comparison is quadratic**, and 60,000 claims compared pairwise is 1.8 billion
+  comparisons that finish at no speed for any money. Grouping by subject is what
+  turns one global problem into many tiny local ones.
+- **The graph is a cache, never a source of truth.** Every row is derived from
+  document text and can be rebuilt; losing it costs compute and nothing else. What
+  the *user* decides — a dismissed finding — is keyed by the quotes rather than by
+  claim ids, so it survives a rebuild that regenerates every id.
+
+The build runs in an Electron `utilityProcess`, not on the main thread. Most of
+it is awaited network I/O, but canonicalization is tens of thousands of
+*synchronous* vector scans, and an hour of 30-millisecond blocks on the thread
+that draws the window is not a freeze — it is an hour of stutter, which looks
+like a bug. Invariant I3 still holds: it talks over a `MessagePort`, opens no
+port, and the one outbound client goes to the machine's local LiteLLM gateway.
+
+Findings are **candidates**. The best measured method in the literature reaches
+about 60% recall and this one will do worse, so the UI says so, the build report
+admits what it skipped, and nothing is ever acted on automatically — a finding
+becomes a comment, and a comment becomes an edit only through Apply, which still
+shows a diff and still requires acceptance.

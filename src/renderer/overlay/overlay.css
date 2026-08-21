@@ -2668,3 +2668,289 @@
   background: var(--wash-lost);
   color: var(--lost-text);
 }
+
+/* ── Spec 07 — the fact graph ───────────────────────────── */
+
+/*
+  §1.1: the list is the product, the picture is the second view. So the findings
+  list gets the reading measure and the typographic care, and the lens gets the
+  space left over. Both live in the centre pane, in place of the document.
+*/
+
+.rex-facts {
+  display: flex;
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 24px 32px;
+  height: 100%;
+}
+
+.rex-facts-head h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* §11 rule 1 — "candidates, never all contradictions". This line is that rule,
+   and it must not be shortened into a claim of completeness. */
+.rex-facts-head p {
+  margin: 0;
+  max-width: 62ch;
+}
+
+.rex-facts-empty {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 18px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--sunk);
+}
+
+.rex-facts-empty p {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--fg-dim);
+}
+
+/* §8.5 — the bar never blocks the tab: it sits above the previous build's
+   findings, which stay readable and clickable underneath. */
+.rex-facts-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--sunk);
+}
+
+.rex-facts-progress progress {
+  flex: 1;
+  height: 4px;
+}
+
+.rex-facts-summary {
+  display: flex;
+  gap: 6px;
+  flex-direction: column;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 12px;
+}
+
+/* §7.4 — what the build did not cover. Amber, not red: it is an admission the
+   coverage was incomplete, not a finding about the documents. */
+.rex-facts-admission {
+  color: var(--moved);
+}
+
+.rex-finding-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rex-finding {
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+/* Selection is a change of intensity, never a second mark (overlay.css header),
+   so a judged finding deepens its own wash rather than changing hue. */
+.rex-finding-confirmed {
+  border-color: var(--moved);
+  background: var(--wash-moved, var(--sunk));
+}
+
+.rex-finding-dismissed {
+  opacity: 0.55;
+}
+
+.rex-finding-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 10px;
+}
+
+.rex-finding-subject {
+  font-weight: 600;
+}
+
+.rex-pill-contradicts {
+  background: #2a1512;
+  color: var(--lost-text);
+}
+
+.rex-pill-contradicts::before {
+  background: var(--lost);
+}
+
+.rex-pill-supersedes {
+  background: #3a2f10;
+  color: var(--moved);
+}
+
+/* Two quotes, side by side (§8.1). They collapse to one column when the pane is
+   narrow rather than shrinking below a readable measure. */
+.rex-finding-sides {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.rex-finding-side {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 6px;
+  background: var(--well);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rex-finding-side:hover {
+  border-color: var(--link);
+}
+
+.rex-finding-value {
+  font-weight: 600;
+}
+
+.rex-finding-quote {
+  color: var(--fg-dim);
+  quotes: "\201C" "\201D";
+}
+
+.rex-finding-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* ── §8.2 the lens ──────────────────────────────────────── */
+
+.rex-fact-graph {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.rex-fact-graph svg {
+  width: 100%;
+  height: 100%;
+}
+
+.rex-fact-node {
+  cursor: pointer;
+}
+
+.rex-fact-subject {
+  fill: var(--fg);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.rex-fact-claim {
+  fill: var(--muted);
+  font-size: 9px;
+}
+
+.rex-fact-legend {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 11px;
+  list-style: none;
+}
+
+.rex-fact-legend li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rex-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+}
+
+/* §8.2 — the lens toggle, floating over the graph rather than taking a row of
+   chrome from it. The graph is the thing being looked at. */
+.rex-lens {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+}
+
+/* §8.2 / §11 rule 4 — a claim's evidence, reachable from the lens. */
+.rex-fact-evidence {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  max-width: 420px;
+  max-height: 40%;
+  overflow-y: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+}
+
+.rex-fact-evidence-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.rex-fact-evidence ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rex-fact-evidence li button {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 5px;
+  background: var(--well);
+  color: var(--fg-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rex-fact-evidence li button:hover {
+  border-color: var(--link);
+}
