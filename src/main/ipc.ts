@@ -260,8 +260,8 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
       buildReferenceGraph(db, scanWorkspace(db, ref.root)),
   );
 
-  ipcMain.handle(COMMAND.docOpen, (_event, ref: DocumentRef): OpenedDocument => {
-    const rendered = renderDocument(ref);
+  ipcMain.handle(COMMAND.docOpen, async (_event, ref: DocumentRef): Promise<OpenedDocument> => {
+    const rendered = await renderDocument(ref);
     const { record: document, previousHash } = upsertDocument(
       db,
       ref,
@@ -273,7 +273,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     return {
       documentId: document.id,
       ref,
-      html: rendered.html,
+      presentation: rendered.presentation,
       contentHash: rendered.contentHash,
       title: rendered.title,
       baseDir: rendered.baseDir,
@@ -299,6 +299,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
         documentId: request.documentId,
         kind: "anchored",
         anchor: request.anchor,
+        extraAnchors: request.extraAnchors ?? [],
         anchorState: "ok",
         note: request.note,
         profile: "read",
@@ -407,7 +408,10 @@ function pickerOptions(): Electron.OpenDialogOptions {
     title: "Open a document",
     properties: ["openFile"],
     filters: [
-      { name: "Documents", extensions: ["md", "markdown", "mdown", "mkd", "html", "htm"] },
+      {
+        name: "Documents",
+        extensions: ["md", "markdown", "mdown", "mkd", "html", "htm", "pdf", "docx"],
+      },
       { name: "All files", extensions: ["*"] },
     ],
   };

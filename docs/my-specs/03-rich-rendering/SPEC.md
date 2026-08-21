@@ -890,7 +890,7 @@ for (let n = 1; n <= pdf.numPages; n++) {
   box.dataset.page = String(n);
   box.style.width = `${viewport.width}px`;
   box.style.height = `${viewport.height}px`;
-  box.style.setProperty("--scale-factor", "1");   // ← see the warning below
+  box.style.setProperty("--total-scale-factor", "1");   // ← see the warning below
 
   const canvas = doc.createElement("canvas");
   canvas.width = viewport.width;
@@ -911,11 +911,16 @@ for (let n = 1; n <= pdf.numPages; n++) {
 > **Three things here fail at runtime, not at compile time, and every one of
 > them is what an older tutorial tells you to write.**
 >
-> 1. **`--scale-factor` must be set on the text layer's container.** PDF.js
->    positions every span with `calc(var(--scale-factor) * …px)`. Without the
->    property, every span collapses to zero size — the text is *there*, so
->    `getTextContent` looks fine and the DOM looks fine, but nothing can be
->    selected. This is the single most common PDF.js integration bug.
+> 1. **`--total-scale-factor` must be set on the text layer's container.**
+>    PDF.js positions every span with `calc(var(--total-scale-factor) * …px)`.
+>    Without the property, every span collapses to zero size — the text is
+>    *there*, so `getTextContent` looks fine and the DOM looks fine, but nothing
+>    can be selected. This is the single most common PDF.js integration bug.
+>
+>    **Corrected on 2026-08-21 against `pdfjs-dist@6.2.108`.** This document
+>    first said `--scale-factor`, which is what every tutorial still shows.
+>    Version 6 renamed it: `web/pdf_viewer.css` reads `--total-scale-factor` in
+>    19 places and the old name in exactly one. Set both.
 > 2. **`renderTextLayer()` does not exist.** It was removed in PDF.js 5. Use the
 >    `TextLayer` class, and `await …render()`.
 > 3. **`page.render({ canvasContext })` is deprecated in 6.** Pass `canvas`.
@@ -1272,6 +1277,8 @@ given too, because the old one is what most documentation still shows.
 | `pdfjs-dist` | 6.2.108 | `new TextLayer({ textContentSource, container, viewport }).render()` | **`renderTextLayer()` was removed in 5.x** |
 | `pdfjs-dist` | 6.2.108 | `page.render({ canvas, viewport })` | `canvasContext` is legacy in 6 and only honoured when `canvas` is `null` |
 | `pdfjs-dist` | 6.2.108 | `GlobalWorkerOptions.workerSrc` | set it before the first `getDocument` |
+| `pdfjs-dist` | 6.2.108 | the text layer reads `--total-scale-factor` | renamed in 6; §7.2 said `--scale-factor`. Corrected 2026-08-21 |
+| `pdfjs-dist` | 6.2.108 | `getDocument({ standardFontDataUrl, cMapUrl, cMapPacked, iccUrl, wasmUrl })` | **not optional.** Without `standardFontDataUrl` a PDF using the base-14 fonts renders a white page and `render()` never settles — one console warning, no rejection. Measured 2026-08-21 |
 | `katex` | 0.16.x | `renderToString(tex, { displayMode, throwOnError: false })` | synchronous, no DOM |
 | `highlight.js` | 11.12.0 | `hljs.getLanguage(name)`, `hljs.highlight(code, { language })` | synchronous |
 | `mammoth` | 1.12.1 | `await convertToHtml({ path })` → `{ value, messages }` | asynchronous — §8.1 |

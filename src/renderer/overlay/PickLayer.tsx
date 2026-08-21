@@ -25,13 +25,37 @@ interface Props {
   arming: boolean;
   onProbe: (x: number, y: number) => void;
   onActive: (index: number) => void;
-  onCommit: (index: number) => void;
+  /** `additive` is a shift-click: add this element to the comment being written. */
+  onCommit: (index: number, additive: boolean) => void;
   onRegion: (index: number, box: ScopeRect) => void;
   onCancel: () => void;
+  /**
+   * Scrolls the document underneath.
+   *
+   * The layer sits over the frame and swallows the wheel, and the frame is its
+   * *sibling* rather than its ancestor, so the browser has nothing to chain the
+   * scroll to: without this, pick mode froze the document. Reading is most of
+   * reviewing, and a mode that stops you reading is a mode you leave.
+   */
+  onScrollBy: (dx: number, dy: number) => void;
+  /** ⌘/ctrl with the wheel zooms rather than scrolls, here as in the document. */
+  onZoomBy: (factor: number) => void;
 }
 
 /** Ignore a click that was really a very small drag, and vice versa. */
 const DRAG_MINIMUM = 6;
+
+/**
+ * True when this click means "add this one too" rather than "start over".
+ *
+ * All three modifiers, because all three are somebody's habit: ⌘ from every
+ * macOS list, ctrl from every Windows one, ⇧ from the design. The composer's
+ * `+ another place` button does the same thing without any of them, and is the
+ * route the app actually teaches.
+ */
+function isAdditive(event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }): boolean {
+  return event.shiftKey || event.ctrlKey || event.metaKey;
+}
 
 interface Drag {
   fromX: number;
@@ -64,6 +88,8 @@ function clampTo(box: ScopeRect, bounds: ScopeRect): ScopeRect {
 export function PickLayer(props: Props): React.JSX.Element {
   const [drag, setDrag] = useState<Drag | null>(null);
   const layerRef = useRef<HTMLDivElement>(null);
+  /** Where the pointer last was, in pane coordinates — a scroll re-probes there. */
+  const lastPoint = useRef<{ x: number; y: number } | null>(null);
 
   const scope = props.scopes?.[props.active] ?? null;
   const { onActive, onCancel, onCommit, scopes, active } = props;
@@ -78,6 +104,17 @@ export function PickLayer(props: Props): React.JSX.Element {
         return;
       }
       if (!scopes || scopes.length === 0) return;
+      // Pick mode and the composer are open together while extra targets are
+      // being added, and there ↑ belongs to the caret in the note, not to the
+      // scope chain. `composedPath()[0]` because the shadow boundary retargets
+      // `event.target` to the host — see App.tsx.
+      const focused = event.composedPath()[0];
+      if (
+        focused instanceof HTMLElement &&
+        (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT")
+      ) {
+        return;
+      }
       if (event.key === "ArrowUp") {
         event.preventDefault();
         onActive(Math.min(active + 1, scopes.length - 1));
@@ -86,7 +123,7 @@ export function PickLayer(props: Props): React.JSX.Element {
         onActive(Math.max(active - 1, 0));
       } else if (event.key === "Enter") {
         event.preventDefault();
-        onCommit(active);
+        onCommit(active, isAdditive(event));
       }
     };
     document.addEventListener("keydown", onKey);
@@ -120,8 +157,20 @@ export function PickLayer(props: Props): React.JSX.Element {
     <div
       ref={layerRef}
       className="rex-pick-layer rex-pick-layer-active"
+      onWheel={(event) => {
+        if (event.ctrlKey || event.metaKey) {
+          props.onZoomBy(event.deltaY < 0 ? 1.1 : 1 / 1.1);
+          return;
+        }
+        props.onScrollBy(event.deltaX, event.deltaY);
+        // The document moved under a cursor that did not, so what the cursor is
+        // over has changed. Probing again keeps the outline honest.
+        const point = lastPoint.current;
+        if (point && !props.arming) props.onProbe(point.x, point.y);
+      }}
       onPointerMove={(event) => {
         const point = toDocument(event);
+        lastPoint.current = point;
         if (drag) {
           setDrag({ ...drag, toX: point.x + props.scrollX, toY: point.y + props.scrollY });
           return;
@@ -141,8 +190,17 @@ export function PickLayer(props: Props): React.JSX.Element {
         setDrag(null);
         if (box.w >= DRAG_MINIMUM && box.h >= DRAG_MINIMUM) props.onRegion(props.active, box);
       }}
-      onClick={() => {
-        if (!props.arming && scope) props.onCommit(props.active);
+      onClick={(event) => {
+        if (!props.arming && scope) props.onCommit(props.active, isAdditive(event));
+      }}
+      onContextMenu={(event) => {
+        // On macOS ctrl-click *is* a right-click: the system turns it into
+        // button 2, so no `click` ever fires and ctrl-to-add did nothing at all
+        // (measured on 2026-08-21). It arrives here instead. Only a real
+        // ctrl-click adds — a plain right-click carries `ctrlKey: false` and is
+        // simply swallowed, which is what should happen over a pick layer.
+        event.preventDefault();
+        if (!props.arming && scope && event.ctrlKey) props.onCommit(props.active, true);
       }}
     >
       {scope && !props.arming ? (
@@ -202,6 +260,11 @@ export function PickLayer(props: Props): React.JSX.Element {
               <span className="rex-key">↑</span>
               <span className="rex-key">↓</span>
               widen / narrow
+            </span>
+            <span>
+              <span className="rex-key">⇧</span>
+              <span className="rex-key">⌘</span>
+              click to add
             </span>
             <span>
               <span className="rex-key">esc</span>

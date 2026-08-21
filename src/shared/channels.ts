@@ -71,6 +71,8 @@ export const EVENT = {
 export interface ThreadCreateRequest {
   documentId: string;
   anchor: Anchor;
+  /** Further targets of the same comment. Absent or empty for one target. */
+  extraAnchors?: Anchor[];
   note: string;
 }
 

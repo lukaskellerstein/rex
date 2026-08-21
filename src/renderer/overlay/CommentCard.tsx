@@ -108,6 +108,11 @@ function ToolSteps({ steps }: { steps: Step[] }): React.JSX.Element {
   );
 }
 
+/** "anchored", or "anchored in 3 places" when the comment has extra targets. */
+function anchoredIn(extras: number): string {
+  return extras === 0 ? "anchored" : `anchored in ${extras + 1} places`;
+}
+
 export function CommentCard(props: Props): React.JSX.Element {
   const [reply, setReply] = useState("");
   const { thread } = props;
@@ -154,7 +159,10 @@ export function CommentCard(props: Props): React.JSX.Element {
             <span className="rex-meta">
               {thread.kind === "synthesis"
                 ? `synthesis of ${thread.refThreadIds.length} comments`
-                : "anchored"}
+                : // A multi-target comment says so: the quote below is only the
+                  // first of its places, and without this the card claims to be
+                  // about one passage when the reader asked about several.
+                  anchoredIn(thread.extraAnchors.length)}
               {anchorNote ? " · " : null}
               {anchorNote}
             </span>

@@ -380,10 +380,12 @@
   flex: none;
 }
 
+/* Hangs from the button's left edge, because the button sits at the start of
+   the bar. Anchored right, the menu would run off the window. */
 .rex-open-menu {
   position: absolute;
   top: 32px;
-  right: 0;
+  left: 0;
   z-index: 20;
   display: flex;
   flex-direction: column;
@@ -777,6 +779,35 @@
   box-shadow: 0 0 0 2px rgb(111 159 224 / 55%);
 }
 
+/* Every place the comment being written is about. Dashed, and tinted, so it
+   reads as "not saved yet" beside the solid outline of a real thread. */
+.rex-draft-outline {
+  position: absolute;
+  border: 2px dashed var(--link);
+  border-radius: 3px;
+  background: rgb(111 159 224 / 10%);
+  pointer-events: none;
+}
+
+/* The number ties an outline to its row in the composer's list — with nine
+   cells picked, "which nine" is the whole question. */
+.rex-draft-index {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--link);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+}
+
 /* ── Composer ────────────────────────────────────────────── */
 
 .rex-composer {
@@ -792,6 +823,12 @@
   border-radius: 7px;
   background: var(--panel);
   box-shadow: 0 14px 42px rgb(0 0 0 / 48%);
+
+  /* A card with many targets, in a short pane, scrolls inside itself. Composer
+     lifts it back into the pane; this is what keeps the Ask button reachable
+     when even the top of the pane is not enough room. */
+  max-height: calc(100% - 16px);
+  overflow-y: auto;
 }
 
 .rex-composer-head {
@@ -876,6 +913,65 @@
   color: var(--muted);
   font-family: var(--mono);
   font-size: 10px;
+}
+
+/* The other places one comment is about. A list, not chips: each line has a
+   remove control beside it, and a name long enough to tell two table rows
+   apart does not fit in a chip. */
+.rex-extras {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rex-extras li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--sunken, rgb(255 255 255 / 4%));
+  font-size: 11px;
+}
+
+.rex-zoom {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* The card's copy of the number drawn on the outline in the document. */
+.rex-place-index {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--link);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1;
+  vertical-align: 1px;
+}
+
+.rex-add-place {
+  align-self: flex-start;
+  font-size: 11px;
+}
+
+.rex-extra-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .rex-readonly {

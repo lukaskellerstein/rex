@@ -21,6 +21,9 @@ const MIME: Record<string, string> = {
   ".jpg": "image/jpeg",
   ".js": "text/plain", // never application/javascript: the iframe must not run it
   ".json": "application/json",
+  // Spec 03 §7.1 — PDF.js range-fetches the file over this scheme, which is
+  // also why the renderer's CSP gains `connect-src rex-doc:`.
+  ".pdf": "application/pdf",
   ".png": "image/png",
   ".svg": "image/svg+xml",
   ".webp": "image/webp",

@@ -8,10 +8,25 @@
       The renderer displays untrusted document content (invariant I2). Document
       HTML never reaches this page: it is sanitised and handed to a sandboxed
       srcdoc iframe, and its assets load over rex-doc://.
+
+      A srcdoc iframe inherits this policy, so this attribute is the only place
+      any of it is set. Spec 03 §6:
+        style-src rex-doc:  KaTeX's stylesheet, and a local HTML file's own
+                            <link rel=stylesheet>, which spec 01 §5.4 point 3
+                            requires to survive and which this used to block
+        img-src https:      badges and other remote images. A deliberate privacy
+                            trade: opening a document tells whatever host the
+                            author named that it was opened, and when
+        connect-src rex-doc: PDF.js range-fetches the file over rex-doc://
+
+      script-src is deliberately still absent, so it falls back to
+      default-src 'self' — the document iframe runs no script either way, and
+      the renderer's own bundle is same-origin. worker-src needs nothing:
+      PDF.js's worker is a bundled same-origin asset.
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: rex-doc:; font-src 'self' data: rex-doc:; frame-src 'self' rex-doc:; connect-src 'self'"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline' rex-doc:; img-src 'self' data: rex-doc: https:; font-src 'self' data: rex-doc:; frame-src 'self' rex-doc:; connect-src 'self' rex-doc:"
     >
     <style>
     html,

@@ -101,6 +101,17 @@ export function askPrompt(input: {
     parts.push("## Highlighted passage", anchor.quote.exact, "");
   }
 
+  // A multi-target comment is one question about several places, so the agent
+  // has to see all of them or it answers about the first one only.
+  const extras = thread.extraAnchors.filter((extra) => extra.quote);
+  if (extras.length > 0) {
+    parts.push("## Also highlighted");
+    extras.forEach((extra, position) => {
+      parts.push(`${position + 1}. ${extra.quote?.exact ?? ""}`);
+    });
+    parts.push("");
+  }
+
   const section = anchor ? enclosingSection(documentPath, anchor) : null;
   if (section) parts.push("## Surrounding section", section, "");
 

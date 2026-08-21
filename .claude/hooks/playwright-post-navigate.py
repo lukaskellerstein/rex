@@ -13,20 +13,38 @@ across sessions and the desktop is shared. What counts as "the scratch
 workspace" is re-checked each run: a space the user has moved into is theirs,
 and the browsers on it are moved along to a fresh one (see `wm.py`).
 
-This runs on *every* `browser_*` tool, not only the navigating ones, because
-`--cdp-endpoint` inverts who creates the window: with `--isolated` Playwright
-spawns the browser and `browser_navigate` is the moment it appears, but an
-attached Electron app is launched by the dev server and re-launched on every
-restart, so the window that needs parking shows up between two ordinary
-`browser_click` calls. See the matcher note in `projects/claude-code.md`.
+It runs on *every* `browser_*` tool, not only the navigating ones, and on
+`Bash` as well -- because `--cdp-endpoint` inverts who creates the window. With
+`--isolated` Playwright spawns the browser and `browser_navigate` is the moment
+it appears. With an attached app nothing in the MCP server creates anything: the
+shell does, on `npx electron .`, and again on every restart. A session can even
+drive that app over raw CDP and never call an MCP tool at all (measured in `rex`
+2026-08-21: 132 `Bash` calls, zero `browser_*`), at which point an MCP-only
+matcher is a trigger that never fires. `Bash` is the one event that is always
+there. See the matcher note in `projects/claude-code.md`.
 """
 
+import json
 import sys
 import time
 
 import wm
 
-WINDOW_APPEAR_DELAY = 0.5  # seconds to wait for a freshly spawned window
+WINDOW_APPEAR_DELAY = 0.5  # one beat, for a window Playwright just spawned
+LAUNCH_POLL_LIMIT = 3.0  # an app the shell just started takes seconds to map
+
+# Bash commands that start a desktop app. These are the only ones worth waiting
+# on: everything else either has its window already or is not making one, and a
+# session runs hundreds of them.
+LAUNCH_MARKERS = (
+    "electron",
+    "remote-debugging-port",
+    "npm run dev",
+    "npm start",
+    "pnpm dev",
+    "yarn dev",
+    "bun run dev",
+)
 
 
 def _candidates(manager: "wm.WindowManager") -> list[dict]:
@@ -38,22 +56,66 @@ def _candidates(manager: "wm.WindowManager") -> list[dict]:
     ]
 
 
+def _tool_command() -> str | None:
+    """The shell command this hook fired on; None when the tool was not Bash.
+
+    Claude Code feeds a hook its payload on stdin. An MCP `browser_*` call has
+    no `command` field and a `Bash` call does, which is the whole distinction
+    needed here -- so the two triggers can share one script without the script
+    having to know which matcher brought it in. Reading is skipped on a tty so
+    the hook can still be run by hand.
+    """
+    if sys.stdin.isatty():
+        return None
+    try:
+        payload = json.load(sys.stdin)
+    except Exception:
+        return None
+    command = (payload.get("tool_input") or {}).get("command")
+    return command.lower() if isinstance(command, str) else None
+
+
+def _wait_budget(command: str | None) -> float:
+    """How long it is worth waiting for a window that is not there yet.
+
+    Who creates the window decides this. An MCP call that spawned a browser
+    needs one beat. A shell command that launched an app needs seconds --
+    electron-vite is slow to map its first window, and the command returns
+    immediately because the app is started in the background. Every *other*
+    Bash call must pay nothing beyond the look already taken; there are
+    hundreds of them in a session and none of them makes a window.
+    """
+    if command is None:
+        return WINDOW_APPEAR_DELAY
+    if any(marker in command for marker in LAUNCH_MARKERS):
+        return LAUNCH_POLL_LIMIT
+    return 0.0
+
+
 def main() -> None:
+    # Before anything else: stdin is only readable once, and `wm.detect()`
+    # shells out.
+    command = _tool_command()
+
     manager = wm.detect()
     if manager.name == "none":
         sys.exit(0)
 
     focus = manager.focus_token()
 
-    # Look first, and only wait when there is nothing to park yet. The delay
-    # exists for a window that was *just spawned* and has not mapped yet -- the
-    # `--isolated` case, where this hook runs on the very call that created it.
-    # An attached app's window already exists and is already misplaced, so it is
-    # found on the first look; paying the delay unconditionally would tax every
-    # click and keystroke of an Electron session for nothing.
+    # Look first, and only wait when there is nothing to park yet. An attached
+    # app's window usually already exists and is already misplaced, so it is
+    # found on the first look; paying a delay unconditionally would tax every
+    # click and keystroke of a session for nothing.
     candidates = _candidates(manager)
-    if not candidates:
+    waited = 0.0
+    budget = _wait_budget(command)
+    while not candidates and waited < budget:
         time.sleep(WINDOW_APPEAR_DELAY)
+        waited += WINDOW_APPEAR_DELAY
+        # The process table is cached for the run, and a window we are waiting
+        # for belongs to a process that did not exist when it was built.
+        wm.forget_processes()
         candidates = _candidates(manager)
 
     if candidates:

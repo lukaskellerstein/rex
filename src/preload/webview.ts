@@ -41,9 +41,17 @@ contextBridge.exposeInMainWorld("__rexAnchor", {
     return outcome ? JSON.stringify(outcome.draft) : null;
   },
 
-  probeAt(x: number, y: number): string | null {
-    chain = index ? scopeChainAt(index, x, y) : null;
-    return chain ? JSON.stringify(chain.scopes) : null;
+  /** `keep` carries the reviewer's widening across a pointer move — anchoring.ts. */
+  probeAt(x: number, y: number, keep: number): string | null {
+    const next = index ? scopeChainAt(index, x, y) : null;
+    if (!next) {
+      chain = null;
+      return null;
+    }
+    const chosen = chain?.elements[keep] ?? null;
+    const at = chosen ? next.elements.indexOf(chosen) : -1;
+    chain = next;
+    return JSON.stringify({ scopes: next.scopes, active: at >= 0 ? at : 0 });
   },
 
   anchorFromScope(scopeIndex: number): string | null {
