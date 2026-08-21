@@ -2,9 +2,11 @@
 // here; the services above it never see a row shape.
 
 import { v4 as uuidv4 } from "uuid";
+import type { ThreadListRequest } from "../../shared/channels.ts";
 import type {
   Anchor,
   AnchorState,
+  AnchorTarget,
   ApplyRun,
   ApplyStatus,
   CommentCounts,
@@ -16,7 +18,6 @@ import type {
   Profile,
   Thread,
   ThreadKind,
-  ThreadWithMessages,
 } from "../../shared/types.ts";
 import type { Db } from "./database.ts";
 
@@ -33,14 +34,17 @@ interface DocumentRow {
   last_seen_at: string;
 }
 
+/**
+ * The columns still read. `anchor_json`, `extra_anchors_json` and `anchor_state`
+ * are deliberately absent: spec 05 §5.2 retires them into `thread_target` and
+ * leaves them in the table, and a row shape that still named them would be an
+ * invitation to read one of them again.
+ */
 interface ThreadRow {
   id: string;
   document_id: string;
   kind: ThreadKind;
   status: "open" | "resolved";
-  anchor_json: string | null;
-  extra_anchors_json: string | null;
-  anchor_state: AnchorState | null;
   note: string;
   session_id: string | null;
   profile: Profile;
@@ -48,6 +52,12 @@ interface ThreadRow {
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
+}
+
+interface TargetRow {
+  document_id: string;
+  anchor_json: string;
+  anchor_state: AnchorState | null;
 }
 
 interface MessageRow {
@@ -87,17 +97,13 @@ function toDocument(row: DocumentRow): DocumentRecord {
   };
 }
 
-function toThread(row: ThreadRow, refThreadIds: string[]): Thread {
+function toThread(row: ThreadRow, refThreadIds: string[], targets: AnchorTarget[]): Thread {
   return {
     id: row.id,
     documentId: row.document_id,
     kind: row.kind,
     status: row.status,
-    anchor: row.anchor_json ? (JSON.parse(row.anchor_json) as Anchor) : null,
-    // A row written before the column existed has NULL here, which is the same
-    // thing as a comment with one target.
-    extraAnchors: row.extra_anchors_json ? (JSON.parse(row.extra_anchors_json) as Anchor[]) : [],
-    anchorState: row.anchor_state,
+    targets,
     note: row.note,
     sessionId: row.session_id,
     profile: row.profile,
@@ -199,41 +205,64 @@ function refThreadIds(db: Db, threadId: string): string[] {
     .map((r) => r.ref_thread_id);
 }
 
+/** Spec 05 §5.1 — every place a comment is about, in the order it was built. */
+function targetsFor(db: Db, threadId: string): AnchorTarget[] {
+  return db
+    .prepare<[string], TargetRow>(
+      "SELECT document_id, anchor_json, anchor_state FROM thread_target WHERE thread_id = ? ORDER BY position",
+    )
+    .all(threadId)
+    .map((row) => ({
+      documentId: row.document_id,
+      anchor: JSON.parse(row.anchor_json) as Anchor,
+      state: row.anchor_state,
+    }));
+}
+
+function hydrate(db: Db, row: ThreadRow): Thread {
+  return toThread(row, refThreadIds(db, row.id), targetsFor(db, row.id));
+}
+
 export function createThread(
   db: Db,
   input: {
-    documentId: string;
     kind: ThreadKind;
-    anchor: Anchor | null;
-    extraAnchors?: Anchor[];
-    anchorState: AnchorState | null;
+    /** Panel order. `targets[0]` decides the thread's own document. */
+    targets: Array<{ documentId: string; anchor: Anchor }>;
+    /** Only for a synthesis thread, which has no targets to take it from. */
+    documentId?: string;
     note: string;
     profile: Profile;
     refThreadIds?: string[];
   },
 ): Thread {
+  const documentId = input.targets[0]?.documentId ?? input.documentId;
+  if (!documentId) {
+    throw new Error("A comment needs at least one target, or a document of its own.");
+  }
+
   const id = uuidv4();
   const timestamp = now();
-  const extraAnchors = input.extraAnchors ?? [];
 
   const insert = db.transaction(() => {
     db.prepare(
-      `INSERT INTO thread (id, document_id, kind, status, anchor_json, extra_anchors_json,
-                           anchor_state, note,
+      `INSERT INTO thread (id, document_id, kind, status, note,
                            session_id, profile, model, created_at, updated_at, resolved_at)
-       VALUES (?, ?, ?, 'open', ?, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
-    ).run(
-      id,
-      input.documentId,
-      input.kind,
-      input.anchor ? JSON.stringify(input.anchor) : null,
-      extraAnchors.length > 0 ? JSON.stringify(extraAnchors) : null,
-      input.anchorState,
-      input.note,
-      input.profile,
-      timestamp,
-      timestamp,
+       VALUES (?, ?, ?, 'open', ?, NULL, ?, NULL, ?, ?, NULL)`,
+    ).run(id, documentId, input.kind, input.note, input.profile, timestamp, timestamp);
+
+    const target = db.prepare(
+      `INSERT INTO thread_target (thread_id, position, document_id, anchor_json, anchor_state)
+       VALUES (?, ?, ?, ?, NULL)`,
     );
+    // NULL, not 'ok'. Spec 05 §5.4 — a state is what the *last sweep* found, and
+    // no sweep has run yet. The one that runs immediately after this fills in
+    // every target in the open document; the rest stay "nobody looked", which is
+    // the truth until their own document is opened.
+    for (const [position, entry] of input.targets.entries()) {
+      target.run(id, position, entry.documentId, JSON.stringify(entry.anchor));
+    }
+
     for (const ref of input.refThreadIds ?? []) {
       db.prepare("INSERT INTO thread_ref (thread_id, ref_thread_id) VALUES (?, ?)").run(id, ref);
     }
@@ -242,12 +271,10 @@ export function createThread(
 
   return {
     id,
-    documentId: input.documentId,
+    documentId,
     kind: input.kind,
     status: "open",
-    anchor: input.anchor,
-    extraAnchors,
-    anchorState: input.anchorState,
+    targets: input.targets.map((entry) => ({ ...entry, state: null })),
     note: input.note,
     sessionId: null,
     profile: input.profile,
@@ -261,17 +288,83 @@ export function createThread(
 
 export function getThread(db: Db, threadId: string): Thread | null {
   const row = db.prepare<[string], ThreadRow>("SELECT * FROM thread WHERE id = ?").get(threadId);
-  return row ? toThread(row, refThreadIds(db, threadId)) : null;
+  return row ? hydrate(db, row) : null;
 }
 
-export function listThreads(db: Db, documentId: string): ThreadWithMessages[] {
+/**
+ * Spec 05 §5.3 — every comment in the workspace, not one document's.
+ *
+ * A comment about two documents is one row, seen from either of them, which is
+ * what a comment about two documents is. The scope is every document under
+ * `root`, plus the open one by id — a URL document sits under no directory, and
+ * without the id its comments would disappear from the list.
+ *
+ * `substr` rather than `LIKE`: a path containing `%` or `_` is legal on every
+ * filesystem, and escaping them correctly is a trap this does not need to walk
+ * into. The trailing separator is what stops `/docs` matching `/docs-old`.
+ */
+export function listThreads(db: Db, request: ThreadListRequest): Thread[] {
+  const prefix = request.root === null ? null : withSeparator(request.root);
+
   const rows = db
-    .prepare<[string], ThreadRow>("SELECT * FROM thread WHERE document_id = ? ORDER BY created_at")
-    .all(documentId);
-  return rows.map((row) => ({
-    ...toThread(row, refThreadIds(db, row.id)),
-    messages: listMessages(db, row.id),
-  }));
+    .prepare<
+      { documentId: string | null; prefix: string | null; prefixLength: number },
+      ThreadRow
+    >(`WITH scope AS (
+           SELECT id FROM document
+            WHERE id = :documentId
+               OR (kind = 'file' AND :prefix IS NOT NULL
+                   AND substr(value, 1, :prefixLength) = :prefix)
+         ),
+         anchored AS (
+           SELECT DISTINCT thread_id AS id FROM thread_target
+            WHERE document_id IN (SELECT id FROM scope)
+         ),
+         included AS (
+           SELECT id FROM anchored
+           UNION
+           -- Every synthesis comment that references one of them, and every
+           -- comment with no targets that was written on a document in scope.
+           -- A synthesis comment has nothing to anchor, so it can be found only
+           -- through what it is about or where it was made.
+           SELECT thread_id FROM thread_ref
+            WHERE ref_thread_id IN (SELECT id FROM anchored)
+           UNION
+           SELECT t.id FROM thread t
+            WHERE t.document_id IN (SELECT id FROM scope)
+              AND NOT EXISTS (SELECT 1 FROM thread_target x WHERE x.thread_id = t.id)
+         )
+         SELECT * FROM thread WHERE id IN (SELECT id FROM included) ORDER BY created_at`)
+    .all({
+      documentId: request.documentId,
+      prefix,
+      prefixLength: prefix?.length ?? 0,
+    });
+
+  return rows.map((row) => hydrate(db, row));
+}
+
+/**
+ * Every comment with a target in one document — what `rex export` asks for.
+ *
+ * Plus its synthesis comments, which have no targets to be found by: they are
+ * about other comments, and they belong to the document they were written on.
+ */
+export function listThreadsInDocument(db: Db, documentId: string): Thread[] {
+  return db
+    .prepare<[string, string], ThreadRow>(
+      `SELECT * FROM thread
+        WHERE id IN (SELECT thread_id FROM thread_target WHERE document_id = ?)
+           OR (document_id = ?
+               AND NOT EXISTS (SELECT 1 FROM thread_target x WHERE x.thread_id = thread.id))
+        ORDER BY created_at`,
+    )
+    .all(documentId, documentId)
+    .map((row) => hydrate(db, row));
+}
+
+function withSeparator(root: string): string {
+  return root.endsWith("/") ? root : `${root}/`;
 }
 
 export function setThreadStatus(db: Db, threadId: string, resolved: boolean): void {
@@ -300,12 +393,25 @@ export function setThreadModel(db: Db, threadId: string, model: string | null): 
   );
 }
 
-export function setAnchorState(db: Db, threadId: string, state: AnchorState): void {
-  db.prepare("UPDATE thread SET anchor_state = ?, updated_at = ? WHERE id = ?").run(
+/**
+ * Spec 05 §5.4 — one target's state, named by its position.
+ *
+ * Only the renderer can compute it (invariant I1) and only for the document that
+ * is open, so this is deliberately per target rather than per thread: writing a
+ * thread-wide state here would overwrite what another document's sweep found.
+ */
+export function setTargetState(
+  db: Db,
+  threadId: string,
+  position: number,
+  state: AnchorState,
+): void {
+  db.prepare("UPDATE thread_target SET anchor_state = ? WHERE thread_id = ? AND position = ?").run(
     state,
-    now(),
     threadId,
+    position,
   );
+  db.prepare("UPDATE thread SET updated_at = ? WHERE id = ?").run(now(), threadId);
 }
 
 // ── Messages ────────────────────────────────────────────────────
@@ -373,15 +479,43 @@ export function listMessages(db: Db, threadId: string): Message[] {
 export function commentCountsByDocument(db: Db): Map<string, CommentCounts> {
   const rows = db
     .prepare<[], { value: string; open: number; resolved: number; orphaned: number }>(
-      `SELECT d.value AS value,
-              SUM(CASE WHEN t.status = 'open'
-                        AND COALESCE(t.anchor_state, '') != 'orphaned' THEN 1 ELSE 0 END) AS open,
-              SUM(CASE WHEN t.status = 'resolved' THEN 1 ELSE 0 END) AS resolved,
-              SUM(CASE WHEN t.anchor_state = 'orphaned' THEN 1 ELSE 0 END) AS orphaned
-         FROM document d
-         JOIN thread t ON t.document_id = d.id
-        WHERE d.kind = 'file'
-        GROUP BY d.value`,
+      // Spec 05 §5.7 — a document mentioned by a comment written elsewhere is
+      // not a document with no comments, so this counts *targets*' documents.
+      //
+      // The inner query collapses a thread's targets in one document to one row
+      // carrying their worst state, which is what keeps a comment with three
+      // targets in one file from counting three times. NULL is absent from the
+      // CASE on purpose: MAX ignores it, so "nobody looked" never becomes
+      // orphaned — written as `!= 'ok'` it would have, which is the mistake §5.7
+      // names.
+      `SELECT value,
+              SUM(CASE WHEN status = 'open' AND COALESCE(worst, 0) < 2 THEN 1 ELSE 0 END) AS open,
+              SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS resolved,
+              SUM(CASE WHEN worst = 2 THEN 1 ELSE 0 END) AS orphaned
+         FROM (
+           SELECT d.value AS value, t.id AS id, t.status AS status,
+                  MAX(CASE tt.anchor_state
+                        WHEN 'orphaned' THEN 2
+                        WHEN 'moved' THEN 1
+                        WHEN 'ok' THEN 0
+                      END) AS worst
+             FROM thread_target tt
+             JOIN thread t ON t.id = tt.thread_id
+             JOIN document d ON d.id = tt.document_id
+            WHERE d.kind = 'file'
+            GROUP BY d.value, t.id, t.status
+           UNION ALL
+           -- A synthesis comment is about other comments and has no target of
+           -- its own, so the join above cannot see it. Counting it against the
+           -- document it was written on is where it was counted before, and
+           -- dropping it would quietly shrink every count that has one.
+           SELECT d.value, t.id, t.status, NULL
+             FROM thread t
+             JOIN document d ON d.id = t.document_id
+            WHERE d.kind = 'file'
+              AND NOT EXISTS (SELECT 1 FROM thread_target x WHERE x.thread_id = t.id)
+         )
+        GROUP BY value`,
     )
     .all();
 

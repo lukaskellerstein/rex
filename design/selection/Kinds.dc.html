@@ -55,10 +55,10 @@
 
       <div style="display: grid; grid-template-columns: 132px 190px 150px minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 11px 14px; background: #131d2e; align-items: start;">
         <span style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600;"><span style="width: 9px; height: 9px; border-radius: 2px; background: #d2402f;"></span>Region</span>
-        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #b9c7d8; line-height: 1.55;">element + region x/y/w/h<br><span style="color: #5d7a9a;">fractions of the box</span></span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #b9c7d8; line-height: 1.55;">element + region x/y/w/h<br><span style="color: #5d7a9a;">fractions + fingerprint</span></span>
         <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8ba0ba;">createRegionAnchor</span>
         <span style="font-size: 11.5px; color: #b9c7d8; line-height: 1.5;">Any resize or zoom — the whole point of storing fractions.</span>
-        <span style="font-size: 11.5px; color: #e08a76; line-height: 1.5;"><strong>Nothing visible.</strong> Redrawn content keeps resolving, onto whatever now occupies the box.</span>
+        <span style="font-size: 11.5px; color: #b9c7d8; line-height: 1.5;">The figure being <strong style="color: #e4e9f0;">redrawn</strong> — the stored <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px;">fingerprint</span> no longer matches, and it orphans instead of resolving onto new content.</span>
       </div>
 
       <div style="display: grid; grid-template-columns: 132px 190px 150px minmax(0, 1fr) minmax(0, 1fr); gap: 14px; padding: 11px 14px; background: #131d2e; align-items: start;">
@@ -69,7 +69,7 @@
         <span style="font-size: 11.5px; color: #b9c7d8; line-height: 1.5;">A regenerated page whose ids are build output.</span>
       </div>
     </div>
-    <span style="font-size: 11.5px; line-height: 1.55; color: #8ba0ba;">Only the top row exists in the UI today. The other four are implemented in <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">renderer/anchor/create.ts</span> and resolved by <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">resolveAnchor()</span>; nothing in <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">DocumentSurface</span> can reach them.</span>
+    <span style="font-size: 11.5px; line-height: 1.55; color: #8ba0ba;">All five are reachable from the UI now. <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">renderer/anchor/create.ts</span> writes them, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">resolveAnchor()</span> resolves them, and <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">DocumentSurface</span> reaches them through <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">probeAt()</span>, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">anchorFromScope()</span> and <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #b9c7d8;">anchorFromRegion()</span> — in both tiers.</span>
   </div>
 
   <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
@@ -109,29 +109,36 @@
         </span>
       </div>
 
+      <div style="display: flex; flex-direction: column; gap: 7px; padding: 12px 13px; border-radius: 7px; border: 1px solid #1b2f28; background: #121f1b; margin-top: 4px;">
+        <span style="font-size: 11.5px; font-weight: 600; color: #7fbfa4;">PDF AND DOCX &#8212; OPEN NOW, AND ANCHORABLE</span>
+        <span style="font-size: 11.5px; line-height: 1.55; color: #b9c7d8;">REX renders <strong style="color: #e4e9f0;">Markdown, HTML, PDF and DOCX</strong>, and the explorer greys neither out. Every kind above works on a DOM and never cared where the DOM came from &#8212; a PDF page and a DOCX body are picked exactly like a Markdown paragraph.</span>
+        <span style="font-size: 11.5px; line-height: 1.55; color: #cfa79c;">Only <strong style="color: #e08a76;">Apply</strong> stays off for both: there is no honest source line to write a prose edit back to. A comment whose places include a PDF still applies to the Markdown beside it, and the review bar names the PDF as skipped.</span>
+      </div>
+
       <span style="font-size: 11.5px; line-height: 1.55; color: #8ba0ba;">In the gutter these are ordinary numbered markers. In the document, a structural or visual anchor gets a 2px outline on the element rather than a text highlight — the Custom Highlight API paints ranges, so a block anchor is an outline, not a fill.</span>
     </div>
 
     <div style="display: flex; flex-direction: column; gap: 12px;">
-      <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #f0b429;">A DECISION THIS FORCES — <span style="color: #8ba0ba;">anchorStateFor()</span></span>
+      <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #4a9d7a;">A DECISION THIS FORCED — <span style="color: #8ba0ba;">anchorStateFor()</span>, now settled</span>
 
       <div style="display: flex; flex-direction: column; gap: 9px; padding: 13px; border-radius: 7px; border: 1px solid #3a2f10; background: #1c1708;">
-        <span style="font-size: 12px; line-height: 1.6; color: #d8c58e;">Today every resolution below layer 1 reports <strong style="color: #f0e0b0;">moved</strong>:</span>
+        <span style="font-size: 12px; line-height: 1.6; color: #d8c58e;">It used to report <strong style="color: #f0e0b0;">moved</strong> for every resolution below layer 1:</span>
         <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1.7; color: #b9c7d8; padding: 9px 11px; border-radius: 5px; background: #0f1826;">if (!resolution) return "orphaned";<br>if (resolution.layer === 1) return documentChanged ? "moved" : "ok";<br>return "moved";</span>
         <span style="font-size: 12px; line-height: 1.6; color: #d8c58e;">Element anchors resolve at layer 3. That was fine while they were a rare fallback — but make them a primary way to comment and <strong style="color: #f0e0b0;">every table and figure comment is permanently amber</strong>, on a document nobody has touched. With the wash cards, a table-heavy review turns the whole column amber and the signal stops meaning anything.</span>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 9px; padding: 13px; border-radius: 7px; border: 1px solid #1f2f4a; background: #141f31;">
-        <span style="font-size: 11.5px; font-weight: 600; color: #9dc2f0;">RECOMMENDED — no new state, no new field</span>
-        <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">Report <strong style="color: #e4e9f0;">ok</strong> when a layer‑3 match came from a <strong style="color: #e4e9f0;">stable id</strong> on an <strong style="color: #e4e9f0;">unchanged</strong> document. An id match on untouched bytes is exact — calling it “moved” is the resolver being wrong in the cautious direction, which still trains people to ignore the badge.</span>
-        <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">Keep <strong style="color: #f0b429;">moved</strong> for a match found only by <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">css</span> path. <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">create.ts</span> already warns that a positional path “still matches something, so the comment lands on an unrelated paragraph” — that genuinely deserves the badge.</span>
-        <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">Needs one change: <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">resolveElement()</span> reports whether it matched by id or by path. <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">isStableId()</span> already exists to judge the id.</span>
+        <span style="font-size: 11.5px; font-weight: 600; color: #7fbfa4;">SETTLED — no new state, no new field</span>
+        <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">A layer‑3 match reports <strong style="color: #e4e9f0;">ok</strong> when the element was found <strong style="color: #e4e9f0;">by name</strong> on an unchanged document, and <strong style="color: #f0b429;">moved</strong> only when it was found by a positional path. <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">resolveElement()</span> now reports which of the two it was.</span>
+        <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;"><strong style="color: #e4e9f0;">Wider than the proposal, deliberately.</strong> The proposal said “via a stable id”, but <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">create.ts</span> prefers <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">aria-label</span>, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">data-testid</span>, <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">name</span> and <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">title</span> over a positional path and checks each matches exactly one element. Those name the element as surely as an id does, and every inline diagram in the test corpus is keyed that way — under the literal rule this whole page would have shipped permanently amber.</span>
+        <span style="font-size: 12px; line-height: 1.6; color: #b9c7d8;">A path-only match keeps <strong style="color: #f0b429;">moved</strong>. <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">create.ts</span> warns that a positional path “still matches something, so the comment lands on an unrelated paragraph” — that genuinely deserves the badge.</span>
       </div>
 
       <div style="display: flex; flex-direction: column; gap: 9px; padding: 13px; border-radius: 7px; border: 1px solid #3a221c; background: #211412;">
-        <span style="font-size: 11.5px; font-weight: 600; color: #e08a76;">THE ONE THAT FAILS SILENTLY</span>
+        <span style="font-size: 11.5px; font-weight: 600; color: #e08a76;">THE ONE THAT COULD FAIL SILENTLY — AND THE FIX THAT SHIPPED</span>
         <span style="font-size: 12px; line-height: 1.6; color: #cfa79c;">A region is geometry. Redraw the chart and <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">x/y/w/h</span> still resolve — onto different content, reporting success. That is precisely the failure the anchor work exists to prevent, and it is the one kind here that can produce it.</span>
-        <span style="font-size: 12px; line-height: 1.6; color: #cfa79c;"><strong style="color: #e08a76;">Proposal:</strong> store a fingerprint of the element's rendered content alongside the region — <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">img</span> src plus dimensions, or a hash of the SVG source. Mismatch on resolve means <strong style="color: #e08a76;">orphaned</strong>, with the comment kept and its quote intact. This is a new field on <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">RegionRef</span> and needs your call before I draw it into the anchor spec.</span>
+        <span style="font-size: 12px; line-height: 1.6; color: #cfa79c;"><strong style="color: #7fbfa4;">Built.</strong> <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">RegionRef</span> carries an optional <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">fingerprint</span> of the element's rendered content, and a mismatch on resolve reports <strong style="color: #e08a76;">orphaned</strong> with the comment and its quote kept. <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">test:anchor</span> has a case for it: a redrawn figure must orphan while its untouched neighbour still resolves.</span>
+        <span style="font-size: 12px; line-height: 1.6; color: #cfa79c;">One limit stands, and <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px;">create.ts</span> records it: a raster replaced at the <strong style="color: #e08a76;">same URL and the same dimensions</strong> is not detected.</span>
       </div>
     </div>
   </div>

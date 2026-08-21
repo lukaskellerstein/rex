@@ -132,5 +132,14 @@ export const PDF_STYLESHEET = `
     cursor: default;
     user-select: none;
   }
-  .textLayer ::selection { background: #b6d0f2; color: transparent; }
+  /* Translucent, and that is the whole point.
+
+     The glyphs a reviewer reads are in the bitmap BEHIND this layer (pdf.ts):
+     the spans over it hold the same text in transparent ink so it can be
+     selected. So an opaque selection background paints over the picture and the
+     selected sentence disappears into a solid blue bar — measured on
+     2026-08-21 on sample-document.pdf, where the report title selected as two
+     empty rectangles. pdf.js's own stylesheet keeps its selection colour half
+     transparent for exactly this reason. */
+  .textLayer ::selection { background: rgb(47 93 168 / 30%); color: transparent; }
 `;

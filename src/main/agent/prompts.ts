@@ -22,12 +22,16 @@ Be concrete. Quote what you found and say where you found it as file:line.
 If the answer depends on something you cannot determine, say so plainly rather
 than guessing.`;
 
-export const WRITE_SYSTEM_PROMPT = `You are applying a change to a document that was agreed in a discussion. The
-full discussion is given below.
+export const WRITE_SYSTEM_PROMPT = `You are applying a change to one or more documents that was agreed in a
+discussion. The full discussion is given below.
 
 Make the smallest change that achieves what was agreed. Do not reformat
 surrounding text, do not fix unrelated issues, and do not improve prose that
 nobody asked about.
+
+You may be given several files. Change only the ones the discussion actually
+calls for. Leaving a file exactly as it is is a correct outcome, and is better
+than finding something to adjust in it.
 
 Edit the source file, not the rendered output.`;
 
@@ -84,35 +88,113 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** §8.6 — the user prompt for Ask. */
+/**
+ * Spec 05 §5.5 — relative to the repository root of `targets[0]`'s document.
+ *
+ * A target outside that root is written absolute: a relative path that climbs
+ * out of the tree tells the agent less than the real one, and `../../../..` is
+ * not something it can act on.
+ */
+function displayPath(repositoryRoot: string, path: string): string {
+  const rel = relative(repositoryRoot, path);
+  return rel && !rel.startsWith("..") ? rel : path;
+}
+
+/**
+ * One target, in one line.
+ *
+ * A quoteless anchor is described rather than dropped. Spec 04 dropped it, which
+ * meant a comment about a table and a paragraph reached the agent as a comment
+ * about a paragraph — and the agent answered confidently about the half it could
+ * see. The selector is not pretty, but it is true and it is findable.
+ */
+function describeTarget(anchor: Anchor): string {
+  const quote = anchor.quote?.exact?.trim();
+  if (quote) return quote;
+
+  const named = anchor.element?.id ? `#${anchor.element.id}` : anchor.element?.css;
+  const region = anchor.region ? ", a region of it" : "";
+  return named
+    ? `(no text — an element anchor: ${named}${region})`
+    : "(no text and no element — a stored position only)";
+}
+
+/**
+ * Spec 05 §5.5 — every target, grouped under the document it came from.
+ *
+ * The numbers are the target's own position in the comment, not its position in
+ * its group, so they are the numbers the reviewer saw in the selection panel and
+ * on the outlines. Targets that alternate between two documents therefore
+ * produce 1, 3 under one heading and 2 under the other, which is correct: the
+ * number identifies the place, not the line of the prompt.
+ */
+export function passageSection(input: {
+  thread: Thread;
+  documentPaths: ReadonlyMap<string, string>;
+  repositoryRoot: string;
+  heading: string;
+  /**
+   * Where this passage sits in the file *now*, when the caller can work it out.
+   * Apply passes one; Ask does not, because a read agent does not need a line
+   * and a wrong one would send it to the wrong paragraph.
+   */
+  lineOf?: (documentPath: string, anchor: Anchor) => number | null;
+}): string[] {
+  const { thread, documentPaths, repositoryRoot } = input;
+  if (thread.targets.length === 0) return [];
+
+  const groups = new Map<string, string[]>();
+  thread.targets.forEach((target, position) => {
+    const path = documentPaths.get(target.documentId) ?? target.documentId;
+    const name = displayPath(repositoryRoot, path);
+    const lines = groups.get(name) ?? [];
+    const line = input.lineOf?.(path, target.anchor) ?? null;
+    const where = line === null ? "" : ` — line ${line}`;
+    lines.push(`${position + 1}. ${describeTarget(target.anchor)}${where}`);
+    groups.set(name, lines);
+  });
+
+  const parts = [input.heading];
+  // One document needs no heading of its own — it is already named at the top
+  // of the prompt, and a lone `### file.md` reads as if a second is missing.
+  const single = groups.size === 1;
+  for (const [name, lines] of groups) {
+    if (!single) parts.push("", `### ${name}`);
+    parts.push(...lines);
+  }
+  parts.push("");
+  return parts;
+}
+
+/** §8.6 and spec 05 §5.5 — the user prompt for Ask. */
 export function askPrompt(input: {
   thread: Thread;
-  documentPath: string;
+  /** Absolute path per documentId, for every document the thread targets. */
+  documentPaths: ReadonlyMap<string, string>;
+  /** The repository root of `targets[0]`'s document. */
   repositoryRoot: string;
 }): string {
-  const { thread, documentPath, repositoryRoot } = input;
-  const anchor = thread.anchor;
-  const parts = [`Document: ${relative(repositoryRoot, documentPath) || documentPath}`];
+  const { thread, documentPaths, repositoryRoot } = input;
+  const primary = thread.targets[0] ?? null;
+  const primaryPath = primary ? (documentPaths.get(primary.documentId) ?? null) : null;
 
-  if (anchor?.source) parts.push(`Line: ${anchor.source.line}`);
+  const parts: string[] = [];
+  if (primaryPath) parts.push(`Document: ${displayPath(repositoryRoot, primaryPath)}`);
+  if (primary?.anchor.source) parts.push(`Line: ${primary.anchor.source.line}`);
   parts.push("");
 
-  if (anchor?.quote) {
-    parts.push("## Highlighted passage", anchor.quote.exact, "");
-  }
+  parts.push(
+    ...passageSection({
+      thread,
+      documentPaths,
+      repositoryRoot,
+      heading: "## Highlighted passages",
+    }),
+  );
 
-  // A multi-target comment is one question about several places, so the agent
-  // has to see all of them or it answers about the first one only.
-  const extras = thread.extraAnchors.filter((extra) => extra.quote);
-  if (extras.length > 0) {
-    parts.push("## Also highlighted");
-    extras.forEach((extra, position) => {
-      parts.push(`${position + 1}. ${extra.quote?.exact ?? ""}`);
-    });
-    parts.push("");
-  }
-
-  const section = anchor ? enclosingSection(documentPath, anchor) : null;
+  // §8.6 — emitted for the primary target only. Nine of these would bury the
+  // question the comment is actually asking.
+  const section = primary && primaryPath ? enclosingSection(primaryPath, primary.anchor) : null;
   if (section) parts.push("## Surrounding section", section, "");
 
   parts.push("## Comment", thread.note);
@@ -131,7 +213,8 @@ export function synthesisPrompt(input: {
 
   input.referenced.forEach(({ thread, messages }, position) => {
     parts.push(`## Comment ${position + 1}`);
-    if (thread.anchor?.quote) parts.push(`Highlighted passage: ${thread.anchor.quote.exact}`);
+    const quote = thread.targets[0]?.anchor.quote;
+    if (quote) parts.push(`Highlighted passage: ${quote.exact}`);
     parts.push(`The user wrote: ${thread.note}`);
     const answers = messages.filter((m) => m.role === "assistant" && m.kind === "text");
     if (answers.length > 0) {

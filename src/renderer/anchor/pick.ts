@@ -9,7 +9,9 @@
 // Pure DOM on purpose. It runs unchanged inside the tier 1 iframe and inside
 // the tier 2 preload, and it holds nothing React, IPC or database shaped.
 
+import type { Anchor, LineRange } from "../../shared/types.ts";
 import { generateCssPath, isStableId } from "./create.ts";
+import { resolveAnchor } from "./resolve.ts";
 import { elementToOffsets, type TextIndex } from "./textIndex.ts";
 
 /**
@@ -103,6 +105,19 @@ const CHAIN_STOP = new Set(["BODY", "HTML", "MAIN", "#document"]);
  */
 const TRANSPARENT = new Set(["TBODY", "THEAD", "TFOOT", "COLGROUP"]);
 
+/**
+ * The same rule, by class, for a PDF (spec 03 §7.2).
+ *
+ * `.textLayer` and `.rex-pdf-sheet` are both exactly the page's own box, so the
+ * chain offered three names for one thing and picking inside a PDF read as "it
+ * only ever selects the whole page". `.markedContent` is `display: contents`
+ * and has no box at all, so it could never be outlined.
+ */
+const TRANSPARENT_CLASSES = ["textLayer", "rex-pdf-sheet", "markedContent"];
+
+/** The page box a region can be cut from — a chart on a PDF page (§7.4). */
+const PDF_PAGE_CLASS = "rex-pdf-page";
+
 /** How far up to offer. Beyond this the scopes stop being distinguishable. */
 const MAX_SCOPES = 6;
 
@@ -114,12 +129,44 @@ function tagOf(el: Element): string {
   return el.tagName.toUpperCase();
 }
 
+function transparent(el: Element): boolean {
+  return (
+    TRANSPARENT.has(tagOf(el)) || TRANSPARENT_CLASSES.some((name) => el.classList.contains(name))
+  );
+}
+
+/**
+ * The run of glyphs under the cursor in a PDF, or null outside one.
+ *
+ * PDF.js places every text item absolutely, so an item is a box on the page
+ * rather than an inline run inside a paragraph. Walking up out of it — which
+ * `<span>` otherwise demands — lands on the text layer, and the text layer
+ * covers the whole page: that is why pick mode in a PDF could offer nothing
+ * smaller than the page. Measured on 2026-08-21 on `sample-document.pdf`.
+ */
+function pdfTextItem(from: Element): Element | null {
+  const layer = from.closest(".textLayer");
+  if (!layer || from === layer) return null;
+  let el: Element | null = from;
+  while (el && el !== layer) {
+    // `.markedContent` groups items and has no box; the item inside it does.
+    if (tagOf(el) === "SPAN" && !el.classList.contains("markedContent")) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
 /**
  * The smallest thing under the cursor worth anchoring to. Inline runs resolve
  * up to their block, so hovering a bold word offers the paragraph rather than
  * the `<strong>` — an anchor on the `<strong>` is a positional path to a word.
+ *
+ * A PDF text item is the exception, and not an inconsistent one: it is already
+ * a positioned box, so there is no block for it to resolve up to.
  */
 export function smallestAnchorable(from: Element | null): Element | null {
+  const item = from ? pdfTextItem(from) : null;
+  if (item) return item;
   let el = from;
   while (el && INLINE_TAGS.has(tagOf(el))) el = el.parentElement;
   return el;
@@ -182,6 +229,13 @@ function titleOf(el: Element, quote: string | null): string {
   const tag = tagOf(el);
   const quoted = (text: string | null): string => (text ? ` · “${text}”` : "");
 
+  // Before the tag table, because a PDF page is a `div` and the table has only
+  // one word for those: the panel row for a whole page read "Block".
+  if (el.classList.contains(PDF_PAGE_CLASS)) {
+    const page = el.getAttribute("data-page");
+    return page ? `Page ${page}` : "Page";
+  }
+
   switch (tag) {
     case "TD":
     case "TH": {
@@ -217,6 +271,10 @@ function titleOf(el: Element, quote: string | null): string {
       return `List item ${ordinalOf(el)}`;
     case "P":
       return "Paragraph";
+    case "SPAN":
+      // Only a PDF text item reaches here: an inline span in an HTML document
+      // resolves up to its block — see `smallestAnchorable`.
+      return `Line${quoted(preview(quote))}`;
     case "H1":
     case "H2":
     case "H3":
@@ -262,7 +320,16 @@ function rectOf(el: Element): ScopeRect {
   return toDocumentRect(el.ownerDocument?.defaultView ?? null, el.getBoundingClientRect());
 }
 
+/**
+ * The crumb and chip word. A tag name everywhere except in a PDF, where "div"
+ * and "span" say nothing at all: there they are the page and a line on it.
+ */
 function labelOf(el: Element): string {
+  if (el.classList.contains(PDF_PAGE_CLASS)) {
+    const page = el.getAttribute("data-page");
+    return page ? `page ${page}` : "page";
+  }
+  if (pdfTextItem(el) === el) return "line";
   const tag = el.tagName.toLowerCase();
   return isStableId(el.id) ? `${tag}#${el.id}` : tag;
 }
@@ -288,7 +355,10 @@ export function describeElement(index: TextIndex, el: Element, position = 0): Pi
     strength,
     strengthNote,
     rect: rectOf(el),
-    regionCapable: REGION_TAGS.has(tagOf(el)),
+    // A PDF page joins the figures: it is a picture with text over it, and
+    // pdf.ts already tells the reviewer to "comment on a region of a page"
+    // when the page carries no text layer at all (spec 03 §7.4).
+    regionCapable: REGION_TAGS.has(tagOf(el)) || el.classList.contains(PDF_PAGE_CLASS),
   };
 }
 
@@ -299,7 +369,7 @@ function chainFrom(index: TextIndex, el: Element | null, offset: number): ScopeC
 
   let current: Element | null = el;
   while (current && !CHAIN_STOP.has(tagOf(current)) && scopes.length + offset < MAX_SCOPES) {
-    if (!TRANSPARENT.has(tagOf(current))) {
+    if (!transparent(current)) {
       scopes.push(describeElement(index, current, scopes.length + offset));
       elements.push(current);
     }
@@ -309,10 +379,55 @@ function chainFrom(index: TextIndex, el: Element | null, offset: number): ScopeC
   return { scopes, elements, range: null };
 }
 
+/**
+ * The line just above or below the cursor, when the cursor is in the gap.
+ *
+ * PDF.js sizes every text item to its glyphs, not to the line it sits in, so
+ * the leading between two lines belongs to no item at all — and the text layer
+ * behind it covers the whole page. Pointing two pixels under a sentence
+ * therefore offered the page, and a pointer moving down a paragraph flickered
+ * between the line and the page. Measured on 2026-08-21 on
+ * `documentation-sample/one/sample-document.pdf`: on the glyphs, 14 probes out
+ * of 14 found their line; two pixels below, 0 of 14 did.
+ *
+ * The slack comes from the line's own height rather than a fixed number of
+ * pixels, so a heading is as forgiving as a caption and nothing is tuned per
+ * document. It is deliberately small in both directions: past it — in a margin,
+ * or over a drawing — the honest answer is the page, and a region is how a
+ * drawing gets commented on.
+ *
+ * Only reached when the cursor is over a text layer and nothing else, so the
+ * search is one page's items and never runs in an HTML document.
+ */
+function nearestTextItem(target: Element | null, x: number, y: number): Element | null {
+  if (!target?.classList.contains("textLayer")) return null;
+
+  let best: Element | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const span of target.querySelectorAll("span")) {
+    if (span.classList.contains("markedContent")) continue;
+    const box = span.getBoundingClientRect();
+    // A `.markedContent` wrapper and a `<br>` both measure zero.
+    if (box.width === 0 || box.height === 0) continue;
+
+    const dx = Math.max(box.left - x, 0, x - box.right);
+    const dy = Math.max(box.top - y, 0, y - box.bottom);
+    const slack = box.height * 0.6;
+    if (dx > slack || dy > slack) continue;
+
+    const distance = dx + dy;
+    if (distance < bestDistance) {
+      best = span;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 /** design/selection/Hover — what the cursor is over, and what encloses it. */
 export function scopeChainAt(index: TextIndex, x: number, y: number): ScopeChain | null {
   const target = index.doc.elementFromPoint(x, y);
-  const anchorable = smallestAnchorable(target);
+  const anchorable = nearestTextItem(target, x, y) ?? smallestAnchorable(target);
   if (!anchorable || CHAIN_STOP.has(tagOf(anchorable))) return null;
   const chain = chainFrom(index, anchorable, 0);
   return chain.scopes.length > 0 ? chain : null;
@@ -353,4 +468,81 @@ export function scopeChainForRange(index: TextIndex, range: Range): ScopeChain {
     elements: [null, ...outer.elements],
     range,
   };
+}
+
+/**
+ * Spec 05 §4.1 — the chain to widen through, for an anchor already written.
+ *
+ * The selection panel keeps items, not chains. A chain holds live `Element`s:
+ * they die when the document reloads, they cannot cross the tier 2 bridge, and
+ * a stale one resolves to *somewhere* and looks fine. So widening rebuilds the
+ * chain from the anchor every time, which also means it works after a reload —
+ * which the remembered chain never survived.
+ *
+ * `kind` is not a convenience. A text anchor and an element anchor carry the
+ * same fields — both quote their text and both name their element (`create.ts`)
+ * — so a stored anchor cannot say which gesture made it, and `resolveAnchor`
+ * answers the quote first for either. Rebuilding without `kind` therefore
+ * offered `text` as the chosen scope for a comment stored on a table cell:
+ * measured on 2026-08-21 against `retries.md`. The panel was there when the
+ * anchor was made and knows the answer, so it states it rather than letting
+ * this function infer one.
+ *
+ * Null when the anchor does not resolve, which is the honest answer: the thing
+ * it named is not in this document any more, so there is nothing to widen from.
+ */
+export function scopeChainForAnchor(
+  index: TextIndex,
+  anchor: Anchor,
+  kind: "text" | "element",
+): ScopeChain | null {
+  // Nulling the quote forces `resolveAnchor` past layer 1 and onto the element
+  // the anchor names — which for an element anchor is the thing it is about.
+  const resolution = resolveAnchor(index, kind === "element" ? { ...anchor, quote: null } : anchor);
+  if (!resolution) return null;
+  const chain =
+    resolution.kind === "range"
+      ? scopeChainForRange(index, resolution.range)
+      : chainFrom(index, resolution.element, 0);
+  return chain.scopes.length > 0 ? chain : null;
+}
+
+/**
+ * Spec 05 §5.6.1 — the blocks a set of changed source lines falls inside.
+ *
+ * `data-src-line` marks where a block *starts*, so a changed line is almost
+ * never equal to one. A block therefore owns every line from its own up to the
+ * line before the next block's, and a range matches when the two overlap. That
+ * turns "lines 12 to 16 changed" into "this paragraph and that table changed",
+ * which is the only form a reviewer can act on.
+ *
+ * Only the outermost match is returned: a changed paragraph inside a changed
+ * blockquote is one change, and two nested outlines read as two.
+ */
+export function changedBlocks(doc: Document, ranges: ReadonlyArray<LineRange>): Element[] {
+  if (ranges.length === 0) return [];
+
+  const stamped = [...doc.querySelectorAll("[data-src-line]")]
+    .map((el) => ({ el, line: Number(el.getAttribute("data-src-line")) }))
+    .filter((entry) => Number.isInteger(entry.line) && entry.line > 0);
+  if (stamped.length === 0) return [];
+
+  const starts = [...new Set(stamped.map((entry) => entry.line))].sort((a, b) => a - b);
+  const lastLineOf = new Map<number, number>();
+  starts.forEach((line, position) => {
+    // The final block runs to the end of the file, whatever that is.
+    lastLineOf.set(
+      line,
+      position + 1 < starts.length ? starts[position + 1] - 1 : Number.MAX_SAFE_INTEGER,
+    );
+  });
+
+  const hit = stamped
+    .filter(({ line }) => {
+      const last = lastLineOf.get(line) ?? line;
+      return ranges.some((range) => range.from <= last && range.to >= line);
+    })
+    .map((entry) => entry.el);
+
+  return hit.filter((el) => !hit.some((other) => other !== el && other.contains(el)));
 }

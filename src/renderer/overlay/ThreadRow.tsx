@@ -55,7 +55,7 @@ export function StateWord({
 
 export function ThreadRow(props: Props): React.JSX.Element {
   const { thread } = props;
-  const quote = thread.anchor?.quote?.exact ?? null;
+  const quote = thread.targets[0]?.anchor.quote?.exact ?? null;
   const { answered, steps } = progressOf(thread);
   const word = <StateWord status={thread.status} state={props.state} />;
 
@@ -92,6 +92,13 @@ export function ThreadRow(props: Props): React.JSX.Element {
             </span>
           </span>
         ) : null}
+
+        {/*
+          Spec 05 §5.3 — the comment list is the workspace's now, so every row
+          says which documents it is about. Always, not only when there are two:
+          a list where the document appears sometimes is a list you read twice.
+        */}
+        <span className="rex-thread-docs">{thread.documentNames.join(" · ")}</span>
 
         <span className="rex-thread-meta">
           {word}

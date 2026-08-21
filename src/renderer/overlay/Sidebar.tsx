@@ -12,7 +12,8 @@ type Filter = "open" | "resolved" | "orphaned";
 
 interface Props {
   threads: ThreadWithMessages[];
-  stateById: Map<string, AnchorState>;
+  /** Null means no target of this thread has been checked yet — §5.4. */
+  stateById: Map<string, AnchorState | null>;
   labelById: Map<string, string | null>;
   busyThreads: string[];
   onSelect: (threadId: string) => void;
@@ -91,7 +92,7 @@ export function Sidebar(props: Props): React.JSX.Element {
               <ThreadRow
                 thread={thread}
                 number={numbers.get(thread.id) ?? 0}
-                state={props.stateById.get(thread.id) ?? thread.anchorState}
+                state={props.stateById.get(thread.id) ?? null}
                 label={props.labelById.get(thread.id) ?? null}
                 selected={false}
                 busy={props.busyThreads.includes(thread.id)}

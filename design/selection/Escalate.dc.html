@@ -18,9 +18,12 @@
 <div style="width: 1440px; height: 900px; box-sizing: border-box; display: flex; flex-direction: column; background: #0d1420; color: #e4e9f0; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px; line-height: 1.5;">
 
   <div style="display: flex; align-items: center; gap: 12px; padding: 0 12px; height: 44px; flex: none; background: #131d2e; border-bottom: 1px solid #24344a;">
-    <span style="width: 22px; height: 22px; flex: none; border-radius: 5px; background: #d2402f; color: #fff; font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center;">R</span>
+    <img src="rex-mark-color-128.png" alt="REX" style="flex: none; display: block; height: 24px; width: auto;">
+    <span style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 14px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">
+      Open<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
+    </span>
     <span style="display: flex; align-items: baseline; gap: 6px; font-size: 12px; font-family: 'IBM Plex Mono', ui-monospace, monospace;">
-      <span style="color: #8ba0ba;">docs</span><span style="color: #4a5f7a;">/</span><span style="color: #8ba0ba;">architecture</span><span style="color: #4a5f7a;">/</span><span style="color: #e4e9f0; font-weight: 500;">widget-service.md</span>
+      <span style="color: #8ba0ba;">docs</span><span style="color: #4a5f7a;"> / </span><span style="color: #8ba0ba;">architecture</span><span style="color: #4a5f7a;"> / </span><span style="color: #e4e9f0; font-weight: 500;">widget-service.md</span>
     </span>
     <span style="flex: 1;"></span>
     <span style="display: flex; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420; gap: 2px;">
@@ -28,10 +31,7 @@
       <span style="padding: 3px 12px; border-radius: 4px; font-size: 12px; color: #8ba0ba;">Graph</span>
     </span>
     <span style="font-size: 12px; color: #8ba0ba; font-variant-numeric: tabular-nums;">$0.9330</span>
-    <span style="display: flex; align-items: center; height: 28px; padding: 0 12px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Ask all · 1</span>
-    <span style="display: flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">
-      Open<svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"></path></svg>
-    </span>
+    <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Ask all · 1</span>
   </div>
 
   <div style="display: flex; flex: 1; min-height: 0;">
@@ -55,9 +55,9 @@
           <svg viewBox="0 0 16 16" width="9" height="9" fill="currentColor" style="color: #5d7a9a;"><path d="M4 6h8l-4 5z"></path></svg><span>review</span>
         </div>
         <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;">2026-08-19-pr-comments.html</div>
-        <div style="display: flex; align-items: center; gap: 7px; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #5d7a9a;" title="tier 3 — REX cannot render this format">
-          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">2026-07-30-audit.pdf</span>
-        </div>
+        <!-- Not greyed any more: REX renders Markdown, HTML, PDF and DOCX. Apply
+             is still off for a PDF, and the card says why on hover. -->
+        <div style="display: flex; align-items: center; height: 24px; padding: 0 12px 0 27px; font-size: 12px; color: #b9c7d8;" title="Apply cannot edit a PDF — there is no source line to write back to.">2026-07-30-audit.pdf</div>
       </div>
     </div>
 
@@ -104,72 +104,114 @@
         </div>
       </div>
 
-      <div style="position: absolute; top: 0; right: 0; bottom: 0; width: 32px; border-left: 1px solid #eae7e1; background: #f4f2ee;">
-        <div style="position: absolute; top: 148px; right: 7px; width: 19px; height: 19px; border-radius: 50%; border: 2px dashed #6f9fe0; background: #fff; color: #2f5da8; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center;">+</div>
-      </div>
+      <!-- No gutter marker and no floating card. A place being selected lives
+           in the panel on the right; the gutter carries saved comments only. -->
+      <div style="position: absolute; top: 0; right: 0; bottom: 0; width: 32px; border-left: 1px solid #eae7e1; background: #f4f2ee;"></div>
 
-      <div style="position: absolute; top: 118px; right: 46px; width: 330px; display: flex; flex-direction: column; gap: 11px; padding: 13px; border: 1px solid #24344a; border-radius: 7px; background: #131d2e; box-shadow: 0 14px 42px rgb(0 0 0 / 48%); color: #e4e9f0;">
-        <div style="display: flex; align-items: center; gap: 7px;">
-          <span style="width: 6px; height: 6px; border-radius: 50%; background: #6f9fe0;"></span>
-          <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">NEW COMMENT</span>
-          <span style="margin-left: auto; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10px; color: #5d7a9a;">widget-service.md:14</span>
-        </div>
+      <!-- The pick hint, at the foot of the paper.
 
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-          <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">ANCHOR TO</span>
-          <div style="display: flex; gap: 5px;">
-            <span onClick="{{ pickText }}" style="{{ chipText }}">text</span>
-            <span onClick="{{ pickCell }}" style="{{ chipCell }}">cell</span>
-            <span onClick="{{ pickRow }}" style="{{ chipRow }}">row</span>
-            <span onClick="{{ pickTable }}" style="{{ chipTable }}">table</span>
-          </div>
-        </div>
+           It left the top bar because it was the only MODE in a row of facts
+           about the document and actions on it. Here it sits where the mode
+           acts, in the same strip the path bar uses: hold &#8997; (or press P) and
+           this becomes the path bar. One place, one meaning.
 
-        <sc-if value="{{ onText }}" hint-placeholder-val="{{ true }}">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 9px 11px; border-radius: 5px; background: #1a2638;">
-            <span style="font-family: Newsreader, Georgia, serif; font-size: 13px; font-style: italic; line-height: 1.5; color: #b9c7d8;">“no backoff today”</span>
-            <span style="font-size: 10.5px; color: #8ba0ba;">quote + 32 chars either side · survives a rewrite elsewhere</span>
-          </div>
-        </sc-if>
-        <sc-if value="{{ onCell }}" hint-placeholder-val="{{ true }}">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 9px 11px; border-radius: 5px; background: #1a2638;">
-            <span style="font-size: 12px; font-weight: 600;">Cell · row 1, “Notes”</span>
-            <span style="font-family: Newsreader, Georgia, serif; font-size: 12.5px; font-style: italic; color: #b9c7d8;">“applied with no backoff today”</span>
-            <span style="font-size: 10.5px; color: #8ba0ba;">element + its text · survives the column moving</span>
-          </div>
-        </sc-if>
-        <sc-if value="{{ onRow }}" hint-placeholder-val="{{ true }}">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 9px 11px; border-radius: 5px; background: #1a2638;">
-            <span style="font-size: 12px; font-weight: 600;">Row · “retries”</span>
-            <span style="font-family: Newsreader, Georgia, serif; font-size: 12.5px; font-style: italic; color: #b9c7d8;">“retries · 3 · 0–10 · applied with…”</span>
-            <span style="font-size: 10.5px; color: #8ba0ba;">element + opening text · survives a reordered table</span>
-          </div>
-        </sc-if>
-        <sc-if value="{{ onTable }}" hint-placeholder-val="{{ true }}">
-          <div style="display: flex; flex-direction: column; gap: 5px; padding: 9px 11px; border-radius: 5px; background: #1a2638;">
-            <span style="font-size: 12px; font-weight: 600;">Table · 3 rows × 4 columns</span>
-            <span style="font-family: Newsreader, Georgia, serif; font-size: 12.5px; font-style: italic; color: #b9c7d8;">“Setting · Default · Range · Notes…”</span>
-            <span style="font-size: 10.5px; color: #8ba0ba;">element + opening text · the whole contract, however it is edited</span>
-          </div>
-        </sc-if>
-
-        <div style="min-height: 58px; padding: 9px 11px; border: 1px solid #2f5da8; border-radius: 5px; background: #1a2638; font-size: 13px; line-height: 1.55;">Nothing here says what happens after the third retry. Should the dead-letter row be the answer?</div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span style="display: flex; align-items: center; height: 28px; padding: 0 16px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Ask</span>
-          <span style="display: flex; align-items: center; height: 28px; padding: 0 13px; border: 1px solid #24344a; border-radius: 4px; background: #1a2638; font-size: 12px;">Cancel</span>
-          <span style="margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 10px; color: #5d7a9a;">
-            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 13 4v4.2C13 11 10.8 13.2 8 14 5.2 13.2 3 11 3 8.2V4z"></path></svg>read-only
-          </span>
-        </div>
+           Drawn over the pane like every other mark REX makes — the outlines,
+           the badges, the marquee. Nothing is written into the document. -->
+      <div style="position: absolute; right: 48px; bottom: 14px; display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px; border: 1px solid #e2ded7; border-radius: 4px; background: #f0eee9; color: #8a837a; font-size: 11px;" title="Pick an element to comment on — hold &#8997;, or press P">
+        <span style="padding: 1px 5px; border: 1px solid #d6d1c8; border-radius: 3px; background: #fff; font-family: 'IBM Plex Mono', ui-monospace, monospace;">&#8997;</span>
+        pick element
       </div>
     </div>
 
     <div style="width: 384px; flex: none; display: flex; flex-direction: column; background: #131d2e; border-left: 1px solid #24344a; overflow: hidden;">
+
+      <!-- The sidebar's own tab bar. It is here because the selection has
+           something in it; with nothing selected there is nothing to switch to
+           and the sidebar is the comments, exactly as it was. -->
+      <div style="display: flex; align-items: center; height: 40px; flex: none; padding: 0 14px; border-bottom: 1px solid #1c2a3d;">
+        <div style="display: flex; flex: 1; gap: 2px; padding: 2px; border: 1px solid #24344a; border-radius: 6px; background: #0d1420;">
+          <span style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 3px 12px; border-radius: 4px; background: #22304a; color: #e4e9f0; font-size: 12px; font-weight: 500;">
+            Selection<span style="padding: 0 6px; border-radius: 999px; background: #6f9fe0; color: #0d1420; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;">1</span>
+          </span>
+          <span style="display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; padding: 3px 12px; border-radius: 4px; color: #8ba0ba; font-size: 12px; cursor: pointer;">
+            Comments<span style="padding: 0 6px; border-radius: 999px; background: #22304a; color: #8ba0ba; font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums;">6</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- The chips moved out of the floating card and onto the panel row, so a
+           place can still be widened after it was taken — and after the document
+           has been reloaded, which the old remembered chain never survived. -->
+      <div style="flex: none; display: flex; flex-direction: column; border-bottom: 1px solid #24344a; background: #101a29;">
+        <!-- `clear` belongs INSIDE the tab, not beside it. Beside the tabs it
+             read as chrome for the whole sidebar; it acts on the selection
+             only, so it lives with the selection. Kept away from `Ask` at the
+             foot on purpose — a destructive action next to the primary one is
+             a slip waiting to happen. -->
+        <div style="display: flex; align-items: center; height: 30px; flex: none; padding: 0 14px;">
+          <span style="flex: 1;"></span>
+          <span style="font-size: 11px; color: #6f9fe0; cursor: pointer;" title="Empties the selection. Asks first above three places, or once a note has been typed.">clear</span>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 3px; padding: 8px 10px;">
+          <div style="border: 1px solid #24344a; border-radius: 5px; background: #1a2638;">
+            <div style="display: flex; align-items: flex-start; gap: 4px;">
+              <div style="display: flex; align-items: flex-start; flex: 1; min-width: 0; padding: 6px 4px 6px 7px;">
+                <span style="display: inline-flex; flex: none; align-items: center; justify-content: center; width: 15px; height: 15px; margin-right: 6px; border-radius: 50%; background: #6f9fe0; color: #fff; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9px; line-height: 1;">1</span>
+                <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0;">
+                  <!-- Four literal spans rather than one text binding: the editor
+                       shows a binding as its own name, which would make the copy
+                       unreadable and uneditable on the canvas. -->
+                  <span style="overflow: hidden; color: #e4e9f0; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap;">
+                    <sc-if value="{{ onText }}" hint-placeholder-val="{{ true }}">“no backoff today”</sc-if>
+                    <sc-if value="{{ onCell }}" hint-placeholder-val="{{ true }}">Cell · row 1, “Notes”</sc-if>
+                    <sc-if value="{{ onRow }}" hint-placeholder-val="{{ true }}">Row 1 · “retries”</sc-if>
+                    <sc-if value="{{ onTable }}" hint-placeholder-val="{{ true }}">Table · 4 rows × 4 columns</sc-if>
+                  </span>
+                  <span style="color: #5d7a9a; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 9.5px;">widget-service.md</span>
+                </span>
+              </div>
+              <span style="flex: none; width: 22px; height: 26px; color: #5d7a9a; font-size: 15px; line-height: 26px; text-align: center; cursor: pointer;">×</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px; padding: 2px 9px 9px;">
+              <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+                <span onClick="{{ pickText }}" style="{{ chipText }}">text</span>
+                <span onClick="{{ pickCell }}" style="{{ chipCell }}">cell</span>
+                <span onClick="{{ pickRow }}" style="{{ chipRow }}">row</span>
+                <span onClick="{{ pickTable }}" style="{{ chipTable }}">table</span>
+              </div>
+              <!-- Only on an element scope. A text scope has no id to lose, and
+                   nine collapsed rows each carrying a meter is a wall. -->
+              <sc-if value="{{ onElement }}" hint-placeholder-val="{{ true }}">
+                <span style="display: flex; align-items: center; gap: 7px; padding: 6px 9px; border-radius: 4px; background: #1c1708; color: #d8c58e; font-size: 11px;">
+                  <span style="display: flex; gap: 2px; flex: none;">
+                    <i style="width: 4px; height: 11px; border-radius: 1px; background: #f0b429;"></i>
+                    <i style="width: 4px; height: 11px; border-radius: 1px; background: #f0b429;"></i>
+                    <i style="width: 4px; height: 11px; border-radius: 1px; background: #3a2f10;"></i>
+                  </span>
+                  <span><strong style="color: #e4e9f0;">Fair</strong> — no id, but its text carries it if it moves</span>
+                </span>
+              </sc-if>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 8px; flex: none; padding: 10px 14px 12px; border-top: 1px solid #1c2a3d;">
+          <div style="min-height: 58px; padding: 9px 11px; border: 1px solid #2f5da8; border-radius: 5px; background: #1a2638; font-size: 13px; line-height: 1.5; color: #e4e9f0;">Nothing here says what happens after the third retry. Should the dead-letter row be the answer?</div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="display: flex; align-items: center; height: 28px; padding: 0 14px; border-radius: 4px; background: #2f5da8; color: #fff; font-size: 12px; font-weight: 600;">Ask about 1</span>
+            <span style="margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 10px; color: #5d7a9a;">
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 2 13 4v4.2C13 11 10.8 13.2 8 14 5.2 13.2 3 11 3 8.2V4z"></path></svg>read-only
+            </span>
+          </div>
+        </div>
+      </div>
+
       <div style="display: flex; align-items: center; padding: 0 14px; height: 40px; flex: none; border-bottom: 1px solid #1c2a3d;">
         <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">WIDENING THE ANCHOR</span>
       </div>
       <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 14px; overflow: hidden;">
-        <span style="font-size: 12.5px; line-height: 1.6; color: #b9c7d8;">Selecting text inside a structured block is the common case, and the block is often what the comment is really about. Rather than a picker mode, the composer offers the enclosing structure — walking up the DOM from the selection — and the document previews each scope as you move through it.</span>
+        <span style="font-size: 12.5px; line-height: 1.6; color: #b9c7d8;">Selecting text inside a structured block is the common case, and the block is often what the comment is really about. So the row offers the enclosing structure — walking up the DOM from the selection — and the document previews each scope as you move through it. Choosing one re-anchors that row and keeps its number.</span>
 
         <div style="display: flex; flex-direction: column; gap: 8px;">
           <span style="font-size: 10px; font-weight: 600; letter-spacing: 0.09em; color: #8ba0ba;">WHAT EACH SCOPE STORES</span>
@@ -215,10 +257,13 @@ class Component extends DCLogic {
     };
 
     return {
+      // The row's own words follow the chosen scope, because widening a row IS
+      // re-anchoring it: the label, the rect and the anchor are all replaced.
       onText: scope === "text",
       onCell: scope === "cell",
       onRow: scope === "row",
       onTable: scope === "table",
+      onElement: scope !== "text",
 
       chipText: chip("text"),
       chipCell: chip("cell"),

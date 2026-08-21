@@ -36,8 +36,12 @@ export function Gutter(props: Props): React.JSX.Element {
   const numbers = new Map(props.threads.map((thread, position) => [thread.id, position + 1]));
   const byId = new Map(props.threads.map((thread) => [thread.id, thread]));
 
-  const placed = props.resolved.filter((entry) => entry.top !== null);
-  const lost = props.resolved.filter((entry) => entry.top === null);
+  // Spec 05 §5.8 — a marker only for a thread with a target *here*. A comment
+  // about another document has nothing in this margin to point at, and a marker
+  // at the top of the page for it would be a lie about where it belongs.
+  const here = props.resolved.filter((entry) => entry.checked.length > 0);
+  const placed = here.filter((entry) => entry.top !== null);
+  const lost = here.filter((entry) => entry.top === null);
 
   const marker = (entry: ResolvedThread, pinned: boolean): React.JSX.Element | null => {
     const thread = byId.get(entry.threadId);

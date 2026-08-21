@@ -9,7 +9,9 @@ import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import Database from "better-sqlite3";
 import { DB_PATH } from "../main/db/location.ts";
-import { listThreads } from "../main/db/queries.ts";
+import { listThreadsInDocument } from "../main/db/queries.ts";
+import { withDetail } from "../main/threads.ts";
+import { worstState } from "../shared/targets.ts";
 import type { ThreadWithMessages } from "../shared/types.ts";
 
 interface Options {
@@ -64,15 +66,23 @@ function toMarkdown(title: string, documentPath: string, threads: ThreadWithMess
   threads.forEach((thread, position) => {
     lines.push(`## ${position + 1}. ${thread.note}`, "");
 
+    const primary = thread.targets[0]?.anchor ?? null;
+    const state = worstState(thread.targets.map((target) => target.state));
+
     const facts = [`status: ${thread.status}`];
-    if (thread.anchorState) facts.push(STATE_LABEL[thread.anchorState] ?? thread.anchorState);
-    if (thread.anchor?.source) facts.push(`source line ${thread.anchor.source.line}`);
+    if (state) facts.push(STATE_LABEL[state] ?? state);
+    if (primary?.source) facts.push(`source line ${primary.source.line}`);
+    // A comment about several documents says so here rather than pretending the
+    // export it appears in is the whole of it.
+    if (thread.documentNames.length > 1)
+      facts.push(`also about ${thread.documentNames.join(", ")}`);
+    if (thread.targets.length > 1) facts.push(`${thread.targets.length} places`);
     if (thread.kind === "synthesis")
       facts.push(`references ${thread.refThreadIds.length} comments`);
     lines.push(`*${facts.join(" · ")}*`, "");
 
-    if (thread.anchor?.quote) {
-      lines.push(`> ${thread.anchor.quote.exact.replace(/\n/g, "\n> ")}`, "");
+    if (primary?.quote) {
+      lines.push(`> ${primary.quote.exact.replace(/\n/g, "\n> ")}`, "");
     }
 
     const answers = thread.messages.filter((m) => m.role === "assistant" && m.kind === "text");
@@ -98,7 +108,9 @@ function main(): void {
       throw new Error(`REX has no comments for ${options.document}`);
     }
 
-    const threads = listThreads(db, document.id);
+    // Every comment with a target in this document, which since spec 05 §5.3
+    // includes comments that were written while another document was open.
+    const threads = listThreadsInDocument(db, document.id).map((thread) => withDetail(db, thread));
     const output = options.json
       ? JSON.stringify({ document: options.document, threads }, null, 2)
       : toMarkdown(document.title ?? options.document, options.document, threads);
