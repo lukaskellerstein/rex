@@ -25,8 +25,22 @@ interface Props {
   arming: boolean;
   onProbe: (x: number, y: number) => void;
   onActive: (index: number) => void;
-  /** Adds this element to the selection panel. Every click adds — spec 05 §3.1. */
+  /** Enter commits whatever the path bar currently shows. */
   onCommit: (index: number) => void;
+  /**
+   * A CLICK commits what is under the pointer, named by where it landed rather
+   * than by what the last probe happened to leave behind.
+   *
+   * The click carries its own coordinates because the alternative — trusting
+   * `scopes[active]` from React state — has two ways to be empty at exactly the
+   * moment it is needed. A click with no pointer move before it never probed,
+   * so there is no chain and the click does nothing; and the pointer is already
+   * resting over the document whenever pick mode is entered right after reading
+   * or selecting something, which is precisely when nobody moves the mouse
+   * first. Probing at the click point makes the first click behave like every
+   * later one.
+   */
+  onCommitAt: (x: number, y: number) => void;
   onRegion: (index: number, box: ScopeRect) => void;
   onCancel: () => void;
   /**
@@ -185,8 +199,10 @@ export function PickLayer(props: Props): React.JSX.Element {
         setDrag(null);
         if (box.w >= DRAG_MINIMUM && box.h >= DRAG_MINIMUM) props.onRegion(props.active, box);
       }}
-      onClick={() => {
-        if (!props.arming && scope) props.onCommit(props.active);
+      onClick={(event) => {
+        if (props.arming) return;
+        const point = toDocument(event);
+        props.onCommitAt(point.x, point.y);
       }}
       onContextMenu={(event) => {
         // Swallowed, and nothing more. Spec 05 §3.1 removed the modifiers: on

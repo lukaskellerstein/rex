@@ -17,9 +17,9 @@ function createWindow(): BrowserWindow {
     height: 950,
     show: false,
     title: "REX",
-    // The Workbench ground, so the window does not flash a different dark grey
-    // before the renderer paints. design/system/Components — `--bg`.
-    backgroundColor: "#0d1420",
+    // The Graphite ground, so the window does not flash a different dark grey
+    // before the renderer paints. Must track `--bg` in overlay.css.
+    backgroundColor: "#0e1012",
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       // Invariant I2 — the renderer displays untrusted document content, so it

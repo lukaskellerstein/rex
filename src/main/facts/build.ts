@@ -238,6 +238,20 @@ export async function runBuild(input: BuildInput): Promise<BuildReport> {
   // ── Stages 2 and 3, per chunk (see the header) ────────────
   let cursor = 0;
 
+  /*
+    Announced BEFORE the first call, never after it.
+
+    `extractChunk` awaits a model that takes 6–11 minutes per passage on the
+    local alias, and the only extract event used to fire once a chunk had come
+    back. So the strip sat on the *previous* stage's message — "Splitting
+    documents", at 56 / 56, a full bar — for the whole of the first extraction.
+    Splitting itself takes milliseconds; what the reviewer saw was a completed
+    stage frozen at 100% while the build was in fact working hardest, which
+    reads as a hang and invites cancelling a job that is doing exactly what it
+    should. Measured on 2026-08-22 against `documentation-sample`.
+  */
+  input.onProgress("extract", cursor, totalChunks, "Extracting claims");
+
   for (const entry of chunked) {
     // The row has to exist before the first chunk of it is stored, because
     // that chunk's completion is recorded against it.
@@ -260,6 +274,18 @@ export async function runBuild(input: BuildInput): Promise<BuildReport> {
       // the document rather than the run, because the run's own cursor spans
       // every document and stage 0 has already dropped the finished ones.
       if (chunk.index < entry.resumeFrom) continue;
+
+      // Which document is in flight, said while it is in flight. One passage
+      // can hold the build for ten minutes, and over an overnight job "it is
+      // somewhere in five files" is the difference between watching progress
+      // and watching a stalled number. `cursor - 1` because the cursor counts
+      // passages *finished*, and this one has not started.
+      input.onProgress(
+        "extract",
+        cursor - 1,
+        totalChunks,
+        `Extracting claims — ${basename(entry.path)}`,
+      );
 
       try {
         const extracted = await extractChunk(gateway, aliases.extract, entry.text, chunk);

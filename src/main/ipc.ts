@@ -53,6 +53,7 @@ import { type Db, vectorSearchStatus } from "./db/database.ts";
 import {
   appendMessage,
   createThread,
+  deleteThread,
   documentCostUsd,
   getDocument,
   getThread,
@@ -407,6 +408,18 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     const thread = getThread(db, request.threadId);
     if (!thread) throw new Error(`No such thread: ${request.threadId}`);
     return thread;
+  });
+
+  /**
+   * §9's cascades do the work; this only has to be honest about what it did.
+   *
+   * A thread that is mid-run is deleted anyway rather than refused: the agent
+   * writes its messages through `getThread`, which now finds nothing, and the
+   * reviewer asking for a comment to be gone should not have to wait out a
+   * four-minute answer to get it.
+   */
+  ipcMain.handle(COMMAND.threadDelete, (_event, threadId: string): void => {
+    deleteThread(db, threadId);
   });
 
   ipcMain.handle(

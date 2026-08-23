@@ -77,8 +77,11 @@ let katexUrl: string | null = null;
 
 function markdownPage(title: string, body: string): string {
   katexUrl ??= katexStylesheetUrl();
+  // `data-rex-paper` says REX wrote this page's stylesheet, so the renderer may
+  // load REX's own font into it. Sanitised author HTML carries no such mark and
+  // keeps its own type — see `renderer/overlay/paperFonts.ts`.
   return `<!doctype html>
-<html lang="en">
+<html lang="en" data-rex-paper>
 <head>
 <meta charset="utf-8">
 <title>${escapeHtml(title)}</title>

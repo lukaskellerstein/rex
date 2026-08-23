@@ -6,13 +6,16 @@
 // dismissed by accident (only `clear` or Ask empties it), and cannot inherit a
 // previous selection (there is one panel and its contents are visible).
 //
-// It lives at the top of the right sidebar, above the comments, and it is gone
-// when there is nothing in it.
+// Spec 08 §3.2 — it is the body of the sidebar's Selection tab, not a band
+// above the comments. Three things follow: the count moved to the tab, `clear`
+// moved inside the panel's own head, and the list lost its 34vh cap. That cap
+// existed only to stop twenty places pushing the comments off the bottom, and
+// the comments are a tab away now rather than underneath.
 
 import { useState } from "react";
 import type { RegionRef } from "../../shared/types.ts";
 import type { AnchorStrength, PickScope } from "../anchor/pick.ts";
-import { Shield } from "./Icons.tsx";
+import { Shield, Trash } from "./Icons.tsx";
 import type { SelectionItem } from "./selection.ts";
 
 interface Props {
@@ -146,10 +149,29 @@ export function SelectionPanel(props: Props): React.JSX.Element {
 
   const scope = props.scopes?.[props.scopeActive] ?? null;
 
+  // Spec 08 §3.2 — the tab owns the column, so the panel is the tab's whole
+  // body. With nothing in it the tab still opens, and says how picking starts.
+  if (props.items.length === 0) {
+    return (
+      <section className="rex-selection rex-selection-empty">
+        <p className="rex-meta">
+          Nothing selected. Select text, or press <strong>P</strong> to pick an element — every
+          place you click is added here.
+        </p>
+      </section>
+    );
+  }
+
   return (
     <section className="rex-selection">
-      <header className="rex-side-head">
-        <span className="rex-label">SELECTION · {props.items.length}</span>
+      {/*
+        Spec 08 §3.2 — `clear` belongs INSIDE the tab, not beside the tabs.
+        Beside them it read as chrome for the whole sidebar; it acts on the
+        selection only, so it lives with the selection. It stays deliberately
+        far from `Ask` at the foot: a destructive action next to the primary one
+        is a slip waiting to happen. The count moved to the tab.
+      */}
+      <header className="rex-selection-head">
         <span className="rex-spacer" />
         <button type="button" className="rex-link" onClick={clear}>
           clear
@@ -208,7 +230,7 @@ export function SelectionPanel(props: Props): React.JSX.Element {
                   title="Remove this place"
                   onClick={() => props.onRemove(item.id)}
                 >
-                  ×
+                  <Trash size={12} />
                 </button>
               </div>
 

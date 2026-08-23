@@ -66,7 +66,7 @@ function radiusOf(node: GraphNode): number {
 /** §5.5 — fill carries the state of that discussion, in the shared vocabulary. */
 function fillOf(node: GraphNode): string {
   if (node.kind === "missing") return "none";
-  if (node.kind === "external") return "#141d2b";
+  if (node.kind === "external") return "var(--panel)";
   if ((node.comments?.orphaned ?? 0) > 0) return "var(--lost)";
   if ((node.comments?.open ?? 0) > 0) return "var(--action)";
   return "var(--sunk)";

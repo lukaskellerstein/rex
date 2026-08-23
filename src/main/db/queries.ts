@@ -412,6 +412,24 @@ export function setThreadStatus(db: Db, threadId: string, resolved: boolean): vo
   );
 }
 
+/**
+ * Remove a comment and everything that belonged to it.
+ *
+ * One statement is the whole implementation: §9's schema declares `ON DELETE
+ * CASCADE` from `thread` on every table that references it — `message`,
+ * `thread_target`, `thread_ref`, `apply_run` and `fact_finding_thread` — and
+ * `database.ts` sets `foreign_keys = ON` per connection, which is what makes
+ * those declarations act rather than merely document. Deleting the rows by hand
+ * here would be a second, quieter definition of what a thread is made of, and
+ * the two would drift the first time a table is added.
+ *
+ * `thread_ref` cascades from BOTH sides, so deleting a comment that a synthesis
+ * refers to withdraws it from that synthesis rather than orphaning the row.
+ */
+export function deleteThread(db: Db, threadId: string): void {
+  db.prepare("DELETE FROM thread WHERE id = ?").run(threadId);
+}
+
 export function setThreadSession(db: Db, threadId: string, sessionId: string): void {
   db.prepare("UPDATE thread SET session_id = ?, updated_at = ? WHERE id = ?").run(
     sessionId,

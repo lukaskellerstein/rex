@@ -57,6 +57,7 @@ export const COMMAND = {
   threadAsk: "thread:ask",
   threadReply: "thread:reply",
   threadResolve: "thread:resolve",
+  threadDelete: "thread:delete",
   threadSynthesise: "thread:synthesise",
   threadApply: "thread:apply",
   applyConfirm: "apply:confirm",
@@ -205,6 +206,14 @@ export interface FactsStatusResponse {
   changedCount: number | null;
   /** Why the feature cannot run here. Only set for `unavailable`. */
   reason: string | null;
+  /**
+   * Whether a build can be started on this machine, and why not.
+   *
+   * Independent of `state`: findings from an earlier build stay readable
+   * without the gateway, because reading them is pure SQLite.
+   */
+  buildEnabled: boolean;
+  buildDisabledReason: string | null;
 }
 
 export interface FactsBuildRequest {
@@ -271,6 +280,8 @@ export interface RexApi {
   threadAsk(threadId: string): Promise<void>;
   threadReply(request: ThreadReplyRequest): Promise<void>;
   threadResolve(request: ThreadResolveRequest): Promise<Thread>;
+  /** Removes the comment and everything that belonged to it. Irreversible. */
+  threadDelete(threadId: string): Promise<void>;
   threadSynthesise(request: ThreadSynthesiseRequest): Promise<Thread>;
   threadApply(threadId: string): Promise<string>;
   applyConfirm(request: ApplyConfirmRequest): Promise<ApplyConfirmResponse>;

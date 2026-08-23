@@ -644,6 +644,7 @@ interface FindingRow {
   kind: "contradicts" | "supersedes";
   subject: string;
   topic_name: string | null;
+  topic_id: number | null;
   a_id: string;
   a_value: string;
   a_modality: ExtractedClaim["modality"];
@@ -672,6 +673,7 @@ export function listFindings(db: Db, root: string, filter: FindingFilter = {}): 
       `SELECT e.kind        AS kind,
               s.label       AS subject,
               s.topic_name  AS topic_name,
+              s.topic_id    AS topic_id,
               ca.id         AS a_id,
               ca.value      AS a_value,
               ca.modality   AS a_modality,
@@ -743,6 +745,7 @@ export function listFindings(db: Db, root: string, filter: FindingFilter = {}): 
       kind: row.kind,
       subject: row.subject,
       topicName: row.topic_name,
+      topicId: row.topic_id,
       a,
       b,
       verdict,

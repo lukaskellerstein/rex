@@ -13,6 +13,22 @@ interface Props {
   activePath: string | null;
   onOpen: (path: string) => void;
   onReload: () => void;
+  /**
+   * Spec 06 §4.3 — the whole file as one place in the selection panel.
+   *
+   * The tree is the only surface that can offer it for a file that is not on
+   * screen: every other route to a document target goes through picking inside
+   * the open document, and "is this whole file still accurate?" is a question
+   * about a file you have not opened as often as one you have.
+   */
+  onSelectFile: (path: string) => void;
+}
+
+/** Which row the menu belongs to, and where the pointer opened it. */
+interface MenuAt {
+  entry: TreeEntry;
+  x: number;
+  y: number;
 }
 
 /** Deep enough to show a docs folder's contents, shallow enough for a repo. */
@@ -41,23 +57,66 @@ export function Explorer(props: Props): React.JSX.Element {
   const open = manual ? expanded : initial;
   /** The row that was just copied, so it can say so for a moment. */
   const [copied, setCopied] = useState<string | null>(null);
+  const [menu, setMenu] = useState<MenuAt | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const flash = useRef(0);
 
   useEffect(() => () => window.clearTimeout(flash.current), []);
 
   /**
-   * Right-click copies the row's full path.
+   * The menu closes on anything that is not choosing from it.
    *
-   * Every row carries one, folders included: a path is what you paste into a
+   * A context menu that outlives the gesture that opened it is a context menu
+   * that ends up over the wrong row: the tree scrolls, the workspace reloads,
+   * and it is still sitting at the coordinates the pointer had. Capture phase,
+   * so a pointer-down on a row closes it before that row's own handler runs.
+   *
+   * THE EXCEPTION IS THE MENU ITSELF, and getting that wrong made every item
+   * inert. A native capture listener on `document` runs before React's own
+   * delegated handlers, which are attached at the root — so a React
+   * `onPointerDown` on the menu cannot stop this one, however early it looks in
+   * the JSX. Pressing an item fired `pointerdown`, this closed the menu, React
+   * unmounted the button, and the `click` that would have run its handler
+   * landed on nothing at all.
+   *
+   * `composedPath()` rather than `contains(target)`: the menu lives inside
+   * REX's shadow root (spec 01 §7), and an event crossing that boundary is
+   * retargeted to the host — so `event.target` is the host element and a
+   * containment test on it answers no for every click, including the ones
+   * inside the menu.
+   */
+  useEffect(() => {
+    if (!menu) return;
+    const closeUnlessInside = (event: Event): void => {
+      const inside = menuRef.current && event.composedPath().includes(menuRef.current);
+      if (!inside) setMenu(null);
+    };
+    const close = (): void => setMenu(null);
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") close();
+    };
+    document.addEventListener("pointerdown", closeUnlessInside, true);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("blur", close);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("pointerdown", closeUnlessInside, true);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", close);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
+
+  /**
+   * The row's full path, on the clipboard.
+   *
+   * Every row has one, folders included: a path is what you paste into a
    * terminal, an issue or a prompt, and the tree is the only place in REX that
    * knows it. The copy is silent otherwise, so the row says "copied" for a
    * moment — a clipboard write nobody can see is a clipboard write nobody
    * trusts.
    */
-  const copyPath = (event: React.MouseEvent, path: string): void => {
-    // Electron shows no menu of its own here, but a page still must not act on
-    // a gesture and let the platform act on it as well.
-    event.preventDefault();
+  const copyPath = (path: string): void => {
     void navigator.clipboard.writeText(path).then(
       () => {
         setCopied(path);
@@ -68,6 +127,14 @@ export function Explorer(props: Props): React.JSX.Element {
       // either way, and a dialog over a right-click is worse than no copy.
       (error) => console.warn("[rex] could not copy the path", error),
     );
+  };
+
+  const openMenu = (event: React.MouseEvent, entry: TreeEntry): void => {
+    // Electron shows no menu of its own here, but a page still must not act on
+    // a gesture and let the platform act on it as well.
+    event.preventDefault();
+    event.stopPropagation();
+    setMenu({ entry, x: event.clientX, y: event.clientY });
   };
 
   const toggle = (path: string): void => {
@@ -82,7 +149,7 @@ export function Explorer(props: Props): React.JSX.Element {
     entries.flatMap((entry) => {
       const indent = { paddingLeft: `${12 + depth * 15}px` };
       // The path on hover, and how to take it. Both are the same fact.
-      const hint = `${entry.path}\nRight-click to copy this path`;
+      const hint = `${entry.path}\nRight-click for path and selection`;
       const justCopied = copied === entry.path;
 
       if (entry.kind === "directory") {
@@ -95,7 +162,7 @@ export function Explorer(props: Props): React.JSX.Element {
             style={indent}
             title={hint}
             onClick={() => toggle(entry.path)}
-            onContextMenu={(event) => copyPath(event, entry.path)}
+            onContextMenu={(event) => openMenu(event, entry)}
           >
             <span className="rex-tree-twisty">{isOpen ? <TriangleDown /> : <TriangleRight />}</span>
             <span className="rex-tree-name">{entry.name}</span>
@@ -115,7 +182,7 @@ export function Explorer(props: Props): React.JSX.Element {
             className="rex-tree-row rex-tree-other"
             style={indent}
             title={entry.disabledReason ? `${entry.disabledReason}\n${hint}` : hint}
-            onContextMenu={(event) => copyPath(event, entry.path)}
+            onContextMenu={(event) => openMenu(event, entry)}
           >
             <span className="rex-tree-twisty" />
             <span className="rex-tree-name">{entry.name}</span>
@@ -133,7 +200,7 @@ export function Explorer(props: Props): React.JSX.Element {
           style={indent}
           title={hint}
           onClick={() => props.onOpen(entry.path)}
-          onContextMenu={(event) => copyPath(event, entry.path)}
+          onContextMenu={(event) => openMenu(event, entry)}
         >
           <span className="rex-tree-twisty" />
           <span className="rex-tree-name">{entry.name}</span>
@@ -185,6 +252,47 @@ export function Explorer(props: Props): React.JSX.Element {
       ) : null}
 
       <div className="rex-tree">{rows(props.tree.entries, 0)}</div>
+
+      {/*
+        Fixed to the viewport, at the pointer. Inside the shadow root like
+        everything else REX draws, so the document's own CSS cannot reach it
+        (spec 01 §7) — and inside `nav` rather than portalled out, because the
+        overlay has no portal host and one menu does not justify inventing one.
+      */}
+      {menu ? (
+        <div ref={menuRef} className="rex-menu" style={{ left: menu.x, top: menu.y }}>
+          <button
+            type="button"
+            className="rex-menu-item"
+            onClick={() => {
+              copyPath(menu.entry.path);
+              setMenu(null);
+            }}
+          >
+            Copy path
+          </button>
+
+          {/*
+            Only a document REX can actually render. A directory is not a place
+            a comment can be anchored, and an `other` entry is listed precisely
+            because REX cannot open it — offering either would put a row in the
+            panel that Ask could never resolve.
+          */}
+          {menu.entry.kind === "document" ? (
+            <button
+              type="button"
+              className="rex-menu-item"
+              title="Add the whole file to the selection, to comment on all of it"
+              onClick={() => {
+                props.onSelectFile(menu.entry.path);
+                setMenu(null);
+              }}
+            >
+              Select file
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </nav>
   );
 }

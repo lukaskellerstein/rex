@@ -3,9 +3,11 @@
   in this file can reach the document under review, and the document's own
   stylesheet cannot reach these controls.
 
-  The values are the Workbench design system — design/system/Components.dc.html
-  is the authority and its numbers are literal. Two rules from it shape most of
-  what follows:
+  The values are the REX design system in its Graphite palette — the chrome is
+  near-monochrome grey, blue is spent only on action, and state colour is the
+  only saturation on screen. `_ds_bundle.css` in the design project is the
+  authority and its numbers are literal. Two rules from it shape most of what
+  follows:
 
     · Colour means state. Steel ok, amber moved, red orphaned, green resolved.
       Red is spent on exactly two things — a lost anchor and the write-capable
@@ -23,57 +25,68 @@
 }
 
 .rex-shell {
-  /* Surfaces */
-  --bg: #0d1420;
-  --panel: #131d2e;
-  --sunk: #1a2638;
-  --raised: #22304a;
-  --well: #101a29;
-  --rule: #24344a;
-  --rule-soft: #1c2a3d;
+  /* Surfaces — stepped, so ground → panel → card → control each read apart. */
+  --bg: #0e1012;
+  --panel: #191c1f;
+  --sunk: #262a2e;
+  --raised: #363b41;
+  --well: #08090a;
+  --rule: #414850;
+  --rule-soft: #2b3035;
 
   /* Text */
-  --fg: #e4e9f0;
-  --fg-dim: #b9c7d8;
-  --muted: #8ba0ba;
-  --faint: #5d7a9a;
+  --fg: #f4f6f7;
+  --fg-dim: #ccd1d6;
+  --muted: #98a0a8;
+  --faint: #6e767e;
 
   /* Meaning */
-  --action: #2f5da8;
-  --link: #6f9fe0;
-  --moved: #f0b429;
-  --lost: #d2402f;
-  --lost-text: #e08a76;
-  --ok: #4a9d7a;
+  --action: #3b6fd4;
+  --link: #8fb4f0;
+  --moved: #d9b23a;
+  --lost: #d05744;
+  --lost-text: #eda393;
+  --ok: #66ad93;
   --paper: #fbfaf8;
 
   /* Card washes — resting, then selected. §"CARD WASHES" on the System page. */
-  --wash-ok: #141f31;
-  --wash-ok-edge: #1f2f4a;
-  --wash-ok-on: #1a2b45;
-  --wash-ok-edge-on: #2f5da8;
-  --wash-moved: #1c1708;
-  --wash-moved-edge: #3a2f10;
-  --wash-moved-on: #262008;
-  --wash-moved-edge-on: #6a5312;
-  --wash-lost: #211412;
-  --wash-lost-edge: #3a221c;
-  --wash-lost-on: #2e1a16;
-  --wash-lost-edge-on: #7a3327;
-  --wash-done: #121f1b;
-  --wash-done-edge: #1b2f28;
-  --wash-done-on: #182b25;
-  --wash-done-edge-on: #2f5f4e;
+  --wash-ok: #22262a;
+  --wash-ok-edge: #3b4249;
+  --wash-ok-on: #2b3947;
+  --wash-ok-edge-on: #4d84e8;
+  --wash-moved: #2b2718;
+  --wash-moved-edge: #4a4026;
+  --wash-moved-on: #3a3220;
+  --wash-moved-edge-on: #8a7229;
+  --wash-lost: #2b211d;
+  --wash-lost-edge: #4a3229;
+  --wash-lost-on: #3a2721;
+  --wash-lost-edge-on: #a04b39;
+  --wash-done: #202a25;
+  --wash-done-edge: #2e3833;
+  --wash-done-on: #26302c;
+  --wash-done-edge-on: #3f7a65;
 
   /* The write-capable agent's own tint — the second and last use of red. */
-  --write-bg: #1f1512;
-  --write-edge: #3f2a24;
+  --write-bg: #2a1c17;
+  --write-edge: #5a3a2c;
 
-  --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  /*
+    Violet, and it OUTRANKS state (spec 05 §6). A reviewer with a card open is
+    asking "where is this one?", not "what state is it in" — the card already
+    says the state in words. A fourth colour rather than a brighter blue,
+    because the selection panel can be half-built at the same time and its
+    places are blue.
+  */
+  --active: #9b8bc9;
+
+  --sans: "DM Sans", system-ui, -apple-system, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --serif: Newsreader, Georgia, serif;
 
-  --lift: 0 2px 10px rgb(0 0 0 / 28%);
+  /* A hairline, not a drop shadow: Graphite lifts a selected card with one
+     bright edge under it, so the surface steps stay the only depth cue. */
+  --lift: 0 1px 0 #414850;
 
   height: 100vh;
   color: var(--fg);
@@ -166,7 +179,7 @@
 }
 
 .rex-path-sep {
-  color: #4a5f7a;
+  color: #565d64;
 }
 
 .rex-path-file {
@@ -201,18 +214,18 @@
 }
 
 .rex-pill-moved {
-  background: #3a2f10;
+  background: #3a3220;
   color: var(--moved);
 }
 
 .rex-pill-ok {
-  background: #14302a;
+  background: #24322d;
   color: var(--ok);
 }
 
 .rex-pill-lost,
 .rex-pill-write {
-  background: #2a1512;
+  background: #3a2721;
   color: var(--lost-text);
 }
 
@@ -233,14 +246,14 @@
   flex: none;
   padding: 2px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--bg);
 }
 
 .rex-segment button {
   padding: 3px 12px;
   border: none;
-  border-radius: 4px;
+  border-radius: 2px;
   background: none;
   color: var(--muted);
   font: inherit;
@@ -263,9 +276,9 @@
   flex: none;
   height: 28px;
   padding: 0 14px;
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  background: var(--sunk);
+  border: 1px solid #4d545c;
+  border-radius: 2px;
+  background: var(--raised);
   color: var(--fg);
   font: inherit;
   font-size: 12px;
@@ -273,8 +286,13 @@
   cursor: pointer;
 }
 
+/*
+  The design system's own sheet gives the button the same colour resting and
+  hovered. Kept one step apart here: a control that does not answer the mouse
+  reads as disabled, and REX already has a real disabled state below.
+*/
 .rex-button:hover:not(:disabled) {
-  background: var(--raised);
+  background: var(--rule);
 }
 
 .rex-button:disabled {
@@ -295,7 +313,7 @@
 }
 
 .rex-primary:hover:not(:disabled) {
-  background: #3a6cbe;
+  background: #4d84e8;
 }
 
 .rex-primary:disabled {
@@ -314,7 +332,7 @@
 }
 
 .rex-button-write:hover:not(:disabled) {
-  background: #2a1c18;
+  background: #3a2721;
 }
 
 .rex-button-write:disabled {
@@ -334,7 +352,69 @@
 }
 
 .rex-link:hover {
-  color: #9dc2f0;
+  color: var(--fg);
+}
+
+/*
+  A control that is a glyph and nothing else.
+
+  Muted at rest and red only under the pointer: red is spent on a lost anchor
+  and on the write-capable agent, and a permanent red bin in the card's header
+  would be a third meaning competing with both while saying nothing is wrong.
+  It goes red at the moment it is about to be pressed, which is when the
+  warning is worth anything.
+*/
+.rex-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.rex-icon-danger:hover {
+  background: var(--wash-lost);
+  color: var(--lost-text);
+}
+
+/* ── Context menu ────────────────────────────────────────── */
+
+.rex-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 148px;
+  padding: 4px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--raised);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+}
+
+.rex-menu-item {
+  padding: 5px 9px;
+  border: none;
+  border-radius: 2px;
+  background: none;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rex-menu-item:hover {
+  background: var(--action);
+  color: #fff;
 }
 
 .rex-cost {
@@ -349,8 +429,8 @@
   min-height: 58px;
   padding: 9px 11px;
   border: 1px solid var(--rule);
-  border-radius: 5px;
-  background: var(--sunk);
+  border-radius: 2px;
+  background: var(--well);
   color: var(--fg);
   font: inherit;
   resize: vertical;
@@ -392,7 +472,7 @@
   min-width: 200px;
   padding: 5px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--panel);
   box-shadow: 0 14px 42px rgb(0 0 0 / 48%);
 }
@@ -400,7 +480,7 @@
 .rex-open-menu button {
   padding: 7px 10px;
   border: none;
-  border-radius: 4px;
+  border-radius: 2px;
   background: none;
   color: var(--fg);
   font: inherit;
@@ -426,7 +506,7 @@
   min-width: 0;
   padding: 4px 8px;
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: 2px;
   background: var(--sunk);
   color: var(--fg);
   font: inherit;
@@ -446,8 +526,8 @@
   flex: none;
   padding: 8px 12px;
   border-bottom: 1px solid var(--rule);
-  background: #1c1708;
-  color: #d8c58e;
+  background: var(--wash-moved);
+  color: #e0cd97;
   font-size: 12px;
 }
 
@@ -532,8 +612,8 @@
 .rex-explorer-warn {
   margin: 0;
   padding: 8px 12px;
-  background: #1c1708;
-  color: #d8c58e;
+  background: var(--wash-moved);
+  color: #e0cd97;
   font-size: 11px;
   line-height: 1.5;
 }
@@ -639,7 +719,7 @@
 }
 
 .rex-dot-resolved {
-  background: #3f5f52;
+  background: #3f7a65;
 }
 
 .rex-dot-orphaned {
@@ -782,7 +862,7 @@
 .rex-block-outline {
   position: absolute;
   border: 2px solid var(--action);
-  border-radius: 3px;
+  border-radius: 2px;
   pointer-events: none;
 }
 
@@ -834,15 +914,15 @@
 .rex-draft-outline {
   position: absolute;
   border: 2px dashed var(--link);
-  border-radius: 3px;
-  background: rgb(111 159 224 / 10%);
+  border-radius: 2px;
+  background: rgb(143 180 240 / 10%);
   pointer-events: none;
   transition: background 120ms ease;
 }
 
 .rex-draft-outline-lit {
   border-color: #a8c8f5;
-  background: rgb(111 159 224 / 26%);
+  background: rgb(143 180 240 / 26%);
 }
 
 /*
@@ -856,8 +936,8 @@
 .rex-change-outline {
   position: absolute;
   border: 2px solid var(--lost);
-  border-radius: 3px;
-  background: rgb(210 64 47 / 12%);
+  border-radius: 2px;
+  background: rgb(208 87 68 / 12%);
   pointer-events: none;
 }
 
@@ -895,25 +975,44 @@
   sidebar is what fixes all three: it cannot steal a shortcut, cannot be
   dismissed by a click in the document, and has nothing to inherit.
 */
+/*
+  Spec 08 §3.2 — the body of the Selection tab, not a band above the comments.
+  It owns the column, so it fills it.
+*/
 .rex-selection {
   display: flex;
   flex-direction: column;
-  flex: none;
-  border-bottom: 1px solid var(--rule);
+  flex: 1;
+  min-height: 0;
   background: var(--well);
 }
 
-/*
-  §3.3 — a maximum height, scrolling inside itself.
+.rex-selection-empty {
+  padding: 14px;
+}
 
-  Twenty items must not push the comments off the bottom of the sidebar: the
-  comments are how you check you are not asking something already asked.
+/* `clear` and nothing else. The count is on the tab. */
+.rex-selection-head {
+  display: flex;
+  align-items: center;
+  flex: none;
+  height: 30px;
+  padding: 0 14px;
+}
+
+/*
+  Spec 08 §3.2 — no maximum height any more.
+
+  Spec 05 §3.3 capped this at a third of the sidebar for one reason: twenty
+  items must not push the comments off the bottom. The comments are a tab away
+  now rather than underneath, so the list simply scrolls.
 */
 .rex-selection-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  max-height: 34vh;
+  flex: 1;
+  min-height: 0;
   margin: 0;
   padding: 8px 10px;
   overflow-y: auto;
@@ -922,7 +1021,7 @@
 
 .rex-selection-item {
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: 2px;
   background: var(--panel);
 }
 
@@ -980,14 +1079,15 @@
 }
 
 .rex-selection-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: none;
-  width: 22px;
+  width: 24px;
   height: 26px;
   border: 0;
   background: none;
   color: var(--faint);
-  font-size: 15px;
-  line-height: 1;
   cursor: pointer;
 }
 
@@ -1039,8 +1139,8 @@
 }
 
 .rex-scope-on {
-  border-color: var(--action);
-  background: #1b2942;
+  border-color: var(--wash-ok-edge-on);
+  background: var(--wash-ok-on);
   color: var(--fg);
 }
 
@@ -1066,15 +1166,99 @@
   list-style: none;
 }
 
-.rex-places li {
+/*
+  Spec 08 §7.2 — a place is a row with two lines: where it is, and what is
+  there. Pointing at it lights the row and draws its number on its mark in the
+  document; `go to ›` opens the document first when the place is somewhere else.
+
+  It stopped being a single `<button>` when it grew a quote, because a
+  blockquote inside a button is text nobody can select, and selecting the
+  quoted passage is the first thing anyone does with it.
+*/
+.rex-place {
   display: flex;
-  align-items: baseline;
-  gap: 7px;
+  flex-direction: column;
+  gap: 5px;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  border-radius: 2px;
   font-size: 10.5px;
 }
 
+.rex-place:hover,
+.rex-place-lit {
+  border-color: var(--active);
+  background: var(--wash-ok);
+}
+
+.rex-place-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+/* `go to ›` rides the place's own line, right-aligned. */
+.rex-place-head .rex-link {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  margin-left: auto;
+}
+
+/*
+  The address the state phrase above it does not give. "re-found after the file
+  changed" tells a reviewer that something moved and leaves them nowhere to
+  look; `L41 was L37` is the same fact with somewhere to look.
+*/
+.rex-place-line {
+  color: var(--fg-dim);
+}
+
+.rex-place-was {
+  color: var(--moved);
+}
+
+/*
+  What is at the place, when what is there is not prose — `Code block`,
+  `Table · 3 rows × 4 columns`. In REX's own sans and never the Newsreader a
+  quote wears, because this is REX describing the document rather than the
+  document speaking.
+*/
+.rex-place-kind {
+  align-self: flex-start;
+  padding: 2px 7px;
+  border-radius: 2px;
+  background: var(--well);
+  color: var(--fg-dim);
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/*
+  The number REX draws back on the mark, over the pane and never in the
+  document. One at a time, and only while its row is pointed at.
+*/
+.rex-place-mark {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: var(--active);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+}
+
 .rex-place-doc {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
@@ -1102,6 +1286,18 @@
   vertical-align: 1px;
 }
 
+/*
+  Spec 08 §7.2 — violet, because this is the OPEN comment pointing at itself.
+
+  Spec 05 §6 spends violet on exactly that and it outranks the state colours.
+  After `.rex-place-index` and not beside the other place rules, so the
+  override follows what it overrides — both are one class deep, so only source
+  order separates them.
+*/
+.rex-place-index-active {
+  background: var(--active);
+}
+
 .rex-readonly {
   display: flex;
   align-items: center;
@@ -1120,7 +1316,7 @@
 .rex-quote {
   margin: 0;
   padding-left: 10px;
-  border-left: 2px solid #3f4f68;
+  border-left: 2px solid var(--rule);
   color: var(--muted);
   font-family: var(--serif);
   font-size: 13px;
@@ -1147,8 +1343,8 @@
   align-items: center;
   gap: 8px;
   padding: 6px 9px;
-  border-radius: 4px;
-  background: #0f1826;
+  border-radius: 2px;
+  background: var(--well);
 }
 
 .rex-kind-text {
@@ -1189,6 +1385,34 @@
   height: 40px;
   padding: 0 14px;
   border-bottom: 1px solid var(--rule-soft);
+}
+
+/*
+  Spec 08 §3.1 — the tab bar.
+
+  The same segmented control the top bar uses for Document / Graph / Facts,
+  stretched to fill the row: REX has one control that means "switch what this
+  pane shows", and choosing between selecting and reading is that same choice.
+*/
+.rex-segment.rex-tabs {
+  flex: 1;
+}
+
+.rex-segment.rex-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 1;
+}
+
+/*
+  Dimmed rather than removed. The bar is furniture and never moves, so a tab
+  with nothing in it has to say so itself. Its count pill is dimmed with it,
+  below — the pill's own rules have to come first.
+*/
+.rex-tabs .rex-tab-empty {
+  color: var(--faint);
 }
 
 .rex-side-scroll {
@@ -1249,8 +1473,8 @@
 }
 
 .rex-chip-on {
-  border-color: var(--action);
-  background: #1b2c47;
+  border-color: var(--wash-ok-edge-on);
+  background: var(--wash-ok-on);
   color: var(--fg);
 }
 
@@ -1265,7 +1489,10 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Dark text on the action blue. Left on `--raised` the count was mid-grey with
+   near-black text on it, which is the one unreadable pair in this palette. */
 .rex-chip-on .rex-chip-count {
+  background: var(--action);
   color: var(--bg);
 }
 
@@ -1277,24 +1504,81 @@
   background: var(--ok);
 }
 
+/*
+  Spec 08 §3.1 — the tab's own count pill. After `.rex-chip-count` and not
+  beside the rest of the tab rules, so the override follows what it overrides.
+*/
+.rex-tabs .rex-on .rex-chip-count {
+  background: var(--link);
+  color: var(--bg);
+}
+
+.rex-tabs .rex-tab-empty .rex-chip-count {
+  color: var(--faint);
+}
+
 .rex-chip-on .rex-chip-count-orphaned {
   background: var(--lost);
 }
 
 /* ── Thread cards — treatment C, the wash ────────────────── */
 
+/*
+  A row and its delete button, side by side rather than nested — a `<button>`
+  cannot contain another one, and opening a comment is not the same act as
+  throwing it away.
+*/
+.rex-thread-wrap {
+  position: relative;
+  display: flex;
+}
+
 .rex-thread {
   display: flex;
   gap: 10px;
   width: 100%;
   padding: 11px 12px;
-  border: 1px solid var(--wash-ok-edge);
-  border-radius: 6px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
   background: var(--wash-ok);
   color: var(--fg);
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+/*
+  Hidden until the row is pointed at, and always reachable from the keyboard.
+  Twenty rows each showing a permanent bin is twenty invitations to a mistake,
+  and the count badges down the same edge would be competing with it.
+*/
+.rex-thread-delete {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--faint);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.rex-thread-wrap:hover .rex-thread-delete,
+.rex-thread-delete:focus-visible {
+  opacity: 1;
+}
+
+.rex-thread-delete:hover {
+  background: var(--wash-lost);
+  color: var(--lost-text);
 }
 
 .rex-thread-moved {
@@ -1314,19 +1598,19 @@
 
 /* Hover sits between resting and selected, on the same hue. */
 .rex-thread:hover {
-  border-color: #2a3f60;
+  border-color: var(--faint);
 }
 
 .rex-thread-moved:hover {
-  border-color: #52410e;
+  border-color: var(--wash-moved-edge-on);
 }
 
 .rex-thread-orphaned:hover {
-  border-color: #5b2a21;
+  border-color: var(--wash-lost-edge-on);
 }
 
 .rex-thread-done:hover {
-  border-color: #24483d;
+  border-color: var(--wash-done-edge-on);
 }
 
 /* Selected deepens the same wash and brightens the same border. Never a hue. */
@@ -1381,6 +1665,16 @@
   font-size: 9.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+  On the card the same line shares its row with `go to ›`, so it takes the
+  space that is left. After the rule it overrides, not beside the card's other
+  rules — the two differ only by source order.
+*/
+.rex-card-docs .rex-thread-docs {
+  flex: 1;
+  min-width: 0;
 }
 
 .rex-thread-meta {
@@ -1468,13 +1762,13 @@
 }
 
 .rex-token-done {
-  border: 1px solid #3f4f68;
+  border: 1px solid #4d545c;
   background: transparent;
   color: var(--muted);
 }
 
 .rex-thread-done .rex-token-done {
-  border-color: #3f5f52;
+  border-color: #3f7a65;
 }
 
 .rex-token-active {
@@ -1491,9 +1785,9 @@
   width: 100%;
   margin-top: 4px;
   padding: 9px 12px;
-  border: 1px dashed var(--write-edge);
-  border-radius: 6px;
-  background: #1a1211;
+  border: 1px dashed var(--wash-lost-edge);
+  border-radius: 2px;
+  background: var(--wash-lost);
   color: var(--lost-text);
   font: inherit;
   font-size: 12px;
@@ -1518,9 +1812,9 @@
 
 .rex-orphan-note {
   padding: 10px 12px;
-  border: 1px solid var(--write-edge);
-  border-radius: 6px;
-  background: #1c1310;
+  border: 1px solid var(--wash-lost-edge);
+  border-radius: 2px;
+  background: var(--wash-lost);
   color: var(--lost-text);
   font-size: 11px;
   line-height: 1.5;
@@ -1543,9 +1837,9 @@
   flex-direction: column;
   gap: 9px;
   padding: 12px 13px;
-  border: 1px solid var(--wash-ok-edge);
-  border-radius: 6px;
-  background: var(--wash-ok);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--sunk);
 }
 
 .rex-card-anchor.rex-thread-moved {
@@ -1576,30 +1870,247 @@
   line-height: 1.45;
 }
 
-/* The answer outranks the machinery: body text, full contrast, no chrome. */
-.rex-answer {
+/*
+  Spec 08 §5.3 — a turn is a block with a label, not another paragraph in a run.
+
+  The question and the answer were two runs of text under two small grey words,
+  separated by a change of text colour that a 384px column swallowed. So the
+  answer is now the one RAISED block on the card — bordered, on the card
+  surface, with its profile on its head — and yours is flush prose above it.
+  That is what "the answer outranks the machinery" means when the machinery is
+  no longer the only thing competing with it.
+*/
+.rex-turn {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
-.rex-answer p {
+.rex-turn-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.rex-turn-spent {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rex-turn-text {
   margin: 0;
-  color: var(--fg);
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
-.rex-answer-user {
-  color: var(--fg-dim);
-  border-left: 2px solid var(--rule);
-  padding-left: 10px;
+/* Yours: a label, the time, and the question. No box — it is what was asked. */
+.rex-turn-you .rex-turn-head {
+  color: var(--link);
 }
 
-.rex-answer-error {
+.rex-turn-you .rex-label {
+  color: var(--link);
+}
+
+.rex-turn-you .rex-turn-text {
+  color: var(--fg-dim);
+}
+
+.rex-turn-agent {
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  background: var(--sunk);
+}
+
+.rex-turn-agent .rex-turn-head,
+.rex-turn-agent .rex-label {
+  color: var(--link);
+}
+
+.rex-turn-agent .rex-turn-text {
+  color: var(--fg);
+}
+
+/* What the thread cost, under the answer it bought and nowhere else. */
+.rex-turn-foot {
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-soft);
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The read profile's promise, on the head of the answer it constrained. */
+.rex-pill-profile {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  padding: 1px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.rex-turn-error .rex-label,
+.rex-turn-error .rex-turn-text {
   color: var(--lost-text);
+}
+
+/*
+  REX's own notice — the gate refusing a write is one. Quiet and ruled, because
+  it is not the agent speaking. Folded into the answer it would read as the
+  agent saying it, and the notice exists to say the agent was stopped.
+*/
+.rex-turn-note {
+  padding-left: 10px;
+  border-left: 2px solid var(--write-edge);
+}
+
+.rex-turn-note .rex-turn-text {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ── Agent prose (Markdown) ──────────────────────────────── */
+
+/*
+  An answer is written in Markdown, so it is rendered as Markdown — `prose.tsx`
+  says why, and what it refuses to render.
+
+  Every size here is set against the SIDEBAR, not the trace sheet. The same
+  answer appears in both, and the sidebar is 384px: a heading that reads well
+  across the sheet is a headline in the column, and the answer stops being
+  prose and starts being a poster. So headings are barely larger than body and
+  earn their rank from weight and space instead.
+*/
+.rex-prose {
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* The block owns its outer spacing through the turn's own gap, so its first
+   and last children must not add to it. */
+.rex-prose > :first-child {
+  margin-top: 0;
+}
+
+.rex-prose > :last-child {
+  margin-bottom: 0;
+}
+
+.rex-prose p {
+  margin: 0 0 9px;
+}
+
+.rex-prose h1,
+.rex-prose h2,
+.rex-prose h3,
+.rex-prose h4,
+.rex-prose h5,
+.rex-prose h6 {
+  margin: 14px 0 6px;
+  color: var(--fg);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.rex-prose strong {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/*
+  The most useful thing in a REX answer is a citation — `one/sample-document.md:32-42`
+  — and it arrives as inline code. It gets a tint so it reads as a reference
+  rather than as emphasis.
+*/
+.rex-prose code {
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: var(--well);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+
+.rex-prose pre {
+  margin: 9px 0;
+  padding: 8px 10px;
+  border-radius: 2px;
+  background: var(--well);
+  overflow-x: auto;
+}
+
+.rex-prose pre code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.rex-prose ul,
+.rex-prose ol {
+  margin: 7px 0;
+  padding-left: 18px;
+}
+
+.rex-prose li {
+  margin: 3px 0;
+}
+
+.rex-prose blockquote {
+  margin: 9px 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--rule);
+  color: var(--muted);
+}
+
+.rex-prose hr {
+  margin: 11px 0;
+  border: none;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.rex-prose table {
+  display: block;
+  margin: 9px 0;
+  border-collapse: collapse;
+  font-size: 12px;
+  overflow-x: auto;
+}
+
+.rex-prose th,
+.rex-prose td {
+  padding: 3px 8px;
+  border: 1px solid var(--rule-soft);
+  text-align: left;
+}
+
+.rex-prose th {
+  color: var(--fg-dim);
+  font-weight: 600;
+}
+
+/* The answer is the block this column exists for, so it reads at full
+   contrast in both places it appears. */
+.rex-turn-agent .rex-prose,
+.rex-trace-answer .rex-prose {
+  color: var(--fg);
 }
 
 /* ── Tool steps ──────────────────────────────────────────── */
@@ -1612,8 +2123,8 @@
   display: flex;
   flex-direction: column;
   border: 1px solid var(--rule);
-  border-radius: 5px;
-  background: var(--bg);
+  border-radius: 2px;
+  background: var(--well);
   overflow: hidden;
 }
 
@@ -1631,6 +2142,57 @@
   font-size: 12px;
   text-align: left;
   cursor: pointer;
+}
+
+/*
+  Spec 08 §5.4 — one bar per tool call, in order, so the shape of the run reads
+  without opening it.
+
+  Neutral, because colour means state and "which tool ran" is not a state. The
+  denied bar is the one exception: taller, and the same red the write-capable
+  agent wears, because the gate firing is worth seeing at a glance.
+*/
+.rex-strip-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  flex: none;
+  height: 12px;
+}
+
+.rex-strip-bars i {
+  width: 3px;
+  height: 10px;
+  border-radius: 1px;
+  background: var(--rule);
+}
+
+.rex-strip-bars i.rex-strip-deny {
+  height: 12px;
+  background: var(--lost);
+}
+
+.rex-strip-denied {
+  flex: none;
+  color: var(--lost-text);
+}
+
+/* The strip while its trace is open: the same bars, now lit. */
+.rex-steps-on {
+  border-color: var(--action);
+  background: var(--wash-ok);
+}
+
+.rex-steps-on .rex-strip-bars i {
+  background: var(--faint);
+}
+
+.rex-steps-on .rex-strip-bars i.rex-strip-deny {
+  background: var(--lost);
+}
+
+.rex-steps-on .rex-steps-toggle {
+  color: var(--fg);
 }
 
 .rex-steps-open .rex-steps-toggle {
@@ -1692,6 +2254,249 @@
   white-space: normal;
 }
 
+/* ── The trace sheet (spec 08 §6) ────────────────────────── */
+
+/*
+  It takes the document pane and nothing else. The explorer stays, the comment
+  card stays beside it — so you always see which comment you are auditing — and
+  `esc` is its only exit.
+
+  Colour here distinguishes KIND, not state: steel is you and the answer,
+  neutral is machinery, faint is thinking, red is the agent being refused.
+*/
+.rex-trace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.rex-trace-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  height: 44px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+/* The comment being audited, in one line. It is context, not the subject. */
+.rex-trace-note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-dim);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-trace-summary {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rex-trace-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+/*
+  One block per message. The 3px left edge is what carries the kind — a bar
+  down the side reads at a glance without tinting a whole paragraph.
+*/
+.rex-trace-entry {
+  display: flex;
+  gap: 12px;
+  flex: none;
+  padding: 11px 14px;
+  border: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--rule);
+  border-radius: 0 2px 2px 0;
+  background: var(--panel);
+}
+
+/*
+  The kind glyph, in its own column.
+
+  It is not decoration: YOU and ANSWER are both steel, both prose, and both the
+  same box, so down a long transcript the word in the corner was the only thing
+  separating a question from its answer — and a word in the corner is not read
+  while scrolling. A bubble and a sparkle are.
+*/
+.rex-trace-icon {
+  display: flex;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  padding-top: 2px;
+  color: var(--faint);
+}
+
+.rex-trace-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rex-trace-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rex-trace-spent {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* REX's own sentence about a step. Only a refusal has one, and it is never
+   folded away — a refusal nobody unfolds is a refusal nobody reads. */
+.rex-trace-reason {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.rex-trace-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* A command, a path, a pattern. It scrolls rather than wrapping into mush. */
+.rex-trace-arg,
+.rex-trace-result {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 2px;
+  background: var(--well);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  overflow-x: auto;
+}
+
+.rex-trace-result {
+  max-height: 22rem;
+  overflow-y: auto;
+  color: var(--muted);
+}
+
+/* Its own class, not the card's: two components sharing one selector is how a
+   test — and later a restyle — reaches the wrong element. */
+.rex-trace-more {
+  color: var(--link);
+}
+
+.rex-trace-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  align-self: flex-start;
+  padding: 0 0 0 12px;
+  border: none;
+  border-left: 1px solid var(--rule);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* ── The five kinds ──────────────────────────────────────── */
+
+/*
+  You, and the answer. Both are steel — colour here names a KIND, and the
+  question and its answer are one kind of thing — so WEIGHT is what separates
+  them, and it has to, because these two blocks sit next to each other more
+  often than any other pair in the sheet.
+
+  Yours is a left bar over the panel. The answer is the only block in the sheet
+  lit on all four sides, which is the same rank the comment card gives it.
+*/
+.rex-trace-you {
+  border-left-color: var(--action);
+  background: var(--wash-ok);
+}
+
+.rex-trace-answer {
+  border-color: var(--wash-ok-edge-on);
+  border-left-color: var(--action);
+  background: var(--wash-ok-on);
+}
+
+.rex-trace-you .rex-label,
+.rex-trace-you .rex-trace-icon,
+.rex-trace-answer .rex-label,
+.rex-trace-answer .rex-trace-icon {
+  color: var(--link);
+}
+
+.rex-trace-you .rex-trace-text {
+  color: var(--fg-dim);
+}
+
+.rex-trace-answer .rex-trace-text {
+  color: var(--fg);
+}
+
+/* Thinking is subordinate to the answer everywhere, and lives only here. */
+.rex-trace-thinking {
+  background: var(--well);
+}
+
+.rex-trace-thinking .rex-trace-text {
+  color: var(--muted);
+  font-size: 12.5px;
+  font-style: italic;
+}
+
+/* The gate firing. Open without being asked, and in the write red. */
+.rex-trace-denied {
+  border-color: var(--write-edge);
+  border-left-color: var(--lost);
+  background: var(--write-bg);
+}
+
+.rex-trace-denied .rex-label,
+.rex-trace-denied .rex-trace-icon,
+.rex-trace-denied .rex-trace-reason,
+.rex-trace-denied .rex-trace-arg,
+.rex-trace-denied .rex-trace-result {
+  color: var(--lost-text);
+}
+
+.rex-trace-error .rex-label,
+.rex-trace-error .rex-trace-icon,
+.rex-trace-error .rex-trace-text {
+  color: var(--lost-text);
+}
+
+.rex-trace-note .rex-trace-text {
+  color: var(--muted);
+}
+
 /* ── Reply box ───────────────────────────────────────────── */
 
 .rex-reply {
@@ -1710,7 +2515,7 @@
   display: flex;
   flex: 1;
   min-width: 0;
-  background: #0a1018;
+  background: var(--well);
 }
 
 .rex-graph-stage {
@@ -1745,12 +2550,12 @@
   fill: var(--muted);
   font-size: 10px;
   paint-order: stroke;
-  stroke: #0a1018;
+  stroke: var(--well);
   stroke-width: 3px;
 }
 
 .rex-graph-node circle {
-  stroke: #3f4f68;
+  stroke: #4d545c;
   stroke-width: 1.5;
 }
 
@@ -1820,8 +2625,8 @@
   max-width: calc(100% - 32px);
   padding: 8px 12px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: rgb(13 20 32 / 88%);
+  border-radius: 2px;
+  background: rgb(14 16 18 / 88%);
 }
 
 .rex-legend-item {
@@ -1836,7 +2641,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  border: 1.5px solid #3f4f68;
+  border: 1.5px solid #4d545c;
   background: var(--sunk);
 }
 
@@ -1854,7 +2659,7 @@
 .rex-legend-edge {
   width: 12px;
   height: 0;
-  border-top: 1.5px dashed #3f4f68;
+  border-top: 1.5px dashed #4d545c;
 }
 
 .rex-graph-zoom {
@@ -1871,8 +2676,8 @@
   height: 26px;
   padding: 0 11px;
   border: 1px solid var(--rule);
-  border-radius: 4px;
-  background: rgb(13 20 32 / 88%);
+  border-radius: 2px;
+  background: rgb(14 16 18 / 88%);
   color: var(--fg-dim);
   font: inherit;
   font-size: 11px;
@@ -1897,7 +2702,7 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--rule);
   overflow: hidden;
 }
@@ -1940,7 +2745,7 @@
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--action);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--wash-ok-on);
   box-shadow: var(--lift);
 }
@@ -1965,7 +2770,7 @@
   width: 100%;
   padding: 8px 10px;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: 2px;
   background: none;
   color: var(--fg-dim);
   font: inherit;
@@ -2017,8 +2822,8 @@
   align-items: center;
   gap: 8px;
   padding: 9px 11px;
-  border-radius: 5px;
-  background: #14261f;
+  border-radius: 2px;
+  background: #24322d;
   color: #7fbfa4;
   font-size: 12px;
 }
@@ -2048,7 +2853,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgb(4 8 14 / 72%);
+  background: rgb(8 9 10 / 72%);
 }
 
 .rex-dialog {
@@ -2057,7 +2862,7 @@
   width: min(880px, 92vw);
   max-height: 88vh;
   border: 1px solid var(--rule);
-  border-radius: 9px;
+  border-radius: 2px;
   background: var(--panel);
   box-shadow: 0 28px 80px rgb(0 0 0 / 60%);
   overflow: hidden;
@@ -2083,13 +2888,13 @@
   flex: none;
   width: 30px;
   height: 30px;
-  border-radius: 7px;
+  border-radius: 2px;
   background: var(--write-bg);
   color: var(--lost-text);
 }
 
 .rex-dialog-icon-ok {
-  background: #14261f;
+  background: #24322d;
   color: var(--ok);
 }
 
@@ -2202,7 +3007,7 @@
   gap: 7px;
   padding: 3px 10px;
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: 2px;
   background: var(--sunk);
   color: var(--fg-dim);
   font-family: var(--mono);
@@ -2229,11 +3034,11 @@
 }
 
 .rex-file-add {
-  color: #6fca8b;
+  color: var(--ok);
 }
 
 .rex-file-del {
-  color: #e8836f;
+  color: var(--lost-text);
 }
 
 .rex-diff {
@@ -2242,8 +3047,8 @@
   max-height: 42vh;
   margin: 0;
   border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: #0a1018;
+  border-radius: 2px;
+  background: var(--well);
   font-family: var(--mono);
   font-size: 11.5px;
   line-height: 1.6;
@@ -2261,18 +3066,18 @@
 }
 
 .rex-diff-hunk {
-  background: #16233a;
+  background: var(--sunk);
   color: var(--link);
 }
 
 .rex-diff-add {
-  background: #10281a;
-  color: #6fca8b;
+  background: var(--wash-done);
+  color: var(--ok);
 }
 
 .rex-diff-del {
-  background: #2a1512;
-  color: #e8836f;
+  background: var(--wash-lost);
+  color: var(--lost-text);
 }
 
 .rex-warn {
@@ -2281,9 +3086,9 @@
   gap: 9px;
   padding: 10px 12px;
   border: 1px solid var(--wash-moved-edge);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--wash-moved);
-  color: #d8c58e;
+  color: #e0cd97;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2299,9 +3104,9 @@
   align-items: flex-start;
   gap: 9px;
   padding: 10px 12px;
-  border: 1px dashed var(--write-edge);
-  border-radius: 6px;
-  background: #1a1211;
+  border: 1px dashed var(--wash-lost-edge);
+  border-radius: 2px;
+  background: var(--wash-lost);
 }
 
 .rex-result-orphan-text {
@@ -2337,15 +3142,15 @@
 .rex-pick-outline {
   position: absolute;
   border: 2px solid var(--action);
-  border-radius: 3px;
-  background: rgb(47 93 168 / 10%);
+  border-radius: 2px;
+  background: rgb(59 111 212 / 10%);
   pointer-events: none;
 }
 
 .rex-pick-badge {
   position: absolute;
   padding: 1px 7px;
-  border-radius: 3px;
+  border-radius: 2px;
   background: var(--action);
   color: #fff;
   font-family: var(--mono);
@@ -2380,7 +3185,7 @@
   position: absolute;
   border: 1.5px solid var(--action);
   border-radius: 2px;
-  background: rgb(47 93 168 / 12%);
+  background: rgb(59 111 212 / 12%);
   pointer-events: none;
 }
 
@@ -2487,7 +3292,7 @@
   flex: none;
   padding: 2px 10px;
   border: 1px solid #d6d1c8;
-  border-radius: 3px;
+  border-radius: 2px;
   background: #fff;
   color: #4a453e;
   font-family: var(--mono);
@@ -2511,7 +3316,7 @@
 }
 
 .rex-pentool-done:hover:not(:disabled) {
-  background: #3a6bb8;
+  background: #4d84e8;
 }
 
 .rex-pentool-count {
@@ -2519,6 +3324,48 @@
   color: #8a837a;
   font-family: var(--mono);
   font-size: 10px;
+}
+
+/* ── The mode strip, at rest (spec 08 §4.1) ──────────────── */
+
+/*
+  One strip at the foot of the paper, three states, only ever one at a time:
+  these two chips, the path bar below, or the pen bar. A mode control belongs
+  where the mode acts, and this is where it acts.
+
+  Inset 48px rather than 12px so the chips clear the 32px gutter.
+
+  Paper-side colours and not tokens, for the same reason the path bar carries
+  them: this sits ON the document, and a document is light whatever the chrome
+  is doing.
+*/
+.rex-modes {
+  position: absolute;
+  right: 48px;
+  bottom: 14px;
+  z-index: 6;
+  display: flex;
+  gap: 6px;
+}
+
+.rex-mode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #e2ded7;
+  border-radius: 2px;
+  background: #f0eee9;
+  color: #8a837a;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rex-mode:hover {
+  border-color: #d6d1c8;
+  color: #4a453e;
 }
 
 /* ── The path bar ────────────────────────────────────────── */
@@ -2562,7 +3409,7 @@
   flex: none;
   padding: 2px 8px;
   border: none;
-  border-radius: 3px;
+  border-radius: 2px;
   background: none;
   color: #6b655d;
   font-family: var(--mono);
@@ -2604,7 +3451,7 @@
 .rex-key {
   padding: 1px 5px;
   border: 1px solid #d6d1c8;
-  border-radius: 3px;
+  border-radius: 2px;
   background: #fff;
   font-family: var(--mono);
 }
@@ -2624,14 +3471,14 @@
 */
 .rex-strength {
   --bar: var(--ok);
-  --bar-off: #1b2f28;
+  --bar-off: #3a4a43;
 
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 6px 9px;
-  border-radius: 4px;
-  background: #14261f;
+  border-radius: 2px;
+  background: #24322d;
   color: #7fbfa4;
   font-size: 11px;
 }
@@ -2655,15 +3502,15 @@
 
 .rex-strength-fair {
   --bar: var(--moved);
-  --bar-off: #3a2f10;
+  --bar-off: #4a4026;
 
   background: var(--wash-moved);
-  color: #d8c58e;
+  color: #e0cd97;
 }
 
 .rex-strength-weak {
   --bar: var(--lost);
-  --bar-off: #3a221c;
+  --bar-off: #4a3229;
 
   background: var(--wash-lost);
   color: var(--lost-text);
@@ -2677,13 +3524,109 @@
   space left over. Both live in the centre pane, in place of the document.
 */
 
+/*
+  Spec 08 §8.1 — Facts is ONE mode with two presentations, and this is the
+  frame both sit in. The switch is the first thing in it, so it is in the same
+  corner and at the same height whichever presentation is showing.
+*/
+.rex-facts-mode {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+}
+
+.rex-facts-view {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 16px;
+}
+
 .rex-facts {
   display: flex;
   overflow-y: auto;
   flex-direction: column;
   gap: 14px;
-  padding: 20px 24px 32px;
-  height: 100%;
+  padding: 0 24px 32px;
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+  Spec 08 §8.2 — the build strip. One strip, one state, and it always ends in
+  the same sentence: these are CANDIDATES.
+*/
+.rex-facts-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+  padding: 12px 16px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--panel);
+}
+
+.rex-facts-strip-stop {
+  border-color: var(--write-edge);
+  background: var(--write-bg);
+}
+
+.rex-facts-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.rex-facts-strip-head progress {
+  flex: 1;
+  min-width: 6rem;
+  height: 4px;
+}
+
+.rex-facts-built {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ok);
+}
+
+.rex-facts-running {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--link);
+}
+
+.rex-facts-stop {
+  color: var(--lost-text);
+}
+
+/*
+  §7.4 and §11 rule 6 — nothing is capped silently. Amber, because it is an
+  admission about the build, not a finding about the documents.
+*/
+.rex-facts-dropped {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--wash-moved-edge);
+  border-radius: 2px;
+  background: var(--wash-moved);
+  color: #e0cd97;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.rex-facts-dropped .rex-icon {
+  flex: none;
+  margin-top: 2px;
+  stroke: var(--moved);
 }
 
 .rex-facts-head h2 {
@@ -2707,7 +3650,7 @@
   flex-wrap: wrap;
   padding: 18px;
   border: 1px solid var(--rule);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--sunk);
 }
 
@@ -2725,7 +3668,7 @@
   gap: 12px;
   padding: 10px 14px;
   border: 1px solid var(--rule);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--sunk);
 }
 
@@ -2761,7 +3704,7 @@
 .rex-finding {
   padding: 12px 14px;
   border: 1px solid var(--rule);
-  border-radius: 8px;
+  border-radius: 2px;
   background: var(--panel);
 }
 
@@ -2788,7 +3731,7 @@
 }
 
 .rex-pill-contradicts {
-  background: #2a1512;
+  background: #3a2721;
   color: var(--lost-text);
 }
 
@@ -2797,7 +3740,7 @@
 }
 
 .rex-pill-supersedes {
-  background: #3a2f10;
+  background: #3a3220;
   color: var(--moved);
 }
 
@@ -2815,7 +3758,7 @@
   gap: 5px;
   padding: 10px;
   border: 1px solid var(--rule-soft);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--well);
   color: inherit;
   font: inherit;
@@ -2841,6 +3784,74 @@
   align-items: center;
   gap: 8px;
   margin-top: 10px;
+}
+
+/* The topic, said in a word beside its swatch — never by the swatch alone. */
+.rex-finding-topic {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rex-finding-confirm {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--ok);
+  font-size: 11px;
+}
+
+/*
+  Spec 08 §8.3 — a note ABOUT a finding is not part of the finding.
+
+  These lines used to sit in the row, in the same register as the finding, so
+  they read as more of it. Behind a disclosure now, closed until asked for.
+*/
+.rex-finding-details {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 0 8px;
+  height: 26px;
+  border: none;
+  border-radius: 2px;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rex-finding-details[aria-expanded="true"] .rex-icon {
+  transform: rotate(180deg);
+}
+
+.rex-finding-notes {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 9px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.rex-finding-notes > div {
+  display: contents;
+}
+
+.rex-finding-notes dd {
+  margin: 0;
+  color: var(--fg-dim);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+.rex-finding-notes .rex-label {
+  line-height: 1.7;
 }
 
 /* ── §8.2 the lens ──────────────────────────────────────── */
@@ -2878,7 +3889,7 @@
   margin: 0;
   padding: 10px 12px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--panel);
   font-size: 11px;
   list-style: none;
@@ -2915,7 +3926,7 @@
   overflow-y: auto;
   padding: 10px 12px;
   border: 1px solid var(--rule);
-  border-radius: 6px;
+  border-radius: 2px;
   background: var(--panel);
 }
 
@@ -2943,7 +3954,7 @@
   width: 100%;
   padding: 7px 8px;
   border: 1px solid var(--rule-soft);
-  border-radius: 5px;
+  border-radius: 2px;
   background: var(--well);
   color: var(--fg-dim);
   font: inherit;

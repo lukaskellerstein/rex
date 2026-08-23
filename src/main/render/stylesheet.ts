@@ -49,7 +49,7 @@ export const MARKDOWN_STYLESHEET = `
     max-width: ${MEASURE.width};
     background: ${PAPER.bg};
     color: ${PAPER.inkBody};
-    font: ${MEASURE.fontSize}/${MEASURE.lineHeight} "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    font: ${MEASURE.fontSize}/${MEASURE.lineHeight} "DM Sans", system-ui, -apple-system, sans-serif;
   }
   h1, h2, h3, h4, h5, h6 { color: ${PAPER.ink}; line-height: 1.2; margin: 30px 0 12px; }
   h1 { font-size: 27px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.15; margin-top: 0; }

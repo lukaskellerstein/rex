@@ -23,8 +23,10 @@ import {
 import { enrichDocument } from "./enrich.ts";
 import { Gutter } from "./Gutter.tsx";
 import { pointsOfStroke, rescaleRect, unionOfRects } from "./ink.ts";
+import { ModeStrip } from "./ModeStrip.tsx";
 import { PenLayer, pathData } from "./PenLayer.tsx";
 import { PickLayer } from "./PickLayer.tsx";
+import { addPaperFonts } from "./paperFonts.ts";
 import { prepareDocumentHtml } from "./sanitise.ts";
 import type { SelectionItem } from "./selection.ts";
 
@@ -50,6 +52,11 @@ interface Props {
   selectionStroke: StrokeRef | null;
   /** §6.4 — a saved comment's ink shows when its row is hovered, too. */
   hoveredThreadId: string | null;
+  /** Spec 08 §7.2 — which of the open comment's places is being pointed at. */
+  hoveredPlace: number | null;
+  /** Spec 08 §4 — both modes are turned on from the foot of the paper now. */
+  onTogglePick: () => void;
+  onTogglePen: () => void;
   onDrawn: (strokes: Stroke[]) => void;
   onPenCancel: () => void;
   onSurfaceReady: (surface: DocumentSurface) => void;
@@ -69,6 +76,8 @@ interface Props {
   onProbe: (x: number, y: number) => void;
   onPickActive: (index: number) => void;
   onPickCommit: (index: number) => void;
+  /** A click in pick mode, at the point it landed on. */
+  onPickCommitAt: (x: number, y: number) => void;
   onPickCancel: () => void;
   onRegion: (index: number, box: ScopeRect) => void;
   onScrollBy: (dx: number, dy: number) => void;
@@ -95,7 +104,7 @@ function baseHref(directory: string): string {
  * stylesheet arrives with the pass that creates the elements it styles.
  */
 const PDF_SHELL =
-  '<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body></body></html>';
+  '<!doctype html><html lang="en" data-rex-paper><head><meta charset="utf-8"></head><body></body></html>';
 
 /**
  * Fragment links, which `<base href>` breaks.
@@ -262,6 +271,13 @@ export function DocumentView(props: Props): React.JSX.Element {
       jumpToFragmentsInsteadOfNavigating(inner);
       zoomFromInside(inner, zoomCommands);
 
+      // Before the zoom, and long before the surface: a face that lands after
+      // the page has been measured reflows every line under it.
+      await addPaperFonts(view).catch((error: unknown) =>
+        console.warn("[rex] the paper's DM Sans faces did not load", error),
+      );
+      if (!live) return;
+
       // Before the surface is handed up, so the text index and every rect the
       // resolver takes are measured at the size the reader is actually seeing.
       applyZoom(inner, zoomRef.current);
@@ -406,6 +422,17 @@ export function DocumentView(props: Props): React.JSX.Element {
    * Each maps its stored fractions onto a union box measured by the last sweep,
    * which is what makes the ink follow a reflow, a resize and a zoom — §5.4.
    */
+  /**
+   * Spec 08 §7.2 — the place the card is pointing at, if it is in THIS
+   * document and the sweep found somewhere to point.
+   */
+  const activeMark = ((): { number: number; box: ScopeRect } | null => {
+    if (props.activeId === null || props.hoveredPlace === null) return null;
+    const entry = props.resolved.find((one) => one.threadId === props.activeId);
+    const target = entry?.checked.find((one) => one.position === props.hoveredPlace);
+    return target?.mark ? { number: props.hoveredPlace + 1, box: target.mark } : null;
+  })();
+
   const shownStroke = ((): { stroke: StrokeRef; union: ScopeRect } | null => {
     if (props.selectionStroke) {
       const union = unionOfRects(marks.map((mark) => mark.box));
@@ -487,6 +514,26 @@ export function DocumentView(props: Props): React.JSX.Element {
       ))}
 
       {/*
+        Spec 08 §7.2 — REX pointing back.
+
+        Point at a place in the open comment's card and its mark here takes the
+        same number, in the violet the open comment is painted in. With nine
+        cells picked, "which nine" is the whole question — and a list that
+        cannot answer it is a list of nine identical rows.
+
+        One at a time, and only while pointed at: nine permanent badges over the
+        prose is the wall this is meant to avoid.
+      */}
+      {activeMark ? (
+        <span
+          className="rex-place-mark"
+          style={{ left: activeMark.box.x - scroll.x, top: activeMark.box.y - scroll.y }}
+        >
+          {activeMark.number}
+        </span>
+      ) : null}
+
+      {/*
         An anchor on a whole element or a region of one is an outline, not a
         fill: the Custom Highlight API paints ranges, so there is no range to
         paint here — and drawing it as an overlay box keeps the promise that
@@ -554,10 +601,24 @@ export function DocumentView(props: Props): React.JSX.Element {
           onProbe={props.onProbe}
           onActive={props.onPickActive}
           onCommit={props.onPickCommit}
+          onCommitAt={props.onPickCommitAt}
           onRegion={props.onRegion}
           onCancel={props.onPickCancel}
           onScrollBy={props.onScrollBy}
           onZoomBy={props.onZoomBy}
+        />
+      ) : null}
+
+      {/*
+        Spec 08 §4.1 — one strip, three states, and only ever one at a time.
+        The two bars above are the other two; this is the resting one.
+      */}
+      {props.doc && !props.picking && !props.penning ? (
+        <ModeStrip
+          canPick
+          canDraw={props.doc.presentation.kind !== "url"}
+          onTogglePick={props.onTogglePick}
+          onTogglePen={props.onTogglePen}
         />
       ) : null}
     </main>

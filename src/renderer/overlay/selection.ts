@@ -91,13 +91,36 @@ function overlaps(a: SelectionItem, b: SelectionItem): boolean {
 }
 
 /**
+ * Whether rule 3 is even in play — and it is only ever in play between two
+ * drags of the mouse over text.
+ *
+ * `overlaps` compares stored text ranges, and an ELEMENT anchor has one of
+ * those too: `createElementAnchor` records the block's own text. So the rule,
+ * left to `overlaps` alone, fired on a gesture it was never written for.
+ * Measured on 2026-08-22 on `sample-document.md`: select four words inside a
+ * paragraph, enter pick mode, click that paragraph — the panel still says
+ * `Selection 1` and the text row has been replaced by `Paragraph`. From the
+ * reviewer's side pick mode simply does not work, because the one thing it is
+ * supposed to do is add a row.
+ *
+ * A pick is a deliberate, aimed act — §3.1 says every plain click adds — and a
+ * reviewer who picks the paragraph *around* the phrase they highlighted is
+ * asking for both, not correcting themselves. `kind` is what tells the two
+ * gestures apart, and it exists precisely because the anchor cannot.
+ */
+function isExtendedDrag(newest: SelectionItem, next: SelectionItem): boolean {
+  return newest.kind === "text" && next.kind === "text" && overlaps(newest, next);
+}
+
+/**
  * §3.1 — everything selected is added, with three exceptions.
  *
  * 1. Rule 1 (a selection under three characters) is enforced in the surface, as
  *    close to the gesture as it can be, so it never reaches here.
  * 2. An exact duplicate is refused silently — the list comes back unchanged.
- * 3. A selection overlapping the **newest** row replaces it: dragging out a
- *    sentence, letting go, then extending it is one act.
+ * 3. A **text selection** overlapping the newest row replaces it: dragging out
+ *    a sentence, letting go, then extending it is one act. Only text — see
+ *    `isExtendedDrag`, and the pick-mode failure that came of not saying so.
  */
 export function addSelectionItem(
   items: readonly SelectionItem[],
@@ -106,7 +129,7 @@ export function addSelectionItem(
   if (items.some((item) => isDuplicate(item, next))) return [...items];
 
   const newest = items.at(-1);
-  if (newest && overlaps(newest, next)) return [...items.slice(0, -1), next];
+  if (newest && isExtendedDrag(newest, next)) return [...items.slice(0, -1), next];
 
   return [...items, next];
 }

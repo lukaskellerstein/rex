@@ -20,6 +20,8 @@ interface Props {
   /** Spec 06 §6.4 — hovering a row shows that comment's ink, if it was drawn. */
   onHover: (threadId: string | null) => void;
   onSynthesise: (refThreadIds: string[], note: string) => void;
+  /** Removes a comment for good. The row confirms first. */
+  onDelete: (threadId: string) => void;
 }
 
 const FILTERS: Filter[] = ["open", "resolved", "orphaned"];
@@ -100,6 +102,7 @@ export function Sidebar(props: Props): React.JSX.Element {
                 busy={props.busyThreads.includes(thread.id)}
                 onSelect={() => props.onSelect(thread.id)}
                 onHover={(over) => props.onHover(over ? thread.id : null)}
+                onDelete={() => props.onDelete(thread.id)}
               />
             </div>
           ))

@@ -52,8 +52,22 @@ function send(message: FromWorker): void {
  * than in main, because a build emitting an event per chunk would flood the
  * `MessagePort` for hours before main ever got the chance to drop one.
  *
- * The final event of a stage is always sent: a bar that stops at 39 of 40
- * because the last tick was throttled is a bar that looks stuck.
+ * Two kinds of event are never dropped, and both are about not lying:
+ *
+ *   · The LAST of a stage. A bar that stops at 39 of 40 because the final tick
+ *     was throttled is a bar that looks stuck.
+ *   · The FIRST of a stage, or any event whose words change. This one was
+ *     missing, and it cost far more than the other. `chunk` ends at 56 of 56,
+ *     which is a `done === total` event and therefore always sent — and it
+ *     resets the clock. The `extract` event that follows a millisecond later is
+ *     0 of 56, so it was dropped, and nothing else was sent until the first
+ *     passage came back from the model six to eleven minutes later. For all
+ *     that time the strip read "Splitting documents · 56 / 56" with a full bar:
+ *     a stage that takes milliseconds, shown complete, while the build was
+ *     actually deep in the stage that takes hours. Measured on 2026-08-22.
+ *
+ * Neither exception can flood. A stage changes six times in a build, and the
+ * message changes once per document.
  */
 function throttledProgress(): (
   stage: FactStage,
@@ -62,10 +76,16 @@ function throttledProgress(): (
   message: string,
 ) => void {
   let last = 0;
+  let lastStage: FactStage | null = null;
+  let lastMessage: string | null = null;
+
   return (stage, done, total, message) => {
     const now = Date.now();
-    if (done < total && now - last < 1000) return;
+    const changed = stage !== lastStage || message !== lastMessage;
+    if (!changed && done < total && now - last < 1000) return;
     last = now;
+    lastStage = stage;
+    lastMessage = message;
     send({ type: "progress", stage, done, total, message });
   };
 }

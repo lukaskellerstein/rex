@@ -27,7 +27,7 @@ export const PDF_STYLESHEET = `
     padding: 24px 0 96px;
     background: ${PAPER.wash};
     color: ${PAPER.inkBody};
-    font: 15px/1.68 "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    font: 15px/1.68 "DM Sans", system-ui, -apple-system, sans-serif;
     display: flex;
     flex-direction: column;
     /* "safe" so a page wider than the pane is not centred out of reach. */

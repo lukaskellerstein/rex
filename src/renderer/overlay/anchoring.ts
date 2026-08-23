@@ -55,6 +55,30 @@ export interface CheckedTarget {
    * (design/selection/Kinds).
    */
   box: ScopeRect | null;
+  /**
+   * Spec 08 §7.2 — where to draw this place's NUMBER, which is not the same
+   * question as whether to draw an outline.
+   *
+   * A text target has no box, because filling it is the highlight's job — but
+   * it still has a position, and pointing at its row has to be able to say
+   * "there". Null only when there is genuinely nowhere: an orphan, or a
+   * whole-document target.
+   */
+  mark: ScopeRect | null;
+  /**
+   * What this place turned out to BE — `Code block`, `Table · 3 rows × 4
+   * columns`, `Section · “…”`. Null when the place holds a passage, which is
+   * the one case that keeps its quote instead. `place.ts` is the rule.
+   */
+  label: string | null;
+  /**
+   * The source line it is on NOW, from the `data-src-line` the Markdown
+   * renderer stamps (§5.3). The anchor's own `source.line` is where it *was*,
+   * so the pair is what lets a card say `L41 was L37` — the concrete form of
+   * "re-found after the file changed", which as a phrase alone leaves the
+   * reviewer with nowhere to look.
+   */
+  line: number | null;
 }
 
 export interface ResolvedThread {
@@ -71,8 +95,9 @@ export interface ResolvedThread {
   top: number | null;
   /**
    * What the first checked target turned out to point at — `Table · 3 rows ×
-   * 4 columns`. Only for anchors with no quote of their own, where the card
-   * would otherwise have a blank line where the quote goes.
+   * 4 columns`, `Code block`. Null when that place holds prose, which is the
+   * one case a comment list shows as a quote. Same value as `checked[0].label`;
+   * kept here because the list draws one line per thread, not one per place.
    */
   label: string | null;
   /**
@@ -330,19 +355,29 @@ export function resolveAgainst(
       const state = anchorStateFor(resolution, documentChanged);
       const first = checked.length === 0;
 
+      // Both are the same two questions for every kind of resolution — what is
+      // this place, and where in the file is it now — so they are asked once.
+      const words = resolution ? describeResolved(index, resolution, anchor) : null;
+      const line = resolution ? sourceLineOf(resolution) : null;
+
       if (resolution?.kind === "range") {
         hits.push({ threadId: thread.id, range: resolution.range, status: thread.status, state });
-        checked.push({ position, state, box: null });
-        widen(toDocumentRect(view, resolution.range.getBoundingClientRect()));
-        if (first) top = documentTop(resolution.range.getBoundingClientRect(), view);
+        // No box — the highlight fills it — but a mark, so its row can point.
+        const where = toDocumentRect(view, resolution.range.getBoundingClientRect());
+        checked.push({ position, state, box: null, mark: where, label: words, line });
+        widen(where);
+        if (first) {
+          top = documentTop(resolution.range.getBoundingClientRect(), view);
+          label = words;
+        }
       } else if (resolution?.kind === "element") {
         const outline = toDocumentRect(view, resolution.element.getBoundingClientRect());
         const box = anchor.region ? regionWithin(outline, anchor) : outline;
-        checked.push({ position, state, box });
+        checked.push({ position, state, box, mark: box, label: words, line });
         widen(box);
         if (first) {
           top = box.y;
-          label = describeResolved(index, resolution, anchor);
+          label = words;
         }
       } else if (resolution?.kind === "run") {
         // Spec 06 §6.4 — a run is outlined, never filled, around the union of
@@ -352,18 +387,27 @@ export function resolveAgainst(
         // Its gutter marker at the top of the document is where it belongs.
         const whole = resolution.extent === "document";
         const box = rectOfRun(resolution);
-        checked.push({ position, state, box: whole ? null : box });
+        // A whole-document target has no mark either: a number at the top of a
+        // file points at nothing the reviewer can look at.
+        checked.push({
+          position,
+          state,
+          box: whole ? null : box,
+          mark: whole ? null : box,
+          label: words,
+          line,
+        });
         // A document target is left out of the union for the same reason it
         // draws no box: it would stretch the ink over the whole file.
         if (!whole) widen(box);
         if (first) {
           top = whole ? 0 : box.y;
-          label = describeResolved(index, resolution, anchor);
+          label = words;
         }
       } else {
         // Orphaned: nothing to paint and nowhere to draw it, but the target is
         // still checked and still has to be restated.
-        checked.push({ position, state, box: null });
+        checked.push({ position, state, box: null, mark: null, label: null, line: null });
       }
     }
 
@@ -424,10 +468,26 @@ function regionWithin(element: ScopeRect, anchor: Anchor): ScopeRect {
 }
 
 /**
- * A one-line name for a resolved block anchor, so a card with no quote has
- * something true to show rather than a blank line or an invented description.
+ * Blocks whose text is not prose, and so must never be shown as a quote.
  *
- * A run always gets one, quote or no quote. A section anchor stores its
+ * The selector is the DOM half of `place.ts`'s rule: a range that lands inside
+ * one of these is a place in a code block or a table, not a passage, however
+ * ordinary its quote looked when it was stored.
+ */
+const OPAQUE_BLOCKS = "pre, table, figure, img, svg, canvas, video";
+
+function elementOf(node: Node): Element | null {
+  return node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+}
+
+/**
+ * A one-line name for a resolved place, so a card has something true to show
+ * rather than a blank line, an invented description, or a flattened code block
+ * dressed up as a sentence.
+ *
+ * Null — and only null — means "this really is prose, quote it".
+ *
+ * A run always gets a name, quote or no quote: a section anchor stores its
  * heading's text (§4.3), and showing that as the card's blockquote would claim
  * the comment is about eight words when it is about everything under them.
  */
@@ -437,11 +497,39 @@ function describeResolved(index: TextIndex, resolution: Resolution, anchor: Anch
       ? "The whole document"
       : `Section · “${headingTextOf(resolution.first)}”`;
   }
-  if (resolution.kind === "range" || anchor.quote?.exact) return null;
-  const { title } = describeElement(index, resolution.element);
-  const region = anchor.region;
-  if (!region) return title;
-  return `Region of ${title} · x ${region.x.toFixed(2)} · w ${region.w.toFixed(2)}`;
+
+  if (resolution.kind === "element") {
+    const { title } = describeElement(index, resolution.element);
+    const region = anchor.region;
+    if (!region) return title;
+    return `Region of ${title} · x ${region.x.toFixed(2)} · w ${region.w.toFixed(2)}`;
+  }
+
+  // A range. It keeps its quote unless the block it landed in is one whose
+  // text carries no meaning on its own, in which case the block is named.
+  const block = elementOf(resolution.range.commonAncestorContainer)?.closest(OPAQUE_BLOCKS);
+  return block ? describeElement(index, block).title : null;
+}
+
+/**
+ * Which line of the source file a resolved place is on NOW.
+ *
+ * `data-src-line` is stamped on every block by the Markdown renderer (§5.3),
+ * so this is a lookup rather than a measurement. Absent for tier-1 HTML, which
+ * has no source file to number — the card then shows the document alone, which
+ * is what it showed before this existed.
+ */
+function sourceLineOf(resolution: Resolution): number | null {
+  const node =
+    resolution.kind === "range"
+      ? elementOf(resolution.range.commonAncestorContainer)
+      : resolution.kind === "element"
+        ? resolution.element
+        : resolution.first;
+  const stamped = node?.closest("[data-src-line]");
+  if (!stamped) return null;
+  const line = Number.parseInt(stamped.getAttribute("data-src-line") ?? "", 10);
+  return Number.isFinite(line) ? line : null;
 }
 
 // ── PDF: a comment is a place on a page, never a quote ──────────
@@ -785,7 +873,12 @@ export class FrameSurface implements DocumentSurface {
     const view = this.frame.contentWindow;
     if (!view) return null;
     const outcome = anchorFromSelectionIn(view, this.index, this.sourceFile);
-    this.chain = outcome?.chain ?? null;
+    // Only a real selection replaces the chain. This fires on EVERY mouse-up in
+    // the document, and most of those select nothing — a click to dismiss a
+    // highlight, a click to scroll to a link. Nulling the chain on those threw
+    // away whatever pick mode had just probed, and the next click in pick mode
+    // then anchored nothing at all.
+    if (outcome) this.chain = outcome.chain;
     return outcome?.selected ?? null;
   }
 

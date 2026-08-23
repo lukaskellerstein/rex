@@ -19,6 +19,7 @@ import type {
   WorkspaceRef,
   WorkspaceTree,
 } from "../../shared/types.ts";
+import { createDocumentAnchor } from "../anchor/create.ts";
 import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import { ApplyResult } from "./ApplyResult.tsx";
@@ -35,10 +36,12 @@ import { Explorer } from "./Explorer.tsx";
 import { FactGraph } from "./FactGraph.tsx";
 import { FactsView } from "./FactsView.tsx";
 import { GraphView } from "./GraphView.tsx";
+import { tokenClass } from "./Gutter.tsx";
 import { rescaleRect, strokeRefFrom, unionOfRects } from "./ink.ts";
 import { PEN_WIDTH } from "./PenLayer.tsx";
 import { SelectionPanel } from "./SelectionPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
+import { type SidebarTab, SidebarTabs } from "./SidebarTabs.tsx";
 import { Splitter } from "./Splitter.tsx";
 import {
   addSelectionItem,
@@ -47,6 +50,7 @@ import {
   type SelectionItem,
 } from "./selection.ts";
 import { TopBar } from "./TopBar.tsx";
+import { TraceSheet } from "./TraceSheet.tsx";
 
 /**
  * What the middle of the window is showing.
@@ -119,8 +123,15 @@ export function App(): React.JSX.Element {
   const [workspace, setWorkspace] = useState<WorkspaceRef | null>(null);
   const [tree, setTree] = useState<WorkspaceTree | null>(null);
   const [graph, setGraph] = useState<ReferenceGraph | null>(null);
-  /** Spec 07 §8.2 — which lens the graph view is showing. */
-  const [lens, setLens] = useState<"documents" | "facts">("documents");
+  /**
+   * Spec 08 §8.1 — which of the Facts mode's two presentations is showing.
+   *
+   * Spec 07 §8.2 drew the picture as a LENS over the reference graph, and that
+   * is what shipped: the centre segment read `Graph` while every node on screen
+   * was a fact. Facts is one mode with two presentations now, and `Graph` keeps
+   * the reference graph to itself — neither ever shows the other one's nodes.
+   */
+  const [factsView, setFactsView] = useState<"list" | "graph">("list");
   const [factGraph, setFactGraph] = useState<FactGraphData | null>(null);
   const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
   const [centre, setCentre] = useState<Centre>("document");
@@ -151,6 +162,12 @@ export function App(): React.JSX.Element {
   // database — a half-built selection restored three days later is a puzzle.
   const [selection, setSelection] = useState<SelectionItem[]>([]);
   const [selectionNote, setSelectionNote] = useState("");
+  /** Spec 08 §3.1 — which job the sidebar is doing. */
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("comments");
+  /** Spec 08 §6 — the comment whose trace is covering the document pane. */
+  const [traceId, setTraceId] = useState<string | null>(null);
+  /** Spec 08 §7.2 — which of the open comment's places is being pointed at. */
+  const [hoveredPlace, setHoveredPlace] = useState<number | null>(null);
   /**
    * Spec 06 §5.4 — the ink for the comment being built, already in the form it
    * will be stored in: fractions of the union box of the panel's places.
@@ -168,6 +185,23 @@ export function App(): React.JSX.Element {
   const [rowActive, setRowActive] = useState(0);
   /** Spec 05 §5.6.1 — what a pending Apply changed in the document on screen. */
   const [changeBoxes, setChangeBoxes] = useState<ScopeRect[]>([]);
+
+  /**
+   * Spec 08 §3.1 — the tab follows what the reviewer is doing, in both
+   * directions. Picking a first place is starting to select, so the Selection
+   * tab comes forward; Ask empties the panel, so the tabs go with it and the
+   * answer is where the reviewer is already looking.
+   *
+   * Only on the *edges*. Switching tabs by hand while a selection stands must
+   * not be undone on the next render, which is what a plain `length > 0` test
+   * would do.
+   */
+  const hadSelection = useRef(false);
+  useEffect(() => {
+    const has = selection.length > 0;
+    if (has !== hadSelection.current) setSidebarTab(has ? "selection" : "comments");
+    hadSelection.current = has;
+  }, [selection.length]);
 
   const surfaceRef = useRef<DocumentSurface | null>(null);
   const docRef = useRef<OpenedDocument | null>(null);
@@ -277,6 +311,28 @@ export function App(): React.JSX.Element {
     for (const entry of resolved) map.set(entry.threadId, entry.label);
     return map;
   }, [resolved]);
+
+  /**
+   * The same two facts per PLACE rather than per thread: what it is, and which
+   * line it is on now. Only the sweep can answer either — both are read off the
+   * live DOM — so a place in a document that is not open has neither, and the
+   * card falls back to what its stored anchor says.
+   */
+  const targetPlacesById = useMemo(() => {
+    const sweptBy = new Map(resolved.map((entry) => [entry.threadId, entry]));
+    const map = new Map<string, Array<{ label: string | null; line: number | null }>>();
+    for (const thread of threads) {
+      const swept = sweptBy.get(thread.id);
+      map.set(
+        thread.id,
+        thread.targets.map((_, position) => {
+          const check = swept?.checked.find((entry) => entry.position === position);
+          return { label: check?.label ?? null, line: check?.line ?? null };
+        }),
+      );
+    }
+    return map;
+  }, [threads, resolved]);
 
   const numbers = useMemo(
     () => new Map(threads.map((thread, position) => [thread.id, position + 1])),
@@ -723,6 +779,45 @@ export function App(): React.JSX.Element {
   );
 
   /**
+   * Spec 06 §4.3 — a whole file, from the tree, without opening it.
+   *
+   * `doc:open` is what registers a file and hands back its id, and it is used
+   * here for exactly that and nothing else: the pane is left showing whatever
+   * the reviewer was reading. Rendering it is the price of a real `documentId`
+   * and a real title, and it is the same work opening it would have done.
+   *
+   * The anchor is `createDocumentAnchor()` — all four layers null. §4.5 calls
+   * it the one anchor that cannot move, so it needs no rect, draws no outline
+   * (§6.4) and resolves in any document that still opens.
+   */
+  const selectWholeFile = useCallback(
+    (path: string): void => {
+      void guard(async () => {
+        const ref: DocumentRef = { kind: "file", value: path };
+        const opened = await window.rex.docOpen(ref);
+        setSelection((items) =>
+          addSelectionItem(
+            items,
+            newSelectionItem({
+              kind: "element",
+              documentId: opened.documentId,
+              documentRef: ref,
+              documentName: nameOf(ref),
+              anchor: createDocumentAnchor(),
+              label: "The whole document",
+              rect: null,
+              zoom: zoomRef.current,
+            }),
+          ),
+        );
+        // The panel is where the row landed, so that is where to look.
+        setSidebarTab("selection");
+      });
+    },
+    [guard],
+  );
+
+  /**
    * Spec 06 §5.3 and §6.2 — a finished drawing fills the panel.
    *
    * It adds its places the same way a click does, through the same three rules,
@@ -771,6 +866,30 @@ export function App(): React.JSX.Element {
     // replaces, takes nothing away either (§4, fault 3).
     if (next) addSelected(next);
   }, [addSelected]);
+
+  /**
+   * Remove a comment for good. Shared by the card's header and the list's rows,
+   * because "delete this comment" must mean exactly one thing wherever it is
+   * asked for — including what it tidies up afterwards.
+   *
+   * The confirm belongs to the caller, next to the control the reviewer
+   * pressed; by the time this runs the decision is made.
+   */
+  const removeThread = useCallback(
+    (threadId: string): void => {
+      void guard(async () => {
+        await window.rex.threadDelete(threadId);
+        // Whatever was showing this comment is now showing one that does not
+        // exist, and the trace sheet belongs to a single comment.
+        setActiveId((current) => (current === threadId ? null : current));
+        setTraceId((current) => (current === threadId ? null : current));
+        await refreshThreads();
+        // The tree carries per-file comment counts, and one of them just moved.
+        await refreshTree();
+      });
+    },
+    [guard, refreshThreads, refreshTree],
+  );
 
   const withBusy = useCallback(
     async (threadId: string, task: () => Promise<void>): Promise<void> => {
@@ -915,9 +1034,81 @@ export function App(): React.JSX.Element {
     [addSelected],
   );
 
+  /**
+   * A click in pick mode: probe where it landed, then commit that.
+   *
+   * The probe is repeated rather than assumed, because the click is the first
+   * moment REX is certain where the reviewer meant. Both of the ways the old
+   * "commit whatever the last pointer move found" could come up empty are the
+   * same failure to a reviewer — pick mode simply does nothing:
+   *
+   *   · No pointer move since entering pick mode, so nothing was ever probed.
+   *     That is the common case immediately after reading or selecting text,
+   *     when the pointer is already resting where the reviewer is looking.
+   *   · A chain left null by something else. `selectionMade` used to do exactly
+   *     that on any mouse-up that selected nothing.
+   *
+   * A deliberate widening still survives, by the same `keep` the hover probe
+   * uses: `keptIndex` carries the chosen ELEMENT into the new chain.
+   */
+  const commitAt = useCallback(
+    (x: number, y: number) => {
+      void (async () => {
+        const surface = surfaceRef.current;
+        if (!surface) return;
+        const keep = pickChosenByHand.current ? pickActiveRef.current : NO_KEPT_SCOPE;
+        const found = await surface.probeAt(x, y, keep);
+        if (!found) return;
+        setPickScopes(found.scopes);
+        setPickActive(found.active);
+        const next = await surface.anchorFromScope(found.active);
+        if (next) addSelected(next);
+      })();
+    },
+    [addSelected],
+  );
+
   // ── The selection panel ─────────────────────────────────────
 
   /** §3.3 and §4.1 — focus a row: open its document, scroll to it, offer chips. */
+  /**
+   * Spec 08 §7 — take me to this place.
+   *
+   * The same two steps a finding's Open takes: scroll if the document is
+   * already here, otherwise open it and let `onSurfaceReady` do the scrolling,
+   * because there is no DOM to scroll until then.
+   */
+  const goToPlace = useCallback(
+    (thread: ThreadWithMessages, position: number) => {
+      const target = thread.targets[position];
+      const ref = thread.targetRefs[position];
+      if (!target) return;
+
+      void guard(async () => {
+        if (docRef.current?.documentId === target.documentId) {
+          surfaceRef.current?.scrollToAnchor(target.anchor);
+          return;
+        }
+        // Nothing to open with — the document record is gone. Saying so beats
+        // a click that silently does nothing.
+        if (!ref) {
+          setNotice(`${thread.targetNames[position] ?? "That document"} is no longer in REX.`);
+          return;
+        }
+        setCentre("document");
+        anchorWhenReady.current = { path: ref.value, anchor: target.anchor };
+        await openDocument(ref);
+
+        // `openDocument` closes the open card, because in general the comment
+        // you were reading need not be about the document you just opened. A
+        // place jump is the case where it always is — and closing the card
+        // takes away the list of places the reviewer is working through.
+        setActiveId(thread.id);
+      });
+    },
+    [guard, openDocument],
+  );
+
   const expandRow = useCallback(
     (item: SelectionItem) => {
       void guard(async () => {
@@ -1213,22 +1404,10 @@ export function App(): React.JSX.Element {
         centre={centre}
         cost={cost}
         unanswered={unanswered}
-        picking={picking}
-        canPick={doc !== null && centre === "document"}
         zoom={zoom}
         onResetZoom={resetZoom}
         onCentre={showCentre}
         onAskAll={askAll}
-        penning={penning}
-        canDraw={doc !== null && centre === "document" && doc.presentation.kind !== "url"}
-        onTogglePick={() => {
-          setPenning(false);
-          setPicking((on) => !on);
-        }}
-        onTogglePen={() => {
-          setPicking(false);
-          setPenning((on) => !on);
-        }}
         onOpenFile={pick}
         onOpenFolder={pickFolder}
         onOpenUrl={openUrl}
@@ -1253,6 +1432,7 @@ export function App(): React.JSX.Element {
               activePath={selectedPath}
               onOpen={(path) => void guard(() => openDocument({ kind: "file", value: path }))}
               onReload={refreshTree}
+              onSelectFile={selectWholeFile}
             />
             <Splitter
               width={explorerWidth}
@@ -1271,7 +1451,15 @@ export function App(): React.JSX.Element {
             swapped out: unmounting it would drop the iframe, and with it the
             anchor surface and the highlight registry the resolver just built.
           */}
-          <div className={`rex-pane${centre === "document" ? "" : " rex-pane-hidden"}`}>
+          {/*
+            Spec 08 §6.1 — the trace covers the document pane and nothing else.
+            The pane is hidden rather than unmounted, for the same reason it is
+            hidden behind the graph: unmounting drops the iframe, and with it
+            the anchor surface and the highlight registry the resolver built.
+          */}
+          <div
+            className={`rex-pane${centre === "document" && traceId === null ? "" : " rex-pane-hidden"}`}
+          >
             <DocumentView
               doc={doc}
               resolved={resolved}
@@ -1288,6 +1476,15 @@ export function App(): React.JSX.Element {
               penning={penning}
               selectionStroke={selectionStroke}
               hoveredThreadId={hoveredThreadId}
+              hoveredPlace={hoveredPlace}
+              onTogglePick={() => {
+                setPenning(false);
+                setPicking((on) => !on);
+              }}
+              onTogglePen={() => {
+                setPicking(false);
+                setPenning((on) => !on);
+              }}
               onDrawn={finishDrawing}
               onPenCancel={leavePen}
               onSurfaceReady={onSurfaceReady}
@@ -1302,65 +1499,27 @@ export function App(): React.JSX.Element {
               onProbe={probe}
               onPickActive={choosePickScope}
               onPickCommit={commitScope}
+              onPickCommitAt={commitAt}
               onPickCancel={leavePick}
               onRegion={takeRegion}
             />
           </div>
 
           {/*
-            Spec 07 §8.2 — the existing graph view gains a lens toggle. Two views
-            of one workspace: what links to what, and what it claims.
+            Only where the document pane is. The trace covers that pane; over
+            the graph or the facts list it would be covering someone else's.
+            The id survives the trip, so coming back brings the sheet back.
           */}
-          {centre === "graph" && workspace ? (
-            <div className="rex-segment rex-lens">
-              <button
-                type="button"
-                className={lens === "documents" ? "rex-on" : ""}
-                onClick={() => setLens("documents")}
-              >
-                Documents
-              </button>
-              <button
-                type="button"
-                className={lens === "facts" ? "rex-on" : ""}
-                onClick={() => {
-                  setLens("facts");
-                  void guard(async () => {
-                    setFactGraph(await window.rex.factsGraph({ root: workspace.root }));
-                  });
-                }}
-              >
-                Facts
-              </button>
-            </div>
+          {centre === "document" && traceId !== null && active !== null ? (
+            <TraceSheet
+              thread={active}
+              number={numbers.get(active.id) ?? 0}
+              tokenClass={tokenClass(active.status, stateById.get(active.id) ?? null)}
+              onClose={() => setTraceId(null)}
+            />
           ) : null}
 
-          {centre === "graph" && lens === "facts" ? (
-            factGraph ? (
-              <FactGraph
-                graph={factGraph}
-                selectedClaimId={selectedClaimId}
-                onSelectClaim={(claimId) => setSelectedClaimId(claimId || null)}
-                onOpenEvidence={(path, anchor) => {
-                  // §11 rule 4's "a way to jump to it" — the same path a
-                  // finding's Open takes.
-                  setCentre("document");
-                  void guard(async () => {
-                    if (docRef.current?.ref.value === path) {
-                      surfaceRef.current?.scrollToAnchor(anchor);
-                      return;
-                    }
-                    anchorWhenReady.current = { path, anchor };
-                    await openDocument({ kind: "file", value: path });
-                  });
-                }}
-              />
-            ) : (
-              <p className="rex-meta rex-graph-loading">Reading what the documents claim…</p>
-            )
-          ) : null}
-
-          {centre === "graph" && lens === "documents" ? (
+          {centre === "graph" ? (
             graph ? (
               <GraphView
                 graph={graph}
@@ -1394,35 +1553,95 @@ export function App(): React.JSX.Element {
             that call the one and only trigger for a build.
           */}
           {centre === "facts" && workspace ? (
-            <FactsView
-              root={workspace.root}
-              onOpen={(path, finding) => {
-                // §8.1 — Open jumps to the quote's anchor in its document.
-                const side = finding.a.documentPath === path ? finding.a : finding.b;
-                setCentre("document");
-                void guard(async () => {
-                  const ref: DocumentRef = { kind: "file", value: path };
-                  if (docRef.current?.ref.value === path) {
-                    surfaceRef.current?.scrollToAnchor(side.anchor);
-                    return;
+            <div className="rex-facts-mode">
+              {/*
+                Spec 08 §8.1 — the switch is the FIRST thing in the centre pane
+                on both presentations, 16px in from its top left. Rendered here
+                rather than inside each view, so it is literally the same
+                element in the same place and cannot drift between them.
+              */}
+              <div className="rex-facts-view">
+                <span className="rex-label">VIEW</span>
+                <div className="rex-segment">
+                  <button
+                    type="button"
+                    className={factsView === "list" ? "rex-on" : ""}
+                    onClick={() => setFactsView("list")}
+                  >
+                    List
+                  </button>
+                  <button
+                    type="button"
+                    className={factsView === "graph" ? "rex-on" : ""}
+                    onClick={() => {
+                      setFactsView("graph");
+                      void guard(async () => {
+                        setFactGraph(await window.rex.factsGraph({ root: workspace.root }));
+                      });
+                    }}
+                  >
+                    Graph
+                  </button>
+                </div>
+              </div>
+
+              {factsView === "graph" ? (
+                factGraph ? (
+                  <FactGraph
+                    graph={factGraph}
+                    selectedClaimId={selectedClaimId}
+                    onSelectClaim={(claimId) => setSelectedClaimId(claimId || null)}
+                    onOpenEvidence={(path, anchor) => {
+                      // §11 rule 4's "a way to jump to it" — the same path a
+                      // finding's Open takes.
+                      setCentre("document");
+                      void guard(async () => {
+                        if (docRef.current?.ref.value === path) {
+                          surfaceRef.current?.scrollToAnchor(anchor);
+                          return;
+                        }
+                        anchorWhenReady.current = { path, anchor };
+                        await openDocument({ kind: "file", value: path });
+                      });
+                    }}
+                  />
+                ) : (
+                  <p className="rex-meta rex-graph-loading">Reading what the documents claim…</p>
+                )
+              ) : null}
+
+              {factsView === "list" ? (
+                <FactsView
+                  root={workspace.root}
+                  onOpen={(path, finding) => {
+                    // §8.1 — Open jumps to the quote's anchor in its document.
+                    const side = finding.a.documentPath === path ? finding.a : finding.b;
+                    setCentre("document");
+                    void guard(async () => {
+                      const ref: DocumentRef = { kind: "file", value: path };
+                      if (docRef.current?.ref.value === path) {
+                        surfaceRef.current?.scrollToAnchor(side.anchor);
+                        return;
+                      }
+                      anchorWhenReady.current = { path, anchor: side.anchor };
+                      await openDocument(ref);
+                    });
+                  }}
+                  onComment={(finding) =>
+                    void guard(async () => {
+                      // §8.4 — from here nothing is new: the thread is an ordinary
+                      // spec 05 comment about two documents, and Ask, discuss and
+                      // Apply all work unchanged.
+                      const thread = await window.rex.factsComment({ findingKey: finding.key });
+                      setCentre("document");
+                      await openDocument({ kind: "file", value: finding.a.documentPath });
+                      await refreshThreads();
+                      setActiveId(thread.id);
+                    })
                   }
-                  anchorWhenReady.current = { path, anchor: side.anchor };
-                  await openDocument(ref);
-                });
-              }}
-              onComment={(finding) =>
-                void guard(async () => {
-                  // §8.4 — from here nothing is new: the thread is an ordinary
-                  // spec 05 comment about two documents, and Ask, discuss and
-                  // Apply all work unchanged.
-                  const thread = await window.rex.factsComment({ findingKey: finding.key });
-                  setCentre("document");
-                  await openDocument({ kind: "file", value: finding.a.documentPath });
-                  await refreshThreads();
-                  setActiveId(thread.id);
-                })
-              }
-            />
+                />
+              ) : null}
+            </div>
           ) : null}
         </div>
 
@@ -1445,11 +1664,18 @@ export function App(): React.JSX.Element {
           style={{ width: commentsWidth }}
         >
           {/*
-            Spec 05 §3 — the selection panel sits above the comments and appears
-            only when something is in it. It stays put while a comment card is
-            open: a reviewer can be reading one comment and building the next.
+            Spec 08 §3.1 — the tab bar is furniture. It is here whatever the
+            column holds, and an empty selection dims its tab rather than
+            removing the bar.
           */}
-          {selection.length > 0 ? (
+          <SidebarTabs
+            tab={sidebarTab}
+            selectionCount={selection.length}
+            commentCount={threads.length}
+            onTab={setSidebarTab}
+          />
+
+          {sidebarTab === "selection" ? (
             <SelectionPanel
               items={selection}
               note={selectionNote}
@@ -1469,17 +1695,25 @@ export function App(): React.JSX.Element {
               onHover={setHoveredItemId}
               onReorder={(from, to) => setSelection((items) => moveSelectionItem(items, from, to))}
             />
-          ) : null}
-
-          {active ? (
+          ) : active ? (
             <CommentCard
               thread={active}
               number={numbers.get(active.id) ?? 0}
               anchorState={stateById.get(active.id) ?? null}
-              label={labelById.get(active.id) ?? null}
               targetStates={targetStatesById.get(active.id) ?? []}
+              targetPlaces={targetPlacesById.get(active.id) ?? []}
               busy={busyThreads.includes(active.id)}
-              onBack={() => setActiveId(null)}
+              tracing={traceId === active.id}
+              openDocumentId={doc?.documentId ?? null}
+              hoveredPlace={hoveredPlace}
+              onHoverPlace={setHoveredPlace}
+              onGoToPlace={(position) => goToPlace(active, position)}
+              onShowTrace={() => setTraceId(traceId === active.id ? null : active.id)}
+              onBack={() => {
+                setActiveId(null);
+                // The sheet belongs to one comment, so it goes with it.
+                setTraceId(null);
+              }}
               onReply={(text) =>
                 void withBusy(active.id, () =>
                   window.rex.threadReply({ threadId: active.id, text }),
@@ -1495,6 +1729,7 @@ export function App(): React.JSX.Element {
                   await window.rex.threadApply(active.id);
                 })
               }
+              onDelete={() => removeThread(active.id)}
             />
           ) : (
             <Sidebar
@@ -1504,6 +1739,7 @@ export function App(): React.JSX.Element {
               busyThreads={busyThreads}
               onSelect={setActiveId}
               onHover={setHoveredThreadId}
+              onDelete={removeThread}
               onSynthesise={(refThreadIds, note) =>
                 void guard(async () => {
                   const current = docRef.current;

@@ -92,12 +92,19 @@ function whyNothingToApply(plan: ApplyPlan): string {
 /** A thread as `thread:list` returns it — transcript and display facts attached. */
 export function withDetail(db: Db, thread: Thread): ThreadWithMessages {
   const plan = applyPlan(db, thread);
-  const names = new Map(documentsOf(db, thread).map((record) => [record.id, documentName(record)]));
+  const records = documentsOf(db, thread);
+  const names = new Map(records.map((record) => [record.id, documentName(record)]));
+  // Spec 08 §7.3 — a place row has to be able to OPEN its document, and a
+  // stored `AnchorTarget` carries only a `documentId`. The selection panel got
+  // away without this because the reviewer had just picked the document; a
+  // comment read back from the database has no such luck.
+  const refs = new Map(records.map((record) => [record.id, record.ref]));
   return {
     ...thread,
     messages: listMessages(db, thread.id),
     documentNames: [...names.values()],
     targetNames: thread.targets.map((target) => names.get(target.documentId) ?? "unknown"),
+    targetRefs: thread.targets.map((target) => refs.get(target.documentId) ?? null),
     applyEnabled: plan.editable.length > 0,
     applyDisabledReason: plan.editable.length > 0 ? null : whyNothingToApply(plan),
   };
