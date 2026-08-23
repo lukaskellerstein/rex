@@ -92,6 +92,29 @@ export const Info = (p: Props): React.JSX.Element => (
   </svg>
 );
 
+/**
+ * The trace sheet's `debug` control, and nothing else (spec 08 §6.2).
+ *
+ * A beetle rather than a wrench or a cog: those two mean *settings* in every
+ * toolbar anybody has used, and this button changes nothing — it copies what
+ * went wrong. Four legs and not six, because at 13px a sixth pair closes the
+ * gap between the others and the whole thing reads as a smudge.
+ */
+export const Bug = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <rect x="5" y="5.4" width="6" height="8.2" rx="3" />
+    <path d="M8 7.6v4" />
+    <path d="M6.3 4.4 5.1 2.8M9.7 4.4 10.9 2.8" />
+    <path d="M5 8.2H2.9M11 8.2h2.1M5 11.4H3.3M11 11.4h1.7" />
+  </svg>
+);
+
 /** Pick mode — a crop frame with a cursor inside it. */
 export const PickTarget = (p: Props): React.JSX.Element => (
   <svg

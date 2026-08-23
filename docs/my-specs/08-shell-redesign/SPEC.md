@@ -1,7 +1,10 @@
 # REX 08 — the shell redesign
 
 **Version:** 1.1 · 2026-08-22
-**Status:** implemented; all six milestones pass their acceptance criteria
+**Status:** implemented; all six milestones pass their acceptance criteria.
+**§8 was withdrawn on 2026-08-23** by
+[09 — removing the fact graph](../09-removing-the-fact-graph/SPEC.md);
+§1 to §7 are current and unaffected.
 **Depends on:** [`01-initial/SPEC.md`](../01-initial/SPEC.md),
 [`02-workspace-and-graph/SPEC.md`](../02-workspace-and-graph/SPEC.md),
 [`03-rich-rendering/SPEC.md`](../03-rich-rendering/SPEC.md),
@@ -53,8 +56,9 @@ says *what changes and why*; the boards say what it looks like.
 | `Trace.dc.html` | The trace sheet. §6. |
 | `Hover.dc.html` | Pick mode, the path bar, anchor strength. §4. |
 | `Region.dc.html` | Regions of a figure, and the foot strip in its resting state. §4.1. |
-| `Findings.dc.html` | The Facts list and the build strip. §8.2, §8.3. |
-| `Lens.dc.html` | The Facts picture and its side panel. §8.4, §8.5. |
+
+`Findings.dc.html` and `Lens.dc.html` governed §8 and **govern nothing now** —
+spec 09 removed the Facts mode they draw.
 
 Two rules that apply throughout and are not repeated in each section:
 
@@ -80,7 +84,7 @@ Five changes to the shell, drawn as a set because they are one argument:
 job at a time.**
 
 1. **The sidebar is two tabs** — `Selection` and `Comments`, switched with the
-   same segmented control the top bar uses for `Document | Graph | Facts`. §3.
+   same segmented control the top bar uses for `Document | Graph`. §3.
 2. **The mode controls leave the top bar** for the strip at the foot of the
    paper, where the mode acts. §4.
 3. **The comment card splits by what its content needs** — a meta strip, turns
@@ -91,7 +95,8 @@ job at a time.**
    light their mark in the document. §7.
 
 And one that follows from them: **Facts becomes one centre mode with two
-presentations** rather than a lens hidden inside `Graph`. §8.
+presentations** rather than a lens hidden inside `Graph`. §8. ***Withdrawn by
+spec 09** — there is no Facts mode. The centre segment is `Document | Graph`.*
 
 ### 1.1 What this is not
 
@@ -111,8 +116,8 @@ Everywhere not named here, the earlier specs still govern.
 | 05 | §3.3 | The selection list is capped at `34vh` | **No cap.** §3.2 | None — the cap existed only to stop twenty places pushing the comments off the bottom |
 | 04 §2, 06 §5.1 | — | `Pick element` and `Pen` are top-bar buttons | Both are chips in the **foot strip**. §4 | The top bar loses two controls a new reader might have found there |
 | 01 | §7 | The comment card shows "the note, the **full transcript**, a message box" | The card carries the answer and a **step strip**; the transcript moves to a **sheet**. §5.4, §6 | Reading the trace now costs the document pane until `esc` |
-| 07 | §8.2 | The fact picture is a **lens over the reference graph** | Facts is one centre mode with **two presentations**. §8.1 | `Graph` stops being able to show facts at all — deliberate |
-| 07 | §8.2 | Topic colour comes from a wheel | **Three computed colours**, everything else neutral. §8.4 | Topics four and up lose their hue |
+| 07 | §8.2 | The fact picture is a **lens over the reference graph** | Facts is one centre mode with **two presentations**. §8.1 | ~~`Graph` stops being able to show facts~~ — **moot: spec 09 withdrew both** |
+| 07 | §8.2 | Topic colour comes from a wheel | **Three computed colours**, everything else neutral. §8.4 | ~~Topics four and up lose their hue~~ — **moot: spec 09 withdrew topics** |
 
 Nothing in specs 01 §6 (anchoring), 01 §8.4 (the gate), 01 §8.7 (Apply) or 03
 §5 (the paper) changes. This spec does not touch the resolver, the profiles, or
@@ -252,7 +257,7 @@ meaning.
 ### 4.4 What the top bar keeps
 
 Mark, `Open ▾`, the breadcrumb path, the `FILE CHANGED` pill, the zoom chip when
-the zoom is not 100%, the `Document | Graph | Facts` segment, the running cost,
+the zoom is not 100%, the `Document | Graph` segment, the running cost,
 and `Ask all · N`. That is the whole bar.
 
 ---
@@ -348,7 +353,7 @@ The **document pane, and only the document pane**. The explorer stays, and the
 comment card stays beside it — so the reviewer always sees which comment they
 are auditing, and the reply box is reachable without closing. `esc` closes it.
 
-**Why a sheet and not a fourth centre mode.** `Document | Graph | Facts` is a
+**Why a sheet and not a third centre mode.** `Document | Graph` is a
 **workspace** switch; a trace belongs to one comment. As a peer it would be a
 button that comes and goes, and leaving it there would need a decision about
 what it shows with no comment open. Apply's review bar (spec 05 §5.6.1) settled
@@ -363,7 +368,78 @@ part worth leaving the document for.
 
 A 44px bar on `var(--panel)`: the comment's token, the label `TRACE`, the
 comment's note truncated to one line, a `N DENIED` pill when any were, the
-`N steps · Ns · $N` summary in mono, and `esc close`.
+`N steps · Ns · $N` summary in mono, and then two controls — **`debug`** and
+**`close esc`**.
+
+Both are the same hairline control (`.rex-trace-action`), 24px, muted at rest
+and answering the pointer with intensity rather than hue. They are not links:
+the bar already holds five pieces of text and a sixth cannot say "press me".
+They are not `.rex-button` either — 28px of raised surface would outweigh the
+summary they sit beside. Nor are they `.rex-chip`, which is **taken**: that is
+the sidebar's filter pill, 999px and 12px, and reusing the word made these two
+silently inherit its shape. The `esc` cap is `.rex-key-chrome`, the variant: the
+plain `.rex-key` is a **paper** style, white on `#d6d1c8` for the pen, pick and
+mode bars drawn over the document, and on this bar it was the brightest object
+in the header — louder than the refusal pill, which is the one thing in that row
+entitled to shout.
+
+**`debug` copies this run's identifiers to the clipboard**, for pasting into a
+bug report. It carries a beetle (`Icons.tsx`'s `Bug`) — not a wrench or a cog,
+which mean *settings* in every toolbar anybody has used, while this button
+changes nothing — and the beetle becomes a `Check` for as long as the
+confirmation shows. The reviewer reading a trace is the one person who can see that the
+answer is wrong, and the one person who cannot say *where* it happened: which
+thread row, which SDK session, which of the dozen-odd JSONL files under
+`~/.claude/projects/<cwd dashed>/` was written by this answer. Every one of those
+facts lives in main — the agent's `cwd`, the transcript path, `~/.rex/rex.db`,
+the versions — so `debug:copy` is a command rather than something the renderer
+assembles, and main writes the clipboard itself: Electron owns it, and a copy
+that depends on the renderer being focused fails exactly when somebody is trying
+to report a bug.
+
+The report is plain text, one `key  value` per line, and names: the thread with
+its kind, status and profile; the model; the SDK session id; the working
+directory; the database; when the thread was asked and last updated; the
+comment; each place
+with its anchor state and what it is anchored by; the totals, which are
+`shared/totals.ts` so the report, the sheet and the card cannot disagree; **every
+refusal with the full command that earned it**; any errors; and the versions of
+REX, Electron, Chrome, Node and the Agent SDK. Sections that would be empty are
+omitted — the totals line already counts the refusals and the errors, so an
+absent section is never ambiguous.
+
+The copied text becomes the button's `title` for as long as the confirmation
+shows, so the reviewer can read what they are about to paste. The report carries
+absolute paths and a clipped line of their document, and seeing it first is the
+difference between copying and disclosing.
+
+#### 6.2.1 The session is reported twice, on purpose
+
+`sdk store` is what `getSessionInfo` says, and `sdk log` is what the filesystem
+says. They are separate lines because **they can disagree, and each way of
+disagreeing is a different bug**:
+
+| `sdk store` | `sdk log` | What it means |
+|:--|:--|:--|
+| has it | present | The normal case. Read the file. |
+| has it | missing | The store moved — REX is looking in the wrong config directory. |
+| no record | present | The SDK will refuse to resume; §8.5's replay is what will actually happen, and the file is a leftover from another config directory. |
+| no record | missing | The cache was cleaned. §8.5 replays, exactly as designed. |
+
+Collapsing the pair into one `resumable: yes` hid two real faults at once, and
+both were found by the first report this button ever produced (2026-08-23):
+
+1. **`sessionFilePath` hardcoded `~/.claude`.** `CLAUDE_CONFIG_DIR` overrides
+   it, this machine sets one, and the SDK honours it — so REX named a file that
+   did not exist while the SDK wrote the transcript somewhere else. Invisible
+   until something asked the filesystem rather than the SDK, which is what this
+   report does. `transcript.ts` now has `configDir()`.
+2. **`sessionExists` then answered `true` from a stale file** left by a REX
+   launched with a different config directory, so `thread:reply` resumed a
+   session the SDK had never heard of and the turn died with *No conversation
+   found with session ID*. With (1) fixed the two sources agree, `sessionExists`
+   answers `false`, and the reply replays the thread into a fresh session as
+   §8.5 intends. Reproduced and re-tested.
 
 ### 6.3 The entries
 
@@ -502,6 +578,16 @@ target — the two cases where there is genuinely nowhere to point.
 
 ## 8. The Facts mode
 
+> [!warning]
+> **This section was withdrawn on 2026-08-23 by
+> [09 — removing the fact graph](../09-removing-the-fact-graph/SPEC.md).**
+> `FactsView.tsx`, `FactGraph.tsx`, the `Facts` segment and the `F` key are all
+> deleted; the centre segment is `Document | Graph`. Spec 09 §1 has the reason —
+> spec 07's own measurements — and §14 the trigger to revisit. The argument
+> below is kept because §8.1's "one mode, two presentations" and §8.3's
+> "a note about a finding is not part of the finding" are reusable, but nothing
+> here describes REX as it is.
+
 ### 8.1 One mode, two presentations
 
 Spec 07 §8.2 draws the fact picture as a lens over the reference graph, and that
@@ -622,21 +708,31 @@ document that states it.
 
 ## 9. Types and IPC
 
-**No new IPC channel.** Everything below is renderer-side or reuses a channel.
+**One new IPC channel**, and it is §6.2's `debug`. Everything else below is
+renderer-side or reuses a channel.
 
 | Change | Where |
 |:--|:--|
+| `debug:copy` — thread id in, the report out, clipboard written in main | `src/shared/channels.ts`, `main/debug.ts`. §6.2 |
+| `totalsOf` moves to `shared/`, taking `Message[]` | `src/shared/totals.ts` — main counts a run's cost too now, and three views of one number must not drift |
+| `agentCwd` moves to `main/threads.ts` | It decides where the agent runs *and* where the SDK writes its transcript; `ipc.ts` kept it as a closure, where a report cannot reach it |
+| `configDir()` and `sessionRecord()` | `main/agent/transcript.ts` — §6.2.1. `CLAUDE_CONFIG_DIR` was ignored, and one SDK call site replaces two |
 | `targetRefs` on `ThreadWithMessages` — one ref per target | `src/shared/types.ts`, built in `main/threads.ts`. §7.3 |
 | `mark` on `CheckedTarget` — where to draw a place's number | `renderer/overlay/anchoring.ts`, §7.2 |
-| `topicId` on `Finding` — which of the three colours its swatch takes | `src/shared/types.ts`, one column in `facts/store.ts`. §8.4 |
+| ~~`topicId` on `Finding`~~ | **Withdrawn by spec 09 — `Finding` is deleted** |
 | `SidebarTab = "selection" \| "comments"` | `src/renderer/overlay/App.tsx` state |
 | `TraceEntry` — a `Message` narrowed for §6.3 | `src/renderer/overlay/trace.ts` |
-| `FactsPresentation = "list" \| "graph"` — replaces the `lens` state | `App.tsx`, §8.1 |
+| ~~`FactsPresentation = "list" \| "graph"`~~ | **Withdrawn by spec 09** |
+
+`targetRefs` and `mark` are unaffected by spec 09 and are current.
 
 `thread:list` already answers with `ThreadWithMessages[]`, and `messages` is
 every row for that thread — the whole point of that shape is to avoid a second
-round trip. The trace needs no new call; it needs the renderer to stop
-discarding what it is already given (§6.5).
+round trip. The trace itself needs no new call; it needs the renderer to stop
+discarding what it is already given (§6.5). `debug:copy` is the exception and
+not a contradiction of it: what it returns is not in `ThreadWithMessages` and
+could not be, because none of it is a property of a thread — it is where main
+put the run.
 
 ---
 
@@ -655,9 +751,14 @@ src/renderer/overlay/
 ├── trace.ts                NEW — §6.5, the unfiltered selector and the per-tool argument
 ├── ModeStrip.tsx           NEW — §4.1, the three states of the foot strip
 ├── TopBar.tsx              §4.4 — loses Pick element and Pen
-├── FactsView.tsx           §8.2, §8.3 — build strip, filters, details disclosure
-├── FactGraph.tsx           §8.4, §8.5 — three topic colours, the lens panel
 └── overlay.css             every class above
+
+src/main/
+├── debug.ts                NEW — §6.2, the report `debug:copy` returns
+└── threads.ts              gains `agentCwd`, which `ipc.ts` used to keep private
+
+src/shared/
+└── totals.ts               NEW — §6.2, what a run cost, for both processes
 ```
 
 Invariants I1, I2 and I3 are untouched: nothing here resolves an anchor outside
@@ -708,6 +809,10 @@ The meta strip, the turn blocks and the step strip.
 - [ ] `esc` closes it.
 - [ ] Thinking appears here and nowhere else.
 - [ ] The denied block is open without being asked.
+- [ ] `debug` copies a report whose `sdk log` path **exists on disk** — the one
+      check that cannot be made by reading the code, because a path that is
+      merely well-formed is exactly the failure it has to rule out.
+- [ ] The report's totals match the summary in the bar above the button.
 
 ### Milestone 4 — places
 
@@ -719,17 +824,11 @@ The meta strip, the turn blocks and the step strip.
       `anchor lost`, and is not counted as an orphan.
 - [ ] Clicking it opens that document and scrolls there.
 
-### Milestone 5 — Facts
+### Milestone 5 — Facts *(withdrawn by spec 09)*
 
-The presentation switch, the build strip, the details disclosure, three topic
-colours.
-
-- [ ] `Graph` mode can no longer show facts.
-- [ ] `VIEW` sits 16px from the top left in both presentations and does not move.
-- [ ] The build strip says `candidates` and names what it dropped, in all three
-      states.
-- [ ] Topic four and up are neutral, and every topic is named at its centre and
-      in the legend.
+Implemented, then removed. Spec 09 milestone 0 is what replaced it, and its
+acceptance criteria are the inverse: the segment reads `Document | Graph`, `F`
+does nothing, and `Graph` mode draws the reference graph alone.
 
 ---
 
@@ -737,9 +836,9 @@ colours.
 
 | Rejected | Why |
 |:--|:--|
-| A `Trace` peer beside `Document`, `Graph` and `Facts` | That segment is a workspace switch; a trace belongs to one comment. §6.1 |
-| A tooltip for a finding's notes | Longer than a tooltip holds, and reachable by neither touch nor keyboard. §8.3 |
-| A fourth topic colour | No four hues clear the accessibility floors once the four meaning colours are ruled out. §8.4 |
+| A `Trace` peer beside `Document` and `Graph` | That segment is a workspace switch; a trace belongs to one comment. §6.1 |
+| ~~A tooltip for a finding's notes~~ | Moot — spec 09 removed findings |
+| ~~A fourth topic colour~~ | Moot — spec 09 removed topics |
 | Keeping `Pick element` in the top bar | It is a mode, and a mode belongs where it acts. §4.3 |
 | Showing thinking in the card | The answer outranks the machinery. §6.5 |
 | Persisting `PlaceRow` | It is derived from anchors that already exist. §7.2 |
@@ -759,4 +858,5 @@ colours.
 - Spec 01 §7 — the user interface table, whose "comment card" row §5 and §6
   split in two.
 - Spec 07 §8, §11 — the fact graph interface and its trust rules, which §8
-  amends in one place and obeys everywhere else.
+  amends in one place and obeys everywhere else. **Both are withdrawn**; see
+  [09 — removing the fact graph](../09-removing-the-fact-graph/SPEC.md).

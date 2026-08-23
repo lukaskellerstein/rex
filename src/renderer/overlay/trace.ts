@@ -148,31 +148,3 @@ export function traceOf(thread: ThreadWithMessages): TraceEntry[] {
   }
   return entries;
 }
-
-export interface ThreadTotals {
-  steps: number;
-  denied: number;
-  durationMs: number;
-  costUsd: number;
-}
-
-/**
- * What a thread cost, counted once.
- *
- * The card's meta strip and the trace sheet's head both say this, and they must
- * agree — a sheet that reports different numbers from the card that opened it
- * is worse than a sheet that reports none.
- *
- * Counted from the MESSAGES, never from the blocks the sheet draws: a
- * `completed` message carries duration and cost and is drawn nowhere, so
- * summing the blocks reported a run that took no time and cost nothing.
- * Measured on 2026-08-22.
- */
-export function totalsOf(thread: ThreadWithMessages): ThreadTotals {
-  return {
-    steps: thread.messages.filter((m) => m.kind === "tool_call").length,
-    denied: thread.messages.filter((m) => m.kind === "tool_result" && m.isError).length,
-    durationMs: thread.messages.reduce((total, m) => total + (m.durationMs ?? 0), 0),
-    costUsd: thread.messages.reduce((total, m) => total + (m.costUsd ?? 0), 0),
-  };
-}

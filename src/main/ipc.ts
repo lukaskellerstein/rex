@@ -4,25 +4,15 @@
 // output is `webContents.send`. Nothing here listens on anything.
 
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { type BrowserWindow, dialog, ipcMain } from "electron";
+import { app, type BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import { v4 as uuidv4 } from "uuid";
 import {
   type AnchorRestateRequest,
   type ApplyConfirmRequest,
-  type ClaimEvidence,
   COMMAND,
   EVENT,
-  type FactsBuildRequest,
-  type FactsCommentRequest,
-  type FactsEvidenceRequest,
-  type FactsFindingsRequest,
-  type FactsGraphRequest,
-  type FactsStatusRequest,
-  type FactsStatusResponse,
-  type FactsVerdictRequest,
   type InitialTarget,
   type ThreadCreateRequest,
   type ThreadListRequest,
@@ -33,9 +23,6 @@ import {
 import type {
   AnchorSummary,
   DocumentRef,
-  FactGraph,
-  FactRunSummary,
-  Finding,
   Message,
   OpenedDocument,
   ReferenceGraph,
@@ -49,7 +36,7 @@ import { askPrompt, synthesisPrompt } from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
 import { renderTranscript, replayPrompt, sessionExists } from "./agent/transcript.ts";
 import { type ApplyContext, confirmApply, startApply } from "./apply.ts";
-import { type Db, vectorSearchStatus } from "./db/database.ts";
+import type { Db } from "./db/database.ts";
 import {
   appendMessage,
   createThread,
@@ -65,24 +52,11 @@ import {
   setThreadStatus,
   upsertDocument,
 } from "./db/queries.ts";
-import { factDocuments, graph as factGraph, factsStatus, findings } from "./facts/reads.ts";
-import {
-  createVectorTables,
-  evidenceOfClaim,
-  linkFindingThread,
-  listFindings,
-  setVerdict,
-} from "./facts/store.ts";
-import {
-  cancelBuild,
-  reconcileRuns,
-  type SupervisorContext,
-  startBuild,
-} from "./facts/supervisor.ts";
+import { debugReport } from "./debug.ts";
 import { porcelainStatus, repositoryRoot } from "./git.ts";
 import { allowDirectory } from "./protocol.ts";
 import { renderDocument } from "./render/index.ts";
-import { documentsOf, withDetail } from "./threads.ts";
+import { agentCwd, documentsOf, URL_SCRATCH, withDetail } from "./threads.ts";
 import { buildReferenceGraph } from "./workspace/graph.ts";
 import { scanWorkspace } from "./workspace/tree.ts";
 
@@ -91,9 +65,6 @@ import { scanWorkspace } from "./workspace/tree.ts";
  * caps nothing. Five at a time.
  */
 const MAX_CONCURRENT_AGENTS = 5;
-
-/** A document opened from a URL has no repository, so the agent gets an empty one. */
-const URL_SCRATCH = join(homedir(), ".rex", "scratch");
 
 class Semaphore {
   private active = 0;
@@ -159,12 +130,15 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     )) as AnchorSummary;
   };
 
-  /** The agent's working directory: the document's repository, or a scratch dir. */
+  /**
+   * `agentCwd` decides it; this is the one caller that also needs it to exist.
+   * A repository root exists by virtue of having been found, so the scratch
+   * directory is the only one that can be missing.
+   */
   const workingDirectory = (thread: Thread): string => {
-    const document = getDocument(db, thread.documentId);
-    if (document?.ref.kind === "file") return repositoryRoot(document.ref.value);
-    mkdirSync(URL_SCRATCH, { recursive: true });
-    return URL_SCRATCH;
+    const cwd = agentCwd(db, thread);
+    if (cwd === URL_SCRATCH) mkdirSync(cwd, { recursive: true });
+    return cwd;
   };
 
   /**
@@ -458,138 +432,13 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     confirmApply(applyContext, request.applyRunId, request.accept),
   );
 
-  // ── The fact graph (spec 07 §9) ───────────────────────────────
+  // ── Debug ─────────────────────────────────────────────────────
 
-  const supervisor: SupervisorContext = {
-    db,
-    getWindow,
-    onProgress: (progress) => send(EVENT.factsProgress, progress),
-  };
-
-  // §10.1 rule 3 — a row still marked `running` at startup is a build that died
-  // with the app. Its cursor is untouched, so the tab offers Resume.
-  reconcileRuns(db);
-
-  // §6.3's two `vec0` tables cannot live in `schema.sql`, because they cannot be
-  // declared before `sqlite-vec` is loaded and §6.1 requires REX to still open
-  // documents where it will not load. Created here as well as in the worker so
-  // that main's own queries never depend on a build having run first — and
-  // skipped, without complaint, on a machine where the extension is absent.
-  if (vectorSearchStatus().loaded) createVectorTables(db);
-
-  ipcMain.handle(
-    COMMAND.factsStatus,
-    (_event, request: FactsStatusRequest): FactsStatusResponse =>
-      factsStatus(db, request.root, scanWorkspace(db, request.root)),
-  );
-
-  ipcMain.handle(
-    COMMAND.factsBuild,
-    (_event, request: FactsBuildRequest): FactRunSummary =>
-      startBuild(supervisor, {
-        root: request.root,
-        documents: factDocuments(scanWorkspace(db, request.root)),
-        aliases: request.aliases,
-        resumeRunId: request.resumeRunId,
-      }),
-  );
-
-  ipcMain.handle(COMMAND.factsCancel, (_event, runId: string): void => cancelBuild(runId));
-
-  ipcMain.handle(COMMAND.factsFindings, (_event, request: FactsFindingsRequest): Finding[] =>
-    findings(db, request.root, request.filter),
-  );
-
-  ipcMain.handle(
-    COMMAND.factsGraph,
-    (_event, request: FactsGraphRequest): FactGraph => factGraph(db, request.root, request.topicId),
-  );
-
-  // §11 rule 4 — a claim the user cannot check is worse than no claim, so every
-  // claim the lens draws has a way to reach its quotes.
-  ipcMain.handle(COMMAND.factsEvidence, (_event, request: FactsEvidenceRequest): ClaimEvidence[] =>
-    evidenceOfClaim(db, request.claimId),
-  );
-
-  ipcMain.handle(COMMAND.factsVerdict, (_event, request: FactsVerdictRequest): void => {
-    setVerdict(db, request.findingKey, request.verdict, request.note ?? null);
+  ipcMain.handle(COMMAND.debugCopy, async (_event, threadId: string): Promise<string> => {
+    const report = await debugReport(db, threadId, app.getVersion());
+    clipboard.writeText(report);
+    return report;
   });
-
-  /**
-   * §8.4 — a finding becomes a comment whose selection is the two quotes, one
-   * anchor in each document.
-   *
-   * From here nothing is new: spec 05 §5 already makes a comment span documents,
-   * which is exactly the shape a contradiction has, and Ask, discuss and Apply
-   * all work unchanged. That reuse is the whole reason §1.2 says this belongs in
-   * REX rather than a notes app.
-   */
-  ipcMain.handle(COMMAND.factsComment, (_event, request: FactsCommentRequest): Thread => {
-    const finding = findings(db, currentRootFor(db, request.findingKey), {
-      includeDismissed: true,
-    }).find((candidate) => candidate.key === request.findingKey);
-    if (!finding) throw new Error(`No such finding: ${request.findingKey}`);
-
-    const targets = [finding.a, finding.b].map((side) => ({
-      documentId: upsertDocument(db, { kind: "file", value: side.documentPath }, null, null).record
-        .id,
-      anchor: side.anchor,
-    }));
-
-    const thread = createThread(db, {
-      kind: "anchored",
-      targets,
-      note: factCommentNote(finding),
-      profile: "read",
-    });
-    linkFindingThread(db, finding.key, thread.id);
-    return thread;
-  });
-}
-
-/**
- * §8.4 — what the comment says before the user types anything.
- *
- * Pre-filled with the subject and both values, because a comment that just said
- * "these disagree" would make the reviewer re-read both documents to find out
- * what about. §11 rule 1 governs the wording: this is a candidate, and the note
- * must not claim more.
- */
-function factCommentNote(finding: Finding): string {
-  const verb = finding.kind === "supersedes" ? "may have been superseded" : "may disagree";
-  return [
-    `Two documents ${verb} about **${finding.subject}**.`,
-    "",
-    `- ${finding.a.documentPath}: ${finding.a.value}`,
-    `  > ${finding.a.quote}`,
-    `- ${finding.b.documentPath}: ${finding.b.value}`,
-    `  > ${finding.b.quote}`,
-    "",
-    "Is that a real conflict, and if so which one is right?",
-  ].join("\n");
-}
-
-/**
- * The workspace a finding belongs to.
- *
- * A finding key is a hash and carries no root, and `facts:comment` arrives with
- * nothing else. Rather than widen the §9 payload, the root is recovered from the
- * one build that produced findings — there is at most one graph per workspace
- * (§13, no cross-workspace fact graphs), and a key that matches no workspace
- * simply finds no finding and reports so.
- */
-function currentRootFor(db: Db, findingKey: string): string {
-  const row = db
-    .prepare<[], { workspace_root: string }>(
-      "SELECT DISTINCT workspace_root FROM fact_run ORDER BY started_at DESC",
-    )
-    .all()
-    .find((candidate) =>
-      listFindings(db, candidate.workspace_root, { includeDismissed: true }).some(
-        (finding) => finding.key === findingKey,
-      ),
-    );
-  return row?.workspace_root ?? "";
 }
 
 function pickerOptions(): Electron.OpenDialogOptions {

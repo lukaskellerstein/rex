@@ -9,8 +9,22 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
+import { getSessionInfo, type SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import type { Message } from "../../shared/types.ts";
+
+/**
+ * Claude Code's own configuration directory.
+ *
+ * `CLAUDE_CONFIG_DIR` overrides `~/.claude`, and it is not exotic — this
+ * machine sets one. A hardcoded `~/.claude` therefore named a file that does
+ * not exist while the SDK wrote the session somewhere else entirely, which is
+ * invisible until something asks the filesystem rather than the SDK: the
+ * fallback in `sessionExists`, and every path the debug report prints.
+ * Measured on 2026-08-23.
+ */
+export function configDir(): string {
+  return process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+}
 
 /**
  * Claude Code names a project directory after its cwd with every character
@@ -21,23 +35,36 @@ export function projectDirName(cwd: string): string {
 }
 
 export function sessionFilePath(cwd: string, sessionId: string): string {
-  return join(homedir(), ".claude", "projects", projectDirName(cwd), `${sessionId}.jsonl`);
+  return join(configDir(), "projects", projectDirName(cwd), `${sessionId}.jsonl`);
+}
+
+/**
+ * What the SDK knows about a session, or null when it has no record of one.
+ *
+ * `getSessionInfo` is the SDK's own supported answer — the reference
+ * implementation reached into `claude_agent_sdk._internal.sessions` instead,
+ * which the TypeScript binding does not expose.
+ */
+export async function sessionRecord(
+  cwd: string,
+  sessionId: string,
+): Promise<SDKSessionInfo | null> {
+  try {
+    return (await getSessionInfo(sessionId, { dir: cwd })) ?? null;
+  } catch {
+    // The SDK could not answer at all — the filesystem is the fallback.
+    return null;
+  }
 }
 
 /**
  * Whether the SDK can still resume this session.
  *
- * `getSessionInfo` is the SDK's own supported answer to this question — the
- * reference implementation reached into `claude_agent_sdk._internal.sessions`
- * instead, which the TypeScript binding does not expose. The path check stays
- * as a fallback for the case where the session store is not the default one.
+ * The path check stays as a fallback for the case where the session store is
+ * not the default one.
  */
 export async function sessionExists(cwd: string, sessionId: string): Promise<boolean> {
-  try {
-    if (await getSessionInfo(sessionId, { dir: cwd })) return true;
-  } catch {
-    // Fall through to the filesystem.
-  }
+  if (await sessionRecord(cwd, sessionId)) return true;
   return existsSync(sessionFilePath(cwd, sessionId));
 }
 
