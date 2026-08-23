@@ -10,7 +10,8 @@
 
 import type { AnchorState, ThreadWithMessages } from "../../shared/types.ts";
 import { tokenClass } from "./Gutter.tsx";
-import { TableGlyph } from "./Icons.tsx";
+import { TableGlyph, Trash } from "./Icons.tsx";
+import { placeWords } from "./place.ts";
 
 interface Props {
   thread: ThreadWithMessages;
@@ -23,6 +24,8 @@ interface Props {
   onSelect: () => void;
   /** Spec 06 §6.4 — the ink follows the pointer down the comment list. */
   onHover?: (over: boolean) => void;
+  /** Removes the comment for good. The row confirms before calling it. */
+  onDelete?: () => void;
 }
 
 /** The wash: status first, because a resolved thread is not an alarm. */
@@ -57,11 +60,14 @@ export function StateWord({
 
 export function ThreadRow(props: Props): React.JSX.Element {
   const { thread } = props;
-  // Spec 06 §4.3 — a section anchor stores its *heading's* text, so quoting it
-  // here would claim the comment is about a title. `label` says `Section · "…"`.
-  const quote = thread.targets[0]?.anchor.extent
-    ? null
-    : (thread.targets[0]?.anchor.quote?.exact ?? null);
+  // `place.ts` decides between the two, and both failure modes it prevents show
+  // up here first: a section anchor stores its *heading's* text, so quoting it
+  // would claim the comment is about a title, and a code block's text flattens
+  // into one line of italic serif that is neither readable nor a sentence.
+  const first = thread.targets[0]?.anchor;
+  const { label, quote } = first
+    ? placeWords(first, props.label)
+    : { label: props.label, quote: null };
   const { answered, steps } = progressOf(thread);
   const word = <StateWord status={thread.status} state={props.state} />;
 
@@ -73,63 +79,88 @@ export function ThreadRow(props: Props): React.JSX.Element {
     .filter(Boolean)
     .join(" ");
 
+  /*
+    The row is a `<button>`, and a button cannot contain another one, so the
+    two sit side by side in a wrapper instead. Opening a comment and deleting
+    it are different acts and this keeps them separately clickable — nesting
+    would have made the whole row's hit area ambiguous.
+  */
   return (
-    <button
-      type="button"
-      className={classes}
-      onClick={props.onSelect}
+    <div
+      className="rex-thread-wrap"
       onMouseEnter={() => props.onHover?.(true)}
       onMouseLeave={() => props.onHover?.(false)}
     >
-      <span
-        className={`rex-token ${tokenClass(thread.status, props.state)} ${
-          props.selected ? "rex-token-active" : ""
-        }`}
-      >
-        {props.number}
-      </span>
+      {props.onDelete ? (
+        <button
+          type="button"
+          className="rex-thread-delete"
+          aria-label={`Delete comment ${props.number}`}
+          title="Delete this comment and its whole conversation"
+          onClick={() => {
+            const messages = thread.messages.length;
+            const detail =
+              messages > 0 ? ` and its ${messages} message${messages === 1 ? "" : "s"}` : "";
+            if (window.confirm(`Delete this comment${detail}? This cannot be undone.`)) {
+              props.onDelete?.();
+            }
+          }}
+        >
+          <Trash size={12} />
+        </button>
+      ) : null}
 
-      <span className="rex-thread-body">
-        <span className="rex-thread-note">{thread.note}</span>
+      <button type="button" className={classes} onClick={props.onSelect}>
+        <span
+          className={`rex-token ${tokenClass(thread.status, props.state)} ${
+            props.selected ? "rex-token-active" : ""
+          }`}
+        >
+          {props.number}
+        </span>
 
-        {quote ? (
-          <span className="rex-quote rex-quote-small">{quote}</span>
-        ) : props.label ? (
-          // A figure or a table has no quote. The line says what the anchor is
-          // rather than sitting blank or carrying a description REX invented.
-          <span className="rex-kind">
-            <TableGlyph />
-            <span className="rex-kind-text">
-              <span className="rex-kind-title">{props.label}</span>
+        <span className="rex-thread-body">
+          <span className="rex-thread-note">{thread.note}</span>
+
+          {quote ? (
+            <span className="rex-quote rex-quote-small">{quote}</span>
+          ) : label ? (
+            // A figure or a table has no quote. The line says what the anchor is
+            // rather than sitting blank or carrying a description REX invented.
+            <span className="rex-kind">
+              <TableGlyph />
+              <span className="rex-kind-text">
+                <span className="rex-kind-title">{label}</span>
+              </span>
             </span>
-          </span>
-        ) : null}
+          ) : null}
 
-        {/*
+          {/*
           Spec 05 §5.3 — the comment list is the workspace's now, so every row
           says which documents it is about. Always, not only when there are two:
           a list where the document appears sometimes is a list you read twice.
         */}
-        <span className="rex-thread-docs">{thread.documentNames.join(" · ")}</span>
+          <span className="rex-thread-docs">{thread.documentNames.join(" · ")}</span>
 
-        <span className="rex-thread-meta">
-          {word}
-          {thread.kind === "synthesis" ? (
-            <span>synthesis of {thread.refThreadIds.length}</span>
-          ) : null}
-          {props.busy ? (
-            <span className="rex-working">
-              <span className="rex-spinner" />
-              working…
-            </span>
-          ) : (
-            <span>
-              {answered ? "answered" : "not asked"}
-              {steps > 0 ? ` · ${steps} step${steps === 1 ? "" : "s"}` : ""}
-            </span>
-          )}
+          <span className="rex-thread-meta">
+            {word}
+            {thread.kind === "synthesis" ? (
+              <span>synthesis of {thread.refThreadIds.length}</span>
+            ) : null}
+            {props.busy ? (
+              <span className="rex-working">
+                <span className="rex-spinner" />
+                working…
+              </span>
+            ) : (
+              <span>
+                {answered ? "answered" : "not asked"}
+                {steps > 0 ? ` · ${steps} step${steps === 1 ? "" : "s"}` : ""}
+              </span>
+            )}
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+    </div>
   );
 }

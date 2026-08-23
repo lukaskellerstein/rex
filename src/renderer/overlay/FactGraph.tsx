@@ -119,16 +119,31 @@ const EDGE_STYLE: Record<string, { stroke: string; width: number; dash?: string 
 };
 
 /**
- * Topic colours. Deliberately a small fixed wheel rather than a generated ramp:
- * the lens is read at a glance, and a reader can hold six or seven hues apart.
- * Beyond that they run together and the colour stops carrying information, so it
- * wraps rather than inventing more.
+ * Spec 08 §8.4 — topic colours are COMPUTED, and capped at three.
+ *
+ * A node-link graph is an all-pairs surface: any two topics can end up side by
+ * side. In this view colour on an EDGE already means something, so steel,
+ * amber, red and green are ruled out — and on the graph's own ground no four
+ * remaining hues clear both the colour-blindness and the normal-vision floors.
+ * Three do, with the worst pair at ΔE 8.0 under deuteranopia, which is the
+ * target and not a comfortable margin.
+ *
+ * That is legal ONLY because the topic is carried three more ways: each
+ * community has its own centre of gravity, its name is drawn at that centre,
+ * and the legend names all three. Colour is never the only thing saying which
+ * topic a node belongs to.
+ *
+ * This replaced a seven-colour wheel that wrapped. Wrapping is worse than
+ * neutral: two different topics drawn in the same hue is a lie, where neutral
+ * is an honest "not one of the three".
  */
-const TOPIC_COLOURS = ["#6f9fe0", "#63b09a", "#c9a35e", "#9b8ad4", "#57a8b8", "#c98ba8", "#a8ac6a"];
+const TOPIC_COLOURS = ["#2a9fb3", "#9085e9", "#d55181"];
 
-function topicColour(topicId: number | null): string {
+export function topicColour(topicId: number | null): string {
   if (topicId === null) return "var(--muted)";
-  return TOPIC_COLOURS[topicId % TOPIC_COLOURS.length];
+  // Louvain's fourth community and every one after it folds into neutral
+  // rather than inventing a hue that cannot be told from the other three.
+  return TOPIC_COLOURS[topicId] ?? "var(--rule)";
 }
 
 /** A claim sized by how many documents state it (§9.1 `evidenceCount`). */

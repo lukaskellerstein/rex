@@ -23,9 +23,9 @@ dangerous step is restoring focus, and `restore_focus()` will not name a target
 until it has re-queried it and found it on a space that is already visible.
 
 A space is scratch only while it holds nothing but Playwright browsers. The
-label is not something macOS shows (this machine's sketchybar now draws the
-Playwright mask on that chip; another machine's bar will not), the space is an
-ordinary desktop, and once the browser is closed it looks empty -- so sooner or
+label is not something macOS shows (this machine's sketchybar colours that chip
+green; another machine's bar will not), the space is an ordinary desktop, and
+once the browser is closed it looks empty -- so sooner or
 later the user opens a terminal there and it becomes *their* workspace. If the
 hook kept treating it as scratch, every browser on the machine would be parked
 into that workspace, a browser opened *from* it would never move at all, and
@@ -36,21 +36,50 @@ re-checks the space for foreign windows on every run and abandons it -- label
 cleared, state forgotten -- the moment one appears; a new scratch is created and
 the browsers already there move along.
 
-Ownership has two grains. `is_playwright_browser()` says "driven by *some*
-Playwright" and is enough for parking, which is harmless across sessions.
-Closing is not: several Claude Code sessions run at once on this machine, each
-with its own MCP server, and a SessionEnd that closed every Playwright browser
-took the other sessions' browsers with it (measured 2026-08-18). The cleanup
-hook therefore closes only what `is_owned_by(pid, session_pid())` proves
-descends from *this* session's Claude process, plus true orphans -- browsers
-whose MCP server has already exited and left them to launchd -- which no live
-session can be using.
+Ownership has two grains, and neither contains the other -- each reads the
+signal that survives what it has to survive.
+
+`is_claude_browser()` decides what gets *parked*: Playwright's own browser build
+in argv, a Claude Code process in the ancestry, or a live MCP server attached to
+the port this window answers on. None of the three is something a person can
+produce by opening an app. Until 2026-08-22 this asked a far looser question --
+any of "playwright", "npx", "node", "npm" appearing anywhere in the ancestry --
+and an Electron app started by `npm run dev` carries `node` and `npm` above it
+by construction, so a window the *user* had opened was swept onto the scratch
+space by the next hook to fire. Reported and measured in `rex` 2026-08-22:
+ancestry `['electron', 'node', 'npm run dev', 'zsh', 'vifm', '-zsh', 'tmux']`,
+no Playwright in argv, no debugging port, no Claude Code anywhere in the chain
+-- and it matched regardless, on the word `node`.
+
+`was_automated()` decides what may be *closed*, and reads argv alone. Ancestry
+is precisely what a dead session no longer has: launchd reparents the tree, so
+what is left has to be recognised by the flags it was started with, which
+survive. Closing is the dangerous grain -- several Claude Code sessions run at
+once on this machine, each with its own MCP server, and a SessionEnd that closed
+every Playwright browser took the other sessions' browsers with it (measured
+2026-08-18) -- so on top of argv the cleanup hook closes only what
+`is_owned_by(pid, session_pid())` proves descends from *this* session's Claude
+process, plus what `is_abandoned_browser()` proves no live session can be
+driving.
+
+Abandonment is not the same question as "who is my parent", and reading it that
+way is what let browsers pile up on the scratch space (measured 2026-08-22:
+three parked, none closable, across `ca-p-tcha` and `rex`). Under
+`--cdp-endpoint` the dev server spawns the browser and *holds* it, so there is
+always a live process in between; when the session dies what launchd adopts is
+the dev server, several levels up, and the browser's own parent is alive the
+whole time. `_has_living_owner()` therefore reads the *root* of the ancestry
+instead of the parent -- a terminal, a multiplexer or a Claude Code process up
+there means the tree still belongs to somebody -- and `_driven_by_live_session()`
+asks the remaining question a dead ancestry cannot answer: is a live MCP server
+attached to the port this browser answers on.
 """
 
 import contextlib
 import json
 import os
 import platform
+import re
 import shutil
 import signal
 import subprocess
@@ -87,10 +116,6 @@ BROWSER_APPS = frozenset(
     }
 )
 
-# A browser whose process ancestry contains one of these was spawned by the
-# Playwright MCP server rather than opened by hand.
-PLAYWRIGHT_ANCESTORS = ("playwright", "npx", "node", "npm")
-
 # Ancestry stops being usable the moment the MCP server exits: the browser is
 # reparented to init/launchd and looks user-opened. Playwright's own browser
 # builds live under a `ms-playwright` cache directory and its throwaway
@@ -106,15 +131,57 @@ PLAYWRIGHT_COMMAND_MARKERS = ("ms-playwright", "playwright_", "playwright-core")
 # word "electron", and its command line names the project's own node_modules and
 # never Playwright. What it does carry is the debugging port Playwright attaches
 # to, which is on the command line and therefore survives the reparenting that
-# erases everything else. A window that was started with a CDP port open is
-# under automation by construction; nothing a person opens has this flag.
-# Measured 2026-08-21 in `rex`: pid ppid=1, ancestry ['electron'], every other
-# signal absent, so the window sat unparked on the user's own space.
+# erases everything else. Measured 2026-08-21 in `rex`: pid ppid=1, ancestry
+# ['electron'], every other signal absent.
 #
-# Deliberately *not* folded into PLAYWRIGHT_COMMAND_MARKERS: that set also
-# decides what `SessionEnd` may close, and an app the dev server owns and
-# restarts is not this session's to kill.
+# Deliberately *not* folded into PLAYWRIGHT_COMMAND_MARKERS: that set says
+# "Playwright's own browser", and an open port is a weaker claim than that.
+#
+# Weaker than it looks, in fact, and it is not what parking keys on. A port on
+# argv says the window *can* be driven, not that anything is driving it -- this
+# machine's own launch instructions tell the user to start REX with
+# `--remote-debugging-port=9334` by hand. `is_claude_browser()` therefore pairs
+# the port with a live MCP server that has claimed it (`_driven_by_live_session`)
+# and never trusts the flag alone.
 ATTACHED_COMMAND_MARKERS = ("--remote-debugging-port",)
+
+# The top of an ancestry chain, when it is one of these, means the tree still
+# has somebody holding it: a terminal the user is sitting at, a multiplexer that
+# outlives every shell in it, or a Claude Code process. Anything else left at
+# the root of a chain launchd has adopted -- a bare `npm`, a `node`, a `sh -c`
+# wrapper -- is a dev server whose starter has exited, and the browser under it
+# is nobody's. Compared against the first word of the process name, so a
+# `npm run serve --with-cdp` title does not accidentally match.
+SESSION_ROOTS = frozenset(
+    {
+        "tmux",
+        "screen",
+        "zellij",
+        "ghostty",
+        "iterm2",
+        "terminal",
+        "alacritty",
+        "kitty",
+        "wezterm",
+        "warp",
+        "login",
+        "sshd",
+        "claude",
+    }
+)
+
+# A Claude Code process, however it was started. `comm` is `claude` for the CLI
+# and the daemon, but the versioned binary reports its own version as a name
+# (`2.1.235`), so the install path is checked as well -- the same reason
+# `session_pid()` identifies by position rather than by name.
+CLAUDE_PROCESS_MARKERS = (".local/share/claude/", "claudecode.app", "/bin/claude")
+
+# `--cdp-endpoint=http://localhost:9334` on a live MCP server's command line is
+# a claim on that port: some session is attached to whatever answers there.
+# Read straight off the process, not out of a repo's `.mcp.json`, because the
+# server process is the thing that is actually running and needs no cwd guessed.
+CDP_ENDPOINT_RE = re.compile(r"--cdp-endpoint[=\s]\S*?:(\d{2,5})\b")
+DEBUG_PORT_RE = re.compile(r"--remote-debugging-port[=\s](\d{2,5})\b")
 
 I3_SCRATCH_MIN = 100
 I3_SCRATCH_MAX = 120
@@ -148,24 +215,6 @@ def run_json(cmd: list[str], timeout: int = 5) -> Any:
         return None
 
 
-def _ancestors_linux(pid: int) -> list[str]:
-    """Walk /proc to collect the process-name chain above `pid`."""
-    names: list[str] = []
-    while pid and pid > 1:
-        try:
-            names.append(Path(f"/proc/{pid}/comm").read_text().strip().lower())
-            stat = Path(f"/proc/{pid}/stat").read_text()
-            # Format: pid (comm may contain spaces) state ppid ...
-            close_paren = stat.rfind(")")
-            if close_paren < 0:
-                break
-            fields = stat[close_paren + 1 :].split()
-            pid = int(fields[1]) if len(fields) > 1 else 0
-        except Exception:
-            break
-    return names
-
-
 _PROCESS_TABLE: dict[int, tuple[int, str]] | None = None
 
 
@@ -191,61 +240,63 @@ def _process_table() -> dict[int, tuple[int, str]]:
 
 
 def forget_processes() -> None:
-    """Drop the cached process table.
+    """Drop everything cached about the current set of processes.
 
-    The cache is right for a single pass -- one `ps` instead of one per window.
-    It is wrong across a wait: a hook that sleeps for a window to appear is
-    waiting on a process that did not exist when the table was built, and would
-    keep answering from the snapshot that predates it.
+    The caches are right for a single pass -- one `ps` instead of one per window,
+    per ancestor, per question. They are wrong across a wait: a hook that sleeps
+    for a window to appear is waiting on a process that did not exist when they
+    were filled, and would keep answering from a snapshot that predates it.
     """
-    global _PROCESS_TABLE
+    global _PROCESS_TABLE, _CDP_PORTS
     _PROCESS_TABLE = None
+    _CDP_PORTS = None
+    _COMMAND_LINES.clear()
 
 
-def _ancestors_darwin(pid: int) -> list[str]:
-    table = _process_table()
-    names: list[str] = []
-    seen: set[int] = set()
-    while pid and pid > 1 and pid not in seen:
-        seen.add(pid)
-        entry = table.get(pid)
-        if entry is None:
-            break
-        pid, name = entry[0], entry[1]
-        names.append(name)
-    return names
+_COMMAND_LINES: dict[int, str] = {}
 
 
 def _command_line(pid: int) -> str:
-    """Full argv of a process, lowercased; empty string when unreadable."""
+    """Full argv of a process, lowercased; empty string when unreadable.
+
+    Memoised for the run: the ownership tests ask for the same pid repeatedly --
+    once per window, then once per ancestor while looking for Claude Code -- and
+    on macOS every miss is another `ps`.
+    """
+    cached = _COMMAND_LINES.get(pid)
+    if cached is not None:
+        return cached
+
     if platform.system() == "Darwin":
-        return (run(["ps", "-p", str(pid), "-o", "command="]) or "").strip().lower()
-    try:
-        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
-    except Exception:
-        return ""
-    return raw.replace(b"\0", b" ").decode("utf-8", "replace").strip().lower()
+        command = (run(["ps", "-p", str(pid), "-o", "command="]) or "").strip().lower()
+    else:
+        try:
+            raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+            command = raw.replace(b"\0", b" ").decode("utf-8", "replace").strip().lower()
+        except Exception:
+            command = ""
+
+    _COMMAND_LINES[pid] = command
+    return command
 
 
-def is_playwright_browser(pid: int | None) -> bool:
-    """True when this window is driven by Playwright rather than opened by the user.
+def was_automated(pid: int | None) -> bool:
+    """True when this window's command line says it was started under automation.
 
-    Three signals, any one of which is enough, in cost order: a Playwright-owned
-    command line (spawned browser), a CDP port on the command line (attached
-    app), or a Playwright process in the ancestry.
+    Argv and nothing else, deliberately. This is the question the *close* path
+    asks, and it has to keep answering after the session that started the window
+    is gone -- at which point launchd has reparented the tree and every ancestry
+    signal has evaporated. A flag does not evaporate.
+
+    Too weak to park on: see `is_claude_browser()`, which is the narrower grain.
     """
     if not pid:
         return False
 
     command = _command_line(pid)
-    if any(marker in command for marker in PLAYWRIGHT_COMMAND_MARKERS):
-        return True
-
-    if any(marker in command for marker in ATTACHED_COMMAND_MARKERS):
-        return True
-
-    ancestors = _ancestors_darwin(pid) if platform.system() == "Darwin" else _ancestors_linux(pid)
-    return any(indicator in name for name in ancestors for indicator in PLAYWRIGHT_ANCESTORS)
+    return any(
+        marker in command for marker in PLAYWRIGHT_COMMAND_MARKERS + ATTACHED_COMMAND_MARKERS
+    )
 
 
 def _parent_of(pid: int) -> int | None:
@@ -314,19 +365,147 @@ def is_owned_by(pid: int | None, session: int | None) -> bool:
     return session in _ancestor_pids(pid)
 
 
-def is_orphan_browser(pid: int | None) -> bool:
-    """A Playwright browser whose MCP server is gone: reparented to init/launchd.
+def _is_claude_process(pid: int) -> bool:
+    """True when `pid` is a Claude Code process rather than something it spawned."""
+    if _process_name(pid).split(maxsplit=1)[:1] == ["claude"]:
+        return True
+    command = _command_line(pid)
+    return any(marker in command for marker in CLAUDE_PROCESS_MARKERS)
 
-    Its command line still carries the Playwright markers (that is why they are
-    checked, not the ancestry), but nothing alive can be driving it any more.
-    Safe for any session to close; a browser with a live parent is left to the
-    session that owns it.
+
+def _has_living_owner(pid: int) -> bool:
+    """True when the tree above `pid` is still rooted in something that owns it.
+
+    `_ancestor_pids` stops at the first process launchd has adopted, so its last
+    entry is the top of the tree -- and *what that process is* answers the
+    question the parent cannot. A terminal or multiplexer up there means the
+    user is sitting at the thing that launched this; a Claude Code process means
+    a session is. A bare `npm exec tsx serve.ts` at the root means the shell that
+    ran it is gone and only the dev server is left.
+
+    An empty chain is the classic orphan: the browser itself was reparented, so
+    even the dev server has exited.
+    """
+    chain = _ancestor_pids(pid)
+    if not chain:
+        return False
+
+    # A live Claude session anywhere in the chain owns this outright -- the
+    # cleanup hook has already asked whether it is *ours*, so reaching here
+    # means it is another session's and must survive.
+    if any(_is_claude_process(ancestor) for ancestor in chain):
+        return True
+
+    # A login shell reports itself as `-zsh`; the marker is what distinguishes
+    # someone sitting at a prompt from a `sh -c` wrapper left behind by a build.
+    name = _process_name(chain[-1])
+    if name.startswith("-"):
+        return True
+    return (name.split(maxsplit=1)[:1] or [""])[0] in SESSION_ROOTS
+
+
+_CDP_PORTS: set[int] | None = None
+
+
+def claimed_cdp_ports() -> set[int]:
+    """Debugging ports a live MCP server is attached to.
+
+    One `ps` sweep for `--cdp-endpoint`, memoised for the run because it is now
+    asked once per browser window. A port that appears here is being driven by a
+    session that is still running, whoever launched the browser -- which is the
+    only ownership signal `--cdp-endpoint` leaves intact, since it severs the
+    ancestry by construction.
+    """
+    global _CDP_PORTS
+    if _CDP_PORTS is not None:
+        return _CDP_PORTS
+
+    ports: set[int] = set()
+    for line in (run(["ps", "-axo", "command="]) or "").splitlines():
+        for match in CDP_ENDPOINT_RE.finditer(line):
+            ports.add(int(match.group(1)))
+    _CDP_PORTS = ports
+    return ports
+
+
+def _pids_listening(port: int) -> set[int]:
+    """Whoever is listening on `port`. Empty when nothing is, or lsof is absent."""
+    out = run(["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"]) or ""
+    return {int(token) for token in out.split() if token.isdigit()}
+
+
+def _driven_by_live_session(pid: int) -> bool:
+    """True when a live MCP server is attached to the port this browser serves.
+
+    Two ways to find the browser's port, because two kinds of program end up
+    here. A Playwright-spawned Chrome carries `--remote-debugging-port` in argv.
+    An Electron app sets the same switch from inside its main process with
+    `app.commandLine.appendSwitch`, so argv is silent -- for that one the
+    question is turned around and the OS is asked who is listening on the ports
+    a server has claimed.
+    """
+    ports = claimed_cdp_ports()
+    if not ports:
+        return False
+
+    match = DEBUG_PORT_RE.search(_command_line(pid))
+    if match:
+        return int(match.group(1)) in ports
+    return any(pid in _pids_listening(port) for port in ports)
+
+
+def is_claude_browser(pid: int | None) -> bool:
+    """True when a Claude Code session created this window or is driving it now.
+
+    This is the grain that decides what gets *parked*, so it has to be narrow
+    enough that a window the user opened can never satisfy it. Three signals,
+    any one of which is enough, in cost order:
+
+    - Playwright's own browser build or throwaway profile in argv -- nothing a
+      person launches lives under `ms-playwright`;
+    - a Claude Code process in the ancestry -- an MCP-spawned browser, and an app
+      a `Bash` tool call started in the foreground;
+    - a live MCP server attached to the port this window answers on -- the
+      attached app, whose ancestry `--cdp-endpoint` severed by construction.
+
+    A hand-launched dev server's app has none of them. It used to have one, and
+    the module docstring records what that cost.
     """
     if not pid:
         return False
-    return _parent_of(pid) == 1 and any(
-        marker in _command_line(pid) for marker in PLAYWRIGHT_COMMAND_MARKERS
-    )
+
+    if any(marker in _command_line(pid) for marker in PLAYWRIGHT_COMMAND_MARKERS):
+        return True
+
+    if any(_is_claude_process(ancestor) for ancestor in _ancestor_pids(pid)):
+        return True
+
+    return _driven_by_live_session(pid)
+
+
+def is_abandoned_browser(pid: int | None) -> bool:
+    """An automated browser that no live Claude Code session can be driving.
+
+    Replaces the old `is_orphan_browser`, which asked whether the browser's own
+    parent was launchd. That question is unanswerable in a `--cdp-endpoint`
+    repo: the dev server spawns the browser and keeps holding it, so the parent
+    is alive no matter how long ago the session died, and what launchd adopts is
+    the *server*, two or three levels up. The gate could therefore never fire in
+    the one topology it was needed for -- measured 2026-08-22, three browsers
+    parked on the scratch space across `ca-p-tcha` and `rex`, all three
+    unclosable, one of them behind a dev server whose own root had been orphaned
+    for hours.
+
+    Three gates, cheapest first: started under automation at all, no living owner
+    above it, and no live MCP server attached to its port. The first gate reads
+    argv rather than ancestry on purpose -- by the time this question is worth
+    asking, the ancestry is gone.
+    """
+    if not pid or not was_automated(pid):
+        return False
+    if _has_living_owner(pid):
+        return False
+    return not _driven_by_live_session(pid)
 
 
 def _is_real_window(window: dict) -> bool:
@@ -338,6 +517,21 @@ def _is_real_window(window: dict) -> bool:
     every space and would make every space look occupied.
     """
     return window.get("subrole") == "AXStandardWindow" and not window.get("is-sticky")
+
+
+def _is_parked_browser(window: dict) -> bool:
+    """A browser that is on a space because a hook put it there.
+
+    Both grains, because the scratch space outlives the sessions that filled it:
+    a browser parked last week is nobody's now and so fails `is_claude_browser`,
+    but it is still a leftover of ours and must not make the space look occupied.
+    A window the user opened satisfies neither and is therefore foreign -- which
+    is what hands the space back to them.
+    """
+    if (window.get("app") or "").lower() not in BROWSER_APPS:
+        return False
+    pid = window.get("pid")
+    return is_claude_browser(pid) or was_automated(pid)
 
 
 # --------------------------------------------------------------------------
@@ -624,18 +818,11 @@ class Yabai(WindowManager):
         return self._index
 
     def _foreign_windows(self, index: int | None) -> list[dict]:
-        """Real windows on the space that are not Playwright browsers."""
+        """Real windows on the space that a hook did not put there."""
         if index is None:
             return []
         windows = run_json(["yabai", "-m", "query", "--windows", "--space", str(index)]) or []
-        return [
-            w
-            for w in windows
-            if _is_real_window(w)
-            and not (
-                (w.get("app") or "").lower() in BROWSER_APPS and is_playwright_browser(w.get("pid"))
-            )
-        ]
+        return [w for w in windows if _is_real_window(w) and not _is_parked_browser(w)]
 
     def _abandon(self, space: dict) -> None:
         """The user lives here now. Take our label off it and forget it."""

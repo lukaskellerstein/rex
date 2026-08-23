@@ -39,6 +39,11 @@ export const ChevronLeft = (p: Props): React.JSX.Element => (
   <Line {...p} size={p.size ?? 11} d="M9.5 4 5.5 8l4 4" />
 );
 
+/** "go to ›", "show trace ›" — a control that leads somewhere. */
+export const ChevronRight = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 10} d="M6.5 4 10.5 8l-4 4" />
+);
+
 /** Tree row, expanded. */
 export const TriangleDown = (p: Props): React.JSX.Element => <Solid {...p} d="M4 6h8l-4 5z" />;
 
@@ -118,6 +123,120 @@ export const PenNib = (p: Props): React.JSX.Element => (
   >
     <path d="M2.6 13.4c1.6-3.4 3.4-5.6 6-7.4" />
     <path d="M9.4 4.2 11.8 6.6 13.4 3.6 12.4 2.6z" />
+  </svg>
+);
+
+/*
+  The trace's kind glyphs. One per block, and the reason they exist: YOU and
+  ANSWER were two boxes of the same size carrying the same steel, distinguished
+  only by a word in the corner — so a long transcript read as one voice. A
+  bubble and a sparkle separate them before the word is read.
+*/
+
+/** YOU — the reviewer's own question. */
+export const Bubble = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M2.8 3.4h10.4v7.2H7.2L4.2 13v-2.4H2.8z" />
+  </svg>
+);
+
+/** ANSWER — the agent speaking, here and on the comment card. */
+export const Sparkle = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon-solid"
+    viewBox="0 0 16 16"
+    width={p.size ?? 12}
+    height={p.size ?? 12}
+    aria-hidden="true"
+  >
+    <path d="M8 1.6 9.5 6.5 14.4 8 9.5 9.5 8 14.4 6.5 9.5 1.6 8 6.5 6.5z" />
+  </svg>
+);
+
+/** THINKING — subordinate to the answer, and drawn only in the trace. */
+export const Bulb = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M8 2.2a3.8 3.8 0 0 0-2.3 6.8v1.4h4.6V9A3.8 3.8 0 0 0 8 2.2z" />
+    <path d="M6.6 12.3h2.8" />
+  </svg>
+);
+
+/** Any tool that runs a command. */
+export const Terminal = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M3 4.5 6 8l-3 3.5M8 11.5h5" />
+  </svg>
+);
+
+/** Any tool that reads a file. */
+export const FileGlyph = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M4 2.5h5l3 3v8H4z" />
+    <path d="M9 2.5v3h3" />
+  </svg>
+);
+
+/**
+ * DENIED — the gate firing.
+ *
+ * A barred circle rather than a cross: a cross reads as "this failed", and a
+ * refusal is the read profile working, not breaking.
+ */
+export const Blocked = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <circle cx="8" cy="8" r="5.4" />
+    <path d="M4.2 4.2 11.8 11.8" />
+  </svg>
+);
+
+/**
+ * Remove — a place from the selection, or a comment and its whole thread.
+ *
+ * One glyph for both, deliberately. A `×` on a selection row and the word
+ * "delete" on a comment card were two vocabularies for one act, and the `×`
+ * in particular reads as "dismiss this" rather than "throw this away".
+ */
+export const Trash = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M3.2 4.6h9.6M6.4 4.6V3.2h3.2v1.4" />
+    <path d="M4.6 4.6l.6 8.2h5.6l.6-8.2" />
+    <path d="M6.8 6.8v4M9.2 6.8v4" />
   </svg>
 );
 

@@ -8,15 +8,20 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 // The three faces the design specifies, self-hosted: a packaged app cannot
-// depend on Google Fonts, and only the Latin subsets are shipped — 152KB for
-// all seven files rather than the ~400KB the design budgeted for.
+// depend on Google Fonts, and only the Latin subsets are shipped — 130KB for
+// all eight files.
+//
+// DM Sans ships four weights because the chrome asks for four. The palette this
+// replaced shipped three and let the engine fake the 700 that lost anchors and
+// moved tokens are set in, which is a smeared glyph at 10px.
 //
 // These are imported at *document* level on purpose. @font-face declared inside
 // a shadow root is ignored by the engine, so the faces have to be registered on
 // the document while overlay.css merely names the families.
-import "@fontsource/ibm-plex-sans/latin-400.css";
-import "@fontsource/ibm-plex-sans/latin-500.css";
-import "@fontsource/ibm-plex-sans/latin-600.css";
+import "@fontsource/dm-sans/latin-400.css";
+import "@fontsource/dm-sans/latin-500.css";
+import "@fontsource/dm-sans/latin-600.css";
+import "@fontsource/dm-sans/latin-700.css";
 import "@fontsource/ibm-plex-mono/latin-400.css";
 import "@fontsource/ibm-plex-mono/latin-500.css";
 import "@fontsource/newsreader/latin-400.css";

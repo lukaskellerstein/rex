@@ -5,11 +5,15 @@
 // convention nobody can check.
 //
 // REX calls `http://localhost:24000` and never a model provider directly, so it
-// holds no provider key — only one capped LiteLLM key, read from the
-// environment. This is REX's first outbound network call (§0), and its boundary
-// is this file.
+// holds no provider key — only one capped LiteLLM key, taken from the
+// environment or from `~/.rex/gateway-key`, which `scripts/gateway-key.ts`
+// mints. This is REX's first outbound network call (§0), and its boundary is
+// this file.
 
+import { readFileSync } from "node:fs";
 import { request as httpRequest } from "node:http";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ExtractedClaim } from "../../shared/types.ts";
 
 export const GATEWAY_URL = "http://localhost:24000";
@@ -70,21 +74,75 @@ export const EMBED_BATCH = 64;
 const CALL_TIMEOUT_MS = 3_600_000;
 
 /**
- * The key, from the environment and nowhere else.
+ * The key REX authenticates to the gateway with.
  *
- * `AI_GATEWAY_KEY` is the capped key the gateway's own NOTES.md mints and tells
- * you to keep in your shell; `LITELLM_MASTER_KEY` is the admin credential and is
- * the fallback only because a machine that has not minted a capped key yet still
- * has that one. Never a literal, never a file in the repo: rules/12-security.md.
+ * `AI_GATEWAY_KEY` is the capped key `ai-gateway/NOTES.md` mints;
+ * `LITELLM_MASTER_KEY` is the admin credential and is accepted only because a
+ * machine that has not minted a capped key yet still has that one. Never a
+ * literal, and never a file inside this repository: rules/12-security.md.
  */
 export function gatewayKey(): string {
-  const key = process.env.AI_GATEWAY_KEY ?? process.env.LITELLM_MASTER_KEY;
-  if (!key) {
-    throw new Error(
-      "No gateway key. Export AI_GATEWAY_KEY (see ai-gateway/NOTES.md) before building the fact graph.",
-    );
-  }
+  const key = resolveGatewayKey();
+  if (!key) throw new Error(NO_KEY);
   return key;
+}
+
+/**
+ * Where REX keeps the capped key `scripts/gateway-key.ts` mints.
+ *
+ * Outside every repository, beside the database, for the reason SPEC.md §9
+ * gives for putting `rex.db` there: a file that is in no working tree cannot be
+ * committed by accident. `rules/12-security.md` forbids a plaintext credential
+ * file *in* a repo outright, gitignored or not.
+ */
+const KEY_FILE = join(homedir(), ".rex", "gateway-key");
+
+/**
+ * The key, from the environment first and the minted file second.
+ *
+ * The environment still wins, so `AI_GATEWAY_KEY=… npm run dev` overrides
+ * everything and a CI run needs no file. The file is what makes REX work when
+ * it is launched the way it actually gets launched — from Finder, from a
+ * built bundle, from a shell that never sourced anything.
+ *
+ * Read on every call rather than cached: minting a fresh key while REX is open
+ * should take effect without restarting it, and this is a file read on a path
+ * that is already hot.
+ */
+function resolveGatewayKey(): string | undefined {
+  const fromEnv = process.env.AI_GATEWAY_KEY ?? process.env.LITELLM_MASTER_KEY;
+  if (fromEnv) return fromEnv;
+  try {
+    const key = readFileSync(KEY_FILE, "utf8").trim();
+    return key.length > 0 ? key : undefined;
+  } catch {
+    // No file is the ordinary "not set up yet" case, and `NO_KEY` says what to
+    // do about it. Anything else — a permissions problem — reads the same way
+    // to the reviewer, and the fix starts at the same command.
+    return undefined;
+  }
+}
+
+const NO_KEY =
+  "No gateway key. The fact graph is built through the local AI gateway, and REX has no key for it. " +
+  "Run `npm run gateway:key` (it mints a capped, expiring one into ~/.rex/gateway-key), then try again. " +
+  "The gateway itself must be up — see ai-gateway/compose.yml.";
+
+/**
+ * Why a build cannot be started, or null when it can.
+ *
+ * The same condition `gatewayKey` throws on, asked as a question instead. A
+ * status query is not an error path: without this the tab offered **Build**,
+ * the click failed in the main process, and the answer came back as a raw
+ * `Error invoking remote method 'facts:build'` — which names the IPC channel
+ * rather than the thing the reviewer has to go and do.
+ *
+ * Deliberately only the key. Whether the gateway is *reachable* is a network
+ * round trip, and this is called every time the tab is opened; a missing key is
+ * the case that is free to check and by far the commonest.
+ */
+export function gatewayBuildBlockedReason(): string | null {
+  return resolveGatewayKey() ? null : NO_KEY;
 }
 
 /** One in-flight cap per alias, applied where the call is made. */
@@ -204,10 +262,19 @@ export class Gateway {
   private readonly limiters = new Map<string, Limiter>();
   private readonly baseUrl: string;
   private readonly key: string;
+  /**
+   * Whether every reply must have come from LMStudio. See the check in `post`.
+   *
+   * Default true, because §5.4's default is local and a guarantee that is
+   * opt-in is not a guarantee. A build that deliberately chooses a cloud alias
+   * turns it off — that is the "decision" §5.4 contrasts with the default.
+   */
+  private readonly localOnly: boolean;
 
-  constructor(baseUrl: string = GATEWAY_URL, key?: string) {
+  constructor(baseUrl: string = GATEWAY_URL, key?: string, localOnly = true) {
     this.baseUrl = baseUrl;
     this.key = key ?? gatewayKey();
+    this.localOnly = localOnly;
   }
 
   private limiter(alias: string): Limiter {
@@ -271,6 +338,37 @@ export class Gateway {
               );
               return;
             }
+            /*
+              §5.4 — "documents leaving the machine is a decision, not a
+              default". Enforced HERE, on the reply, because nothing else can.
+
+              `litellm/config.yaml` gives `local` the fallback chain
+              `["cheap-free", "cheap"]`, so a local alias whose model will not
+              load in LMStudio is answered by a cloud provider — silently, and
+              the body gives no sign of it. Measured on 2026-08-22: a `local`
+              call came back with `"model": "google/gemma-4-26b-a4b-it"`, which
+              reads as the local model, while the header said
+              `openrouter/google/gemma-4-26b-a4b-it` and the key had been
+              charged for it. LMStudio lists that model but cannot load it.
+
+              Until now REX's local-only promise rested entirely on a fallback
+              chain in someone else's YAML, and a build could ship the user's
+              documents to a provider without one line anywhere saying so. The
+              header is the only witness, so it is checked and the build stops.
+            */
+            const servedBy = String(response.headers["x-litellm-model-name"] ?? "");
+            if (this.localOnly && servedBy && !servedBy.startsWith("lm_studio/")) {
+              reject(
+                new GatewayError(
+                  `${alias}: this build is local-only, but the gateway answered it with '${servedBy}' — the documents would have left this machine. ` +
+                    "LMStudio is probably not serving the model this alias names; load it, or choose a different alias.",
+                  alias,
+                  status,
+                ),
+              );
+              return;
+            }
+
             try {
               resolve(JSON.parse(text));
             } catch (error) {

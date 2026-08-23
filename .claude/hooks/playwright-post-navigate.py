@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: park Playwright browser windows out of the way.
+"""PostToolUse hook: park Claude-driven browser windows out of the way.
 
-Finds every Playwright-spawned browser window (verified through the process
-ancestry, so hand-opened browsers are left alone) that is not already on the
-scratch workspace, and moves it there -- i3 workspace 100-120 on Linux, the
-`playwright` space on macOS. Windows that cannot be moved (yabai without its
-scripting addition) are floated instead so they at least stop disturbing the
-tiling layout.
+Finds every browser window a Claude Code session created or is driving
+(`wm.is_claude_browser` -- a browser or app the *user* opened is never one, and
+that predicate is where the proof lives) that is not already on the scratch
+workspace, and moves it there -- i3 workspace 100-120 on Linux, the `playwright`
+space on macOS. Windows that cannot be moved (yabai without its scripting
+addition) are floated instead so they at least stop disturbing the tiling layout.
 
 Every session's browsers are parked, not just this one's -- parking is harmless
-across sessions and the desktop is shared. What counts as "the scratch
-workspace" is re-checked each run: a space the user has moved into is theirs,
-and the browsers on it are moved along to a fresh one (see `wm.py`).
+between sessions and the desktop is shared. It is *not* harmless towards the
+user, which is the asymmetry that matters here: this hook fires on every `Bash`
+call and sweeps every window on the machine, so an ownership test that is one
+word too loose moves the window they are working in, on a tool call that had
+nothing to do with it. What counts as "the scratch workspace" is re-checked each
+run: a space the user has moved into is theirs, and the browsers on it are moved
+along to a fresh one (see `wm.py`).
 
 It runs on *every* `browser_*` tool, not only the navigating ones, and on
 `Bash` as well -- because `--cdp-endpoint` inverts who creates the window. With
@@ -48,11 +52,11 @@ LAUNCH_MARKERS = (
 
 
 def _candidates(manager: "wm.WindowManager") -> list[dict]:
-    """Playwright-owned browser windows that are not already parked."""
+    """Claude-driven browser windows that are not already parked."""
     return [
         window
         for window in manager.browser_windows()
-        if not manager.is_scratch(window["workspace"]) and wm.is_playwright_browser(window["pid"])
+        if not manager.is_scratch(window["workspace"]) and wm.is_claude_browser(window["pid"])
     ]
 
 

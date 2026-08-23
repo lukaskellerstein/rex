@@ -22,7 +22,7 @@ export async function mermaidPass(doc: Document): Promise<void> {
     startOnLoad: false,
     securityLevel: "strict",
     theme: "neutral",
-    fontFamily: '"IBM Plex Sans", system-ui, sans-serif',
+    fontFamily: '"DM Sans", system-ui, sans-serif',
   });
 
   for (const block of blocks) {

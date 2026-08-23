@@ -316,6 +316,11 @@ export interface ThreadWithMessages extends Thread {
    * documents once.
    */
   targetNames: string[];
+  /**
+   * Spec 08 §7.3 — one ref per target, parallel to `targetNames`, so a place
+   * row can open the document it names. Null when the document record is gone.
+   */
+  targetRefs: Array<DocumentRef | null>;
   /** True when at least one target document is a file Apply can edit (§5.6). */
   applyEnabled: boolean;
   /** Shown on hover when `applyEnabled` is false. */
@@ -451,6 +456,12 @@ export interface Finding {
   kind: "contradicts" | "supersedes";
   subject: string;
   topicName: string | null;
+  /**
+   * Spec 08 §8.4 — which of the three topic colours this row's swatch takes.
+   * Null, or above the third community, means neutral: the row never invents a
+   * hue, because two topics in one hue is a lie.
+   */
+  topicId: number | null;
   /** For `supersedes`, `a` is the newer claim. */
   a: FactSide;
   b: FactSide;

@@ -55,9 +55,9 @@ The specs are the authority on everything below:
 [03 — rich rendering](docs/my-specs/03-rich-rendering/SPEC.md),
 [04 — selection and shortcuts](docs/my-specs/04-selection-and-shortcuts/SPEC.md),
 [05 — selection as a phase](docs/my-specs/05-selection-as-a-phase/SPEC.md),
-[06 — the document, the section and the pen](docs/my-specs/06-document-section-and-pen/SPEC.md).
-[07 — the fact graph](docs/my-specs/07-fact-graph/SPEC.md) is specified and not
-built.
+[06 — the document, the section and the pen](docs/my-specs/06-document-section-and-pen/SPEC.md),
+[07 — the fact graph](docs/my-specs/07-fact-graph/SPEC.md).
+[08 — the shell redesign](docs/my-specs/08-shell-redesign/SPEC.md).
 
 ## Running it
 
