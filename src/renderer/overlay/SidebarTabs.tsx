@@ -2,8 +2,8 @@
 //
 // Selecting and reading are two jobs, and stacking them in one column read as
 // one confusing thing. They are tabs now, drawn with the same segmented control
-// the top bar uses for Document / Graph / Facts: REX has exactly one control
-// that means "switch what this pane shows", and this is the same kind of choice.
+// the top bar uses for Document / Graph: REX has exactly one control that means
+// "switch what this pane shows", and this is the same kind of choice.
 //
 // THE BAR IS FURNITURE. It is here on every screen that shows the comments
 // column, whatever is in it — an empty selection dims its tab and reads 0

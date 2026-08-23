@@ -10,7 +10,6 @@ import type {
   AnchorState,
   AnchorSummary,
   DocumentRef,
-  FactGraph as FactGraphData,
   Message,
   OpenedDocument,
   ReferenceGraph,
@@ -33,8 +32,6 @@ import { CommentCard } from "./CommentCard.tsx";
 import { DiffDialog } from "./DiffDialog.tsx";
 import { DocumentView } from "./DocumentView.tsx";
 import { Explorer } from "./Explorer.tsx";
-import { FactGraph } from "./FactGraph.tsx";
-import { FactsView } from "./FactsView.tsx";
 import { GraphView } from "./GraphView.tsx";
 import { tokenClass } from "./Gutter.tsx";
 import { rescaleRect, strokeRefFrom, unionOfRects } from "./ink.ts";
@@ -52,14 +49,8 @@ import {
 import { TopBar } from "./TopBar.tsx";
 import { TraceSheet } from "./TraceSheet.tsx";
 
-/**
- * What the middle of the window is showing.
- *
- * `facts` is spec 07 §8's tab, beside the explorer and the graph. It is a third
- * peer rather than a mode of the graph, because §1.1 is emphatic that the list
- * is the product and the graph picture is the second view of the same data.
- */
-type Centre = "document" | "graph" | "facts";
+/** What the middle of the window is showing. */
+type Centre = "document" | "graph";
 
 /** SPEC.md §8.8 point 4 — confirm before a fan-out larger than this. */
 const FAN_OUT_CONFIRM = 10;
@@ -123,17 +114,6 @@ export function App(): React.JSX.Element {
   const [workspace, setWorkspace] = useState<WorkspaceRef | null>(null);
   const [tree, setTree] = useState<WorkspaceTree | null>(null);
   const [graph, setGraph] = useState<ReferenceGraph | null>(null);
-  /**
-   * Spec 08 §8.1 — which of the Facts mode's two presentations is showing.
-   *
-   * Spec 07 §8.2 drew the picture as a LENS over the reference graph, and that
-   * is what shipped: the centre segment read `Graph` while every node on screen
-   * was a fact. Facts is one mode with two presentations now, and `Graph` keeps
-   * the reference graph to itself — neither ever shows the other one's nodes.
-   */
-  const [factsView, setFactsView] = useState<"list" | "graph">("list");
-  const [factGraph, setFactGraph] = useState<FactGraphData | null>(null);
-  const [selectedClaimId, setSelectedClaimId] = useState<string | null>(null);
   const [centre, setCentre] = useState<Centre>("document");
   /**
    * One notion of "selected", shared by the explorer and the graph. It follows
@@ -228,12 +208,12 @@ export function App(): React.JSX.Element {
    */
   const scrollWhenReady = useRef<SelectionItem | null>(null);
   /**
-   * Spec 07 §8.1 — a finding's **Open** asks for a plain anchor in a document
+   * Spec 08 §7.3 — a place row's jump asks for a plain anchor in a document
    * that is not open yet.
    *
    * Its own ref rather than reusing `scrollWhenReady`, which carries a
-   * `SelectionItem`: a finding is not a selection, and manufacturing one would
-   * put a row in the panel that the reviewer never built.
+   * `SelectionItem`: a stored place is not a selection, and manufacturing one
+   * would put a row in the panel that the reviewer never built.
    */
   const anchorWhenReady = useRef<{ path: string; anchor: Anchor } | null>(null);
   /**
@@ -254,6 +234,8 @@ export function App(): React.JSX.Element {
    * that, and a new identity there rewrites the iframe's `srcdoc`.
    */
   const pickActiveRef = useRef(0);
+  /** The chain on screen, for the click that lands where no element is. */
+  const pickScopesRef = useRef<PickScope[] | null>(null);
   const zoomRef = useRef(1);
   /**
    * Whether the chosen scope was chosen **by hand** — ↑ ↓ or a crumb — rather
@@ -270,6 +252,7 @@ export function App(): React.JSX.Element {
   selectionRef.current = selection;
   activeIdRef.current = activeId;
   pickActiveRef.current = pickActive;
+  pickScopesRef.current = pickScopes;
   zoomRef.current = zoom;
 
   /**
@@ -644,10 +627,6 @@ export function App(): React.JSX.Element {
         }
         leavePick();
         leavePen();
-        // Spec 07 §8.5 — the Facts tab loads nothing here. Mounting `FactsView`
-        // is what calls `facts:status`, and that call is the only trigger for a
-        // build. Fetching anything eagerly on the way in is how a folder-open
-        // quietly begins a three-day job.
         if (which === "graph" && workspace) {
           setGraph(await window.rex.workspaceGraph(workspace));
         }
@@ -1058,7 +1037,24 @@ export function App(): React.JSX.Element {
         if (!surface) return;
         const keep = pickChosenByHand.current ? pickActiveRef.current : NO_KEPT_SCOPE;
         const found = await surface.probeAt(x, y, keep);
-        if (!found) return;
+        if (!found) {
+          // Nothing anchorable under the point: a margin, or the gap between
+          // two blocks. `probe` leaves the outline where it was in exactly this
+          // case, so the reviewer is looking at a highlighted table while the
+          // click lands on `<body>` — and doing nothing here is what made a
+          // wide block feel unselectable. Measured on 2026-08-23: six pixels
+          // outside a table on any of its four sides, the outline still read
+          // `table` and the click added nothing.
+          //
+          // The outline is REX's promise about what a click takes, so take it.
+          // Where the probe DOES find something the outline is already showing
+          // that same thing, so this branch changes nothing about a normal
+          // click — it only stops the promise being broken.
+          if (!pickScopesRef.current?.length) return;
+          const shown = await surface.anchorFromScope(pickActiveRef.current);
+          if (shown) addSelected(shown);
+          return;
+        }
         setPickScopes(found.scopes);
         setPickActive(found.active);
         const next = await surface.anchorFromScope(found.active);
@@ -1309,14 +1305,6 @@ export function App(): React.JSX.Element {
           if (!workspace) return;
           void showCentre("graph");
           break;
-        case "f":
-        case "F":
-          // Spec 07 §8 — same rule as the graph: a workspace is what the fact
-          // graph is *of*. Showing the tab calls `facts:status` and nothing
-          // more; §8.5 keeps Build behind a button the reviewer presses.
-          if (!workspace) return;
-          void showCentre("facts");
-          break;
         case "A":
           // Shift+A only. A bare `a` would fire a fan-out of paid sessions on a
           // keystroke, which §8.8 point 4 already treats as worth confirming.
@@ -1468,6 +1456,7 @@ export function App(): React.JSX.Element {
               selection={selection}
               hoveredItemId={hoveredItemId}
               onHoverItem={setHoveredItemId}
+              onRemoveItem={removeItem}
               changeBoxes={changeBoxes}
               picking={picking}
               pickScopes={pickScopes}
@@ -1507,8 +1496,8 @@ export function App(): React.JSX.Element {
 
           {/*
             Only where the document pane is. The trace covers that pane; over
-            the graph or the facts list it would be covering someone else's.
-            The id survives the trip, so coming back brings the sheet back.
+            the graph it would be covering someone else's. The id survives the
+            trip, so coming back brings the sheet back.
           */}
           {centre === "document" && traceId !== null && active !== null ? (
             <TraceSheet
@@ -1545,103 +1534,6 @@ export function App(): React.JSX.Element {
             ) : (
               <p className="rex-meta rex-graph-loading">Reading the workspace…</p>
             )
-          ) : null}
-
-          {/*
-            Spec 07 §8 — the Facts tab. Mounted only while it is showing, which
-            is deliberate: mounting is what calls `facts:status`, and §8.5 makes
-            that call the one and only trigger for a build.
-          */}
-          {centre === "facts" && workspace ? (
-            <div className="rex-facts-mode">
-              {/*
-                Spec 08 §8.1 — the switch is the FIRST thing in the centre pane
-                on both presentations, 16px in from its top left. Rendered here
-                rather than inside each view, so it is literally the same
-                element in the same place and cannot drift between them.
-              */}
-              <div className="rex-facts-view">
-                <span className="rex-label">VIEW</span>
-                <div className="rex-segment">
-                  <button
-                    type="button"
-                    className={factsView === "list" ? "rex-on" : ""}
-                    onClick={() => setFactsView("list")}
-                  >
-                    List
-                  </button>
-                  <button
-                    type="button"
-                    className={factsView === "graph" ? "rex-on" : ""}
-                    onClick={() => {
-                      setFactsView("graph");
-                      void guard(async () => {
-                        setFactGraph(await window.rex.factsGraph({ root: workspace.root }));
-                      });
-                    }}
-                  >
-                    Graph
-                  </button>
-                </div>
-              </div>
-
-              {factsView === "graph" ? (
-                factGraph ? (
-                  <FactGraph
-                    graph={factGraph}
-                    selectedClaimId={selectedClaimId}
-                    onSelectClaim={(claimId) => setSelectedClaimId(claimId || null)}
-                    onOpenEvidence={(path, anchor) => {
-                      // §11 rule 4's "a way to jump to it" — the same path a
-                      // finding's Open takes.
-                      setCentre("document");
-                      void guard(async () => {
-                        if (docRef.current?.ref.value === path) {
-                          surfaceRef.current?.scrollToAnchor(anchor);
-                          return;
-                        }
-                        anchorWhenReady.current = { path, anchor };
-                        await openDocument({ kind: "file", value: path });
-                      });
-                    }}
-                  />
-                ) : (
-                  <p className="rex-meta rex-graph-loading">Reading what the documents claim…</p>
-                )
-              ) : null}
-
-              {factsView === "list" ? (
-                <FactsView
-                  root={workspace.root}
-                  onOpen={(path, finding) => {
-                    // §8.1 — Open jumps to the quote's anchor in its document.
-                    const side = finding.a.documentPath === path ? finding.a : finding.b;
-                    setCentre("document");
-                    void guard(async () => {
-                      const ref: DocumentRef = { kind: "file", value: path };
-                      if (docRef.current?.ref.value === path) {
-                        surfaceRef.current?.scrollToAnchor(side.anchor);
-                        return;
-                      }
-                      anchorWhenReady.current = { path, anchor: side.anchor };
-                      await openDocument(ref);
-                    });
-                  }}
-                  onComment={(finding) =>
-                    void guard(async () => {
-                      // §8.4 — from here nothing is new: the thread is an ordinary
-                      // spec 05 comment about two documents, and Ask, discuss and
-                      // Apply all work unchanged.
-                      const thread = await window.rex.factsComment({ findingKey: finding.key });
-                      setCentre("document");
-                      await openDocument({ kind: "file", value: finding.a.documentPath });
-                      await refreshThreads();
-                      setActiveId(thread.id);
-                    })
-                  }
-                />
-              ) : null}
-            </div>
           ) : null}
         </div>
 

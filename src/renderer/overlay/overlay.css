@@ -964,6 +964,48 @@
   line-height: 1;
 }
 
+/* Dropping one place from its own outline, mirroring the number badge across
+   the box. Like the badge it re-enables the mouse the outline gives up, and it
+   sits in the margin — a control over the prose would swallow the text
+   selection the same way the box itself would.
+
+   PAPER-SIDE COLOURS, not the chrome tokens. This control is drawn over the
+   document, and spec 08 §4.1 already settled what that means for the mode
+   chips: `#e2ded7` / `#f0eee9` / `#8a837a`. Reached for `var(--panel)` first
+   and it painted a dark blob on white paper — the chrome palette is for the
+   chrome.
+
+   Quiet at rest and red on hover, like the panel's own remove button: a
+   destructive control should be legible before it is loud, and there is one of
+   these per place. */
+.rex-draft-remove {
+  position: absolute;
+  pointer-events: auto;
+  top: -9px;
+  right: -9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid #e2ded7;
+  border-radius: 50%;
+  background: #f0eee9;
+  color: #8a837a;
+  cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.rex-draft-remove:hover {
+  border-color: var(--lost);
+  background: #fff;
+  color: var(--lost-text);
+}
+
 /* ── The selection panel (spec 05 §3) ────────────────────── */
 
 /*
@@ -1390,9 +1432,9 @@
 /*
   Spec 08 §3.1 — the tab bar.
 
-  The same segmented control the top bar uses for Document / Graph / Facts,
-  stretched to fill the row: REX has one control that means "switch what this
-  pane shows", and choosing between selecting and reading is that same choice.
+  The same segmented control the top bar uses for Document / Graph, stretched
+  to fill the row: REX has one control that means "switch what this pane
+  shows", and choosing between selecting and reading is that same choice.
 */
 .rex-segment.rex-tabs {
   flex: 1;
@@ -2294,13 +2336,72 @@
   white-space: nowrap;
 }
 
+/*
+  What the head gives up first, second and never.
+
+  The note is `flex: 1` and goes first; this is second — `0 1 auto` with a
+  clipped overflow, so a narrow pane eats the cost line rather than the
+  controls. Everything else in the bar is `flex: none`, and before this rule the
+  head simply overflowed its pane and cut the `esc` cap in half. Measured on
+  2026-08-23 at a 470px document pane, which is one drag of the splitter away.
+
+  The order is the bar's own priority: what the comment says, then what it cost,
+  and a refusal and the two controls survive both.
+*/
 .rex-trace-summary {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   color: var(--faint);
   font-family: var(--mono);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/*
+  The two controls the head ends in — §6.2's `debug` and `close esc`.
+
+  Not `.rex-link`: a link is text, and a bar already holding a token, a label, a
+  note, a pill and a summary cannot say "press this" with more text. Not
+  `.rex-button` either — 28px of raised surface beside an 11px mono summary
+  outweighs the thing it is a footnote to. A hairline outline is the step
+  between them, and it answers the mouse with intensity rather than hue, so no
+  colour is spent on a control that reports nothing about the document.
+
+  Named for the bar rather than as a loose atom, and deliberately: `.rex-chip`
+  is taken — it is the sidebar's filter pill, 999px and 12px — and a second
+  meaning for that word silently inherited the first one's shape. Measured on
+  2026-08-23, when these two came out round.
+*/
+.rex-trace-action {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rex-trace-action:hover,
+/*
+  Done, for the couple of seconds the confirmation lasts. Intensity, not
+  colour: green means `resolved` everywhere else in REX, and a button that
+  flashed it would be the one green thing on screen that is not about a comment.
+*/
+.rex-trace-action-done {
+  border-color: var(--rule);
+  background: var(--sunk);
+  color: var(--fg);
 }
 
 .rex-trace-list {
@@ -3456,6 +3557,53 @@
   font-family: var(--mono);
 }
 
+/*
+  The same cap, on a filled primary button.
+
+  `.rex-key` is a PAPER-side style — white on `#d6d1c8`, for the path bar and
+  the pen bar, which are drawn over the document. Dropped unchanged onto the
+  blue button it out-shouted the label it was hinting at, so here it is drawn
+  out of the button's own white instead: translucent, so it reads as a
+  whispered aside rather than a second control.
+*/
+.rex-key-primary {
+  border-color: rgb(255 255 255 / 38%);
+  background: rgb(255 255 255 / 16%);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.92;
+}
+
+/* A disabled button drops to the ground colour, and a cap that kept its own
+   contrast would then be the brightest thing in a control you cannot press. */
+.rex-button:disabled .rex-key-primary {
+  border-color: rgb(255 255 255 / 18%);
+  background: none;
+}
+
+/*
+  The same cap again, on the dark chrome.
+
+  `.rex-key` is a PAPER style and the three bars that use it — pen, pick, mode —
+  are all drawn over the document. Dropped unchanged onto the trace bar, white
+  on `#d6d1c8` became the brightest object in the header: louder than the
+  refusal pill two items to its left, which is the one thing in that row that
+  should be able to shout. Drawn out of the panel's own ground instead, exactly
+  as `.rex-key-primary` is drawn out of the button's.
+*/
+.rex-key-chrome {
+  border-color: rgb(255 255 255 / 14%);
+  background: rgb(255 255 255 / 6%);
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.rex-trace-action:hover .rex-key-chrome {
+  border-color: rgb(255 255 255 / 22%);
+  color: var(--muted);
+}
+
 /* ── Anchor strength ─────────────────────────────────────── */
 
 /*
@@ -3514,454 +3662,4 @@
 
   background: var(--wash-lost);
   color: var(--lost-text);
-}
-
-/* ── Spec 07 — the fact graph ───────────────────────────── */
-
-/*
-  §1.1: the list is the product, the picture is the second view. So the findings
-  list gets the reading measure and the typographic care, and the lens gets the
-  space left over. Both live in the centre pane, in place of the document.
-*/
-
-/*
-  Spec 08 §8.1 — Facts is ONE mode with two presentations, and this is the
-  frame both sit in. The switch is the first thing in it, so it is in the same
-  corner and at the same height whichever presentation is showing.
-*/
-.rex-facts-mode {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-  background: var(--bg);
-}
-
-.rex-facts-view {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  padding: 16px;
-}
-
-.rex-facts {
-  display: flex;
-  overflow-y: auto;
-  flex-direction: column;
-  gap: 14px;
-  padding: 0 24px 32px;
-  flex: 1;
-  min-height: 0;
-}
-
-/*
-  Spec 08 §8.2 — the build strip. One strip, one state, and it always ends in
-  the same sentence: these are CANDIDATES.
-*/
-.rex-facts-strip {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: none;
-  padding: 12px 16px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--panel);
-}
-
-.rex-facts-strip-stop {
-  border-color: var(--write-edge);
-  background: var(--write-bg);
-}
-
-.rex-facts-strip-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.rex-facts-strip-head progress {
-  flex: 1;
-  min-width: 6rem;
-  height: 4px;
-}
-
-.rex-facts-built {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ok);
-}
-
-.rex-facts-running {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--link);
-}
-
-.rex-facts-stop {
-  color: var(--lost-text);
-}
-
-/*
-  §7.4 and §11 rule 6 — nothing is capped silently. Amber, because it is an
-  admission about the build, not a finding about the documents.
-*/
-.rex-facts-dropped {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--wash-moved-edge);
-  border-radius: 2px;
-  background: var(--wash-moved);
-  color: #e0cd97;
-  font-size: 11.5px;
-  line-height: 1.5;
-}
-
-.rex-facts-dropped .rex-icon {
-  flex: none;
-  margin-top: 2px;
-  stroke: var(--moved);
-}
-
-.rex-facts-head h2 {
-  margin: 0 0 4px;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
-
-/* §11 rule 1 — "candidates, never all contradictions". This line is that rule,
-   and it must not be shortened into a claim of completeness. */
-.rex-facts-head p {
-  margin: 0;
-  max-width: 62ch;
-}
-
-.rex-facts-empty {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  padding: 18px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--sunk);
-}
-
-.rex-facts-empty p {
-  margin: 0;
-  max-width: 52ch;
-  color: var(--fg-dim);
-}
-
-/* §8.5 — the bar never blocks the tab: it sits above the previous build's
-   findings, which stay readable and clickable underneath. */
-.rex-facts-progress {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--sunk);
-}
-
-.rex-facts-progress progress {
-  flex: 1;
-  height: 4px;
-}
-
-.rex-facts-summary {
-  display: flex;
-  gap: 6px;
-  flex-direction: column;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--rule-soft);
-  font-size: 12px;
-}
-
-/* §7.4 — what the build did not cover. Amber, not red: it is an admission the
-   coverage was incomplete, not a finding about the documents. */
-.rex-facts-admission {
-  color: var(--moved);
-}
-
-.rex-finding-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.rex-finding {
-  padding: 12px 14px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--panel);
-}
-
-/* Selection is a change of intensity, never a second mark (overlay.css header),
-   so a judged finding deepens its own wash rather than changing hue. */
-.rex-finding-confirmed {
-  border-color: var(--moved);
-  background: var(--wash-moved, var(--sunk));
-}
-
-.rex-finding-dismissed {
-  opacity: 0.55;
-}
-
-.rex-finding-head {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 10px;
-}
-
-.rex-finding-subject {
-  font-weight: 600;
-}
-
-.rex-pill-contradicts {
-  background: #3a2721;
-  color: var(--lost-text);
-}
-
-.rex-pill-contradicts::before {
-  background: var(--lost);
-}
-
-.rex-pill-supersedes {
-  background: #3a3220;
-  color: var(--moved);
-}
-
-/* Two quotes, side by side (§8.1). They collapse to one column when the pane is
-   narrow rather than shrinking below a readable measure. */
-.rex-finding-sides {
-  display: grid;
-  gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-}
-
-.rex-finding-side {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 10px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 2px;
-  background: var(--well);
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rex-finding-side:hover {
-  border-color: var(--link);
-}
-
-.rex-finding-value {
-  font-weight: 600;
-}
-
-.rex-finding-quote {
-  color: var(--fg-dim);
-  quotes: "\201C" "\201D";
-}
-
-.rex-finding-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-/* The topic, said in a word beside its swatch — never by the swatch alone. */
-.rex-finding-topic {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.rex-finding-confirm {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  color: var(--ok);
-  font-size: 11px;
-}
-
-/*
-  Spec 08 §8.3 — a note ABOUT a finding is not part of the finding.
-
-  These lines used to sit in the row, in the same register as the finding, so
-  they read as more of it. Behind a disclosure now, closed until asked for.
-*/
-.rex-finding-details {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: auto;
-  padding: 0 8px;
-  height: 26px;
-  border: none;
-  border-radius: 2px;
-  background: none;
-  color: var(--faint);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.rex-finding-details[aria-expanded="true"] .rex-icon {
-  transform: rotate(180deg);
-}
-
-.rex-finding-notes {
-  display: grid;
-  grid-template-columns: 96px minmax(0, 1fr);
-  gap: 6px 14px;
-  margin: 9px 0 0;
-  padding-top: 9px;
-  border-top: 1px solid var(--rule-soft);
-}
-
-.rex-finding-notes > div {
-  display: contents;
-}
-
-.rex-finding-notes dd {
-  margin: 0;
-  color: var(--fg-dim);
-  font-size: 11.5px;
-  line-height: 1.6;
-}
-
-.rex-finding-notes .rex-label {
-  line-height: 1.7;
-}
-
-/* ── §8.2 the lens ──────────────────────────────────────── */
-
-.rex-fact-graph {
-  position: relative;
-  width: 100%;
-  height: 100%;
-}
-
-.rex-fact-graph svg {
-  width: 100%;
-  height: 100%;
-}
-
-.rex-fact-node {
-  cursor: pointer;
-}
-
-.rex-fact-subject {
-  fill: var(--fg);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.rex-fact-claim {
-  fill: var(--muted);
-  font-size: 9px;
-}
-
-.rex-fact-legend {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  margin: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--panel);
-  font-size: 11px;
-  list-style: none;
-}
-
-.rex-fact-legend li {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.rex-swatch {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-}
-
-/* §8.2 — the lens toggle, floating over the graph rather than taking a row of
-   chrome from it. The graph is the thing being looked at. */
-.rex-lens {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 2;
-}
-
-/* §8.2 / §11 rule 4 — a claim's evidence, reachable from the lens. */
-.rex-fact-evidence {
-  position: absolute;
-  bottom: 12px;
-  left: 12px;
-  max-width: 420px;
-  max-height: 40%;
-  overflow-y: auto;
-  padding: 10px 12px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--panel);
-}
-
-.rex-fact-evidence-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.rex-fact-evidence ul {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.rex-fact-evidence li button {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 100%;
-  padding: 7px 8px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 2px;
-  background: var(--well);
-  color: var(--fg-dim);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rex-fact-evidence li button:hover {
-  border-color: var(--link);
 }

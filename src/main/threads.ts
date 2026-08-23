@@ -6,7 +6,8 @@
 // `apply.ts` before it runs an agent, so they are answered once, here, rather
 // than twice with a chance of disagreeing.
 
-import { basename } from "node:path";
+import { homedir } from "node:os";
+import { basename, join } from "node:path";
 import type {
   DocumentRecord,
   SkippedDocument,
@@ -15,7 +16,26 @@ import type {
 } from "../shared/types.ts";
 import type { Db } from "./db/database.ts";
 import { getDocument, listMessages } from "./db/queries.ts";
+import { repositoryRoot } from "./git.ts";
 import { applyDisabledReason } from "./render/formats.ts";
+
+/** A document opened from a URL has no repository, so the agent gets an empty one. */
+export const URL_SCRATCH = join(homedir(), ".rex", "scratch");
+
+/**
+ * The agent's working directory: the document's repository, or the scratch dir.
+ *
+ * Answered here rather than at the point of the run, because it is also where
+ * the SDK writes its transcript — `~/.claude/projects/<this, dashed>/` — and the
+ * debug report has to name that file without starting an agent to find out.
+ * Creating the scratch directory is deliberately NOT part of this: a report is
+ * read-only, and only a run needs the directory to exist.
+ */
+export function agentCwd(db: Db, thread: Thread): string {
+  const document = getDocument(db, thread.documentId);
+  if (document?.ref.kind === "file") return repositoryRoot(document.ref.value);
+  return URL_SCRATCH;
+}
 
 /** What a row shows: the file name, or the host for a URL. Never a whole path. */
 export function documentName(record: DocumentRecord): string {

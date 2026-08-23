@@ -3,6 +3,15 @@
 **Version:** 1.3 · 2026-08-21
 **Status:** implemented; milestone 0 passed, §12's measurements written back
 
+> [!warning]
+> **Withdrawn on 2026-08-23 by [09 — removing the fact graph](../09-removing-the-fact-graph/SPEC.md).**
+> Nothing below is implemented any more: the code, the tables, the dependencies
+> and the gateway client were all deleted. It is kept in full because its
+> measurements are the reason it was withdrawn — §4.4 (the claim populations
+> overlap, so no threshold separates them), §5.3 (301 s per extract call) and
+> §7.3 (thirty days for 2,000 documents). Spec 09 §14 records what would have to
+> change for this to be worth revisiting.
+
 > [!note]
 > **1.3 is the implementation pass.** No design changed. What changed is that
 > the numbers §12 asked to be measured now are, and four of them were wrong

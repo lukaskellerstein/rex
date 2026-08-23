@@ -417,7 +417,7 @@ export function setThreadStatus(db: Db, threadId: string, resolved: boolean): vo
  *
  * One statement is the whole implementation: §9's schema declares `ON DELETE
  * CASCADE` from `thread` on every table that references it — `message`,
- * `thread_target`, `thread_ref`, `apply_run` and `fact_finding_thread` — and
+ * `thread_target`, `thread_ref` and `apply_run` — and
  * `database.ts` sets `foreign_keys = ON` per connection, which is what makes
  * those declarations act rather than merely document. Deleting the rows by hand
  * here would be a second, quieter definition of what a thread is made of, and

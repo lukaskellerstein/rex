@@ -8,11 +8,17 @@
 // always see which comment you are auditing, and the reply box is still
 // reachable without closing.
 //
-// It is a sheet rather than a fourth centre mode. `Document | Graph | Facts` is
+// It is a sheet rather than a third centre mode. `Document | Graph` is
 // a WORKSPACE switch and a trace belongs to one comment, so as a peer it would
 // be a button that comes and goes, and leaving it there would need a decision
 // about what it shows with no comment open. Apply's review bar settled the same
 // question the same way. A sheet has one exit.
+//
+// The head ends in `debug` and `close`, and the first is here because this is
+// where a reviewer decides something is wrong. They can always say what they
+// saw; what they cannot say is which of the session files under
+// `~/.claude/projects/` holds the answer they are looking at. `debug.ts` in main
+// knows, so the button asks it and puts the answer on the clipboard.
 //
 // Colour here distinguishes KIND and invents no meanings: steel is you and the
 // answer, neutral is machinery, faint is thinking, red is the write-capable
@@ -26,11 +32,14 @@
 // because the answer is what the sheet is an audit OF.
 
 import { useEffect, useState } from "react";
+import { totalsOf } from "../../shared/totals.ts";
 import type { ThreadWithMessages } from "../../shared/types.ts";
 import {
   Blocked,
   Bubble,
+  Bug,
   Bulb,
+  Check,
   FileGlyph,
   Sparkle,
   TableGlyph,
@@ -40,7 +49,7 @@ import {
   Warning,
 } from "./Icons.tsx";
 import { Prose } from "./prose.tsx";
-import { resultSummary, type TraceEntry, type TraceKind, totalsOf, traceOf } from "./trace.ts";
+import { resultSummary, type TraceEntry, type TraceKind, traceOf } from "./trace.ts";
 
 interface Props {
   thread: ThreadWithMessages;
@@ -150,9 +159,32 @@ function Entry({ entry }: { entry: TraceEntry }): React.JSX.Element {
   );
 }
 
+/** How long the debug button stays on its confirmation before going back. */
+const COPIED_MS = 2500;
+
+/**
+ * What the last press of `debug` did. `text` is the report itself on success and
+ * the failure on failure; either way it becomes the button's `title`, so a
+ * reviewer can see what they are about to paste before they paste it — REX's
+ * report carries absolute paths and a line of their document, and being able to
+ * read it first is the difference between copying and disclosing.
+ */
+interface CopyOutcome {
+  ok: boolean;
+  text: string;
+}
+
+const DEBUG_HINT = "Copy this run's ids, log paths and refusals to the clipboard";
+
+function debugLabel(copied: CopyOutcome | null): string {
+  if (copied === null) return "debug";
+  return copied.ok ? "copied" : "copy failed";
+}
+
 export function TraceSheet(props: Props): React.JSX.Element {
   const entries = traceOf(props.thread);
-  const totals = totalsOf(props.thread);
+  const totals = totalsOf(props.thread.messages);
+  const [copied, setCopied] = useState<CopyOutcome | null>(null);
 
   // `esc` closes it, and that is its only exit — the point of a sheet.
   useEffect(() => {
@@ -162,6 +194,23 @@ export function TraceSheet(props: Props): React.JSX.Element {
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [props.onClose]);
+
+  useEffect(() => {
+    if (copied === null) return;
+    const timer = window.setTimeout(() => setCopied(null), COPIED_MS);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  const copyDebug = async (): Promise<void> => {
+    try {
+      setCopied({ ok: true, text: await window.rex.debugCopy(props.thread.id) });
+    } catch (error) {
+      // A failure here is reported where the press was, not swallowed into a
+      // console nobody has open — the whole point of the button is that the
+      // reviewer is already trying to tell somebody something went wrong.
+      setCopied({ ok: false, text: error instanceof Error ? error.message : String(error) });
+    }
+  };
 
   const summary = [
     `${totals.steps} step${totals.steps === 1 ? "" : "s"}`,
@@ -184,9 +233,24 @@ export function TraceSheet(props: Props): React.JSX.Element {
 
         <span className="rex-trace-summary">{summary.join(" · ")}</span>
 
-        <button type="button" className="rex-link" onClick={props.onClose} title="esc">
-          <kbd className="rex-key">esc</kbd>
+        <button
+          type="button"
+          className={`rex-trace-action${copied?.ok ? " rex-trace-action-done" : ""}`}
+          onClick={copyDebug}
+          title={copied?.text ?? DEBUG_HINT}
+        >
+          {copied?.ok ? <Check /> : <Bug />}
+          {debugLabel(copied)}
+        </button>
+
+        <button
+          type="button"
+          className="rex-trace-action"
+          onClick={props.onClose}
+          title="Close the trace and go back to the document"
+        >
           close
+          <kbd className="rex-key rex-key-chrome">esc</kbd>
         </button>
       </header>
 

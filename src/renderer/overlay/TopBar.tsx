@@ -16,13 +16,13 @@ import { ChevronDown } from "./Icons.tsx";
 interface Props {
   doc: OpenedDocument | null;
   workspace: WorkspaceRef | null;
-  centre: "document" | "graph" | "facts";
+  centre: "document" | "graph";
   cost: number;
   unanswered: number;
   /** The document's own zoom. 1 is 100%, and then nothing is shown. */
   zoom: number;
   onResetZoom: () => void;
-  onCentre: (centre: "document" | "graph" | "facts") => void;
+  onCentre: (centre: "document" | "graph") => void;
   onAskAll: () => void;
   onOpenFile: () => void;
   onOpenFolder: () => void;
@@ -211,19 +211,6 @@ export function TopBar(props: Props): React.JSX.Element {
             onClick={() => props.onCentre("graph")}
           >
             Graph
-          </button>
-          {/*
-            Spec 07 §8 — the whole feature lives behind this one tab. §8.5: the
-            click is the trigger and nothing else is, so this button is the only
-            thing in REX that can begin a fact build.
-          */}
-          <button
-            type="button"
-            title="Look for places these documents disagree — F"
-            className={props.centre === "facts" ? "rex-on" : ""}
-            onClick={() => props.onCentre("facts")}
-          >
-            Facts
           </button>
         </div>
       ) : null}

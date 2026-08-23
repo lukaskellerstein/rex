@@ -885,10 +885,16 @@ export class FrameSurface implements DocumentSurface {
   async probeAt(x: number, y: number, keep: number): Promise<Probe | null> {
     if (!this.index) return null;
     const chain = scopeChainAt(this.index, x, y);
-    if (!chain) {
-      this.chain = null;
-      return null;
-    }
+    // A probe that finds nothing does NOT throw the chain away. The overlay
+    // keeps drawing the last outline in this case (see `probe` in App.tsx), so
+    // nulling here left the picture and the thing that can anchor it
+    // disagreeing: the reviewer saw a highlighted table, clicked six pixels
+    // into its margin, and got nothing — because `anchorFromScope` had no
+    // chain left to work from. Measured on 2026-08-23.
+    //
+    // `selectionMade` above already refuses the same trick for the same
+    // reason. The two go stale together or not at all.
+    if (!chain) return null;
     const active = keptIndex(this.chain, chain, keep);
     this.chain = chain;
     return { scopes: chain.scopes, active };

@@ -6,13 +6,15 @@
 // firing is worth seeing.
 
 import { useState } from "react";
+import { totalsOf } from "../../shared/totals.ts";
 import type { AnchorState, Message, ThreadWithMessages } from "../../shared/types.ts";
 import { tokenClass } from "./Gutter.tsx";
 import { Bubble, ChevronLeft, ChevronRight, Pencil, Shield, Sparkle, Trash } from "./Icons.tsx";
+import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import { placeWords } from "./place.ts";
 import { Prose } from "./prose.tsx";
 import { progressOf, washClass } from "./ThreadRow.tsx";
-import { argumentOf, totalsOf } from "./trace.ts";
+import { argumentOf } from "./trace.ts";
 
 /** What the sweep found out about one place, or nothing where it could not look. */
 export interface PlaceFacts {
@@ -265,7 +267,7 @@ function clock(iso: string): string {
  */
 function costLine(thread: ThreadWithMessages, turns: number): string {
   // The same helper the trace sheet's head uses, so the two can never disagree.
-  const { durationMs: ms, costUsd: cost } = totalsOf(thread);
+  const { durationMs: ms, costUsd: cost } = totalsOf(thread.messages);
   return [
     `${turns} turn${turns === 1 ? "" : "s"}`,
     ms > 0 ? seconds(ms) : null,
@@ -428,6 +430,12 @@ function PlaceRow({
 
 export function CommentCard(props: Props): React.JSX.Element {
   const [reply, setReply] = useState("");
+  /** A reply needs words, and a thread already working takes no second turn. */
+  const canSend = !props.busy && reply.trim().length > 0;
+  const sendReply = (): void => {
+    props.onReply(reply.trim());
+    setReply("");
+  };
   const { thread } = props;
   const steps = stepsOf(thread);
   const turns = turnsOf(thread);
@@ -590,18 +598,18 @@ export function CommentCard(props: Props): React.JSX.Element {
           placeholder="Reply to this thread"
           value={reply}
           onChange={(event) => setReply(event.target.value)}
+          onKeyDown={onSendChord(canSend, sendReply)}
         />
         <div className="rex-row">
           <button
             type="button"
             className="rex-button rex-primary"
-            disabled={props.busy || reply.trim().length === 0}
-            onClick={() => {
-              props.onReply(reply.trim());
-              setReply("");
-            }}
+            title={`Send this reply — ${SEND_CHORD_HINT}`}
+            disabled={!canSend}
+            onClick={sendReply}
           >
             Send
+            <SendChord />
           </button>
           <button
             type="button"

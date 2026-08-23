@@ -6,6 +6,7 @@
 import { useMemo, useState } from "react";
 import type { AnchorState, ThreadWithMessages } from "../../shared/types.ts";
 import { Lines } from "./Icons.tsx";
+import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import { ThreadRow } from "./ThreadRow.tsx";
 
 type Filter = "open" | "resolved" | "orphaned";
@@ -31,6 +32,14 @@ export function Sidebar(props: Props): React.JSX.Element {
   const [selecting, setSelecting] = useState(false);
   const [chosen, setChosen] = useState<string[]>([]);
   const [note, setNote] = useState("");
+  /** A synthesis is about SEVERAL comments, and needs a question about them. */
+  const canSynthesise = chosen.length >= 2 && note.trim().length > 0;
+  const synthesise = (): void => {
+    props.onSynthesise(chosen, note.trim());
+    setSelecting(false);
+    setChosen([]);
+    setNote("");
+  };
 
   /** One rule, used for both the chip counts and the list. */
   const belongsTo = useMemo(() => {
@@ -128,20 +137,18 @@ export function Sidebar(props: Props): React.JSX.Element {
               placeholder="e.g. do comments 2 and 5 contradict each other?"
               value={note}
               onChange={(event) => setNote(event.target.value)}
+              onKeyDown={onSendChord(canSynthesise, synthesise)}
             />
             <div className="rex-row">
               <button
                 type="button"
                 className="rex-button rex-primary"
-                disabled={chosen.length < 2 || note.trim().length === 0}
-                onClick={() => {
-                  props.onSynthesise(chosen, note.trim());
-                  setSelecting(false);
-                  setChosen([]);
-                  setNote("");
-                }}
+                title={`Discuss the picked comments together — ${SEND_CHORD_HINT}`}
+                disabled={!canSynthesise}
+                onClick={synthesise}
               >
                 Ask about {chosen.length}
+                <SendChord />
               </button>
               <button type="button" className="rex-button" onClick={() => setSelecting(false)}>
                 Cancel

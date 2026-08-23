@@ -22,6 +22,7 @@ import {
 } from "./anchoring.ts";
 import { enrichDocument } from "./enrich.ts";
 import { Gutter } from "./Gutter.tsx";
+import { Trash } from "./Icons.tsx";
 import { pointsOfStroke, rescaleRect, unionOfRects } from "./ink.ts";
 import { ModeStrip } from "./ModeStrip.tsx";
 import { PenLayer, pathData } from "./PenLayer.tsx";
@@ -40,6 +41,8 @@ interface Props {
   /** The item the reviewer is pointing at, in the panel or here (§6). */
   hoveredItemId: string | null;
   onHoverItem: (id: string | null) => void;
+  /** Drop one place from the selection, from its own outline rather than the panel. */
+  onRemoveItem: (id: string) => void;
   /** Spec 05 §5.6.1 — what an Apply changed in this document, while it is pending. */
   changeBoxes: ScopeRect[];
   picking: boolean;
@@ -510,6 +513,21 @@ export function DocumentView(props: Props): React.JSX.Element {
           onMouseLeave={() => props.onHoverItem(null)}
         >
           <span className="rex-draft-index">{mark.number}</span>
+          {/*
+            Dropping a place without going to find its row in the panel. It
+            mirrors the number badge across the box — badge left, trash right —
+            and like the badge it is the only other part of the outline that
+            takes the mouse, sitting in the margin rather than over the prose.
+          */}
+          <button
+            type="button"
+            className="rex-draft-remove"
+            aria-label={`Remove place ${mark.number} from the selection`}
+            title="Remove this place"
+            onClick={() => props.onRemoveItem(mark.id)}
+          >
+            <Trash size={11} />
+          </button>
         </div>
       ))}
 

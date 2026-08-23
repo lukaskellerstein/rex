@@ -16,6 +16,7 @@ import { useState } from "react";
 import type { RegionRef } from "../../shared/types.ts";
 import type { AnchorStrength, PickScope } from "../anchor/pick.ts";
 import { Shield, Trash } from "./Icons.tsx";
+import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import type { SelectionItem } from "./selection.ts";
 
 interface Props {
@@ -138,6 +139,8 @@ function isCutOut(region: RegionRef | null): boolean {
 
 export function SelectionPanel(props: Props): React.JSX.Element {
   const [dragging, setDragging] = useState<number | null>(null);
+  /** The note is the question; without it there is nothing to ask. */
+  const canAsk = props.note.trim().length > 0;
 
   const clear = (): void => {
     const worthAsking = props.items.length > CONFIRM_ABOVE || props.note.trim().length > 0;
@@ -294,16 +297,19 @@ export function SelectionPanel(props: Props): React.JSX.Element {
           placeholder="What about these?"
           value={props.note}
           onChange={(event) => props.onNote(event.target.value)}
+          onKeyDown={onSendChord(canAsk, props.onAsk)}
         />
         <div className="rex-row">
           <button
             type="button"
             className="rex-button rex-primary"
+            title={`Ask about ${props.items.length === 1 ? "this place" : `these ${props.items.length} places`} — ${SEND_CHORD_HINT}`}
             // The note is the question; without it there is nothing to ask.
-            disabled={props.note.trim().length === 0}
+            disabled={!canAsk}
             onClick={props.onAsk}
           >
             Ask about {props.items.length}
+            <SendChord />
           </button>
           <span className="rex-readonly" title="The read profile cannot write to disk">
             <Shield />
