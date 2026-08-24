@@ -580,6 +580,60 @@ export function commentCountsByDocument(db: Db): Map<string, CommentCounts> {
   );
 }
 
+// ── Workspace rules (spec 10 §3.2) ──────────────────────────────
+
+/** What the reviewer has said about one path, when they have said anything. */
+export type WorkspaceRuleMode = "exclude" | "include";
+
+/** Every rule for one workspace, keyed by absolute path. Usually empty. */
+export function workspaceRules(db: Db, root: string): Map<string, WorkspaceRuleMode> {
+  const rows = db
+    .prepare<[string], { path: string; mode: WorkspaceRuleMode }>(
+      "SELECT path, mode FROM workspace_rule WHERE root = ?",
+    )
+    .all(root);
+  return new Map(rows.map((row) => [row.path, row.mode]));
+}
+
+/**
+ * Spec 10 §3.4 — the menu is a toggle *against the default*, not a setter.
+ *
+ * Excluding a path that carries an `include` rule deletes that rule rather than
+ * writing an `exclude`, and including an excluded path deletes its `exclude`.
+ * Both directions therefore return the path to whatever REX would have done on
+ * its own, and the table only ever holds genuine departures from that — so
+ * un-excluding `node_modules`, which was skipped by default anyway, leaves no
+ * row behind claiming otherwise.
+ *
+ * Returns the mode now in force, or null when the path is back on the default.
+ */
+export function toggleWorkspaceRule(
+  db: Db,
+  root: string,
+  path: string,
+  wanted: WorkspaceRuleMode,
+): WorkspaceRuleMode | null {
+  const current = db
+    .prepare<[string, string], { mode: WorkspaceRuleMode }>(
+      "SELECT mode FROM workspace_rule WHERE root = ? AND path = ?",
+    )
+    .get(root, path)?.mode;
+
+  if (current !== undefined && current !== wanted) {
+    db.prepare("DELETE FROM workspace_rule WHERE root = ? AND path = ?").run(root, path);
+    return null;
+  }
+
+  // `OR REPLACE` rather than `ON CONFLICT … DO UPDATE`: the upsert form names
+  // SQLite's `excluded` pseudo-table, and a line reading `SET mode =
+  // excluded.mode` in a file about excluding folders is a trap for whoever reads
+  // it next. The row is the reviewer's latest decision either way.
+  db.prepare(
+    "INSERT OR REPLACE INTO workspace_rule (root, path, mode, created_at) VALUES (?, ?, ?, ?)",
+  ).run(root, path, wanted, now());
+  return wanted;
+}
+
 /** SPEC.md §8.8 point 3 — the running total behind the cost bar. */
 export function documentCostUsd(db: Db, documentId: string): number {
   const row = db

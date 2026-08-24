@@ -29,6 +29,20 @@ export interface AgentRunInput {
   /** True to continue an existing SDK session, false to seed a new one. */
   resume: boolean;
   model: string | null;
+  /**
+   * Spec 11 §7.2 — the system prompt, when the caller needs a different one.
+   *
+   * Apply on a deck is the only caller that does, and it needs one because the
+   * job is genuinely different: the agent writes a plan and edits nothing, so
+   * a prompt telling it to "make the smallest change to the file" would be
+   * telling it to do the one thing that spec exists to stop.
+   */
+  systemPrompt?: string;
+  /**
+   * Spec 11 §6.4.2 — the document under review, so a `.pptx` can load the two
+   * design plugins and nothing else pays for them.
+   */
+  documentPath?: string | null;
   onMessage: (draft: MessageDraft) => void;
 }
 
@@ -174,11 +188,12 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
-      append: input.profile === "read" ? READ_SYSTEM_PROMPT : WRITE_SYSTEM_PROMPT,
+      append:
+        input.systemPrompt ?? (input.profile === "read" ? READ_SYSTEM_PROMPT : WRITE_SYSTEM_PROMPT),
     },
     settingSources: ["project"],
     disallowedTools: config.disallowedTools,
-    plugins: pluginsForRepository(input.cwd, input.profile),
+    plugins: pluginsForRepository(input.cwd, input.profile, input.documentPath),
     hooks: buildHooks(input.profile, (denial) => denials.push(denial)),
     ...(config.maxTurns === undefined ? {} : { maxTurns: config.maxTurns }),
     ...(input.model ? { model: input.model } : {}),

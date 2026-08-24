@@ -288,6 +288,46 @@ function stageDenial(words: string[]): string | null {
  */
 const MCP_ALLOW = new Set<string>();
 
+/**
+ * Spec 11 §6.4.4 — the same rule for the **write** profile, which had none.
+ *
+ * That sentence above was true of `read` and false of `write`: `buildHooks`
+ * returned allow for every tool, because spec 01 §8.7 step 5 — show the diff
+ * and wait — was the whole protection. Loading a plugin changed what that is
+ * worth. `media-plugin` declares five MCP servers, and three of them are things
+ * a deck agent must not silently reach: one opens a GUI editor in a headless
+ * session, one spawns a second browser, and one **sends slide content to a
+ * third party over the network**. REX draws Mermaid itself, locally (§7.4.2),
+ * so that last one is redundant as well as leaky.
+ *
+ * Empty by default. §6.4.3 adds exactly two entries when `GEMINI_API_KEY` is
+ * set, and never a server — an allowlist naming two tools is a much smaller
+ * thing to reason about than one naming a server.
+ *
+ * Every tool that is not MCP stays allowed for `write`, so nothing about Apply
+ * changes.
+ */
+const WRITE_MCP_ALLOW = new Set<string>();
+
+/** §6.4.3 — the two generation tools, allowed only when the key is present. */
+export const GENERATION_TOOLS = [
+  "mcp__media-mcp__generate_image",
+  "mcp__media-mcp__generate_video",
+] as const;
+
+/**
+ * §6.4.3 — REX stays self-contained, so a missing key means the feature is
+ * **absent**, never half-working. Called once at start-up.
+ */
+export function allowGenerationTools(): void {
+  for (const tool of GENERATION_TOOLS) WRITE_MCP_ALLOW.add(tool);
+}
+
+/** Whether an MCP tool may run in this profile. Exported so it can be tested. */
+export function mcpAllowed(profile: Profile, toolName: string): boolean {
+  return (profile === "write" ? WRITE_MCP_ALLOW : MCP_ALLOW).has(toolName);
+}
+
 export interface Denial {
   toolName: string;
   reason: string;
@@ -331,7 +371,7 @@ export function gateDecision(toolName: string, toolInput: unknown): string | nul
     return null;
   }
 
-  if (toolName.startsWith("mcp__") && !MCP_ALLOW.has(toolName)) {
+  if (toolName.startsWith("mcp__") && !mcpAllowed("read", toolName)) {
     return `MCP tools are deny-by-default in a read session; ${toolName} is not on the allowlist.`;
   }
 
@@ -339,23 +379,42 @@ export function gateDecision(toolName: string, toolInput: unknown): string | nul
 }
 
 /**
+ * Spec 11 §6.4.4 — the write profile's decision, which is only about MCP.
+ *
+ * Everything else a write agent does is protected by §8.7 step 5: the change is
+ * shown and nothing is kept until the reviewer accepts. An MCP server is not,
+ * because starting one has already happened by the time anything is shown.
+ */
+export function writeGateDecision(toolName: string): string | null {
+  if (toolName.startsWith("mcp__") && !mcpAllowed("write", toolName)) {
+    return `MCP tools are deny-by-default here too; ${toolName} is not on the allowlist. REX draws diagrams itself and does not send document content to a third party.`;
+  }
+  return null;
+}
+
+/**
  * Both profiles install a PreToolUse hook; only what it decides differs.
  *
- * The `write` profile keeps the reference implementation's `_ALLOW` unchanged,
- * and it is not decoration: without it the SDK's default permission mode
- * prompts for approval on every Edit, and a headless session has nobody to
- * prompt — measured, the write agent's edit came back "Claude requested
- * permissions to write to …" and Apply produced an empty diff. What protects
- * the user in this profile is §8.7 step 5: the diff is shown and nothing is
- * kept until they accept.
+ * The `write` profile still returns allow for every tool that is not MCP, and
+ * that is not decoration: without an explicit allow the SDK's default
+ * permission mode prompts for approval on every Edit, and a headless session
+ * has nobody to prompt — measured, the write agent's edit came back "Claude
+ * requested permissions to write to …" and Apply produced an empty diff. What
+ * protects the user for those tools is §8.7 step 5: the change is shown and
+ * nothing is kept until they accept.
+ *
+ * Spec 11 §6.4.4 is why MCP is now the exception in both profiles. Step 5
+ * cannot protect against an MCP server, because by the time anything is shown
+ * the server has already started and whatever it was sent has already left.
  */
 export function buildHooks(
   profile: Profile,
   onDenial: (denial: Denial) => void,
 ): Partial<Record<"PreToolUse", HookCallbackMatcher[]>> {
-  if (profile === "write") {
-    return { PreToolUse: [{ matcher: ".*", hooks: [async (): Promise<HookJSONOutput> => ALLOW] }] };
-  }
+  const decide =
+    profile === "write"
+      ? (name: string): string | null => writeGateDecision(name)
+      : (name: string, input: unknown): string | null => gateDecision(name, input);
 
   return {
     PreToolUse: [
@@ -364,7 +423,7 @@ export function buildHooks(
         hooks: [
           async (input): Promise<HookJSONOutput> => {
             const event = input as PreToolUseHookInput;
-            const reason = gateDecision(event.tool_name, event.tool_input);
+            const reason = decide(event.tool_name, event.tool_input);
             if (!reason) return ALLOW;
             onDenial({
               toolName: event.tool_name,

@@ -98,6 +98,27 @@ CREATE TABLE IF NOT EXISTS apply_run (
   completed_at TEXT
 );
 
+-- Spec 10 §3.2 — what a reviewer has said is, or is not, part of the review.
+--
+-- Keyed by workspace root as well as path, so the same folder opened as its own
+-- workspace and as part of a larger one can be scoped differently. Nothing here
+-- is written into the repository under review: REX writes files there only
+-- through Apply's diff gate, and a preference about what to look at is not a
+-- change to what is being looked at.
+--
+-- Two modes, both meaning "override the default for this exact path":
+--   exclude  drop it and everything under it (the default is to include)
+--   include  keep it (the default, for node_modules and its kind, is to skip)
+-- A path with no row here follows the built-in skip list, so the table holds
+-- only the reviewer's departures from it and is empty in the ordinary case.
+CREATE TABLE IF NOT EXISTS workspace_rule (
+  root        TEXT NOT NULL,
+  path        TEXT NOT NULL,
+  mode        TEXT NOT NULL CHECK (mode IN ('exclude','include')),
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (root, path)
+);
+
 -- Full-text search over comments and transcripts.
 CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
   content,

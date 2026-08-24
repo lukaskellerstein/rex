@@ -28,6 +28,7 @@ import { ModeStrip } from "./ModeStrip.tsx";
 import { PenLayer, pathData } from "./PenLayer.tsx";
 import { PickLayer } from "./PickLayer.tsx";
 import { addPaperFonts } from "./paperFonts.ts";
+import { attachFigurePreview, type PreviewFigure } from "./preview.ts";
 import { prepareDocumentHtml } from "./sanitise.ts";
 import type { SelectionItem } from "./selection.ts";
 
@@ -64,6 +65,8 @@ interface Props {
   onPenCancel: () => void;
   onSurfaceReady: (surface: DocumentSurface) => void;
   onSelectionChanged: () => void;
+  /** Spec 10 §2 — a figure was clicked, and wants to be read at a real size. */
+  onPreview: (figure: PreviewFigure) => void;
   /**
    * The pane changed size, so every box the overlay draws was measured against
    * a layout that no longer exists.
@@ -244,6 +247,11 @@ export function DocumentView(props: Props): React.JSX.Element {
   zoomRef.current = props.zoom;
   zoomCommands.current = { by: props.onZoomBy, reset: props.onZoomReset };
 
+  /** Read through a ref for the same reason, and it matters more here: a
+      re-run of the load effect would rewrite `srcdoc` mid-review. */
+  const previewRef = useRef(props.onPreview);
+  previewRef.current = props.onPreview;
+
   // ── Tiers 1 and 3: fill the iframe, enrich it, then hand up a surface ──
 
   useEffect(() => {
@@ -292,6 +300,28 @@ export function DocumentView(props: Props): React.JSX.Element {
       // points at the wrong place.
       await enrichDocument(inner, doc);
       if (!live) return;
+
+      // After the enrichment passes: until Mermaid has run there is no `<svg>`
+      // for a click to find, and the size test a diagram has to pass is a test
+      // of its drawn box.
+      attachFigurePreview(inner, (figure) => previewRef.current(figure));
+
+      // NOTHING SETS `color-scheme` ON THIS FRAME, and it is worth a note
+      // because the obvious improvement is a bug.
+      //
+      // A build of this file measured the document's ground and set a matching
+      // `color-scheme` on the iframe, to give a dark document a dark scrollbar.
+      // It broke rendering. `color-scheme` on the embedder decides what
+      // `prefers-color-scheme` resolves to *inside* the frame, and the three
+      // ProtoBot review documents theme themselves with exactly that media
+      // query and no script — the sandbox runs none (spec 01 §5.4 step 2), so
+      // the media query is the only theme they have. Worse, the value stuck to
+      // the element across loads: open a Markdown file, then one of those, and
+      // the second inherited the first's `light` and rendered light on a
+      // dark-mode machine.
+      //
+      // Left alone, the frame inherits the reader's own preference, the
+      // document's media query decides, and REX renders rather than restyles.
 
       onSurfaceReady(new FrameSurface(frame, doc.ref.kind === "file" ? doc.ref.value : null));
     };
@@ -453,7 +483,9 @@ export function DocumentView(props: Props): React.JSX.Element {
       {doc === null ? (
         <div className="rex-empty">
           <h1>REX</h1>
-          <p>Open a Markdown, HTML, PDF or DOCX document, or a folder, to start commenting.</p>
+          <p>
+            Open a Markdown, HTML, PDF, DOCX or PPTX document, or a folder, to start commenting.
+          </p>
         </div>
       ) : null}
 

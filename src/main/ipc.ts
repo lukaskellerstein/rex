@@ -4,7 +4,7 @@
 // output is `webContents.send`. Nothing here listens on anything.
 
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, type BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import { v4 as uuidv4 } from "uuid";
@@ -12,6 +12,7 @@ import {
   type AnchorRestateRequest,
   type ApplyConfirmRequest,
   COMMAND,
+  type RenderResultRequest,
   EVENT,
   type InitialTarget,
   type ThreadCreateRequest,
@@ -19,6 +20,7 @@ import {
   type ThreadReplyRequest,
   type ThreadResolveRequest,
   type ThreadSynthesiseRequest,
+  type WorkspaceExcludeRequest,
 } from "../shared/channels.ts";
 import type {
   AnchorSummary,
@@ -50,12 +52,15 @@ import {
   setTargetState,
   setThreadSession,
   setThreadStatus,
+  toggleWorkspaceRule,
   upsertDocument,
 } from "./db/queries.ts";
 import { debugReport } from "./debug.ts";
 import { porcelainStatus, repositoryRoot } from "./git.ts";
-import { allowDirectory } from "./protocol.ts";
+import { allowDirectory, baseHrefFor } from "./protocol.ts";
+import { isPptxPath } from "./render/formats.ts";
 import { renderDocument } from "./render/index.ts";
+import { ensureSidecar } from "./render/pptx.ts";
 import { agentCwd, documentsOf, URL_SCRATCH, withDetail } from "./threads.ts";
 import { buildReferenceGraph } from "./workspace/graph.ts";
 import { scanWorkspace } from "./workspace/tree.ts";
@@ -164,6 +169,10 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
   ): Promise<void> => {
     const cwd = workingDirectory(thread);
     const before = porcelainStatus(cwd);
+    // Spec 11 §6.4.2 — a `.pptx` is a marker like any other, so the design
+    // plugins load for a deck review and a Markdown review pays nothing.
+    const document = getDocument(db, thread.documentId);
+    const documentPath = document?.ref.kind === "file" ? document.ref.value : null;
 
     const result = await agents.run(() =>
       runAgent({
@@ -173,6 +182,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
         sessionId,
         resume,
         model: thread.model,
+        documentPath,
         onMessage: (draft) => record(thread.id, draft),
       }),
     );
@@ -250,11 +260,21 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     return { root: result.filePaths[0] };
   });
 
-  ipcMain.handle(COMMAND.workspaceTree, (_event, ref: WorkspaceRef): WorkspaceTree => {
-    // The whole workspace is served over rex-doc://, so a document's siblings
-    // and images resolve however deep in the tree they sit.
-    allowDirectory(ref.root);
-    return scanWorkspace(db, ref.root);
+  ipcMain.handle(
+    COMMAND.workspaceTree,
+    (_event, ref: WorkspaceRef, reveal: boolean): WorkspaceTree => {
+      // The whole workspace is served over rex-doc://, so a document's siblings
+      // and images resolve however deep in the tree they sit.
+      allowDirectory(ref.root);
+      return scanWorkspace(db, ref.root, { reveal });
+    },
+  );
+
+  // Spec 10 §3.4. The renderer says what the reviewer chose; main works out
+  // whether that means writing a rule or deleting one, because the rules are
+  // its own and a renderer that guessed would drift from them.
+  ipcMain.handle(COMMAND.workspaceExclude, (_event, request: WorkspaceExcludeRequest): void => {
+    toggleWorkspaceRule(db, request.root, request.path, request.exclude ? "exclude" : "include");
   });
 
   ipcMain.handle(
@@ -333,9 +353,10 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
       document?.ref.kind === "file" ? repositoryRoot(documentPath) : dirname(documentPath);
 
     // Spec 05 §5.5 — every target's document, so the prompt can group them.
+    // Spec 11 §6.2 — a deck is named by its text sidecar instead of by the zip.
     const documentPaths = new Map<string, string>();
     for (const record of documentsOf(db, thread)) {
-      documentPaths.set(record.id, record.ref.value);
+      documentPaths.set(record.id, await readablePath(record.ref));
     }
 
     const prompt =
@@ -415,12 +436,86 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     setTargetState(db, request.threadId, request.position, request.anchorState);
   });
 
+  // ── Diagrams (spec 11 §7.4.2) ─────────────────────────────────
+  //
+  // The one request that flows main → renderer and waits for an answer. Mermaid
+  // needs a live DOM to measure text and a canvas to rasterise into, and main
+  // has neither; the renderer has both and holds no deck. So main asks.
+
+  /** In-flight drawings, by request id. Nothing survives a window reload. */
+  const pendingRenders = new Map<
+    string,
+    {
+      resolve: (drawn: { png: Buffer; durationSeconds: number }) => void;
+      reject: (error: Error) => void;
+    }
+  >();
+
+  ipcMain.handle(COMMAND.renderResult, (_event, request: RenderResultRequest): void => {
+    const waiting = pendingRenders.get(request.id);
+    if (!waiting) return;
+    pendingRenders.delete(request.id);
+    if (request.pngBase64) {
+      waiting.resolve({
+        png: Buffer.from(request.pngBase64, "base64"),
+        durationSeconds: request.durationSeconds ?? 0,
+      });
+    } else {
+      waiting.reject(new Error(request.error ?? "the picture did not draw"));
+    }
+  });
+
+  /** A drawing has to finish, or Apply would wait for a window that closed. */
+  const RENDER_TIMEOUT_MS = 20_000;
+
+  const askRenderer = (
+    kind: "diagram" | "poster",
+    source: string,
+  ): Promise<{ png: Buffer; durationSeconds: number }> => {
+    const window = getWindow();
+    if (!window) {
+      return Promise.reject(
+        new Error("A Mermaid diagram can only be drawn while REX's window is open."),
+      );
+    }
+    const id = uuidv4();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        pendingRenders.delete(id);
+        reject(new Error("The picture took too long to draw and the operation was refused."));
+      }, RENDER_TIMEOUT_MS);
+      pendingRenders.set(id, {
+        resolve: (drawn) => {
+          clearTimeout(timer);
+          resolve(drawn);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      });
+      send(EVENT.renderRequest, { id, kind, source });
+    });
+  };
+
+  const drawDiagram = async (source: string): Promise<Buffer> =>
+    (await askRenderer("diagram", source)).png;
+
+  /** §7.4.5 — the poster is read from the video REX has just written to disk. */
+  const drawPoster = async (
+    videoPath: string,
+  ): Promise<{ png: Buffer; durationSeconds: number }> => {
+    allowDirectory(dirname(videoPath));
+    return askRenderer("poster", `${baseHrefFor(dirname(videoPath))}${encodeURIComponent(basename(videoPath))}`);
+  };
+
   // ── Apply ─────────────────────────────────────────────────────
 
   const applyContext: ApplyContext = {
     db,
     record,
     reanchor,
+    resolver: { drawDiagram, drawPoster },
     onApplyReady: (event) => send(EVENT.applyReady, event),
   };
 
@@ -441,6 +536,20 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
   });
 }
 
+/**
+ * The path an agent can actually read this document from.
+ *
+ * For everything but a deck that is the document itself. Spec 11 §6.1: a
+ * `.pptx` is a zip, so `Read` fails on it and the agent answers from the
+ * comment alone while appearing to have read the file — the invisible failure
+ * §6.2's sidecar exists to close. A deck REX could not parse has no sidecar, so
+ * the zip is named and the agent's `Read` fails loudly instead of quietly.
+ */
+async function readablePath(ref: DocumentRef): Promise<string> {
+  if (ref.kind !== "file" || !isPptxPath(ref.value)) return ref.value;
+  return (await ensureSidecar(ref.value)) ?? ref.value;
+}
+
 function pickerOptions(): Electron.OpenDialogOptions {
   return {
     title: "Open a document",
@@ -448,7 +557,7 @@ function pickerOptions(): Electron.OpenDialogOptions {
     filters: [
       {
         name: "Documents",
-        extensions: ["md", "markdown", "mdown", "mkd", "html", "htm", "pdf", "docx"],
+        extensions: ["md", "markdown", "mdown", "mkd", "html", "htm", "pdf", "docx", "pptx"],
       },
       { name: "All files", extensions: ["*"] },
     ],

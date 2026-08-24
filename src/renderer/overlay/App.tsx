@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApplyReadyEvent } from "../../shared/channels.ts";
-import { worstState } from "../../shared/targets.ts";
+import { outOfReviewScope, worstState } from "../../shared/targets.ts";
 import type {
   Anchor,
   AnchorState,
@@ -35,7 +35,10 @@ import { Explorer } from "./Explorer.tsx";
 import { GraphView } from "./GraphView.tsx";
 import { tokenClass } from "./Gutter.tsx";
 import { rescaleRect, strokeRefFrom, unionOfRects } from "./ink.ts";
+import { Lightbox } from "./Lightbox.tsx";
+import { drawDiagramPng, posterFramePng } from "./mermaid.ts";
 import { PEN_WIDTH } from "./PenLayer.tsx";
+import type { PreviewFigure } from "./preview.ts";
 import { SelectionPanel } from "./SelectionPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
 import { type SidebarTab, SidebarTabs } from "./SidebarTabs.tsx";
@@ -123,6 +126,17 @@ export function App(): React.JSX.Element {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [explorerWidth, setExplorerWidth] = useState(272);
   const [commentsWidth, setCommentsWidth] = useState(384);
+  /**
+   * Spec 10 §3.5 — whether the tree lists the folders REX skips on its own.
+   *
+   * A view state and not a stored one: it is how you go and find `node_modules`
+   * once, not a way of working. The reviewer's own exclusions are not governed
+   * by it — they are always drawn — and the rules themselves are in the
+   * database.
+   */
+  const [showSkipped, setShowSkipped] = useState(false);
+  /** Spec 10 §2 — the figure being read at a real size, if any. */
+  const [preview, setPreview] = useState<PreviewFigure | null>(null);
 
   // design/selection — pick mode and the region drag it can hand off to.
   const [picking, setPicking] = useState(false);
@@ -594,18 +608,51 @@ export function App(): React.JSX.Element {
         setWorkspace(ref);
         workspaceRef.current = ref;
         setGraph(null);
-        setTree(await window.rex.workspaceTree(ref));
+        setTree(await window.rex.workspaceTree(ref, showSkipped));
       }),
-    [guard],
+    [guard, showSkipped],
   );
 
   /** Re-scans the tree so comment counts follow what just happened. */
   const refreshTree = useCallback(
     () =>
       guard(async () => {
-        if (workspace) setTree(await window.rex.workspaceTree(workspace));
+        if (workspace) setTree(await window.rex.workspaceTree(workspace, showSkipped));
       }),
-    [guard, workspace],
+    [guard, showSkipped, workspace],
+  );
+
+  /**
+   * Spec 10 §3.4 — one path in or out of the review.
+   *
+   * The tree is re-scanned rather than patched: the rule main writes depends on
+   * the rule already there, so what a path ends up as is main's answer to give.
+   * A renderer that predicted it would be right until the first time it was not.
+   */
+  const setExcluded = useCallback(
+    (path: string, exclude: boolean) =>
+      guard(async () => {
+        const current = workspaceRef.current;
+        if (!current) return;
+        await window.rex.workspaceExclude({ root: current.root, path, exclude });
+        setTree(await window.rex.workspaceTree(current, showSkipped));
+        // The graph is a view of the same scan, so it is now stale. Dropping it
+        // makes the next visit rebuild; rebuilding it here would pay for a
+        // reference walk nobody has asked to look at.
+        setGraph(null);
+      }),
+    [guard, showSkipped],
+  );
+
+  const toggleShowSkipped = useCallback(
+    () =>
+      guard(async () => {
+        const next = !showSkipped;
+        setShowSkipped(next);
+        const current = workspaceRef.current;
+        if (current) setTree(await window.rex.workspaceTree(current, next));
+      }),
+    [guard, showSkipped],
   );
 
   const pickFolder = useCallback(
@@ -688,6 +735,39 @@ export function App(): React.JSX.Element {
     });
     const offCost = window.rex.onStreamCost((event) => setCost(event.totalUsd));
 
+    // Spec 11 §7.4.2 and §7.4.5 — main holds the deck and can draw neither a
+    // Mermaid diagram nor a video's poster frame: one needs a live layout to
+    // measure text with, the other needs a decoder and a canvas. Both are here.
+    // So main asks, and this answers with a PNG.
+    const offRender = window.rex.onRenderRequest((request) => {
+      const draw = async (): Promise<{ png: Uint8Array; durationSeconds?: number }> =>
+        request.kind === "poster"
+          ? await posterFramePng(request.source)
+          : { png: await drawDiagramPng(request.source) };
+
+      void draw()
+        .then((drawn) =>
+          window.rex.renderResult({
+            id: request.id,
+            pngBase64: btoa(String.fromCharCode(...drawn.png)),
+            error: null,
+            ...(drawn.durationSeconds === undefined
+              ? {}
+              : { durationSeconds: drawn.durationSeconds }),
+          }),
+        )
+        .catch((error: unknown) =>
+          // The Apply run fails with this sentence rather than inserting an
+          // empty box, because a picture nobody can read is worse than a
+          // refusal a reviewer can act on.
+          window.rex.renderResult({
+            id: request.id,
+            pngBase64: null,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+    });
+
     // §5.6.1 — the agent has written to disk and is waiting. The document on
     // screen is re-rendered if it is one of the files that changed, so the
     // reviewer reads the new text rather than the text it replaced.
@@ -715,6 +795,7 @@ export function App(): React.JSX.Element {
       offStep();
       offCost();
       offApply();
+      offRender();
     };
   }, [guard, refreshChangeBoxes]);
 
@@ -956,9 +1037,38 @@ export function App(): React.JSX.Element {
     surfaceRef.current?.clearTextSelection();
   }, []);
 
+  /**
+   * Spec 10 §3.3 — the excluded paths, live, for the fan-out below.
+   *
+   * A ref because `askAll` is on a keyboard binding whose effect must not be
+   * torn down and rebuilt every time the tree is re-scanned.
+   */
+  const excludedRef = useRef<string[]>([]);
+  excludedRef.current = tree?.excluded ?? [];
+
   const askAll = useCallback(async (): Promise<void> => {
-    const unanswered = threadsRef.current.filter((thread) => thread.messages.length === 0);
-    if (unanswered.length === 0) return;
+    const waiting = threadsRef.current.filter((thread) => thread.messages.length === 0);
+    // §3.3 — a comment about nothing but excluded documents is not asked. It
+    // stays in the list and can still be asked on its own; what it stops doing
+    // is costing money on a fan-out over a folder the reviewer has set aside.
+    const excluded = excludedRef.current;
+    const unanswered = waiting.filter((thread) => !outOfReviewScope(thread.targetRefs, excluded));
+    const skipped = waiting.length - unanswered.length;
+    if (unanswered.length === 0) {
+      // Saying nothing here would read as "there was nothing to ask", which is
+      // the opposite of what happened.
+      if (skipped > 0) {
+        setNotice(
+          `Nothing asked — ${skipped} unanswered comment${skipped === 1 ? " is" : "s are"} about documents excluded from the review.`,
+        );
+      }
+      return;
+    }
+    if (skipped > 0) {
+      setNotice(
+        `Skipped ${skipped} comment${skipped === 1 ? "" : "s"} about documents excluded from the review.`,
+      );
+    }
     if (unanswered.length > FAN_OUT_CONFIRM) {
       // §8.8 point 4 — a deliberate gate before spending money on a fan-out.
       const estimate = (unanswered.length * ESTIMATED_USD_PER_ASK).toFixed(2);
@@ -1418,9 +1528,12 @@ export function App(): React.JSX.Element {
               tree={tree}
               width={explorerWidth}
               activePath={selectedPath}
+              showSkipped={showSkipped}
               onOpen={(path) => void guard(() => openDocument({ kind: "file", value: path }))}
               onReload={refreshTree}
               onSelectFile={selectWholeFile}
+              onExclude={(path, exclude) => void setExcluded(path, exclude)}
+              onToggleSkipped={() => void toggleShowSkipped()}
             />
             <Splitter
               width={explorerWidth}
@@ -1478,6 +1591,7 @@ export function App(): React.JSX.Element {
               onPenCancel={leavePen}
               onSurfaceReady={onSurfaceReady}
               onSelectionChanged={onSelectionChanged}
+              onPreview={setPreview}
               onPaneResized={onPaneResized}
               onSelectMarker={setActiveId}
               onScrollBy={scrollDocument}
@@ -1663,6 +1777,15 @@ export function App(): React.JSX.Element {
           onDecide={decideApply}
         />
       ) : null}
+
+      {/*
+        Spec 10 §2.3 — over everything, including the two bars above, because it
+        is a thing you open, read and dismiss rather than a thing you work
+        beside. It takes the keyboard with it: its own capture-phase listener on
+        `document` runs before the bindings below and stops them, so no guard is
+        needed here and there is only one place that decides.
+      */}
+      {preview ? <Lightbox figure={preview} onClose={() => setPreview(null)} /> : null}
 
       {applyOutcome ? (
         <ApplyResult

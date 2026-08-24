@@ -17,8 +17,9 @@ const api: RexApi = {
   docInitial: () => ipcRenderer.invoke(COMMAND.docInitial),
   docOpen: (ref) => ipcRenderer.invoke(COMMAND.docOpen, ref),
   workspacePick: () => ipcRenderer.invoke(COMMAND.workspacePick),
-  workspaceTree: (ref) => ipcRenderer.invoke(COMMAND.workspaceTree, ref),
+  workspaceTree: (ref, reveal) => ipcRenderer.invoke(COMMAND.workspaceTree, ref, reveal === true),
   workspaceGraph: (ref) => ipcRenderer.invoke(COMMAND.workspaceGraph, ref),
+  workspaceExclude: (request) => ipcRenderer.invoke(COMMAND.workspaceExclude, request),
   threadList: (request) => ipcRenderer.invoke(COMMAND.threadList, request),
   threadCreate: (request) => ipcRenderer.invoke(COMMAND.threadCreate, request),
   threadAsk: (threadId) => ipcRenderer.invoke(COMMAND.threadAsk, threadId),
@@ -30,10 +31,12 @@ const api: RexApi = {
   applyConfirm: (request) => ipcRenderer.invoke(COMMAND.applyConfirm, request),
   anchorRestate: (request) => ipcRenderer.invoke(COMMAND.anchorRestate, request),
   debugCopy: (threadId) => ipcRenderer.invoke(COMMAND.debugCopy, threadId),
+  renderResult: (request) => ipcRenderer.invoke(COMMAND.renderResult, request),
 
   onStreamStep: (listener) => subscribe(EVENT.streamStep, listener),
   onStreamCost: (listener) => subscribe(EVENT.streamCost, listener),
   onApplyReady: (listener) => subscribe(EVENT.applyReady, listener),
+  onRenderRequest: (listener) => subscribe(EVENT.renderRequest, listener),
 };
 
 contextBridge.exposeInMainWorld("rex", api);

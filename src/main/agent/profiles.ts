@@ -4,9 +4,17 @@
 // There is exactly one axis: can this agent change files.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { extname, join, resolve } from "node:path";
 import type { SdkPluginConfig } from "@anthropic-ai/claude-agent-sdk";
 import { v5 as uuidv5 } from "uuid";
 import type { Profile } from "../../shared/types.ts";
@@ -29,26 +37,47 @@ export interface ProfileConfig {
   plugins: string[];
 }
 
+const LSP_PLUGINS = [
+  "lsp-typescript@claude-my-marketplace",
+  "lsp-python@claude-my-marketplace",
+  "lsp-go@claude-my-marketplace",
+  "lsp-bash@claude-my-marketplace",
+];
+
+/**
+ * Spec 11 §6.4 — the plugins a deck session may load, and no others.
+ *
+ * §6.4.1 is the rule that chose them: **a skill that supplies judgment or
+ * sources helps; a skill that supplies a procedure for a different pipeline
+ * hurts.** That is a fact about REX's design rather than a general principle —
+ * the write agent's output is a JSON plan (§7.2) and REX performs it, so a
+ * skill saying "write a Node script with PptxGenJS" or "run `python3 pack.py`"
+ * is telling the agent to do the one thing this whole spec exists to stop. It
+ * would not merely be unhelpful; it would fight the plan format, and the agent
+ * follows the more specific instruction.
+ *
+ * `office-plugin` is therefore **excluded despite being about PPTX**. Its
+ * `pptx` skill is a deck *generator*. Its knowledge shaped §7 of the spec — read
+ * by a human, ported into REX's own TypeScript — and that is the right way for
+ * it to reach the agent.
+ */
+const DECK_PLUGINS = {
+  /** Critique of an existing design, which is what "is this slide any good?" is. */
+  read: ["design-plugin@claude-my-marketplace"],
+  /** Apply sources and specifies pictures, so it needs the media judgment too. */
+  write: ["design-plugin@claude-my-marketplace", "media-plugin@claude-my-marketplace"],
+} as const;
+
 export const PROFILES: Record<Profile, ProfileConfig> = {
   read: {
     disallowedTools: ["Write", "Edit", "NotebookEdit"],
     maxTurns: 30,
-    plugins: [
-      "lsp-typescript@claude-my-marketplace",
-      "lsp-python@claude-my-marketplace",
-      "lsp-go@claude-my-marketplace",
-      "lsp-bash@claude-my-marketplace",
-    ],
+    plugins: [...LSP_PLUGINS, ...DECK_PLUGINS.read],
   },
   write: {
     disallowedTools: [],
     maxTurns: undefined,
-    plugins: [
-      "lsp-typescript@claude-my-marketplace",
-      "lsp-python@claude-my-marketplace",
-      "lsp-go@claude-my-marketplace",
-      "lsp-bash@claude-my-marketplace",
-    ],
+    plugins: [...LSP_PLUGINS, ...DECK_PLUGINS.write],
   },
 };
 
@@ -138,6 +167,70 @@ function pluginsFor(marketplace: string): Map<string, string> {
   return discovered;
 }
 
+/**
+ * Spec 11 §6.4.4, and the thing that section did not go far enough on.
+ *
+ * An MCP allowlist stops a *tool call*. It does not stop the **server**: the
+ * SDK starts every server a loaded plugin declares, at session start, whether
+ * or not anything is ever allowed to call it. Measured on 2026-08-25 — a deck
+ * Apply with an empty allowlist left `drawio-mcp`, `elevenlabs-mcp`,
+ * `media-mcp` and a headless `@playwright/mcp` running. §10 says plainly that
+ * none of them may start, and it is right to: one opens a GUI editor, one
+ * spawns a second browser, and the remote `mcp.mermaid.ai` would be handed
+ * slide content.
+ *
+ * So the plugin is loaded through a **mirror**: a directory of symlinks to the
+ * real one, with a `plugin.json` whose `mcpServers` has been filtered down to
+ * what is actually allowed. The skills — which is what §6.4.2 wanted, and five
+ * of the seven need no tool at all — arrive intact. The servers do not arrive.
+ *
+ * The mirror is rewritten every time rather than cached, because the source
+ * plugin is a checkout the user edits and a stale copy would ship yesterday's
+ * skills.
+ */
+function mirrorWithoutServers(source: string, keepServers: readonly string[]): string {
+  const manifestPath = join(source, ".claude-plugin", "plugin.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    name?: string;
+    mcpServers?: Record<string, unknown>;
+  };
+
+  const declared = manifest.mcpServers ?? {};
+  const kept = Object.fromEntries(
+    Object.entries(declared).filter(([name]) => keepServers.includes(name)),
+  );
+  if (Object.keys(declared).length === Object.keys(kept).length) return source;
+
+  const mirror = join(homedir(), ".rex", "plugins", manifest.name ?? "plugin");
+  rmSync(mirror, { recursive: true, force: true });
+  mkdirSync(join(mirror, ".claude-plugin"), { recursive: true });
+  writeFileSync(
+    join(mirror, ".claude-plugin", "plugin.json"),
+    JSON.stringify({ ...manifest, mcpServers: kept }, null, 2),
+  );
+
+  // Everything else is linked rather than copied: the skills are the plugin,
+  // they are large, and they are the user's own checkout to keep editing.
+  for (const entry of readdirSync(source)) {
+    if (entry === ".claude-plugin") continue;
+    symlinkSync(join(source, entry), join(mirror, entry));
+  }
+  return mirror;
+}
+
+/** Which of a plugin's declared MCP servers REX is willing to let start. */
+const SERVERS_ALLOWED: Record<string, readonly string[]> = {
+  // §6.4.3 — `media-mcp` is the one that earns its place, and only with a key.
+  // `ElevenLabs`, `drawio`, `media-playwright` and the remote `mermaid`
+  // endpoint are never wanted here.
+  "media-plugin": [],
+};
+
+/** §6.4.3 — the key lets `media-mcp` start; nothing else ever does. */
+export function allowGenerationServer(): void {
+  SERVERS_ALLOWED["media-plugin"] = ["media-mcp"];
+}
+
 /** `plugin-name@marketplace-name` → an SDK plugin config, or nothing. */
 export function resolvePluginRefs(refs: string[]): SdkPluginConfig[] {
   const configs: SdkPluginConfig[] = [];
@@ -147,9 +240,14 @@ export function resolvePluginRefs(refs: string[]): SdkPluginConfig[] {
       console.warn(`[rex] invalid plugin ref (missing @marketplace): ${ref}`);
       continue;
     }
-    const path = pluginsFor(ref.slice(at + 1)).get(ref.slice(0, at));
-    if (path) configs.push({ type: "local", path });
-    else console.warn(`[rex] could not resolve plugin: ${ref}`);
+    const name = ref.slice(0, at);
+    const path = pluginsFor(ref.slice(at + 1)).get(name);
+    if (!path) {
+      console.warn(`[rex] could not resolve plugin: ${ref}`);
+      continue;
+    }
+    const allowed = SERVERS_ALLOWED[name];
+    configs.push({ type: "local", path: allowed ? mirrorWithoutServers(path, allowed) : path });
   }
   return configs;
 }
@@ -169,11 +267,22 @@ const LANGUAGE_MARKERS: Array<{ plugin: string; files: string[] }> = [
  * Loading four language servers into every session costs roughly a gigabyte
  * of RAM each, so only the ones the repository has a marker for are loaded.
  * `lsp-bash` is cheap and shell scripts appear everywhere, so it is always on.
+ *
+ * Spec 11 §6.4.2 extends the same marker idea to a deck: **a `.pptx` is a
+ * marker like any other**, and the two design plugins load only when the
+ * document under review is one. A Markdown review pays nothing for them.
  */
-export function pluginsForRepository(cwd: string, profile: Profile): SdkPluginConfig[] {
+export function pluginsForRepository(
+  cwd: string,
+  profile: Profile,
+  documentPath?: string | null,
+): SdkPluginConfig[] {
   const wanted = new Set<string>(["lsp-bash@claude-my-marketplace"]);
   for (const { plugin, files } of LANGUAGE_MARKERS) {
     if (files.some((file) => existsSync(join(cwd, file)))) wanted.add(plugin);
+  }
+  if (documentPath && extname(documentPath).toLowerCase() === ".pptx") {
+    for (const plugin of DECK_PLUGINS[profile]) wanted.add(plugin);
   }
   const allowed = new Set(PROFILES[profile].plugins);
   return resolvePluginRefs([...wanted].filter((plugin) => allowed.has(plugin)));

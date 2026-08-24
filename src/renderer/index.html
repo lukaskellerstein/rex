@@ -18,6 +18,12 @@
                             trade: opening a document tells whatever host the
                             author named that it was opened, and when
         connect-src rex-doc: PDF.js range-fetches the file over rex-doc://
+        media-src rex-doc:  spec 11 §4.8 — a deck's own video and audio parts.
+                            Without it default-src 'self' applies and every
+                            clip on every slide is blocked, which is what §4.8
+                            measured working OUTSIDE this policy and would not
+                            have found inside it. It also lets REX read one
+                            frame out of a video to use as its poster (§7.4.5).
 
       script-src is deliberately still absent, so it falls back to
       default-src 'self' — the document iframe runs no script either way, and
@@ -26,7 +32,7 @@
     -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; style-src 'self' 'unsafe-inline' rex-doc:; img-src 'self' data: rex-doc: https:; font-src 'self' data: rex-doc:; frame-src 'self' rex-doc:; connect-src 'self' rex-doc:"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline' rex-doc:; img-src 'self' data: rex-doc: https:; media-src 'self' rex-doc: blob:; font-src 'self' data: rex-doc:; frame-src 'self' rex-doc:; connect-src 'self' rex-doc:"
     >
     <style>
     html,
@@ -34,6 +40,20 @@
       margin: 0;
       height: 100%;
       background: #0d1420;
+      /*
+                     The page should never scroll — the shell is exactly 100vh — so this is
+                     for the case where something has been left in the body and it does.
+                     Chromium's default scrollbar is light, and a white bar down the edge of
+                     a black window is how one such leak was found (see `mermaid.ts`). The
+                     palette lives in the shadow root and cannot be reached from here, so
+                     `--rule` is written out; it is the only duplicated value in this file
+                     besides the ground above.
+
+                     Not `color-scheme: dark`, which would be inherited by the document
+                     iframe and flip a local HTML file's own theme.
+                     */
+      scrollbar-width: thin;
+      scrollbar-color: #414850 transparent;
     }
     #rex-root {
       height: 100vh;

@@ -31,9 +31,27 @@ export function isDocxPath(path: string): boolean {
   return extname(path).toLowerCase() === ".docx";
 }
 
+/**
+ * Spec 11 §4.1 — a deck.
+ *
+ * `.ppt` — the pre-2007 binary format — is deliberately absent and must stay
+ * absent. It is not a zip, `pptxtojson` cannot read it, and a gate that
+ * accepted it would fail at parse time with a confusing message instead of at
+ * listing time with a clear one.
+ */
+export function isPptxPath(path: string): boolean {
+  return extname(path).toLowerCase() === ".pptx";
+}
+
 /** Spec 02 §4.1 — the test the explorer and the renderer dispatch share. */
 export function isDocumentPath(path: string): boolean {
-  return isMarkdownPath(path) || isHtmlPath(path) || isPdfPath(path) || isDocxPath(path);
+  return (
+    isMarkdownPath(path) ||
+    isHtmlPath(path) ||
+    isPdfPath(path) ||
+    isDocxPath(path) ||
+    isPptxPath(path)
+  );
 }
 
 /**
@@ -60,13 +78,19 @@ export function isTextDocumentPath(path: string): boolean {
  * cannot render it.
  */
 export function unopenableReason(_path: string): string {
-  return "REX renders Markdown, HTML, PDF and DOCX.";
+  return "REX renders Markdown, HTML, PDF, DOCX and PPTX.";
 }
 
 /**
  * Spec 01 §5.2 — Apply needs a local source file it can edit by line. There is
  * no honest way to write a prose edit back into a PDF or a DOCX, so Apply is
  * off for both and says why on hover.
+ *
+ * Spec 11 §4.1 — a `.pptx` returns null, which makes it the first binary format
+ * where Apply is enabled. It does not edit it by line: the agent writes a plan,
+ * REX performs it on a copy, and the reviewer accepts a picture of the result
+ * rather than a diff (spec 11 §7). A deck that did not parse is refused by the
+ * dispatch in `index.ts` instead, because that is where the parse happened.
  */
 export function applyDisabledReason(path: string): string | null {
   if (isPdfPath(path)) return "Apply cannot edit a PDF — there is no source line to write back to.";

@@ -15,7 +15,7 @@
 // will move or orphan comments written on the removed text.
 
 import { useState } from "react";
-import type { ApplyReadyEvent } from "../../shared/channels.ts";
+import type { ApplyReadyEvent, DeckPreview, DeckSlidePreview } from "../../shared/channels.ts";
 import type { AnchorState, ThreadWithMessages } from "../../shared/types.ts";
 import { tokenClass } from "./Gutter.tsx";
 import { Pencil, Warning } from "./Icons.tsx";
@@ -124,10 +124,117 @@ function diffClass(line: string): string {
   return "";
 }
 
+/**
+ * Spec 11 §7.7 — how wide one slide picture is drawn in the review bar.
+ *
+ * Fixed rather than measured, and the scale is computed from the deck's own
+ * slide size, so a 16:9 deck and a 4:3 deck are both drawn whole at the same
+ * width. A preview that assumed one shape would letterbox or crop the other —
+ * on the pictures that decide whether an edit is accepted.
+ */
+const PREVIEW_WIDTH = 380;
+const PX_PER_POINT = 96 / 72;
+
+/**
+ * One slide, before and after, as two pictures.
+ *
+ * Each is the real page the reader emits, in an iframe sandboxed exactly as the
+ * document iframe is — no `allow-scripts`, so the deck's own content runs
+ * nothing here either. Scaled with a transform, because the page inside is laid
+ * out in points at full size and must not be re-laid-out to be shown small: the
+ * preview has to be the picture the reviewer will actually get.
+ */
+function SlidePair(props: { preview: DeckSlidePreview }): React.JSX.Element {
+  const { preview } = props;
+  const fullWidth = preview.widthPt * PX_PER_POINT;
+  const fullHeight = preview.heightPt * PX_PER_POINT;
+  const scale = PREVIEW_WIDTH / fullWidth;
+
+  const frame = (html: string | null, label: string): React.JSX.Element => (
+    <figure className="rex-deck-shot">
+      <figcaption className="rex-meta">{label}</figcaption>
+      <div
+        className="rex-deck-shot-box"
+        style={{ width: PREVIEW_WIDTH, height: Math.round(fullHeight * scale) }}
+      >
+        {html === null ? (
+          <span className="rex-meta">This slide could not be drawn.</span>
+        ) : (
+          <iframe
+            title={`Slide ${preview.slide} ${label}`}
+            srcDoc={html}
+            sandbox="allow-same-origin"
+            style={{
+              width: fullWidth,
+              height: fullHeight,
+              transform: `scale(${scale})`,
+              transformOrigin: "top left",
+            }}
+          />
+        )}
+      </div>
+    </figure>
+  );
+
+  return (
+    <div className="rex-deck-slide">
+      <span className="rex-deck-slide-number">Slide {preview.slide}</span>
+      <div className="rex-deck-pair">
+        {frame(preview.before, "before")}
+        {frame(preview.after, "after")}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Spec 11 §7.7 — the preview that replaces the diff, both halves of it.
+ *
+ * `git diff` on a `.pptx` prints `Binary files differ`, and spec 01 §8.7 step 5
+ * is REX's entire safety story for Apply. The words are the first half; the
+ * pictures are the half that catches what words cannot express — text that
+ * overflows its shape, a style that is mechanically right and visually wrong, a
+ * picture that does not suit the slide. A words-only summary reads as correct
+ * in all three.
+ */
+function DeckReview(props: { decks: DeckPreview[] }): React.JSX.Element {
+  return (
+    <div className="rex-deck-review">
+      {props.decks.map((deck) => (
+        <section key={deck.deck} className="rex-deck-plan">
+          <ol className="rex-deck-ops">
+            {deck.operations.map((operation, position) => (
+              // An operation has no id of its own; its position in the plan is it.
+              <li key={position}>
+                <span className="rex-pill rex-pill-op">{operation.op}</span>
+                <span>{operation.summary}</span>
+                {operation.flags.map((flag) => (
+                  <span key={flag} className="rex-deck-flag">
+                    <Warning />
+                    {flag}
+                  </span>
+                ))}
+              </li>
+            ))}
+          </ol>
+          {deck.slides.map((slide) => (
+            <SlidePair key={slide.slide} preview={slide} />
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 export function DiffDialog(props: Props): React.JSX.Element {
   const [showDiff, setShowDiff] = useState(false);
   const counts = tallyByFile(props.event.diff);
   const { event, thread } = props;
+
+  // Spec 11 §7.7 — a deck run shows pictures instead of a patch, and the two
+  // are never mixed: `apply.ts` refuses a run that would need both.
+  const decks = event.decks ?? [];
+  const isDeck = decks.length > 0;
 
   const hereChanged =
     props.openDocumentPath !== null && event.files.includes(props.openDocumentPath);
@@ -135,11 +242,14 @@ export function DiffDialog(props: Props): React.JSX.Element {
   // §5.6.1 — only Markdown carries `data-src-line`, so a changed HTML file has
   // nothing to outline. Saying so is the honest answer; guessing at a paragraph
   // is the silent wrong-place failure spec 01 §6.1 refuses.
-  const heading = !hereChanged
-    ? "This document was not changed."
-    : props.outlined > 0
-      ? `${props.outlined} section${props.outlined === 1 ? "" : "s"} changed here — outlined in the document.`
-      : "This document changed, but it carries no source lines to outline. The diff is below.";
+  const operationCount = decks.reduce((total, deck) => total + deck.operations.length, 0);
+  const heading = isDeck
+    ? `${operationCount} change${operationCount === 1 ? "" : "s"} to this deck — shown before and after.`
+    : !hereChanged
+      ? "This document was not changed."
+      : props.outlined > 0
+        ? `${props.outlined} section${props.outlined === 1 ? "" : "s"} changed here — outlined in the document.`
+        : "This document changed, but it carries no source lines to outline. The diff is below.";
 
   return (
     <section className="rex-review">
@@ -153,9 +263,11 @@ export function DiffDialog(props: Props): React.JSX.Element {
         </span>
         <span className="rex-spacer" />
         <span className="rex-pill rex-pill-write">WRITE PROFILE</span>
-        <button type="button" className="rex-link" onClick={() => setShowDiff(!showDiff)}>
-          {showDiff ? "hide the diff" : "show the diff"}
-        </button>
+        {isDeck ? null : (
+          <button type="button" className="rex-link" onClick={() => setShowDiff(!showDiff)}>
+            {showDiff ? "hide the diff" : "show the diff"}
+          </button>
+        )}
         <button
           type="button"
           className="rex-button rex-primary"
@@ -171,6 +283,8 @@ export function DiffDialog(props: Props): React.JSX.Element {
           Undo
         </button>
       </div>
+
+      {isDeck ? <DeckReview decks={decks} /> : null}
 
       <div className="rex-review-files">
         {event.files.length === 0 ? (
@@ -194,8 +308,15 @@ export function DiffDialog(props: Props): React.JSX.Element {
                     what changed. A whole-document comment authorised an edit
                     anywhere in this file, and that is worth reading first. */}
                 {scope ? <span className="rex-file-scope">{scope}</span> : null}
-                <span className="rex-file-add">+{tally.added}</span>
-                <span className="rex-file-del">−{tally.removed}</span>
+                {/* Spec 11 §7.7 — a deck has no line counts, and "+0 −0" beside
+                    a real change reads as "nothing happened". The operations
+                    and the pictures above are what say what changed. */}
+                {isDeck ? null : (
+                  <>
+                    <span className="rex-file-add">+{tally.added}</span>
+                    <span className="rex-file-del">−{tally.removed}</span>
+                  </>
+                )}
                 {/* No count of "sections" here: the heading already says how
                     many are outlined in the document on screen, and a second
                     number using the same word for a different thing is how a
@@ -217,7 +338,7 @@ export function DiffDialog(props: Props): React.JSX.Element {
         </p>
       ) : null}
 
-      {showDiff ? (
+      {showDiff && !isDeck ? (
         <>
           {thread ? (
             <div className={`rex-card-anchor ${washClass(thread.status, props.anchorState)}`}>
@@ -248,11 +369,24 @@ export function DiffDialog(props: Props): React.JSX.Element {
 
       <p className="rex-warn">
         <Warning />
-        <span>
-          OK keeps the change and re-runs anchoring. Comments written against the removed text will
-          move or lose their anchor — they are kept either way, with the text they were written on.
-          Undo restores every file with <code>git checkout</code>.
-        </span>
+        {isDeck ? (
+          // Spec 11 §7.1 — the guarantee here is stronger than on prose, and
+          // saying so is not decoration: the reviewer is being asked to accept
+          // a change to a file they cannot diff, and what protects them is that
+          // the file has not been touched yet.
+          <span>
+            OK replaces the deck with the edited copy and re-runs anchoring. Comments written on
+            text that changed will move or lose their anchor — they are kept either way, with the
+            text they were written on. Undo throws the copy away;{" "}
+            <strong>the deck itself has not been modified at any point</strong>.
+          </span>
+        ) : (
+          <span>
+            OK keeps the change and re-runs anchoring. Comments written against the removed text
+            will move or lose their anchor — they are kept either way, with the text they were
+            written on. Undo restores every file with <code>git checkout</code>.
+          </span>
+        )}
       </p>
     </section>
   );

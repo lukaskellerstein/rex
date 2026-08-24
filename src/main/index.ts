@@ -2,8 +2,12 @@
 
 import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
+import { allowGenerationTools } from "./agent/gate.ts";
+import { allowGenerationServer } from "./agent/profiles.ts";
 import { closeDatabase, openDatabase } from "./db/database.ts";
 import { registerIpc } from "./ipc.ts";
+import { generationAvailable } from "./pptx/media.ts";
+import { setGenerationEnabled } from "./pptx/plan.ts";
 import { registerDocProtocol, registerDocSchemePrivileges } from "./protocol.ts";
 
 let window: BrowserWindow | null = null;
@@ -58,6 +62,17 @@ function createWindow(): BrowserWindow {
 
 void app.whenReady().then(() => {
   registerDocProtocol();
+  // Spec 11 §6.4.3 — the generation tools are off unless the key is set. That
+  // is a deliberate line: REX stays self-contained, and a missing key means the
+  // feature is *absent* rather than half-working.
+  const generation = generationAvailable();
+  if (generation) {
+    allowGenerationTools();
+    // The tool allowlist stops a call; this is what lets the server start at
+    // all. Without both, generation is either refused or silently reachable.
+    allowGenerationServer();
+  }
+  setGenerationEnabled(generation);
   const db = openDatabase();
   registerIpc(db, () => window);
 

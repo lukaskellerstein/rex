@@ -14,11 +14,22 @@ export const DOC_SCHEME = "rex-doc";
 const roots = new Set<string>();
 
 const MIME: Record<string, string> = {
+  ".avif": "image/avif",
+  ".bmp": "image/bmp",
   ".css": "text/css",
   ".gif": "image/gif",
   ".html": "text/html",
   ".jpeg": "image/jpeg",
   ".jpg": "image/jpeg",
+  // Spec 11 §4.8 — a deck's own media parts. Measured on 2026-08-24: both an
+  // animated GIF and a <video> play inside a frame sandboxed without
+  // `allow-scripts`, because decoding a media file is the user agent's own work.
+  // They are served with a real type or Chromium refuses to decode them.
+  ".m4a": "audio/mp4",
+  ".m4v": "video/mp4",
+  ".mov": "video/quicktime",
+  ".mp3": "audio/mpeg",
+  ".mp4": "video/mp4",
   ".js": "text/plain", // never application/javascript: the iframe must not run it
   ".json": "application/json",
   // Spec 03 §7.1 — PDF.js range-fetches the file over this scheme, which is
@@ -26,6 +37,10 @@ const MIME: Record<string, string> = {
   ".pdf": "application/pdf",
   ".png": "image/png",
   ".svg": "image/svg+xml",
+  ".tif": "image/tiff",
+  ".tiff": "image/tiff",
+  ".wav": "audio/wav",
+  ".webm": "video/webm",
   ".webp": "image/webp",
   ".woff": "font/woff",
   ".woff2": "font/woff2",

@@ -47,6 +47,8 @@ export const COMMAND = {
   workspacePick: "workspace:pick",
   workspaceTree: "workspace:tree",
   workspaceGraph: "workspace:graph",
+  /** Spec 10 §3.4 — take a folder or a file out of the review, or put it back. */
+  workspaceExclude: "workspace:exclude",
   threadList: "thread:list",
   threadCreate: "thread:create",
   threadAsk: "thread:ask",
@@ -57,6 +59,14 @@ export const COMMAND = {
   threadApply: "thread:apply",
   applyConfirm: "apply:confirm",
   anchorRestate: "anchor:restate",
+  /**
+   * Spec 11 §7.4.2 — the renderer's answer to `render:request`.
+   *
+   * The one place a command flows the "wrong" way round: main asked, and this
+   * carries the picture back. It is still `invoke`, so invariant I3 holds — the
+   * renderer is the one calling, exactly as it is for every other command.
+   */
+  renderResult: "render:result",
   /**
    * Spec 08 §6.2 — this run's identifiers, on the clipboard.
    *
@@ -79,6 +89,17 @@ export const EVENT = {
    * before anything is written, and no channel in the contract carries one.
    */
   applyReady: "apply:ready",
+  /**
+   * Spec 11 §7.4.2 and §7.4.5 — main asks the renderer to make a picture.
+   *
+   * It cannot make either one itself. Mermaid appends a temporary element to a
+   * document and measures text with a real layout; a poster frame means
+   * decoding a video and reading a pixel out of it. Both need a live DOM and a
+   * canvas, and main has neither — the same reason spec 03 §5.8 gives for the
+   * document view's own diagrams. Main holds the deck; the renderer holds the
+   * engines; this is the sentence between them.
+   */
+  renderRequest: "render:request",
 } as const;
 
 // ── Request and response payloads ───────────────────────────────
@@ -109,6 +130,19 @@ export interface ThreadCreateRequest {
    * has a way to send what it holds.
    */
   stroke?: StrokeRef;
+}
+
+/**
+ * Spec 10 §3.4 — one path, one decision.
+ *
+ * `exclude: false` is "include in review", which both takes an exclusion back
+ * and pulls in a folder REX skips by default. Main decides which of the two it
+ * is, because only main knows what rule the path currently carries.
+ */
+export interface WorkspaceExcludeRequest {
+  root: string;
+  path: string;
+  exclude: boolean;
 }
 
 export interface ThreadReplyRequest {
@@ -143,6 +177,58 @@ export interface AnchorRestateRequest {
   anchorState: AnchorState;
 }
 
+/**
+ * Spec 11 §7.7 — one operation, in the words the preview shows.
+ *
+ * `git diff` on a `.pptx` prints `Binary files differ`, and spec 01 §8.7
+ * step 5 — show the change and wait — is REX's entire safety story for Apply.
+ * A binary diff turns that step into a rubber stamp, so this replaces it.
+ */
+export interface DeckOperationLine {
+  op: string;
+  /** One line naming the slide and the shape by the name a reviewer knows. */
+  summary: string;
+  /**
+   * What the reviewer must be told before accepting: formatting flattened by a
+   * run merge, a font the deck does not carry, a colour outside the palette, a
+   * shape that may now overflow.
+   */
+  flags: string[];
+}
+
+/** One affected slide, drawn before and after, as two self-contained pages. */
+export interface DeckSlidePreview {
+  slide: number;
+  before: string | null;
+  after: string | null;
+  /**
+   * The slide box in points, so the preview can scale the picture exactly.
+   *
+   * It has to come from the deck: a 16:9 deck is 720×405pt and a 4:3 one is
+   * 720×540, and a preview that assumed either would letterbox or crop the
+   * other one — on the pictures that decide whether an edit is accepted.
+   */
+  widthPt: number;
+  heightPt: number;
+}
+
+/**
+ * Spec 11 §7.7 — the preview that replaces the diff. Both halves are required.
+ *
+ * The pictures are what catch the failures the words cannot express: text that
+ * overflows its shape, a style that is mechanically right and visually wrong, a
+ * picture that does not suit the slide. A words-only summary reads as correct
+ * in all three cases.
+ */
+export interface DeckPreview {
+  /** Absolute path of the deck. */
+  deck: string;
+  operations: DeckOperationLine[];
+  slides: DeckSlidePreview[];
+  /** §7.8 — structural problems the edit introduced. Empty on every accepted run. */
+  problems: string[];
+}
+
 export interface ApplyReadyEvent {
   applyRunId: string;
   threadId: string;
@@ -154,6 +240,32 @@ export interface ApplyReadyEvent {
   regions: ChangedRegion[];
   /** Spec 05 §5.6 — target documents Apply could not edit, and why. */
   skipped: SkippedDocument[];
+  /** Spec 11 §7.7 — present when this run edited a deck, and never with a diff. */
+  decks?: DeckPreview[];
+}
+
+/** What main is asking the renderer to draw. */
+export type RenderRequestKind = "diagram" | "poster";
+
+/** Spec 11 §7.4.2 — main asks; `id` is what pairs the answer with the question. */
+export interface RenderRequestEvent {
+  id: string;
+  kind: RenderRequestKind;
+  /**
+   * Mermaid source for a diagram; a `rex-doc://` URL for a video whose first
+   * frame is wanted. A video is never sent as bytes — a 50 MB clip base64'd
+   * across IPC is 67 MB of string for one still picture.
+   */
+  source: string;
+}
+
+export interface RenderResultRequest {
+  id: string;
+  /** A PNG, base64-encoded, or null when it would not draw. */
+  pngBase64: string | null;
+  error: string | null;
+  /** §7.4.5 — a video's length, so the preview can state it. Seconds. */
+  durationSeconds?: number;
 }
 
 export interface CostEvent {
@@ -170,8 +282,10 @@ export interface RexApi {
   docInitial(): Promise<InitialTarget | null>;
   docOpen(ref: DocumentRef): Promise<OpenedDocument>;
   workspacePick(): Promise<WorkspaceRef | null>;
-  workspaceTree(ref: WorkspaceRef): Promise<WorkspaceTree>;
+  /** `reveal` lists what the scan prunes, so an exclusion can be taken back. */
+  workspaceTree(ref: WorkspaceRef, reveal?: boolean): Promise<WorkspaceTree>;
   workspaceGraph(ref: WorkspaceRef): Promise<ReferenceGraph>;
+  workspaceExclude(request: WorkspaceExcludeRequest): Promise<void>;
   threadList(request: ThreadListRequest): Promise<ThreadWithMessages[]>;
   threadCreate(request: ThreadCreateRequest): Promise<Thread>;
   threadAsk(threadId: string): Promise<void>;
@@ -189,4 +303,7 @@ export interface RexApi {
   onStreamStep(listener: (message: Message) => void): () => void;
   onStreamCost(listener: (event: CostEvent) => void): () => void;
   onApplyReady(listener: (event: ApplyReadyEvent) => void): () => void;
+  /** Spec 11 §7.4.2 — main asks for a picture; the renderer answers. */
+  onRenderRequest(listener: (event: RenderRequestEvent) => void): () => void;
+  renderResult(request: RenderResultRequest): Promise<void>;
 }

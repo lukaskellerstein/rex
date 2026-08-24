@@ -31,6 +31,21 @@ export interface TextPosition {
 export interface ElementRef {
   id?: string; // element id attribute, if stable
   css?: string; // fallback CSS path
+  /**
+   * Spec 11 §5.2 — what the element held when the anchor was written.
+   *
+   * The same idea as `RegionRef.fingerprint`, and it exists for the same
+   * failure in a different place. On a deck an element id is *derived from an
+   * index*: `slide-4-shape-3` is the third shape on slide 4, so inserting a
+   * shape before it silently re-points every id below. Without a content check
+   * the anchor resolves, reports success, and is about a different shape.
+   *
+   * Optional, and absent on every prose anchor: a Markdown or HTML element ref
+   * carries an author's id or a CSS path, neither of which is an index. The
+   * resolver only uses the extra layers when this field is present, so nothing
+   * about resolving prose changes.
+   */
+  fingerprint?: string;
 }
 
 export interface RegionRef {
@@ -225,6 +240,16 @@ export interface CommentCounts {
   orphaned: number;
 }
 
+/**
+ * Spec 10 §3 — why an entry is not part of the review, when it is not.
+ *
+ * `user` is a rule the reviewer wrote and can take back; `default` is REX's own
+ * skip list (`node_modules`, `.git`, build output). The tree draws the two the
+ * same way, but the menu offers different words for them, and only `user` rules
+ * narrow what the workspace-wide commands act on.
+ */
+export type Exclusion = "user" | "default";
+
 export interface TreeEntry {
   name: string;
   path: string; // absolute
@@ -234,6 +259,13 @@ export interface TreeEntry {
   comments: CommentCounts | null;
   /** Why this entry cannot be opened. Null for directories and documents. */
   disabledReason: string | null;
+  /**
+   * Null for everything in review, which is every entry a scan returns unless
+   * it was asked to reveal what it prunes. An excluded directory always arrives
+   * with no `children`: its subtree is never walked, which is both the point and
+   * what stops revealing `node_modules` from eating the whole entry budget.
+   */
+  exclusion: Exclusion | null;
 }
 
 export interface WorkspaceTree {
@@ -241,6 +273,18 @@ export interface WorkspaceTree {
   entries: TreeEntry[];
   /** True when the scan hit a limit in spec 02 §4.2 and the tree is incomplete. */
   truncated: boolean;
+  /**
+   * Spec 10 §3.3 — the absolute path of every subtree a *user* rule prunes,
+   * whether or not this scan revealed them.
+   *
+   * The tree and the graph both come out of the same scan, so neither needs
+   * this. The workspace-wide commands do: "Ask all" works from the loaded thread
+   * list rather than from the tree, and without these paths it would keep
+   * spending money on documents the reviewer has said are not part of the
+   * review. Default skips are deliberately absent — those are a scan-cost
+   * decision, not a statement about scope.
+   */
+  excluded: string[];
 }
 
 export type GraphNodeKind =

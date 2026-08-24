@@ -263,6 +263,54 @@ export const Trash = (p: Props): React.JSX.Element => (
   </svg>
 );
 
+/** Close — the lightbox, and anything else that is over the whole window. */
+export const Cross = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 13} d="M4 4l8 8M12 4l-8 8" />
+);
+
+/**
+ * Zoom in and out, for the lightbox's own controls (spec 10 §2.3).
+ *
+ * A magnifier rather than a bare + and −: the two signs alone are the document
+ * zoom's vocabulary in the top bar, and reusing them here would suggest the
+ * buttons scale the page behind the preview rather than the preview itself.
+ */
+const LENS = "M7.2 2.6a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2M10.6 10.6 13.6 13.6";
+
+export const ZoomIn = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 14} d={`${LENS}M4.9 7.2h4.6M7.2 4.9v4.6`} />
+);
+
+export const ZoomOut = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 14} d={`${LENS}M4.9 7.2h4.6`} />
+);
+
+/** Fit the whole figure back into the frame — four corners drawn inward. */
+export const FitFrame = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 14} d="M2.6 6V2.6H6M10 2.6h3.4V6M13.4 10v3.4H10M6 13.4H2.6V10" />
+);
+
+/**
+ * Out of the review — an eye with a line through it (spec 10 §3).
+ *
+ * Not `Blocked`, which is REX refusing something, and not `Trash`, which throws
+ * work away. An exclusion is neither: the folder is still there, still on disk,
+ * and one click from coming back. "Not being looked at" is what it means.
+ */
+export const EyeOff = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M2 8s2.4-3.6 6-3.6S14 8 14 8s-2.4 3.6-6 3.6S2 8 2 8" />
+    <circle cx="8" cy="8" r="1.7" />
+    <path d="M3 13 13 3" />
+  </svg>
+);
+
 /** A table, for a card whose anchor has no quote to show. */
 export const TableGlyph = (p: Props): React.JSX.Element => (
   <svg

@@ -4,13 +4,20 @@
 // holding no database handle: the counts arrive already aggregated.
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { TreeEntry, WorkspaceTree } from "../../shared/types.ts";
-import { TriangleDown, TriangleRight } from "./Icons.tsx";
+import type { CommentCounts, TreeEntry, WorkspaceTree } from "../../shared/types.ts";
+import { EyeOff, TriangleDown, TriangleRight } from "./Icons.tsx";
 
 interface Props {
   tree: WorkspaceTree;
   width: number;
   activePath: string | null;
+  /**
+   * Spec 10 §3.5 — whether the folders REX skips on its own are listed.
+   *
+   * Not the reviewer's own exclusions. Those are always drawn, because a
+   * decision that hides its own undo is a trap.
+   */
+  showSkipped: boolean;
   onOpen: (path: string) => void;
   onReload: () => void;
   /**
@@ -22,6 +29,15 @@ interface Props {
    * about a file you have not opened as often as one you have.
    */
   onSelectFile: (path: string) => void;
+  /**
+   * Spec 10 §3.4 — one path in or out of the review.
+   *
+   * `exclude: false` covers both "take that exclusion back" and "pull in a
+   * folder REX skips by default", because from here they are the same gesture
+   * on the same word. Which of the two it turns out to be is main's to decide.
+   */
+  onExclude: (path: string, exclude: boolean) => void;
+  onToggleSkipped: () => void;
 }
 
 /** Which row the menu belongs to, and where the pointer opened it. */
@@ -33,6 +49,40 @@ interface MenuAt {
 
 /** Deep enough to show a docs folder's contents, shallow enough for a repo. */
 const AUTO_EXPAND_DEPTH = 2;
+
+/**
+ * A dot and a number rather than a filled badge: twenty files with badges down
+ * the right reads as a second, competing tree.
+ *
+ * Its own component because an excluded document shows them too (spec 10 §3.3):
+ * excluding narrows what REX looks at and never what it holds, so the count of
+ * what would be left behind is exactly the number somebody needs to judge
+ * whether the exclusion was right.
+ */
+function Counts({ counts }: { counts: CommentCounts }): React.JSX.Element {
+  return (
+    <span className="rex-tree-counts">
+      {counts.open > 0 ? (
+        <>
+          <span className="rex-dot rex-dot-open" />
+          <span className="rex-count">{counts.open}</span>
+        </>
+      ) : null}
+      {counts.resolved > 0 && counts.open === 0 ? (
+        <>
+          <span className="rex-dot rex-dot-resolved" />
+          <span className="rex-count">{counts.resolved}</span>
+        </>
+      ) : null}
+      {counts.orphaned > 0 ? (
+        <>
+          <span className="rex-dot rex-dot-orphaned" />
+          <span className="rex-count rex-count-orphaned">{counts.orphaned}</span>
+        </>
+      ) : null}
+    </span>
+  );
+}
 
 /** How long the row says "copied" before going quiet again. */
 const COPIED_FLASH_MS = 1400;
@@ -152,6 +202,41 @@ export function Explorer(props: Props): React.JSX.Element {
       const hint = `${entry.path}\nRight-click for path and selection`;
       const justCopied = copied === entry.path;
 
+      if (entry.exclusion !== null) {
+        const byHand = entry.exclusion === "user";
+        return [
+          // §3.5 — a rule the reviewer wrote stays in the tree; a default skip
+          // appears only while the header's `skipped` link is on. Both are drawn
+          // the same way, and neither is `.rex-tree-other`: that grey means "REX
+          // cannot open this", which is a fact about the file. This is a
+          // decision about the review, and an excluded folder is usually full of
+          // documents REX reads perfectly well.
+          //
+          // A `div` rather than a `button`: there is nothing to open, and there
+          // is nothing to expand either — the subtree was never walked, which is
+          // both what makes an exclusion free and what keeps revealing
+          // `node_modules` from costing the whole scan.
+          <div
+            key={entry.path}
+            className={`rex-tree-row rex-tree-excluded${byHand ? " rex-tree-excluded-user" : ""}`}
+            style={indent}
+            title={`${entry.path}\n${
+              byHand
+                ? "Excluded from this review — right-click to include it"
+                : "Skipped by REX unless you ask for it — right-click to include it"
+            }`}
+            onContextMenu={(event) => openMenu(event, entry)}
+          >
+            <span className="rex-tree-twisty">
+              <EyeOff size={11} />
+            </span>
+            <span className="rex-tree-name">{entry.name}</span>
+            {justCopied ? <span className="rex-tree-copied">copied</span> : null}
+            {entry.comments && !justCopied ? <Counts counts={entry.comments} /> : null}
+          </div>,
+        ];
+      }
+
       if (entry.kind === "directory") {
         const isOpen = open.has(entry.path);
         return [
@@ -205,30 +290,7 @@ export function Explorer(props: Props): React.JSX.Element {
           <span className="rex-tree-twisty" />
           <span className="rex-tree-name">{entry.name}</span>
           {justCopied ? <span className="rex-tree-copied">copied</span> : null}
-          {counts && !justCopied ? (
-            // A dot and a number rather than a filled badge: twenty files with
-            // badges down the right reads as a second, competing tree.
-            <span className="rex-tree-counts">
-              {counts.open > 0 ? (
-                <>
-                  <span className="rex-dot rex-dot-open" />
-                  <span className="rex-count">{counts.open}</span>
-                </>
-              ) : null}
-              {counts.resolved > 0 && counts.open === 0 ? (
-                <>
-                  <span className="rex-dot rex-dot-resolved" />
-                  <span className="rex-count">{counts.resolved}</span>
-                </>
-              ) : null}
-              {counts.orphaned > 0 ? (
-                <>
-                  <span className="rex-dot rex-dot-orphaned" />
-                  <span className="rex-count rex-count-orphaned">{counts.orphaned}</span>
-                </>
-              ) : null}
-            </span>
-          ) : null}
+          {counts && !justCopied ? <Counts counts={counts} /> : null}
         </button>,
       ];
     });
@@ -239,6 +301,24 @@ export function Explorer(props: Props): React.JSX.Element {
         <span className="rex-label rex-explorer-root" title={props.tree.root}>
           WORKSPACE · {(props.tree.root.split("/").pop() || props.tree.root).toUpperCase()}
         </span>
+        {/*
+          §3.5 — the way into the built-in skip list, which was unreachable
+          until this existed: there was no way at all to review a folder REX had
+          decided to skip. It says nothing about the reviewer's own exclusions,
+          which are always drawn.
+        */}
+        <button
+          type="button"
+          className="rex-link"
+          title={
+            props.showSkipped
+              ? "Hide the folders REX skips on its own"
+              : "List the folders REX skips on its own — build output, dependencies — so one can be brought in"
+          }
+          onClick={props.onToggleSkipped}
+        >
+          {props.showSkipped ? "hide skipped" : "skipped"}
+        </button>
         <button type="button" className="rex-link" onClick={props.onReload}>
           reload
         </button>
@@ -278,7 +358,7 @@ export function Explorer(props: Props): React.JSX.Element {
             because REX cannot open it — offering either would put a row in the
             panel that Ask could never resolve.
           */}
-          {menu.entry.kind === "document" ? (
+          {menu.entry.kind === "document" && menu.entry.exclusion === null ? (
             <button
               type="button"
               className="rex-menu-item"
@@ -291,6 +371,28 @@ export function Explorer(props: Props): React.JSX.Element {
               Select file
             </button>
           ) : null}
+
+          {/*
+            Spec 10 §3.4 — the scope of the review, one path at a time.
+            Separated from the two above because those act on a path and this
+            changes what REX looks at from now on.
+          */}
+          <span className="rex-menu-rule" />
+          <button
+            type="button"
+            className="rex-menu-item"
+            title={
+              menu.entry.exclusion === null
+                ? "Drop this from the tree, the reference graph and Ask all. Comments already written on it are kept."
+                : "Put this back in the review"
+            }
+            onClick={() => {
+              props.onExclude(menu.entry.path, menu.entry.exclusion === null);
+              setMenu(null);
+            }}
+          >
+            {menu.entry.exclusion === null ? "Exclude from review" : "Include in review"}
+          </button>
         </div>
       ) : null}
     </nav>

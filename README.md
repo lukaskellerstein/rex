@@ -71,7 +71,24 @@ npx electron . doc.md      # one document
 npx electron . docs/       # a folder, as a workspace
 ```
 
-`npm run dev` runs the same app through electron-vite with hot reload.
+`npm run dev` runs the same app through electron-vite, watching all three
+processes. Only one of them is truly hot, and the difference is worth knowing
+before you go looking for a change that is not there:
+
+| You edited | What happens | State |
+|:--|:--|:--|
+| `src/renderer/**` | Vite HMR patches the module in place | kept — the open document stays open |
+| `src/preload/**` | the renderer reloads | the window survives, the page does not |
+| `src/main/**`, `src/shared/**` used by main, `schema.sql` | **Electron restarts** | lost — a new window |
+
+The `--watch` flag is what covers the last two rows. Without it, `electron-vite
+dev` builds main and preload once at startup and never looks at them again, so
+an IPC channel or a query added after the server started is simply not there —
+the renderer hot-reloads a UI that then calls into a preload which does not have
+the method. That failure looks exactly like "my change did nothing".
+
+A main-process restart cannot be hot: the process holds the SQLite handle and
+the Agent SDK, and there is no way to patch a running one.
 
 Comments live in `~/.rex/rex.db` — outside every repository, so they can never
 be committed by accident.
@@ -80,7 +97,7 @@ be committed by accident.
 
 | Command | What it does |
 |:--|:--|
-| `npm run dev` | electron-vite dev server |
+| `npm run dev` | electron-vite dev server, watching main and preload too |
 | `npm run build` | build main, preload and renderer into `out/` |
 | `npm run rebuild` | rebuild `better-sqlite3` for the current Electron |
 | `npm run typecheck` | `tsc --noEmit` over everything |

@@ -13,9 +13,11 @@ import {
   isHtmlPath,
   isMarkdownPath,
   isPdfPath,
+  isPptxPath,
 } from "./formats.ts";
 import { loadHtmlFile, sha256 } from "./html.ts";
 import { markdownTitle, renderMarkdown } from "./markdown.ts";
+import { renderPptx } from "./pptx.ts";
 import { MARKDOWN_STYLESHEET } from "./stylesheet.ts";
 
 export interface RenderedDocument {
@@ -162,6 +164,27 @@ export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument
     };
   }
 
+  if (isPptxPath(ref.value)) {
+    // Spec 11 §4.2 — the parse runs here, exactly as mammoth does for DOCX, and
+    // the deck arrives as ordinary HTML. §4.7: a deck that would not parse is
+    // shown as a notice in place of the document, and Apply is off for it —
+    // REX must never offer to edit a file it could not read.
+    const bytes = readFileSync(ref.value);
+    const contentHash = sha256(bytes);
+    const rendered = await renderPptx(ref.value, contentHash);
+    return {
+      presentation: { kind: "html", html: rendered.html },
+      contentHash,
+      title: rendered.title ?? basename(ref.value),
+      baseDir: dirname(ref.value),
+      applyEnabled: rendered.error === null,
+      applyDisabledReason:
+        rendered.error === null
+          ? null
+          : "Apply is off because REX could not read this presentation.",
+    };
+  }
+
   if (isPdfPath(ref.value)) {
     // Spec 03 §7.1 — main does not read the bytes. It hands over a rex-doc://
     // URL and PDF.js range-fetches it from the renderer, which is where the
@@ -187,6 +210,6 @@ export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument
 
   const extension = extname(ref.value).toLowerCase();
   throw new Error(
-    `REX renders Markdown, HTML, PDF and DOCX. ${extension || "This file"} is none of them.`,
+    `REX renders Markdown, HTML, PDF, DOCX and PPTX. ${extension || "This file"} is none of them.`,
   );
 }

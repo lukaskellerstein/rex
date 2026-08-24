@@ -13,8 +13,8 @@
 // to discard.
 
 import { readFileSync } from "node:fs";
-import { relative } from "node:path";
-import type { ApplyConfirmResponse } from "../shared/channels.ts";
+import { dirname, relative } from "node:path";
+import type { ApplyConfirmResponse, DeckPreview } from "../shared/channels.ts";
 import type {
   Anchor,
   AnchorSummary,
@@ -40,6 +40,9 @@ import {
 } from "./db/queries.ts";
 import { changedRegions } from "./diff.ts";
 import { changedFiles, diff, isRepository, repositoryRoot, revert } from "./git.ts";
+import type { MediaResolver } from "./pptx/media.ts";
+import { acceptDeckApply, discardDeckApply, runDeckApply } from "./pptx/run.ts";
+import { isPptxPath } from "./render/formats.ts";
 import { sha256 } from "./render/html.ts";
 import { applyPlan, documentsOf } from "./threads.ts";
 
@@ -56,6 +59,13 @@ export interface ApplyContext {
    * reviewer their scroll position for nothing.
    */
   reanchor: (changedDocumentIds: string[]) => Promise<AnchorSummary>;
+  /**
+   * Spec 11 §7.4.2 — how a Mermaid diagram in a plan becomes a picture.
+   *
+   * Injected because main cannot draw one: Mermaid measures text with a real
+   * layout, so the renderer draws and hands back a PNG.
+   */
+  resolver: MediaResolver;
   onApplyReady: (event: {
     applyRunId: string;
     threadId: string;
@@ -63,6 +73,8 @@ export interface ApplyContext {
     files: string[];
     regions: ChangedRegion[];
     skipped: SkippedDocument[];
+    /** Spec 11 §7.7 — the before-and-after slides that replace the diff. */
+    decks?: DeckPreview[];
   }) => void;
 }
 
@@ -178,6 +190,89 @@ function refuseDirtyTargets(groups: Map<string, string[]>): void {
   }
 }
 
+/**
+ * Spec 11 §7 — Apply on a deck, which is a different flow and not a variation.
+ *
+ * `git diff` on a `.pptx` prints `Binary files differ`, so step 5 — show the
+ * change and wait — has to be a picture rather than a patch. The agent writes a
+ * plan, REX performs it on a copy, and the reviewer accepts a rendering of the
+ * result. §7.7 is what makes that as safe as a diff, not a rubber stamp.
+ *
+ * A run touching both a deck and a prose file would need one dialog showing a
+ * unified diff and slide pictures at once. That is not a thing REX has, so a
+ * mixed comment applies to the decks and reports the rest as skipped, with the
+ * reason. Stated rather than silently dropped.
+ */
+/**
+ * Names one deck's slot in an apply run, safely enough to be a file name.
+ *
+ * The deck's own path cannot be used: it is full of separators, and
+ * `plan-${key}.json` quietly became a nested directory rather than a file.
+ * Position is stable because `confirmApply` reads the same `run.files` list in
+ * the same order it was written.
+ */
+function deckRunKey(applyRunId: string, position: number): string {
+  return `${applyRunId}-${position}`;
+}
+
+async function startDeckApply(
+  context: ApplyContext,
+  thread: Thread,
+  decks: string[],
+  others: string[],
+  skipped: SkippedDocument[],
+): Promise<string> {
+  const { db } = context;
+  for (const file of others) {
+    skipped.push({
+      file,
+      reason:
+        "This comment also targets a PowerPoint deck. A deck's change is shown as before-and-after slides rather than as a diff, and REX will not put both in one review — apply this file from a comment of its own.",
+    });
+  }
+
+  const run = createApplyRun(db, thread.id);
+  const transcript = renderTranscript(listMessages(db, thread.id));
+  const previews: DeckPreview[] = [];
+
+  for (const [position, deckPath] of decks.entries()) {
+    try {
+      const result = await runDeckApply({
+        runKey: deckRunKey(run.id, position),
+        deckPath,
+        transcript,
+        passages: passageSection({
+          thread,
+          documentPaths: pathsOf(db, thread),
+          repositoryRoot: dirname(deckPath),
+          heading: "## The passages under discussion",
+        }),
+        model: thread.model,
+        resolver: context.resolver,
+        onMessage: (message) => context.record(thread.id, message),
+      });
+      previews.push(result.preview);
+    } catch (error) {
+      // Nothing was written, so there is nothing to undo — the whole point of
+      // §7.1's ordering. The run is failed and the reason is the reviewer's.
+      completeApplyRun(db, run.id, "failed");
+      throw error;
+    }
+  }
+
+  setApplyRunDiff(db, run.id, "", decks);
+  context.onApplyReady({
+    applyRunId: run.id,
+    threadId: thread.id,
+    diff: "",
+    files: decks,
+    regions: [],
+    skipped,
+    decks: previews,
+  });
+  return run.id;
+}
+
 /** SPEC.md §8.7 steps 1–4, across every document the comment is about. */
 export async function startApply(context: ApplyContext, threadId: string): Promise<string> {
   const { db } = context;
@@ -186,6 +281,18 @@ export async function startApply(context: ApplyContext, threadId: string): Promi
 
   const plan = applyPlan(db, thread);
   const skipped = [...plan.skipped];
+
+  const decks = plan.editable.filter((path) => isPptxPath(path));
+  if (decks.length > 0) {
+    return startDeckApply(
+      context,
+      thread,
+      decks,
+      plan.editable.filter((path) => !isPptxPath(path)),
+      skipped,
+    );
+  }
+
   const groups = groupByRepository(plan.editable, skipped);
 
   if (groups.size === 0) {
@@ -279,19 +386,30 @@ export async function confirmApply(
   const thread = getThread(db, run.threadId);
   if (!thread) throw new Error("The apply run's thread is missing from the database.");
 
+  // Spec 11 §7.1 — a deck run has written nothing yet. Accepting is what moves
+  // the copy over the original, and rejecting is a delete rather than a revert:
+  // there is no `git checkout` here, because there was never anything to undo.
+  const decks = run.files.filter((file) => isPptxPath(file));
+  const others = run.files.filter((file) => !isPptxPath(file));
+
   if (accept) {
+    decks.forEach((deck, position) => acceptDeckApply(deck, deckRunKey(applyRunId, position)));
     completeApplyRun(db, applyRunId, "applied");
   } else {
-    revertAll(run.files);
+    decks.forEach((deck, position) => discardDeckApply(deck, deckRunKey(applyRunId, position)));
+    revertAll(others);
     completeApplyRun(db, applyRunId, "rejected");
   }
+
+  const undone =
+    decks.length > 0 && others.length === 0
+      ? "Discarded. The deck was never modified — REX edits a copy and only replaces the file when you accept."
+      : "Undone. Every file was restored with git checkout.";
 
   context.record(run.threadId, {
     role: "system",
     kind: accept ? "completed" : "error",
-    content: accept
-      ? `Applied to ${run.files.length} file(s).`
-      : "Undone. Every file was restored with git checkout.",
+    content: accept ? `Applied to ${run.files.length} file(s).` : undone,
     toolName: null,
     toolInput: null,
     isError: !accept,

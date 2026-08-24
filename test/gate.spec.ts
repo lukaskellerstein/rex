@@ -11,7 +11,7 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { gateDecision } from "../src/main/agent/gate.ts";
+import { allowGenerationTools, gateDecision, writeGateDecision } from "../src/main/agent/gate.ts";
 
 const bash = (command: string): string | null => gateDecision("Bash", { command });
 
@@ -21,7 +21,21 @@ test("write tools are denied outright", () => {
   }
 });
 
-test("read tools are allowed", () => {
+/**
+ * Spec 11 §6.3 makes the web half of this a decision rather than an accident.
+ *
+ * `WebSearch` and `WebFetch` pass the gate because they are neither a write
+ * tool, nor Bash, nor MCP — true by construction. The spec states the rule the
+ * construction happens to produce: *a `read`-profile agent may search and fetch
+ * the web to check a claim in the document; it may not write anything,
+ * anywhere, by any route.* The two are independent, and the test below is what
+ * stops a later tightening from silently taking the first one away.
+ *
+ * It matters most on a deck, which is the format where "is this number still
+ * right?" is the commonest comment — a slide asserts a figure with no room for
+ * the paragraph that would have justified it.
+ */
+test("read tools are allowed, including the two that reach the web", () => {
   for (const tool of ["Read", "Grep", "Glob", "WebSearch", "WebFetch", "ToolSearch", "Agent"]) {
     assert.equal(gateDecision(tool, {}), null, `${tool} must be allowed`);
   }
@@ -195,4 +209,60 @@ test("single quotes are inert, and expansions that run nothing are fine", () => 
 
 test("MCP tools are deny-by-default", () => {
   assert.notEqual(gateDecision("mcp__anything__do_thing", {}), null);
+});
+
+// ── Spec 11 §6.4.4 — the write profile's MCP allowlist ──────────
+//
+// This is the one change spec 11 makes to spec 01's contract, and the reason is
+// concrete: loading `media-plugin` declares FIVE MCP servers, and three of them
+// are things a deck agent must not silently reach — `drawio` opens a GUI editor
+// in a headless session, `media-playwright` spawns a second browser, and
+// `mermaid` is a **remote HTTP endpoint** that would be sent slide content.
+//
+// Spec 01 §8.4 already said what it wanted: "an MCP server added later must be
+// allowed explicitly rather than silently gaining access." That was true of the
+// read profile and false of the write profile. It is true of both now.
+
+test("§6.4.4 — MCP is deny-by-default in the write profile too", () => {
+  for (const tool of [
+    "mcp__mermaid__render",
+    "mcp__drawio__open",
+    "mcp__media-playwright__browser_navigate",
+    "mcp__ElevenLabs__text_to_speech",
+    "mcp__media-mcp__generate_image",
+  ]) {
+    assert.notEqual(writeGateDecision(tool), null, `${tool} must be denied by default`);
+  }
+});
+
+test("§6.4.4 — everything that is not MCP stays allowed for write", () => {
+  // Without this the SDK's default permission mode prompts for approval on
+  // every Edit, and a headless session has nobody to prompt. What protects the
+  // user for these is §8.7 step 5: the change is shown and nothing is kept
+  // until they accept.
+  for (const tool of ["Write", "Edit", "Bash", "Read", "WebFetch", "Glob"]) {
+    assert.equal(writeGateDecision(tool), null, `${tool} must be allowed for write`);
+  }
+});
+
+test("§6.4.3 — the key opens exactly two tools and no server", () => {
+  allowGenerationTools();
+  assert.equal(writeGateDecision("mcp__media-mcp__generate_image"), null);
+  assert.equal(writeGateDecision("mcp__media-mcp__generate_video"), null);
+
+  // The other four servers stay refused whether the key is set or not. An
+  // allowlist that names two tools is a much smaller thing to reason about
+  // than one that names a server.
+  for (const tool of [
+    "mcp__media-mcp__generate_music",
+    "mcp__mermaid__render",
+    "mcp__drawio__open",
+    "mcp__media-playwright__browser_navigate",
+    "mcp__ElevenLabs__text_to_speech",
+  ]) {
+    assert.notEqual(writeGateDecision(tool), null, `${tool} must stay denied`);
+  }
+
+  // And the read profile gains nothing from the key at all.
+  assert.notEqual(gateDecision("mcp__media-mcp__generate_image", {}), null);
 });
