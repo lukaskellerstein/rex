@@ -12,8 +12,8 @@
 // Putting it there would close an import cycle between the two files the whole
 // resolver hangs off.
 //
-// Pure DOM, like everything beside it: it runs unchanged in the tier 1 iframe
-// and in the tier 2 preload.
+// Pure DOM, like everything beside it: it runs unchanged inside the document
+// frame.
 
 /** A run of sibling blocks — a section, or a whole document (§4.4). */
 export interface ElementRun {

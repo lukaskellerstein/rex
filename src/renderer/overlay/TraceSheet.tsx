@@ -8,6 +8,15 @@
 // always see which comment you are auditing, and the reply box is still
 // reachable without closing.
 //
+// The sheet carries a reply box OF ITS OWN as well, at its foot. The card's box
+// is beside it and sends the same message, so this is not a second way to do a
+// different thing — it is the same thing where the hands already are. A
+// reviewer reads the machinery precisely BECAUSE something looks wrong, and the
+// next move is always to say so; making them cross the pane to a second column
+// to type it is the one step this view can drop. It sends through the same
+// `onReply` the card uses, so there is one path to `thread:reply` and the two
+// boxes can never drift.
+//
 // It is a sheet rather than a third centre mode. `Document | Graph` is
 // a WORKSPACE switch and a trace belongs to one comment, so as a peer it would
 // be a button that comes and goes, and leaving it there would need a decision
@@ -31,7 +40,7 @@
 // them — a glyph each, and the answer alone carrying a lit border on every side,
 // because the answer is what the sheet is an audit OF.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { totalsOf } from "../../shared/totals.ts";
 import type { ThreadWithMessages } from "../../shared/types.ts";
 import {
@@ -48,14 +57,23 @@ import {
   TriangleRight,
   Warning,
 } from "./Icons.tsx";
+import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
+import { MODE_LABEL, MODE_PROMISE, type Mode } from "./mode.ts";
 import { Prose } from "./prose.tsx";
+import { StepBars, stepsOf } from "./StepStrip.tsx";
 import { resultSummary, type TraceEntry, type TraceKind, traceOf } from "./trace.ts";
 
 interface Props {
   thread: ThreadWithMessages;
   number: number;
   tokenClass: string;
+  /** True while this thread's agent is running. No second turn is taken. */
+  busy: boolean;
+  /** Spec 12 §7.2 — ASK or ACT, from the same source the card head uses. */
+  mode: Mode;
   onClose: () => void;
+  /** The same handler the comment card's reply box calls. */
+  onReply: (text: string) => void;
 }
 
 function seconds(ms: number): string {
@@ -125,6 +143,14 @@ function Entry({ entry }: { entry: TraceEntry }): React.JSX.Element {
       <div className="rex-trace-body">
         <div className="rex-trace-head">
           <span className="rex-label">{entry.label}</span>
+          {/*
+            Spec 12 §7.3 — which promise refused this, not just that something
+            did. It rides the label rather than the reason line below, because
+            the reason is the gate's sentence and this is REX's frame around it.
+          */}
+          {entry.mode ? (
+            <span className="rex-trace-mode">{`· ${MODE_LABEL[entry.mode]} MODE`}</span>
+          ) : null}
           <span className="rex-spacer" />
           <span className="rex-trace-spent">{spent}</span>
         </div>
@@ -182,9 +208,49 @@ function debugLabel(copied: CopyOutcome | null): string {
 }
 
 export function TraceSheet(props: Props): React.JSX.Element {
+  const { mode } = props;
   const entries = traceOf(props.thread);
+  const steps = stepsOf(props.thread);
   const totals = totalsOf(props.thread.messages);
   const [copied, setCopied] = useState<CopyOutcome | null>(null);
+  const [reply, setReply] = useState("");
+  const list = useRef<HTMLDivElement>(null);
+
+  /** The card's rule, and it has to be the card's rule: words, and not busy. */
+  const canSend = !props.busy && reply.trim().length > 0;
+
+  /**
+   * Sending scrolls the list to its end, and ONLY sending does.
+   *
+   * A trace is read from wherever the suspicious step is, so a list that
+   * followed every change would drag the reviewer off the block they are
+   * studying. But a reply typed at the foot lands at the foot, and a send with
+   * nothing visible happening reads as a send that did not work.
+   */
+  const sendReply = (): void => {
+    props.onReply(reply.trim());
+    setReply("");
+    const box = list.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  };
+
+  const chord = onSendChord(canSend, sendReply);
+
+  /**
+   * `esc` is the sheet's only exit, and the sheet now holds a box you can type
+   * a paragraph into. So inside that box the first `esc` LEAVES THE BOX and
+   * nothing else: the draft stays, the sheet stays, and a second `esc` closes
+   * as it always did. Stopping the event is what does it — the sheet listens on
+   * `document`, and the native event has not left the overlay's root yet.
+   */
+  const onReplyKey = (event: React.KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      event.currentTarget.blur();
+      return;
+    }
+    chord(event);
+  };
 
   // `esc` closes it, and that is its only exit — the point of a sheet.
   useEffect(() => {
@@ -231,6 +297,25 @@ export function TraceSheet(props: Props): React.JSX.Element {
           </span>
         ) : null}
 
+        {/*
+          Spec 12 §7.2 — the mode, said once, at the top of the machinery. The
+          card head says the same thing (§4.1); this sheet is often opened on
+          its own and covers the card while it is up.
+        */}
+        <span className="rex-trace-mode-line" title={MODE_PROMISE[mode]}>
+          MODE <strong>{MODE_LABEL[mode]}</strong> · {MODE_PROMISE[mode]}
+        </span>
+
+        {/*
+          The card's own step strip, on the head of the thing it opens.
+
+          Same bars, same rule, same order — so the shape a reviewer clicked on
+          is the shape they land on, and a denied step keeps its red in both
+          places. The numbers beside it are the ones the strip carries too;
+          `totalsOf` and `stepsOf` count the same messages, so the two can only
+          agree.
+        */}
+        {steps.length > 0 ? <StepBars steps={steps} /> : null}
         <span className="rex-trace-summary">{summary.join(" · ")}</span>
 
         <button
@@ -254,12 +339,49 @@ export function TraceSheet(props: Props): React.JSX.Element {
         </button>
       </header>
 
-      <div className="rex-trace-list">
+      <div className="rex-trace-list" ref={list}>
         {entries.length === 0 ? (
           <p className="rex-meta">Nothing was recorded for this comment yet.</p>
         ) : (
           entries.map((entry) => <Entry key={entry.id} entry={entry} />)
         )}
+      </div>
+
+      {/*
+        The foot. A row rather than the card's stack: this pane is wide, and a
+        full-width box above a lone left-hand button puts the send a screen away
+        from the last word typed.
+
+        Send is the only control here. Resolve and Apply stay on the card and
+        nowhere else — they are decisions about the COMMENT, and a sheet that
+        exists to audit one run is not where a document gets edited.
+      */}
+      <div className="rex-trace-reply">
+        <textarea
+          className="rex-input"
+          placeholder="Reply to this thread"
+          value={reply}
+          onChange={(event) => setReply(event.target.value)}
+          onKeyDown={onReplyKey}
+        />
+        <div className="rex-trace-send">
+          {props.busy ? (
+            <span className="rex-working">
+              <span className="rex-spinner" />
+              working…
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="rex-button rex-primary"
+            title={`Send this reply — ${SEND_CHORD_HINT}`}
+            disabled={!canSend}
+            onClick={sendReply}
+          >
+            Send
+            <SendChord />
+          </button>
+        </div>
       </div>
     </section>
   );

@@ -3,15 +3,21 @@
 
 // ── Documents ───────────────────────────────────────────────
 
-export type DocumentRef =
-  | { kind: "file"; value: string } // absolute path
-  | { kind: "url"; value: string }; // full URL
+/**
+ * A local file, and nothing else.
+ *
+ * Still a discriminated union with one member. REX opened a URL in a
+ * `<webview>` once and no longer does — the tier is gone, not merely unreachable
+ * — but the tag is what the `document` table stores and what a second kind
+ * would attach to, so removing the URL did not mean flattening the shape.
+ */
+export type DocumentRef = { kind: "file"; value: string }; // absolute path
 
 export interface DocumentRecord {
   id: string;
   ref: DocumentRef;
   title: string | null;
-  contentHash: string | null; // sha256 of source bytes; null for url
+  contentHash: string | null; // sha256 of source bytes
   lastSeenAt: string; // ISO 8601
 }
 
@@ -31,6 +37,21 @@ export interface TextPosition {
 export interface ElementRef {
   id?: string; // element id attribute, if stable
   css?: string; // fallback CSS path
+  /**
+   * Spec 11 §5.2 — what the element held when the anchor was written.
+   *
+   * The same idea as `RegionRef.fingerprint`, and it exists for the same
+   * failure in a different place. On a deck an element id is *derived from an
+   * index*: `slide-4-shape-3` is the third shape on slide 4, so inserting a
+   * shape before it silently re-points every id below. Without a content check
+   * the anchor resolves, reports success, and is about a different shape.
+   *
+   * Optional, and absent on every prose anchor: a Markdown or HTML element ref
+   * carries an author's id or a CSS path, neither of which is an index. The
+   * resolver only uses the extra layers when this field is present, so nothing
+   * about resolving prose changes.
+   */
+  fingerprint?: string;
 }
 
 export interface RegionRef {
@@ -133,6 +154,46 @@ export interface AnchorTarget {
   state: AnchorState | null;
 }
 
+/**
+ * Spec 14 §5.1 — a named container for comments, nested to any depth.
+ *
+ * Not a directory. The explorer's folders are paths on disk; these exist only
+ * in `rex.db`, hold comments from any document under one workspace root, and
+ * mean nothing to any agent — §2.1 is why they are called groups and not
+ * folders.
+ */
+export interface CommentGroup {
+  id: string;
+  /** The workspace root this group belongs to. Spec 14 §5.3. */
+  root: string;
+  /** Null is the top level. */
+  parentId: string | null;
+  name: string;
+  /** Rank among the groups sharing `parentId`, and among them only (§4.1). */
+  position: number;
+  collapsed: boolean;
+  createdAt: string;
+}
+
+/** Spec 14 §4.3 — the two kinds of row a drag can move. */
+export type CommentItem = { kind: "thread"; id: string } | { kind: "group"; id: string };
+
+/** Spec 14 §4.2 — one drop, as a gesture rather than as a computed order. */
+export interface CommentMove {
+  item: CommentItem;
+  /** The group it lands in; null is the top level. */
+  parentId: string | null;
+  /**
+   * The sibling it lands after — always of the same kind as `item` (§4.3), and
+   * null means first.
+   *
+   * An id and not an index. The panel is filtered, so the third row on screen
+   * can be the ninth comment in its group; an index computed from what the
+   * reviewer sees describes a different place than the one they dropped onto.
+   */
+  after: string | null;
+}
+
 export interface Thread {
   id: string;
   /**
@@ -146,6 +207,29 @@ export interface Thread {
   /** Every place this comment is about, in the order the panel listed them. */
   targets: AnchorTarget[]; // empty for a synthesis thread
   note: string; // the comment the user typed
+  /**
+   * Spec 14 §3.1 — the name the reviewer typed, or null.
+   *
+   * Null is not "unnamed", it is "named by the note": every surface calls
+   * `commentName()` in `shared/names.ts`, which falls back to the note's first
+   * line. Nothing is ever written here by REX, so a comment made before this
+   * column existed reads exactly as it always did.
+   */
+  title: string | null;
+  /** Spec 14 §5 — the group this comment sits in. Null is the top level. */
+  groupId: string | null;
+  /** Spec 14 §4.1 — rank among the comments sharing `groupId`. */
+  position: number;
+  /**
+   * True for a comment the reviewer saved and never sent — NOTE mode.
+   *
+   * It is not "has no answer yet": an ASK that failed has no answer either, and
+   * the two must not look alike. This says the reviewer *chose* not to send it,
+   * which is why "Ask all" skips it and why the panel draws it in its own
+   * colour. It goes false the moment the comment is sent, because a note that
+   * has been asked is not a note any more.
+   */
+  isNote: boolean;
   sessionId: string | null;
   profile: Profile;
   model: string | null;
@@ -225,6 +309,16 @@ export interface CommentCounts {
   orphaned: number;
 }
 
+/**
+ * Spec 10 §3 — why an entry is not part of the review, when it is not.
+ *
+ * `user` is a rule the reviewer wrote and can take back; `default` is REX's own
+ * skip list (`node_modules`, `.git`, build output). The tree draws the two the
+ * same way, but the menu offers different words for them, and only `user` rules
+ * narrow what the workspace-wide commands act on.
+ */
+export type Exclusion = "user" | "default";
+
 export interface TreeEntry {
   name: string;
   path: string; // absolute
@@ -234,6 +328,13 @@ export interface TreeEntry {
   comments: CommentCounts | null;
   /** Why this entry cannot be opened. Null for directories and documents. */
   disabledReason: string | null;
+  /**
+   * Null for everything in review, which is every entry a scan returns unless
+   * it was asked to reveal what it prunes. An excluded directory always arrives
+   * with no `children`: its subtree is never walked, which is both the point and
+   * what stops revealing `node_modules` from eating the whole entry budget.
+   */
+  exclusion: Exclusion | null;
 }
 
 export interface WorkspaceTree {
@@ -241,6 +342,18 @@ export interface WorkspaceTree {
   entries: TreeEntry[];
   /** True when the scan hit a limit in spec 02 §4.2 and the tree is incomplete. */
   truncated: boolean;
+  /**
+   * Spec 10 §3.3 — the absolute path of every subtree a *user* rule prunes,
+   * whether or not this scan revealed them.
+   *
+   * The tree and the graph both come out of the same scan, so neither needs
+   * this. The workspace-wide commands do: "Ask all" works from the loaded thread
+   * list rather than from the tree, and without these paths it would keep
+   * spending money on documents the reviewer has said are not part of the
+   * review. Default skips are deliberately absent — those are a scan-cost
+   * decision, not a statement about scope.
+   */
+  excluded: string[];
 }
 
 export type GraphNodeKind =
@@ -366,10 +479,9 @@ export interface SkippedDocument {
 /**
  * How the renderer is meant to present this document (spec 03 §9).
  *
- * A discriminated union rather than a nullable `html`. `html === null` used to
- * mean "this is a webview" — an overload that was unambiguous while there were
- * two cases and is ambiguous now there are three. A union makes the renderer's
- * `switch` exhaustive, so `tsc` finds the branch anybody forgets.
+ * A discriminated union rather than a nullable `html`, so the renderer's
+ * `switch` is exhaustive and `tsc` finds the branch anybody forgets when a
+ * format is added.
  */
 export type DocumentPresentation =
   /** Markdown, HTML and DOCX — main rendered it to a string. */
@@ -384,9 +496,55 @@ export type DocumentPresentation =
    * glyph. Only main knows where the package sits, and it differs between a
    * checkout and a packaged `app.asar`.
    */
-  | { kind: "pdf"; url: string; assetsUrl: string }
-  /** Tier 2 — a remote page in a <webview>. */
-  | { kind: "url" };
+  | { kind: "pdf"; url: string; assetsUrl: string };
+
+/**
+ * Spec 15 §6.1 — which version of a document a render is.
+ *
+ * `original` is the reviewer's file. `current` is the working copy, which is
+ * the version that will exist if they approve it — so it is where comments are
+ * made and what a second ACT run edits.
+ */
+export type DocumentVersion = "original" | "current";
+
+/**
+ * Spec 15 §6.1 — which of the two panes the reviewer wants on screen.
+ *
+ * `both` is the default the moment a working copy exists. `new` alone is what
+ * they want once they have read the change; `original` alone is how they check
+ * what a passage used to say.
+ */
+export type PaneMode = "original" | "both" | "new";
+
+/**
+ * Spec 15 §3 — a document with a change waiting for the reviewer.
+ *
+ * It is a fact about a *document*, not about a run: the working copy survives
+ * the run that made it, which is the whole of §5. Every field here is what the
+ * two panes and the top bar need to draw themselves.
+ */
+export interface WorkingCopyView {
+  documentId: string;
+  /** The reviewer's file. Absolute. */
+  path: string;
+  /** The file name, which is what a row shows. */
+  name: string;
+  /** How many ACT runs are in it. `undo` steps back one. */
+  revisions: number;
+  addedLines: number;
+  removedLines: number;
+  /** Blocks the new version added or changed, in ITS line numbers (§6.2). */
+  added: ChangedRegion[];
+  /** Blocks only the original has, in ITS line numbers (§6.2). */
+  removed: ChangedRegion[];
+  /** The unified patch, collapsed under the panes (§6.3). */
+  patch: string;
+  /**
+   * §7.3 — set when the file changed on disk since the fork, in the words the
+   * reviewer sees. Approval refuses while it is non-null; REX does not merge.
+   */
+  conflict: string | null;
+}
 
 /** What `doc:open` hands the renderer. */
 export interface OpenedDocument {
@@ -397,15 +555,76 @@ export interface OpenedDocument {
   title: string | null;
   /** Directory the document's relative assets resolve against. */
   baseDir: string | null;
-  /**
-   * Preload for the tier 2 `<webview>`. The resolver has to run inside that
-   * process (invariant I1) and only main knows where the built file is.
-   */
-  webviewPreload: string | null;
-  /** False for tiers 2 and 3 — no local source file to write back into (§5.2). */
+  /** False for a format with no local source to write back into (§5.2). */
   applyEnabled: boolean;
   /** Shown on hover when applyEnabled is false. */
   applyDisabledReason: string | null;
   /** True when the file changed since the anchors were written (§6.6). */
   contentChanged: boolean;
+  /** Spec 15 §6.1 — which version this render is. */
+  version: DocumentVersion;
+  /** Spec 15 §3 — non-null when this document has a working copy. */
+  working: WorkingCopyView | null;
+}
+
+/**
+ * Spec 13 §4.2 — what the overlay knows about itself, for the debug report.
+ *
+ * Nothing else can produce it: which tab is open, what the document frame did,
+ * and what notice is on screen are facts only the renderer holds. It travels as
+ * one argument on `debug:snapshot` and is never stored.
+ *
+ * No document text, no comment text — §3.4. `documentBytes` is a size, and the
+ * note fields are counts.
+ */
+export interface ViewState {
+  /**
+   * The window's own size, in CSS pixels.
+   *
+   * Measured on 2026-08-25 and the reason this field exists: a tiling window
+   * manager gave REX an 857px column of a 3440px screen, the two side panels
+   * kept their widths, and the document pane collapsed to a 164px strip. The
+   * document had rendered — 102 nodes, right title — and was invisible. Nothing
+   * else in this report could have said so.
+   */
+  window: { width: number; height: number };
+  workspaceRoot: string | null;
+  document: {
+    documentId: string;
+    /** The document's absolute path — `ref.value`. */
+    value: string;
+    kind: DocumentRef["kind"];
+    title: string | null;
+    /** `html` or `pdf`. */
+    presentation: DocumentPresentation["kind"];
+    /** How much HTML main handed over, when it handed over any. */
+    documentBytes: number | null;
+    contentChanged: boolean;
+    /**
+     * Whether the document frame ever came up and registered its surface.
+     *
+     * `false` beside a non-zero `documentBytes` is spec 13 §1's own bug stated
+     * in one line: main rendered the document and the frame never appeared.
+     */
+    surfaceReady: boolean;
+    /** Children of the frame's `<body>`, or `null` when it cannot be reached. */
+    frameChildren: number | null;
+    /** The document pane's size on screen. A width near zero is the bug above. */
+    frameWidth: number | null;
+    frameHeight: number | null;
+  } | null;
+  centre: "document" | "graph";
+  sidebarTab: string;
+  /** 1 is 100%. */
+  zoom: number;
+  threads: number;
+  /** Spec 14 — groups in this workspace, at every depth. */
+  groups: number;
+  unanswered: number;
+  activeThreadId: string | null;
+  traceOpen: boolean;
+  /** Rows in the selection panel — a comment being built. */
+  selectionItems: number;
+  /** The notice bar's text, which is where a failed command already shows up. */
+  notice: string | null;
 }

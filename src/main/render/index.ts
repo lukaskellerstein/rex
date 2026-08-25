@@ -13,9 +13,11 @@ import {
   isHtmlPath,
   isMarkdownPath,
   isPdfPath,
+  isPptxPath,
 } from "./formats.ts";
 import { loadHtmlFile, sha256 } from "./html.ts";
 import { markdownTitle, renderMarkdown } from "./markdown.ts";
+import { renderPptx } from "./pptx.ts";
 import { MARKDOWN_STYLESHEET } from "./stylesheet.ts";
 
 export interface RenderedDocument {
@@ -106,22 +108,23 @@ function escapeHtml(value: string): string {
  * spec 03 §8.1 prefers making the whole dispatch async over giving DOCX a
  * separate path. The IPC handler that calls this already awaits.
  */
-export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument> {
-  if (ref.kind === "url") {
-    // Tier 2 (§5.2): shown in a <webview>, so there is no HTML to hand over
-    // and no local file to write back into.
-    return {
-      presentation: { kind: "url" },
-      contentHash: null,
-      title: null,
-      baseDir: null,
-      applyEnabled: false,
-      applyDisabledReason: "Apply needs a local source file; this document is a URL.",
-    };
-  }
+export async function renderDocument(
+  ref: DocumentRef,
+  /**
+   * Spec 15 §6.1 — read the bytes from here instead, keeping every other fact
+   * about the document.
+   *
+   * The dispatch still runs on `ref.value`, because that is the document's real
+   * name and what decides how it is drawn; `baseDir` still comes from it too, so
+   * a working copy's relative images resolve against the original's directory
+   * rather than against `~/.rex/work`.
+   */
+  contentPath?: string,
+): Promise<RenderedDocument> {
+  const from = contentPath ?? ref.value;
 
   if (isMarkdownPath(ref.value)) {
-    const bytes = readFileSync(ref.value);
+    const bytes = readFileSync(from);
     const source = bytes.toString("utf8");
     const title = markdownTitle(source) ?? basename(ref.value);
     return {
@@ -135,7 +138,7 @@ export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument
   }
 
   if (isHtmlPath(ref.value)) {
-    const loaded = loadHtmlFile(ref.value);
+    const loaded = loadHtmlFile(from);
     return {
       presentation: { kind: "html", html: loaded.source },
       contentHash: loaded.contentHash,
@@ -149,8 +152,8 @@ export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument
   if (isDocxPath(ref.value)) {
     // Spec 03 §8.1 — mammoth needs no DOM, so DOCX arrives as static HTML on
     // exactly the Markdown path and runs no enrichment pass at all.
-    const bytes = readFileSync(ref.value);
-    const rendered = await renderDocx(ref.value);
+    const bytes = readFileSync(from);
+    const rendered = await renderDocx(from);
     const title = rendered.title ?? basename(ref.value);
     return {
       presentation: { kind: "html", html: markdownPage(title, rendered.html) },
@@ -159,6 +162,27 @@ export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument
       baseDir: dirname(ref.value),
       applyEnabled: false,
       applyDisabledReason: applyDisabledReason(ref.value),
+    };
+  }
+
+  if (isPptxPath(ref.value)) {
+    // Spec 11 §4.2 — the parse runs here, exactly as mammoth does for DOCX, and
+    // the deck arrives as ordinary HTML. §4.7: a deck that would not parse is
+    // shown as a notice in place of the document, and Apply is off for it —
+    // REX must never offer to edit a file it could not read.
+    const bytes = readFileSync(from);
+    const contentHash = sha256(bytes);
+    const rendered = await renderPptx(from, contentHash);
+    return {
+      presentation: { kind: "html", html: rendered.html },
+      contentHash,
+      title: rendered.title ?? basename(ref.value),
+      baseDir: dirname(ref.value),
+      applyEnabled: rendered.error === null,
+      applyDisabledReason:
+        rendered.error === null
+          ? null
+          : "Apply is off because REX could not read this presentation.",
     };
   }
 
@@ -187,6 +211,6 @@ export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument
 
   const extension = extname(ref.value).toLowerCase();
   throw new Error(
-    `REX renders Markdown, HTML, PDF and DOCX. ${extension || "This file"} is none of them.`,
+    `REX renders Markdown, HTML, PDF, DOCX and PPTX. ${extension || "This file"} is none of them.`,
   );
 }

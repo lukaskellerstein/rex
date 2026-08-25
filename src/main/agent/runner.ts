@@ -29,7 +29,30 @@ export interface AgentRunInput {
   /** True to continue an existing SDK session, false to seed a new one. */
   resume: boolean;
   model: string | null;
+  /**
+   * Spec 11 §7.2 — the system prompt, when the caller needs a different one.
+   *
+   * Apply on a deck is the only caller that does, and it needs one because the
+   * job is genuinely different: the agent writes a plan and edits nothing, so
+   * a prompt telling it to "make the smallest change to the file" would be
+   * telling it to do the one thing that spec exists to stop.
+   */
+  systemPrompt?: string;
+  /**
+   * Spec 11 §6.4.2 — the document under review, so a `.pptx` can load the two
+   * design plugins and nothing else pays for them.
+   */
+  documentPath?: string | null;
   onMessage: (draft: MessageDraft) => void;
+  /**
+   * Spec 15 §4.3 — every path a write tool named, as it is called.
+   *
+   * The primary source for "what did this run touch", and better than git in
+   * every way that matters: it is exact, and it works on an untracked file, a
+   * new file, and a file outside any repository. `Bash` can still write behind
+   * its back, which is why §4.3 has a second source.
+   */
+  onWrote?: (path: string) => void;
 }
 
 export interface AgentRunResult {
@@ -85,20 +108,64 @@ export function writeStep(toolInput: Record<string, unknown>): MessageDraft | nu
   return draft("assistant", "diff", lines.join("\n"));
 }
 
-/** Port of `_classify_error` — an actionable message instead of a stack. */
-export function classifyError(error: unknown): string {
-  const text = error instanceof Error ? error.message : String(error);
+/**
+ * The phrases the SDK itself produces when it cannot start or run its binary.
+ *
+ * Matched as phrases rather than as the words "not found", and that distinction
+ * is the whole point of this constant. The SDK ships and resolves its own
+ * `claude`; it does not look for one on `PATH`. Verified on 2026-08-25 — a query
+ * spawns normally under `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, which is what a
+ * Mac app started from the Dock gets.
+ */
+const EXECUTABLE_FAILURE =
+  /claude code (?:executable|native binary) not found|claude code executable at .* failed to launch|spawn \S*claude\S* enoent/i;
+
+/**
+ * A hint to put ABOVE the error, or null when REX has nothing useful to add.
+ *
+ * Every pattern here matches a phrase only that one failure produces. The
+ * previous version matched substrings — `auth` inside "author", and `not found`
+ * inside any of the dozen sentences that contain it — and a wrong hint is worse
+ * than none, because it is read as a diagnosis.
+ */
+function hintFor(text: string): string | null {
   const lowered = text.toLowerCase();
-  if (lowered.includes("auth") || lowered.includes("api_key") || lowered.includes("401")) {
+
+  if (
+    /\b(401|403)\b/.test(text) ||
+    lowered.includes("api_key") ||
+    lowered.includes("unauthorized") ||
+    lowered.includes("authentication")
+  ) {
     return "Authentication failed. Set ANTHROPIC_API_KEY, or run 'claude login' to authenticate.";
   }
   if (lowered.includes("timeout") || lowered.includes("timed out")) {
     return "The agent timed out. The question may be too broad — try narrowing the comment.";
   }
-  if (lowered.includes("not found") || lowered.includes("enoent")) {
-    return "The Claude Agent SDK could not start. Check that the claude executable is installed and on PATH.";
+  if (EXECUTABLE_FAILURE.test(text)) {
+    return "The Claude Code executable could not be started. Reinstall Claude Code, or set options.pathToClaudeCodeExecutable.";
   }
-  return `Agent error: ${text}`;
+  return null;
+}
+
+/**
+ * Port of `_classify_error` — an actionable message ABOVE the stack, not
+ * instead of it.
+ *
+ * Measured on 2026-08-25, thread `e2c37e06`: a run failed and the debug report
+ * said *"check that the claude executable is installed and on PATH"*. The SDK
+ * does not use `PATH` for that (see `EXECUTABLE_FAILURE`), so the sentence was
+ * not merely unhelpful — it was false, it sent the reader after a bug that does
+ * not exist, and the SDK's own words, which said what had really happened, had
+ * already been thrown away by the `return` that replaced them.
+ *
+ * So the original text always survives. REX may add a sentence in front of it;
+ * REX never speaks in its place.
+ */
+export function classifyError(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  const hint = hintFor(text);
+  return hint ? `${hint}\n\n${text}` : `Agent error: ${text}`;
 }
 
 function flattenToolResult(content: unknown): string {
@@ -111,8 +178,15 @@ function flattenToolResult(content: unknown): string {
   return "";
 }
 
+/** The three tools that put bytes on disk. Spec 15 §4.3. */
+const WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
+
 /** Assistant content blocks → message rows. */
-function handleAssistant(message: any, emit: (d: MessageDraft) => void): void {
+function handleAssistant(
+  message: any,
+  emit: (d: MessageDraft) => void,
+  wrote: (path: string) => void,
+): void {
   for (const block of message.message?.content ?? []) {
     switch (block.type) {
       case "text":
@@ -129,6 +203,13 @@ function handleAssistant(message: any, emit: (d: MessageDraft) => void): void {
           }),
         );
         const input = (block.input ?? {}) as Record<string, unknown>;
+        // Spec 15 §4.3 — reported before the diff step and for all three tools,
+        // not only the two that draw one: `NotebookEdit` writes a file whether
+        // or not REX can show it as a patch.
+        if (WRITE_TOOLS.has(block.name)) {
+          const path = String(input.file_path ?? "");
+          if (path) wrote(path);
+        }
         if (block.name === "Edit") {
           const step = diffStep(input);
           if (step) emit(step);
@@ -174,11 +255,12 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
-      append: input.profile === "read" ? READ_SYSTEM_PROMPT : WRITE_SYSTEM_PROMPT,
+      append:
+        input.systemPrompt ?? (input.profile === "read" ? READ_SYSTEM_PROMPT : WRITE_SYSTEM_PROMPT),
     },
     settingSources: ["project"],
     disallowedTools: config.disallowedTools,
-    plugins: pluginsForRepository(input.cwd, input.profile),
+    plugins: pluginsForRepository(input.cwd, input.profile, input.documentPath),
     hooks: buildHooks(input.profile, (denial) => denials.push(denial)),
     ...(config.maxTurns === undefined ? {} : { maxTurns: config.maxTurns }),
     ...(input.model ? { model: input.model } : {}),
@@ -215,7 +297,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
           for (const block of event.message?.content ?? []) {
             if (block.type === "tool_use" && block.id) toolNames.set(block.id, block.name);
           }
-          handleAssistant(event, emit);
+          handleAssistant(event, emit, (path) => input.onWrote?.(path));
           break;
 
         case "user":
@@ -246,6 +328,9 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       }
     }
   } catch (thrown) {
+    // The stack is what a maintainer needs and the one thing the reviewer's
+    // screen has no room for, so it goes to the console rather than nowhere.
+    console.error("[rex] agent run failed", thrown);
     error = classifyError(thrown);
     emit(draft("system", "error", error, { isError: true }));
   }

@@ -50,14 +50,17 @@ export const TriangleDown = (p: Props): React.JSX.Element => <Solid {...p} d="M4
 /** Tree row, collapsed; also the closed tool-steps row. */
 export const TriangleRight = (p: Props): React.JSX.Element => <Solid {...p} d="M6 4v8l5-4z" />;
 
-/** Apply — the only place in REX a pencil appears, and it writes to disk. */
+/**
+ * The pen. Two meanings, and spec 14 §7.5 is the argument for letting it have
+ * both.
+ *
+ * Inside a control that says **Change** or **WRITE PROFILE** in words, it is
+ * ACT: the agent may write to disk (spec 12). Bare, in a list row's corner
+ * beside a trash, it is rename — the reading the rest of the world has trained.
+ * The two are never side by side; if they ever are, split the glyph then.
+ */
 export const Pencil = (p: Props): React.JSX.Element => (
   <Line {...p} size={p.size ?? 11} d="M11.2 2.8 13.2 4.8 5.6 12.4 2.8 13.2 3.6 10.4z" />
-);
-
-/** The read profile's promise: this agent cannot write. */
-export const Shield = (p: Props): React.JSX.Element => (
-  <Line {...p} size={p.size ?? 11} d="M8 2 13 4v4.2C13 11 10.8 13.2 8 14 5.2 13.2 3 11 3 8.2V4z" />
 );
 
 export const Check = (p: Props): React.JSX.Element => (
@@ -65,6 +68,35 @@ export const Check = (p: Props): React.JSX.Element => (
 );
 
 export const Lines = (p: Props): React.JSX.Element => <Line {...p} d="M3 5h10M3 8h10M3 11h6" />;
+
+/**
+ * Spec 14 §2.1 — a comment group.
+ *
+ * A folder, decided by the reviewer on 2026-08-25 after the first build drew a
+ * pair of brackets and it read as nothing at all. The spec had argued against a
+ * folder, on the grounds that the explorer's folders are directories and these
+ * are not; the answer was that an unreadable glyph is the worse problem, and a
+ * folder is what "a place I put things in" looks like to everybody.
+ *
+ * Two states, because a closed folder and an open one are the strongest signal
+ * a tree has, and the twisty beside it is 9px of triangle.
+ */
+export const FolderClosed = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 13} d="M2.5 4.5h4l1.2 1.6h5.8v6.4h-11z" />
+);
+
+export const FolderOpen = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M2.5 12.5v-8h4l1.2 1.6h5.3v1.6" />
+    <path d="M2.5 12.5 4.3 7.7h11L13.5 12.5z" />
+  </svg>
+);
 
 export const Warning = (p: Props): React.JSX.Element => (
   <svg
@@ -260,6 +292,64 @@ export const Trash = (p: Props): React.JSX.Element => (
     <path d="M3.2 4.6h9.6M6.4 4.6V3.2h3.2v1.4" />
     <path d="M4.6 4.6l.6 8.2h5.6l.6-8.2" />
     <path d="M6.8 6.8v4M9.2 6.8v4" />
+  </svg>
+);
+
+/** Close — the lightbox, and anything else that is over the whole window. */
+export const Cross = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 13} d="M4 4l8 8M12 4l-8 8" />
+);
+
+/**
+ * Add — a group inside a group (spec 14 §7.4).
+ *
+ * A bare plus, and it is not the zoom's: those are inside a magnifier for
+ * exactly this reason, so a plus on its own is free to mean "one more of these".
+ */
+export const Plus = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 12} d="M8 3.5v9M3.5 8h9" />
+);
+
+/**
+ * Zoom in and out, for the lightbox's own controls (spec 10 §2.3).
+ *
+ * A magnifier rather than a bare + and −: the two signs alone are the document
+ * zoom's vocabulary in the top bar, and reusing them here would suggest the
+ * buttons scale the page behind the preview rather than the preview itself.
+ */
+const LENS = "M7.2 2.6a4.6 4.6 0 1 0 0 9.2 4.6 4.6 0 0 0 0-9.2M10.6 10.6 13.6 13.6";
+
+export const ZoomIn = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 14} d={`${LENS}M4.9 7.2h4.6M7.2 4.9v4.6`} />
+);
+
+export const ZoomOut = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 14} d={`${LENS}M4.9 7.2h4.6`} />
+);
+
+/** Fit the whole figure back into the frame — four corners drawn inward. */
+export const FitFrame = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 14} d="M2.6 6V2.6H6M10 2.6h3.4V6M13.4 10v3.4H10M6 13.4H2.6V10" />
+);
+
+/**
+ * Out of the review — an eye with a line through it (spec 10 §3).
+ *
+ * Not `Blocked`, which is REX refusing something, and not `Trash`, which throws
+ * work away. An exclusion is neither: the folder is still there, still on disk,
+ * and one click from coming back. "Not being looked at" is what it means.
+ */
+export const EyeOff = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M2 8s2.4-3.6 6-3.6S14 8 14 8s-2.4 3.6-6 3.6S2 8 2 8" />
+    <circle cx="8" cy="8" r="1.7" />
+    <path d="M3 13 13 3" />
   </svg>
 );
 

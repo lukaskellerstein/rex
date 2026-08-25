@@ -1,8 +1,8 @@
 // design/screens/Main — the 44px bar.
 //
-// The three separate controls the old bar carried — Open file…, Open folder…
-// and a URL field sitting permanently in the chrome — collapse into one
-// `Open ▾`. A field you use once per session should not hold width forever.
+// The two separate controls the old bar carried — Open file… and Open folder…
+// — collapse into one `Open ▾`. A control you use once per session should not
+// hold width forever.
 
 import { useEffect, useRef, useState } from "react";
 // The mark alone — what docs/logo/README.md nominates for "anywhere too small
@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 // copied into src/, so there is one source of truth for the brand.
 import logo from "../../../docs/logo/mark/rex-mark-color-128.png";
 import type { OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
-import { ChevronDown } from "./Icons.tsx";
+import { Bug, ChevronDown } from "./Icons.tsx";
 
 interface Props {
   doc: OpenedDocument | null;
@@ -26,7 +26,8 @@ interface Props {
   onAskAll: () => void;
   onOpenFile: () => void;
   onOpenFolder: () => void;
-  onOpenUrl: (url: string) => void;
+  /** Spec 13 §4.1 — the app's state on the clipboard, for a bug report. */
+  onDebug: () => void;
 }
 
 /**
@@ -35,7 +36,6 @@ interface Props {
  * one, because that is the tree the reviewer is looking at.
  */
 function crumbs(doc: OpenedDocument, root: string | null): string[] {
-  if (doc.ref.kind === "url") return [doc.ref.value];
   const path = doc.ref.value;
   const relative = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
   const parts = relative.split("/").filter(Boolean);
@@ -45,7 +45,6 @@ function crumbs(doc: OpenedDocument, root: string | null): string[] {
 
 export function TopBar(props: Props): React.JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [url, setUrl] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
   // A menu that outlives the click that dismissed it is a menu in the way.
@@ -127,20 +126,6 @@ export function TopBar(props: Props): React.JSX.Element {
             >
               Folder as a workspace…
             </button>
-            <div className="rex-open-url">
-              <input
-                className="rex-url"
-                placeholder="https://…"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" || url.trim().length === 0) return;
-                  setMenuOpen(false);
-                  props.onOpenUrl(url.trim());
-                  setUrl("");
-                }}
-              />
-            </div>
           </div>
         ) : null}
       </div>
@@ -231,6 +216,26 @@ export function TopBar(props: Props): React.JSX.Element {
         onClick={props.onAskAll}
       >
         Ask all · {props.unanswered}
+      </button>
+
+      {/*
+        Spec 13 §4.1 — icon only, and always there. It is about the APP, not
+        about the document, so it must still work when nothing opened; that
+        failure is the one it was written for.
+
+        Last in the bar, past the primary action. Everything to its left acts on
+        the document under review; this one acts on REX itself, and the end of
+        the row is where a control that belongs to nothing else can sit without
+        being read as part of the group before it.
+      */}
+      <button
+        type="button"
+        className="rex-icon-button rex-debug"
+        title="Copy a debug report — what REX is doing, its debugger port and its recent errors. Paste it to Claude Code — B"
+        aria-label="Copy a debug report"
+        onClick={props.onDebug}
+      >
+        <Bug />
       </button>
     </header>
   );

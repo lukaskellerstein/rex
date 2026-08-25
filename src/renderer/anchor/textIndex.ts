@@ -106,8 +106,8 @@ export function buildTextIndex(root: Node): TextIndex {
       if (el.hasAttribute(REX_OVERLAY_ATTR)) return;
 
       if (el.tagName === "IFRAME") {
-        // §6.3 rule 3 — tier 1 HTML renders in a same-origin iframe, so its
-        // body is part of the document under review. A cross-origin one throws
+        // §6.3 rule 3 — HTML renders in a same-origin iframe, so its body is
+        // part of the document under review. A cross-origin one throws
         // on access and is simply not ours to index.
         try {
           const inner = (el as HTMLIFrameElement).contentDocument;

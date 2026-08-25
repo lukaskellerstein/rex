@@ -4,9 +4,8 @@
 //
 // This is the one document REX is entitled to set: the 620px measure at 15/1.68
 // and the paper ground are its own typography, not the author's. HTML documents
-// keep their styles untouched (spec 01 §5.4 point 3) and never see this, and a
-// `<webview>` URL is untouchable — for both of those the pane supplies only the
-// paper ground and the gutter.
+// keep their styles untouched (spec 01 §5.4 point 3) and never see this — for
+// those the pane supplies only the paper ground and the gutter.
 //
 // Light only, deliberately. The design draws documents on paper and REX's
 // chrome in the dark around them; following the system into dark mode would

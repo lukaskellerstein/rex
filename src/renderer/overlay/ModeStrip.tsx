@@ -15,39 +15,34 @@
 
 interface Props {
   canPick: boolean;
-  canDraw: boolean;
   onTogglePick: () => void;
   onTogglePen: () => void;
 }
 
 export function ModeStrip(props: Props): React.JSX.Element | null {
-  if (!props.canPick && !props.canDraw) return null;
+  if (!props.canPick) return null;
 
   return (
     <div className="rex-modes">
-      {props.canPick ? (
-        <button
-          type="button"
-          className="rex-mode"
-          title="Pick an element to comment on — hold ⌥, or press P"
-          onClick={props.onTogglePick}
-        >
-          <kbd className="rex-key">⌥</kbd>
-          pick element
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="rex-mode"
+        title="Pick an element to comment on — hold ⌥, or press P"
+        onClick={props.onTogglePick}
+      >
+        <kbd className="rex-key">⌥</kbd>
+        pick element
+      </button>
 
-      {props.canDraw ? (
-        <button
-          type="button"
-          className="rex-mode"
-          title="Circle what the comment is about — N"
-          onClick={props.onTogglePen}
-        >
-          <kbd className="rex-key">N</kbd>
-          pen
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="rex-mode"
+        title="Circle what the comment is about — N"
+        onClick={props.onTogglePen}
+      >
+        <kbd className="rex-key">N</kbd>
+        pen
+      </button>
     </div>
   );
 }

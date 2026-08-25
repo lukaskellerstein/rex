@@ -19,8 +19,13 @@ import { getDocument, listMessages } from "./db/queries.ts";
 import { repositoryRoot } from "./git.ts";
 import { applyDisabledReason } from "./render/formats.ts";
 
-/** A document opened from a URL has no repository, so the agent gets an empty one. */
-export const URL_SCRATCH = join(homedir(), ".rex", "scratch");
+/**
+ * A thread whose document row has gone gets an empty directory, never the
+ * user's home. Foreign keys cascade, so it should be unreachable — but
+ * `agentCwd` has to return a path either way, and a wrong one is a directory an
+ * agent is turned loose in.
+ */
+export const SCRATCH_DIR = join(homedir(), ".rex", "scratch");
 
 /**
  * The agent's working directory: the document's repository, or the scratch dir.
@@ -33,18 +38,12 @@ export const URL_SCRATCH = join(homedir(), ".rex", "scratch");
  */
 export function agentCwd(db: Db, thread: Thread): string {
   const document = getDocument(db, thread.documentId);
-  if (document?.ref.kind === "file") return repositoryRoot(document.ref.value);
-  return URL_SCRATCH;
+  return document ? repositoryRoot(document.ref.value) : SCRATCH_DIR;
 }
 
-/** What a row shows: the file name, or the host for a URL. Never a whole path. */
+/** What a row shows: the file name. Never a whole path. */
 export function documentName(record: DocumentRecord): string {
-  if (record.ref.kind === "file") return basename(record.ref.value);
-  try {
-    return new URL(record.ref.value).host;
-  } catch {
-    return record.ref.value;
-  }
+  return basename(record.ref.value);
 }
 
 /**
@@ -85,15 +84,6 @@ export function applyPlan(db: Db, thread: Thread): ApplyPlan {
   const skipped: SkippedDocument[] = [];
 
   for (const record of documentsOf(db, thread)) {
-    if (record.ref.kind !== "file") {
-      // The identifier, not the pretty name: `file` is what a reviewer would
-      // paste back to find the thing, and the UI shortens it for display.
-      skipped.push({
-        file: record.ref.value,
-        reason: "Apply needs a local source file; this document is a URL.",
-      });
-      continue;
-    }
     const reason = applyDisabledReason(record.ref.value);
     if (reason) skipped.push({ file: record.ref.value, reason });
     else editable.push(record.ref.value);

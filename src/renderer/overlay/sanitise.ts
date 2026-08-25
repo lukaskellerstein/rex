@@ -1,8 +1,8 @@
 // SPEC.md §5.4 step 1 — sanitising a local HTML file before it is displayed.
 //
-// Its own module so that the tier 2 preload, which shares the resolver but
-// never renders local HTML, does not drag DOMPurify into a sandboxed preload
-// where node_modules cannot be required at all.
+// Its own module, apart from the resolver: sanitising is a step the document
+// pane takes once before it fills the frame, and the resolver runs on every
+// sweep afterwards. Keeping DOMPurify out of that path keeps the two separable.
 //
 // This runs in the renderer rather than in main because DOMPurify needs a DOM;
 // the iframe is additionally sandboxed without `allow-scripts`, so the two

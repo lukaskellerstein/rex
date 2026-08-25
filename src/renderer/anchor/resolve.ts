@@ -161,21 +161,32 @@ function resolveElement(
 ): { element: Element; matchedBy: ElementMatch } | null {
   const ref = anchor.element;
   if (!ref) return null;
+
+  const candidates: Array<{ element: Element; matchedBy: ElementMatch }> = [];
   // Screened again rather than trusted: the id was judged stable when the
   // anchor was written, possibly by an older build with a shorter list.
   if (ref.id && isStableId(ref.id)) {
     const byId = index.doc.getElementById(ref.id);
-    if (byId) return { element: byId, matchedBy: "id" };
+    if (byId) candidates.push({ element: byId, matchedBy: "id" });
   }
   if (ref.css) {
     try {
       const found = index.doc.querySelector(ref.css);
-      if (found) return { element: found, matchedBy: matchKindOf(ref.css) };
+      if (found) candidates.push({ element: found, matchedBy: matchKindOf(ref.css) });
     } catch {
       return null;
     }
   }
-  return null;
+
+  // Spec 11 §5.2 steps 2 and 3 — with a fingerprint stored, each candidate has
+  // to still *be* what it was, and the first that is wins. That is what lets a
+  // deck anchor survive a shape being inserted above it: the id now points at
+  // the wrong shape and fails, and the name selector finds the right one.
+  //
+  // Without a fingerprint — every prose anchor — the first candidate wins
+  // exactly as before, and nothing about resolving prose changes.
+  if (!ref.fingerprint) return candidates[0] ?? null;
+  return candidates.find((found) => fingerprintElement(found.element) === ref.fingerprint) ?? null;
 }
 
 /**
@@ -299,7 +310,23 @@ export function resolveAnchor(index: TextIndex, anchor: Anchor): Resolution | nu
     // orphan tray. Layer 3 stays what §6.2 describes it as — the layer for
     // things that have no text.
     const quoted = resolveQuote(index, anchor);
-    return quoted ? { kind: "range", range: quoted.range, layer: quoted.layer } : null;
+    if (quoted) return { kind: "range", range: quoted.range, layer: quoted.layer };
+
+    // Spec 11 §5.2 — the one exception, and it is the reason the exception is
+    // safe rather than a hole in the rule above. A fingerprinted element ref is
+    // not "something that still matches": it is an element whose content is
+    // byte-for-byte what it was when the comment was written. A shape whose
+    // text the reviewer cannot find any more, on a slide that has not been
+    // touched, is a shape the quote layer missed — not a different shape.
+    //
+    // Only a deck stores one, so a prose anchor cannot take this path at all.
+    if (anchor.element?.fingerprint) {
+      const found = resolveElement(index, anchor);
+      if (found) {
+        return { kind: "element", element: found.element, layer: 3, matchedBy: found.matchedBy };
+      }
+    }
+    return null;
   }
 
   const found = resolveElement(index, anchor);

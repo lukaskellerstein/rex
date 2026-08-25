@@ -11,6 +11,7 @@ import Database from "better-sqlite3";
 import { DB_PATH } from "../main/db/location.ts";
 import { listThreadsInDocument } from "../main/db/queries.ts";
 import { withDetail } from "../main/threads.ts";
+import { commentName } from "../shared/names.ts";
 import { worstState } from "../shared/targets.ts";
 import type { ThreadWithMessages } from "../shared/types.ts";
 
@@ -53,7 +54,37 @@ const STATE_LABEL: Record<string, string> = {
   orphaned: "orphaned — the text this was written against is gone",
 };
 
-function toMarkdown(title: string, documentPath: string, threads: ThreadWithMessages[]): string {
+/**
+ * Spec 14 §5 — a comment's group, as a path: `Blocking / Auth flow`.
+ *
+ * Read straight from the table rather than through the tree: the export is
+ * about one document, and building a workspace's whole tree to name one group
+ * is work for an answer that is two lookups.
+ */
+function groupPath(db: Database.Database, groupId: string | null): string | null {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  let current = groupId;
+  while (current && !seen.has(current)) {
+    seen.add(current);
+    const row = db
+      .prepare<[string], { name: string; parent_id: string | null }>(
+        "SELECT name, parent_id FROM comment_group WHERE id = ?",
+      )
+      .get(current);
+    if (!row) break;
+    parts.unshift(row.name);
+    current = row.parent_id;
+  }
+  return parts.length > 0 ? parts.join(" / ") : null;
+}
+
+function toMarkdown(
+  title: string,
+  documentPath: string,
+  threads: ThreadWithMessages[],
+  groupNames: Map<string, string>,
+): string {
   const lines = [`# Review comments — ${title}`, "", `Document: \`${documentPath}\``, ""];
   const anchored = threads.filter((thread) => thread.kind === "anchored");
   const synthesis = threads.filter((thread) => thread.kind === "synthesis");
@@ -64,12 +95,16 @@ function toMarkdown(title: string, documentPath: string, threads: ThreadWithMess
   );
 
   threads.forEach((thread, position) => {
-    lines.push(`## ${position + 1}. ${thread.note}`, "");
+    // Spec 14 §3.4 — the heading is the NAME. With no title that is the note's
+    // first line, which is what this printed before.
+    lines.push(`## ${position + 1}. ${commentName(thread)}`, "");
 
     const primary = thread.targets[0]?.anchor ?? null;
     const state = worstState(thread.targets.map((target) => target.state));
 
     const facts = [`status: ${thread.status}`];
+    const group = thread.groupId ? groupNames.get(thread.groupId) : null;
+    if (group) facts.push(`group: ${group}`);
     if (state) facts.push(STATE_LABEL[state] ?? state);
     if (primary?.source) facts.push(`source line ${primary.source.line}`);
     // A comment about several documents says so here rather than pretending the
@@ -111,9 +146,15 @@ function main(): void {
     // Every comment with a target in this document, which since spec 05 §5.3
     // includes comments that were written while another document was open.
     const threads = listThreadsInDocument(db, document.id).map((thread) => withDetail(db, thread));
+    const groupNames = new Map<string, string>();
+    for (const thread of threads) {
+      if (!thread.groupId || groupNames.has(thread.groupId)) continue;
+      const path = groupPath(db, thread.groupId);
+      if (path) groupNames.set(thread.groupId, path);
+    }
     const output = options.json
       ? JSON.stringify({ document: options.document, threads }, null, 2)
-      : toMarkdown(document.title ?? options.document, options.document, threads);
+      : toMarkdown(document.title ?? options.document, options.document, threads, groupNames);
 
     if (options.out) {
       writeFileSync(options.out, output);

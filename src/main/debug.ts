@@ -20,12 +20,14 @@ import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { totalsOf } from "../shared/totals.ts";
-import type { Anchor, Message, Thread } from "../shared/types.ts";
+import type { Anchor, Message, Thread, ViewState } from "../shared/types.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
 import { sessionFilePath, sessionRecord } from "./agent/transcript.ts";
+import { type CdpStatus, cdpLines } from "./cdp.ts";
 import type { Db } from "./db/database.ts";
 import { DB_PATH } from "./db/location.ts";
 import { getDocument, getThread, listMessages } from "./db/queries.ts";
+import type { LogEntry } from "./log.ts";
 import { agentCwd } from "./threads.ts";
 
 const HOME = homedir();
@@ -259,5 +261,134 @@ export async function debugReport(db: Db, threadId: string, appVersion: string):
   }
 
   lines.push("", "VERSIONS", `  ${versionLine(appVersion)}`);
+  return lines.join("\n");
+}
+
+// ── The app report (spec 13 §4) ───────────────────────────────
+//
+// The second report, and the one the first could not be. §6.2's needs a
+// `threadId`; the failure it was written for — a document that will not open —
+// happens before any thread exists.
+
+/** What only the Electron side knows. Passed in, for the reason `versionLine` is. */
+export interface AppFacts {
+  appVersion: string;
+  pid: number;
+  packaged: boolean;
+  uptimeMs: number;
+  userDataPath: string;
+  cdp: CdpStatus;
+  logPath: string | null;
+  logLines: number;
+}
+
+/**
+ * Below this a document is on screen and unreadable, which reads to anybody
+ * looking at it as "the document did not open".
+ *
+ * Measured on 2026-08-25: a tiling window manager gave REX an 857px column of
+ * a 3440px screen. The explorer kept 272px and the comments panel kept 384px,
+ * because both are fixed widths and only the middle flexes — so the document
+ * pane got 164px. It had rendered, with the right title and 102 nodes in it.
+ * The reviewer reported that documents do not load.
+ *
+ * 400 is the smallest measure the Markdown stylesheet's body type does not
+ * break down at; anything narrower is a strip, not a page.
+ */
+const READABLE_PANE_PX = 400;
+
+function viewLines(view: ViewState | null): string[] {
+  if (!view) return ["  (the renderer did not answer — see RECENT below)"];
+
+  const document = view.document;
+  const lines = [
+    `  window     ${view.window.width}×${view.window.height}`,
+    `  workspace  ${view.workspaceRoot ? tilde(view.workspaceRoot) : "(none open)"}`,
+  ];
+
+  if (!document) {
+    lines.push("  document   (none open)");
+  } else {
+    const size = document.documentBytes === null ? "no html" : bytes(document.documentBytes);
+    const frame =
+      document.frameChildren === null
+        ? "frame unreachable"
+        : `frame ${document.frameChildren} nodes`;
+    const pane =
+      document.frameWidth === null
+        ? "pane unmeasured"
+        : `pane ${document.frameWidth}×${document.frameHeight}`;
+    lines.push(
+      `  document   ${tilde(document.value)} · ${document.kind}`,
+      `             ${document.presentation} · ${size} · surface ${document.surfaceReady ? "ready" : "NOT ready"} · ${frame} · ${pane}`,
+      `             id ${document.documentId} · ${document.contentChanged ? "file changed since the anchors" : "unchanged since the anchors"}`,
+    );
+
+    // Stated, not left to be inferred from two numbers. Somebody reading this
+    // is reading it because they cannot see a document, and every other line
+    // here would tell them the document is fine.
+    if (document.frameWidth !== null && document.frameWidth < READABLE_PANE_PX) {
+      lines.push(
+        `  ⚠ the document pane is only ${document.frameWidth}px wide. The document IS loaded —`,
+        "    the window is too narrow to show it. Widen the REX window; on a tiling",
+        "    window manager, give it a wider tile or float it.",
+      );
+    }
+  }
+
+  lines.push(
+    `  centre     ${view.centre} · sidebar ${view.sidebarTab} · zoom ${Math.round(view.zoom * 100)}%${view.traceOpen ? " · trace open" : ""}`,
+    `  comments   ${view.threads} · ${view.unanswered} unanswered · ${view.activeThreadId ? `open ${view.activeThreadId}` : "none open"} · ${view.selectionItems} in the panel · ${view.groups} group${view.groups === 1 ? "" : "s"}`,
+    `  notice     ${view.notice ? clip(view.notice, 200) : "(none)"}`,
+  );
+  return lines;
+}
+
+function recentLines(recent: readonly LogEntry[]): string[] {
+  return recent.map((entry) => {
+    const time = entry.at.slice(11, 19);
+    return `  ${time}  ${entry.level.padEnd(5)} ${entry.source.padEnd(8)} ${entry.message}`;
+  });
+}
+
+/**
+ * The whole app report, ready to paste into a chat with whoever is fixing REX.
+ *
+ * ATTACH is first because it is the part that does the work: it turns "REX is
+ * broken" into an instruction a fresh Claude Code session can follow without
+ * asking anything. Everything below it is evidence.
+ */
+export function appReport(
+  facts: AppFacts,
+  view: ViewState | null,
+  recent: readonly LogEntry[],
+): string {
+  const lines = [
+    `REX debug · ${new Date().toISOString()}`,
+    "",
+    "ATTACH",
+    ...cdpLines(facts.cdp),
+    `  log        ${facts.logPath ? tilde(facts.logPath) : "(could not be opened)"} · ${facts.logLines} ${facts.logLines === 1 ? "line" : "lines"} this run`,
+    "",
+    "APP",
+    `  pid        ${facts.pid} · ${facts.packaged ? "packaged" : "dev (electron-vite)"} · up ${seconds(facts.uptimeMs)}`,
+    `  database   ${tilde(DB_PATH)}`,
+    `  userdata   ${tilde(facts.userDataPath)}`,
+    "",
+    "VIEW",
+    ...viewLines(view),
+  ];
+
+  // An empty section would say "nothing went wrong", which is not the same as
+  // "nothing was recorded" — and for a REX that has just misbehaved, the
+  // difference is the first thing worth knowing.
+  lines.push("", `RECENT (${recent.length})`);
+  if (recent.length === 0) {
+    lines.push("  nothing was recorded this run — no console error, no failed command");
+  } else {
+    lines.push(...recentLines(recent));
+  }
+
+  lines.push("", "VERSIONS", `  ${versionLine(facts.appVersion)}`);
   return lines.join("\n");
 }

@@ -3,6 +3,7 @@
 
 import { v4 as uuidv4 } from "uuid";
 import type { ThreadListRequest } from "../../shared/channels.ts";
+import { buildCommentTree, walkOrder } from "../../shared/commentTree.ts";
 import type {
   Anchor,
   AnchorState,
@@ -21,6 +22,7 @@ import type {
   ThreadKind,
 } from "../../shared/types.ts";
 import type { Db } from "./database.ts";
+import { listGroups, nextThreadPosition } from "./groups.ts";
 
 const now = (): string => new Date().toISOString();
 
@@ -28,7 +30,7 @@ const now = (): string => new Date().toISOString();
 
 interface DocumentRow {
   id: string;
-  kind: "file" | "url";
+  kind: "file";
   value: string;
   title: string | null;
   content_hash: string | null;
@@ -47,6 +49,14 @@ interface ThreadRow {
   kind: ThreadKind;
   status: "open" | "resolved";
   note: string;
+  /** Spec 14 §3.1. NULL means "named by the note", which is not the same as unnamed. */
+  title: string | null;
+  /** Spec 14 §5. NULL is the top level. */
+  group_id: string | null;
+  /** Spec 14 §4.1. Rank among the comments sharing `group_id`. */
+  position: number;
+  /** 1 for a comment saved and never sent. Cleared when it IS sent. */
+  is_note: number;
   /** Spec 06 §5.4. NULL for every comment that was not drawn. */
   stroke_json: string | null;
   session_id: string | null;
@@ -93,7 +103,7 @@ interface ApplyRunRow {
 function toDocument(row: DocumentRow): DocumentRecord {
   return {
     id: row.id,
-    ref: { kind: row.kind, value: row.value } as DocumentRef,
+    ref: { kind: row.kind, value: row.value },
     title: row.title,
     contentHash: row.content_hash,
     lastSeenAt: row.last_seen_at,
@@ -108,6 +118,10 @@ function toThread(row: ThreadRow, refThreadIds: string[], targets: AnchorTarget[
     status: row.status,
     targets,
     note: row.note,
+    title: row.title,
+    groupId: row.group_id,
+    position: row.position,
+    isNote: row.is_note !== 0,
     sessionId: row.session_id,
     profile: row.profile,
     model: row.model,
@@ -259,6 +273,8 @@ export function createThread(
     refThreadIds?: string[];
     /** Spec 06 §5.4 — the ink, when the places were circled rather than clicked. */
     stroke?: StrokeRef;
+    /** True for NOTE mode: save it, send it to nobody. */
+    isNote?: boolean;
   },
 ): Thread {
   const documentId = input.targets[0]?.documentId ?? input.documentId;
@@ -268,17 +284,23 @@ export function createThread(
 
   const id = uuidv4();
   const timestamp = now();
+  // Spec 14 §4.1 — a new comment lands at the end of the top level, which is
+  // where `ORDER BY created_at` used to put it. Nothing about making a comment
+  // changed; only where the list keeps it is now written down.
+  const position = nextThreadPosition(db, null);
 
   const insert = db.transaction(() => {
     db.prepare(
-      `INSERT INTO thread (id, document_id, kind, status, note, stroke_json,
-                           session_id, profile, model, created_at, updated_at, resolved_at)
-       VALUES (?, ?, ?, 'open', ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
+      `INSERT INTO thread (id, document_id, kind, status, note, title, group_id, position, is_note,
+                           stroke_json, session_id, profile, model, created_at, updated_at, resolved_at)
+       VALUES (?, ?, ?, 'open', ?, NULL, NULL, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
     ).run(
       id,
       documentId,
       input.kind,
       input.note,
+      position,
+      input.isNote ? 1 : 0,
       input.stroke ? JSON.stringify(input.stroke) : null,
       input.profile,
       timestamp,
@@ -310,6 +332,10 @@ export function createThread(
     status: "open",
     targets: input.targets.map((entry) => ({ ...entry, state: null })),
     note: input.note,
+    title: null,
+    groupId: null,
+    position,
+    isNote: input.isNote === true,
     sessionId: null,
     profile: input.profile,
     model: null,
@@ -369,14 +395,21 @@ export function listThreads(db: Db, request: ThreadListRequest): Thread[] {
             WHERE t.document_id IN (SELECT id FROM scope)
               AND NOT EXISTS (SELECT 1 FROM thread_target x WHERE x.thread_id = t.id)
          )
-         SELECT * FROM thread WHERE id IN (SELECT id FROM included) ORDER BY created_at`)
+         SELECT * FROM thread WHERE id IN (SELECT id FROM included) ORDER BY position, created_at`)
     .all({
       documentId: request.documentId,
       prefix,
       prefixLength: prefix?.length ?? 0,
     });
 
-  return rows.map((row) => hydrate(db, row));
+  const threads = rows.map((row) => hydrate(db, row));
+
+  // Spec 14 §4.4 — the walk order is main's, not the panel's. The gutter's
+  // numbered markers, the card's token and `rex export`'s headings are all
+  // `index + 1` over this array, so a panel that sorted its own copy would put
+  // `4` on a row whose marker in the margin says `7`.
+  const groups = request.root === null ? [] : listGroups(db, request.root);
+  return walkOrder(buildCommentTree(groups, threads));
 }
 
 /**
@@ -400,6 +433,35 @@ export function listThreadsInDocument(db: Db, documentId: string): Thread[] {
 
 function withSeparator(root: string): string {
   return root.endsWith("/") ? root : `${root}/`;
+}
+
+/**
+ * Spec 14 §3.1 — the name the reviewer typed, or null to go back to the note.
+ *
+ * An empty string is stored as NULL rather than as `''`. "Delete the name" and
+ * "go back to the note" are the same wish, and a `''` in the column would make
+ * `commentName` fall back correctly while every `title IS NOT NULL` test in the
+ * future got the wrong answer.
+ */
+export function renameThread(db: Db, threadId: string, title: string | null): void {
+  const trimmed = title?.trim();
+  db.prepare("UPDATE thread SET title = ?, updated_at = ? WHERE id = ?").run(
+    trimmed ? trimmed : null,
+    now(),
+    threadId,
+  );
+}
+
+/**
+ * The comment has been sent, so it is not a note any more.
+ *
+ * Called on every path that reaches an agent — ASK, ACT and the synthesis
+ * fan-out. Idempotent, and a no-op for the ordinary comment that was never a
+ * note. Keeping the flag set after a send would leave the panel drawing a
+ * "saved, sent to nobody" colour on a comment with an answer in it.
+ */
+export function clearNoteFlag(db: Db, threadId: string): void {
+  db.prepare("UPDATE thread SET is_note = 0 WHERE id = ? AND is_note = 1").run(threadId);
 }
 
 export function setThreadStatus(db: Db, threadId: string, resolved: boolean): void {
@@ -578,6 +640,60 @@ export function commentCountsByDocument(db: Db): Map<string, CommentCounts> {
       { open: row.open, resolved: row.resolved, orphaned: row.orphaned },
     ]),
   );
+}
+
+// ── Workspace rules (spec 10 §3.2) ──────────────────────────────
+
+/** What the reviewer has said about one path, when they have said anything. */
+export type WorkspaceRuleMode = "exclude" | "include";
+
+/** Every rule for one workspace, keyed by absolute path. Usually empty. */
+export function workspaceRules(db: Db, root: string): Map<string, WorkspaceRuleMode> {
+  const rows = db
+    .prepare<[string], { path: string; mode: WorkspaceRuleMode }>(
+      "SELECT path, mode FROM workspace_rule WHERE root = ?",
+    )
+    .all(root);
+  return new Map(rows.map((row) => [row.path, row.mode]));
+}
+
+/**
+ * Spec 10 §3.4 — the menu is a toggle *against the default*, not a setter.
+ *
+ * Excluding a path that carries an `include` rule deletes that rule rather than
+ * writing an `exclude`, and including an excluded path deletes its `exclude`.
+ * Both directions therefore return the path to whatever REX would have done on
+ * its own, and the table only ever holds genuine departures from that — so
+ * un-excluding `node_modules`, which was skipped by default anyway, leaves no
+ * row behind claiming otherwise.
+ *
+ * Returns the mode now in force, or null when the path is back on the default.
+ */
+export function toggleWorkspaceRule(
+  db: Db,
+  root: string,
+  path: string,
+  wanted: WorkspaceRuleMode,
+): WorkspaceRuleMode | null {
+  const current = db
+    .prepare<[string, string], { mode: WorkspaceRuleMode }>(
+      "SELECT mode FROM workspace_rule WHERE root = ? AND path = ?",
+    )
+    .get(root, path)?.mode;
+
+  if (current !== undefined && current !== wanted) {
+    db.prepare("DELETE FROM workspace_rule WHERE root = ? AND path = ?").run(root, path);
+    return null;
+  }
+
+  // `OR REPLACE` rather than `ON CONFLICT … DO UPDATE`: the upsert form names
+  // SQLite's `excluded` pseudo-table, and a line reading `SET mode =
+  // excluded.mode` in a file about excluding folders is a trap for whoever reads
+  // it next. The row is the reviewer's latest decision either way.
+  db.prepare(
+    "INSERT OR REPLACE INTO workspace_rule (root, path, mode, created_at) VALUES (?, ?, ?, ?)",
+  ).run(root, path, wanted, now());
+  return wanted;
 }
 
 /** SPEC.md §8.8 point 3 — the running total behind the cost bar. */

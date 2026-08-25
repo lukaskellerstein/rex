@@ -15,8 +15,10 @@
 import { useState } from "react";
 import type { RegionRef } from "../../shared/types.ts";
 import type { AnchorStrength, PickScope } from "../anchor/pick.ts";
-import { Shield, Trash } from "./Icons.tsx";
+import { Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
+import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
+import { MODE_VERB, type Mode } from "./mode.ts";
 import type { SelectionItem } from "./selection.ts";
 
 interface Props {
@@ -38,6 +40,13 @@ interface Props {
   onArmRegion: () => void;
   onRemove: (id: string) => void;
   onClear: () => void;
+  /**
+   * Spec 12 §3.2 — ASK for a new comment, always. A comment is a question until
+   * its author says otherwise, and the switch is how they say otherwise.
+   */
+  mode: Mode;
+  onMode: (mode: Mode) => void;
+  /** Sends in `mode`. §4 — ASK goes to `thread:ask`, ACT to `thread:apply`. */
   onAsk: () => void;
   onHover: (id: string | null) => void;
   onReorder: (from: number, to: number) => void;
@@ -135,6 +144,11 @@ const CONFIRM_ABOVE = 3;
  */
 function isCutOut(region: RegionRef | null): boolean {
   return region !== null && (region.w < 1 || region.h < 1);
+}
+
+/** "this place" / "these 3 places" — used in three tooltips, so it is written once. */
+function places(count: number): string {
+  return count === 1 ? "this place" : `these ${count} places`;
 }
 
 export function SelectionPanel(props: Props): React.JSX.Element {
@@ -294,27 +308,59 @@ export function SelectionPanel(props: Props): React.JSX.Element {
       <div className="rex-selection-foot">
         <textarea
           className="rex-input"
-          placeholder="What about these?"
+          placeholder={props.mode === "act" ? "What should change here?" : "What about these?"}
           value={props.note}
           onChange={(event) => props.onNote(event.target.value)}
-          onKeyDown={onSendChord(canAsk, props.onAsk)}
+          onKeyDown={(event) => {
+            // §3.1 — ⇧⇥ toggles the mode from inside the box, without sending.
+            // Checked first, and it must preventDefault: the browser's own
+            // meaning for ⇧⇥ is "walk focus backwards out of this field".
+            if (isModeChord(event)) {
+              event.preventDefault();
+              props.onMode(other(props.mode));
+              return;
+            }
+            onSendChord(canAsk, props.onAsk)(event);
+          }}
         />
         <div className="rex-row">
+          {/*
+            Spec 12 §3 — the switch replaces the `read-only` badge that used to
+            sit here. The badge stated a fact the reviewer could not change,
+            which is exactly what this control now lets them change; leaving
+            both would say the mode is fixed and offer to move it in one row.
+          */}
+          <ModeSwitch mode={props.mode} actDisabled={null} onPick={props.onMode} />
+          <span className="rex-spacer" />
+          {/*
+            NOTE gets the quiet treatment: not `rex-primary`, because it is not
+            the send. A filled accent button that reaches nobody would be the
+            loudest control on the panel doing the least.
+          */}
           <button
             type="button"
-            className="rex-button rex-primary"
-            title={`Ask about ${props.items.length === 1 ? "this place" : `these ${props.items.length} places`} — ${SEND_CHORD_HINT}`}
-            // The note is the question; without it there is nothing to ask.
+            className={[
+              "rex-button",
+              props.mode === "note" ? "rex-button-note" : "rex-primary",
+              props.mode === "act" ? "rex-button-write" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
+            title={
+              props.mode === "act"
+                ? `Change ${places(props.items.length)} — you will see a diff before anything is kept — ${SEND_CHORD_HINT}`
+                : props.mode === "note"
+                  ? `Save this comment about ${places(props.items.length)} — no agent runs, and nothing is spent — ${SEND_CHORD_HINT}`
+                  : `Ask about ${places(props.items.length)} — ${SEND_CHORD_HINT}`
+            }
+            // The note is the question, the instruction, or the note itself.
+            // Without it there is nothing to ask, do or save (§4.3).
             disabled={!canAsk}
             onClick={props.onAsk}
           >
-            Ask about {props.items.length}
+            {MODE_VERB[props.mode]} {props.items.length}
             <SendChord />
           </button>
-          <span className="rex-readonly" title="The read profile cannot write to disk">
-            <Shield />
-            read-only
-          </span>
         </div>
       </div>
     </section>

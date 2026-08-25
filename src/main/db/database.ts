@@ -7,7 +7,12 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { DB_PATH } from "./location.ts";
-import { migrateThreadStroke, migrateThreadTargets } from "./migrate.ts";
+import {
+  migrateCommentOrder,
+  migrateNoteFlag,
+  migrateThreadStroke,
+  migrateThreadTargets,
+} from "./migrate.ts";
 import schema from "./schema.sql?raw";
 
 export type Db = Database.Database;
@@ -31,6 +36,11 @@ export function openDatabase(): Db {
   // Spec 05 §5.2 — anchors move out of `thread` and into `thread_target`. After
   // the columns exist, because it reads them.
   migrateThreadTargets(db);
+  // Spec 14 §6.2 — the name, the group and the order. It fills `position` from
+  // the created_at rank, so the list a reviewer closed is the list they reopen.
+  migrateCommentOrder(db);
+  // A comment saved and never sent. 0 is right for every row that predates it.
+  migrateNoteFlag(db);
 
   handle = db;
   return db;

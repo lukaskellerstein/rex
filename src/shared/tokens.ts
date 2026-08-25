@@ -97,4 +97,14 @@ export const HIGHLIGHT = {
    */
   activeBg: "#ece1f7",
   activeRule: "#7a4fa3",
+  /**
+   * Spec 15 §8.4 — the comment being pointed at, in the same violet at half
+   * strength and with no rule under it.
+   *
+   * `okBg`, `movedBg` and `resolvedBg` above are no longer painted on text.
+   * They are kept because the bar in the margin and the card wash are drawn in
+   * the same three colours, and one table of them is what keeps all three
+   * places agreeing about what steel and amber mean.
+   */
+  hoverBg: "#f4eefb",
 } as const;

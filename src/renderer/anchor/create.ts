@@ -41,9 +41,36 @@ function escapeAttrValue(value: string): string {
  * A selector matching this element and no other, or null when nothing but its
  * position distinguishes it.
  */
+/**
+ * Spec 11 §5.2 step 3 — a shape on a slide, named the way PowerPoint names it.
+ *
+ * Tried **before** the id, and only here, because on a deck the id is the one
+ * thing that is not an identity: `slide-4-shape-3` is a position, and a shape
+ * inserted above it renumbers everything below. `data-name` is not — it is the
+ * name the author gave the shape, the name the reviewer sees in the selection
+ * panel, and the name every edit operation addresses it by (§7.2.2 rule 2).
+ *
+ * Scoped to the slide, because a name is unique on a slide and "Text 1" appears
+ * on twenty of them.
+ */
+function slideShapeSelector(el: Element): string | null {
+  const name = el.getAttribute("data-name");
+  if (!name) return null;
+  const slide = el.closest("[data-slide]")?.getAttribute("data-slide");
+  if (!slide) return null;
+  const selector = `[data-slide="${escapeAttrValue(slide)}"] [data-name="${escapeAttrValue(name)}"]`;
+  try {
+    return el.ownerDocument?.querySelectorAll(selector).length === 1 ? selector : null;
+  } catch {
+    return null;
+  }
+}
+
 function identifyingSelector(el: Element): string | null {
   const doc = el.ownerDocument;
   if (!doc) return null;
+  const onSlide = slideShapeSelector(el);
+  if (onSlide) return onSlide;
   if (isStableId(el.id)) return `#${CSS.escape(el.id)}`;
 
   const tag = el.tagName.toLowerCase();
@@ -107,6 +134,11 @@ function elementRef(el: Element | null): ElementRef | null {
   const ref: ElementRef = {};
   if (isStableId(el.id)) ref.id = el.id;
   ref.css = generateCssPath(el);
+  // Spec 11 §5.2 — stamped only where the id can be an index, which is a slide.
+  // Everywhere else the id and the CSS path are identities already, and a
+  // fingerprint would make an anchor orphan on a rebuild that changed nothing
+  // it was about.
+  if (el.closest("[data-slide]")) ref.fingerprint = fingerprintElement(el);
   return ref;
 }
 
@@ -242,6 +274,26 @@ function hash(value: string): string {
 }
 
 /**
+ * An element's markup with every `id` removed, its own included.
+ *
+ * An id is a *name*, not content, and on a deck it is not even a stable name:
+ * `slide-4-shape-3` is derived from the shape's index, so inserting a shape
+ * above it renumbers the ids of everything below without changing a pixel of
+ * any of them. Fingerprinting the raw markup therefore reported "this is not
+ * the shape it was" for every shape below any insertion — measured on
+ * 2026-08-24, which is why the ids come out.
+ *
+ * The check loses nothing by it. A comment is about what a thing *shows*, and
+ * nothing an element shows is spelled in an id.
+ */
+function markupWithoutIds(el: Element): string {
+  const clone = el.cloneNode(true) as Element;
+  clone.removeAttribute("id");
+  for (const child of clone.querySelectorAll("[id]")) child.removeAttribute("id");
+  return clone.outerHTML.replace(/\s+/g, " ").trim();
+}
+
+/**
  * What an element is currently *showing*, as a short string.
  *
  * Markup covers a redrawn SVG, a swapped `src`, a re-plotted chart and an
@@ -256,7 +308,7 @@ function hash(value: string): string {
  * than in a comment claiming otherwise.
  */
 export function fingerprintElement(el: Element): string {
-  const parts: string[] = [el.tagName.toLowerCase(), el.outerHTML.replace(/\s+/g, " ").trim()];
+  const parts: string[] = [el.tagName.toLowerCase(), markupWithoutIds(el)];
 
   for (const media of el.querySelectorAll("img, canvas, video")) {
     if (media instanceof HTMLImageElement) {

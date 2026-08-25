@@ -27,10 +27,10 @@ export interface SelectionItem {
   documentId: string;
   /**
    * The whole ref, not a path, so a row can reopen its document with the
-   * `doc:open` that exists — and so a tier 2 URL document works here too.
+   * `doc:open` that exists rather than a second entry point that takes a path.
    */
   documentRef: DocumentRef;
-  /** Shown in the row: the file name, or the host for a URL. Not the whole path. */
+  /** Shown in the row: the file name. Not the whole path. */
   documentName: string;
   anchor: Anchor;
   /** The row's own words — the quote, or `Table · 7 rows × 4 columns`. */

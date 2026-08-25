@@ -9,6 +9,7 @@
 // spec 01 and drawn nowhere. Thinking is drawn HERE and nowhere else.
 
 import type { Message, ThreadWithMessages } from "../../shared/types.ts";
+import { type Mode, modeOf } from "./mode.ts";
 
 export type TraceKind =
   | "you"
@@ -34,6 +35,18 @@ export interface TraceEntry {
    * readable without unfolding anything.
    */
   reason: string | null;
+  /**
+   * Spec 12 §7.3 — the mode the refusal happened in, set on a `denied` block
+   * and nowhere else.
+   *
+   * `ASK MODE` beside `DENIED` is what turns a red block from "something
+   * broke" into "the promise on the card head is being kept". A refusal that
+   * does not say which promise produced it is just a failure.
+   *
+   * Taken from the thread's stored profile, which is the only honest source:
+   * REX records one profile per thread and does not record a mode per message.
+   */
+  mode: Mode | null;
   /** A tool's own output. Collapsed until the answer looks wrong. */
   result: string | null;
   durationMs: number | null;
@@ -72,6 +85,7 @@ function entry(message: Message, kind: TraceKind, label: string, body: string): 
     label,
     body,
     reason: null,
+    mode: null,
     result: null,
     durationMs: message.durationMs,
     costUsd: message.costUsd,
@@ -122,6 +136,7 @@ export function traceOf(thread: ThreadWithMessages): TraceEntry[] {
         if (message.isError) {
           call.kind = "denied";
           call.label = "DENIED";
+          call.mode = modeOf(thread.profile);
           // The gate's own words, promoted out of the collapsed result: a
           // refusal nobody unfolds is a refusal nobody reads, and the block
           // opens itself for the same reason.

@@ -53,7 +53,13 @@ config belongs to Electron's debugger, not to the app:
 
 | Port | What | Where |
 |:--|:--|:--|
-| 9334 | Electron remote debugging (CDP), for the Playwright MCP to attach to | `.mcp.json`; the app must be launched with `--remote-debugging-port=9334` |
+| 9334 | Electron remote debugging (CDP), for the Playwright MCP to attach to | `.mcp.json`; **every run opens it** — spec 13 §2.1, `src/main/cdp.ts` |
+
+Since spec 13 no flag is needed: `npm run dev` opens 9334 on its own, so the
+window a reviewer is looking at can always be attached to. An explicit
+`--remote-debugging-port` still wins, and `REX_CDP_PORT=N` moves it —
+`REX_CDP_PORT=off` closes it. Only one REX can hold the port; a second gets
+none, silently, which is why the debug report prints what it *found*.
 
 Chosen to avoid a collision: `dex` uses 9333 and `vex` uses 9222 and 9333, and
 several sessions run on this machine at once.
