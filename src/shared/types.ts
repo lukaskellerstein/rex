@@ -3,15 +3,21 @@
 
 // ── Documents ───────────────────────────────────────────────
 
-export type DocumentRef =
-  | { kind: "file"; value: string } // absolute path
-  | { kind: "url"; value: string }; // full URL
+/**
+ * A local file, and nothing else.
+ *
+ * Still a discriminated union with one member. REX opened a URL in a
+ * `<webview>` once and no longer does — the tier is gone, not merely unreachable
+ * — but the tag is what the `document` table stores and what a second kind
+ * would attach to, so removing the URL did not mean flattening the shape.
+ */
+export type DocumentRef = { kind: "file"; value: string }; // absolute path
 
 export interface DocumentRecord {
   id: string;
   ref: DocumentRef;
   title: string | null;
-  contentHash: string | null; // sha256 of source bytes; null for url
+  contentHash: string | null; // sha256 of source bytes
   lastSeenAt: string; // ISO 8601
 }
 
@@ -410,10 +416,9 @@ export interface SkippedDocument {
 /**
  * How the renderer is meant to present this document (spec 03 §9).
  *
- * A discriminated union rather than a nullable `html`. `html === null` used to
- * mean "this is a webview" — an overload that was unambiguous while there were
- * two cases and is ambiguous now there are three. A union makes the renderer's
- * `switch` exhaustive, so `tsc` finds the branch anybody forgets.
+ * A discriminated union rather than a nullable `html`, so the renderer's
+ * `switch` is exhaustive and `tsc` finds the branch anybody forgets when a
+ * format is added.
  */
 export type DocumentPresentation =
   /** Markdown, HTML and DOCX — main rendered it to a string. */
@@ -428,9 +433,7 @@ export type DocumentPresentation =
    * glyph. Only main knows where the package sits, and it differs between a
    * checkout and a packaged `app.asar`.
    */
-  | { kind: "pdf"; url: string; assetsUrl: string }
-  /** Tier 2 — a remote page in a <webview>. */
-  | { kind: "url" };
+  | { kind: "pdf"; url: string; assetsUrl: string };
 
 /** What `doc:open` hands the renderer. */
 export interface OpenedDocument {
@@ -441,12 +444,7 @@ export interface OpenedDocument {
   title: string | null;
   /** Directory the document's relative assets resolve against. */
   baseDir: string | null;
-  /**
-   * Preload for the tier 2 `<webview>`. The resolver has to run inside that
-   * process (invariant I1) and only main knows where the built file is.
-   */
-  webviewPreload: string | null;
-  /** False for tiers 2 and 3 — no local source file to write back into (§5.2). */
+  /** False for a format with no local source to write back into (§5.2). */
   applyEnabled: boolean;
   /** Shown on hover when applyEnabled is false. */
   applyDisabledReason: string | null;
@@ -478,11 +476,11 @@ export interface ViewState {
   workspaceRoot: string | null;
   document: {
     documentId: string;
-    /** The path or the URL — `ref.value`. */
+    /** The document's absolute path — `ref.value`. */
     value: string;
     kind: DocumentRef["kind"];
     title: string | null;
-    /** `html`, `pdf` or `url`. */
+    /** `html` or `pdf`. */
     presentation: DocumentPresentation["kind"];
     /** How much HTML main handed over, when it handed over any. */
     documentBytes: number | null;

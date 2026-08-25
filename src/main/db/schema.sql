@@ -3,7 +3,11 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS document (
   id            TEXT PRIMARY KEY,
-  kind          TEXT NOT NULL CHECK (kind IN ('file','url')),
+  -- `url` was the second kind until REX stopped opening remote pages. An
+  -- existing database keeps the wider CHECK, because `CREATE TABLE IF NOT
+  -- EXISTS` never rewrites one — and nothing writes 'url' any more, so the
+  -- looser constraint on an old file costs nothing.
+  kind          TEXT NOT NULL CHECK (kind IN ('file')),
   value         TEXT NOT NULL,
   title         TEXT,
   content_hash  TEXT,

@@ -8,7 +8,7 @@
 // boxes — no DOM, no document — which is what lets `test/lasso.spec.ts` put
 // fixture boxes in and read selected boxes out. `blocksInDrawing` is the thin
 // DOM shell around it. Both are free of anything React, IPC or database shaped,
-// so they run unchanged in the tier 1 iframe and in the tier 2 preload.
+// so they run unchanged inside the document frame.
 
 import { isAnchorableBlock, type ScopeRect, toDocumentRect } from "./pick.ts";
 

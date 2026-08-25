@@ -6,8 +6,8 @@
 // text selection, it produces the chain of things the reviewer could anchor to,
 // each described well enough to choose between them before clicking.
 //
-// Pure DOM on purpose. It runs unchanged inside the tier 1 iframe and inside
-// the tier 2 preload, and it holds nothing React, IPC or database shaped.
+// Pure DOM on purpose. It runs unchanged inside the document frame, and it
+// holds nothing React, IPC or database shaped.
 
 import type { Anchor, AnchorExtent, LineRange } from "../../shared/types.ts";
 import { generateCssPath, isStableId } from "./create.ts";
@@ -632,8 +632,8 @@ export function scopeChainForRange(index: TextIndex, range: Range): ScopeChain {
  * Spec 05 §4.1 — the chain to widen through, for an anchor already written.
  *
  * The selection panel keeps items, not chains. A chain holds live `Element`s:
- * they die when the document reloads, they cannot cross the tier 2 bridge, and
- * a stale one resolves to *somewhere* and looks fine. So widening rebuilds the
+ * they die when the document reloads, and a stale one resolves to *somewhere*
+ * and looks fine. So widening rebuilds the
  * chain from the anchor every time, which also means it works after a reload —
  * which the remembered chain never survived.
  *

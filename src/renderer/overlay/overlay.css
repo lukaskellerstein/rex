@@ -560,30 +560,6 @@
   background: var(--raised);
 }
 
-.rex-open-url {
-  display: flex;
-  gap: 6px;
-  padding: 5px;
-  margin-top: 4px;
-  border-top: 1px solid var(--rule-soft);
-}
-
-.rex-url {
-  flex: 1;
-  min-width: 0;
-  padding: 4px 8px;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--sunk);
-  color: var(--fg);
-  font: inherit;
-  font-size: 12px;
-}
-
-.rex-url::placeholder {
-  color: var(--faint);
-}
-
 /* ── Notices ─────────────────────────────────────────────── */
 
 .rex-notice {

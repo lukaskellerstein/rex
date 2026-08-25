@@ -1,8 +1,8 @@
 // design/screens/Main — the 44px bar.
 //
-// The three separate controls the old bar carried — Open file…, Open folder…
-// and a URL field sitting permanently in the chrome — collapse into one
-// `Open ▾`. A field you use once per session should not hold width forever.
+// The two separate controls the old bar carried — Open file… and Open folder…
+// — collapse into one `Open ▾`. A control you use once per session should not
+// hold width forever.
 
 import { useEffect, useRef, useState } from "react";
 // The mark alone — what docs/logo/README.md nominates for "anywhere too small
@@ -26,7 +26,6 @@ interface Props {
   onAskAll: () => void;
   onOpenFile: () => void;
   onOpenFolder: () => void;
-  onOpenUrl: (url: string) => void;
   /** Spec 13 §4.1 — the app's state on the clipboard, for a bug report. */
   onDebug: () => void;
 }
@@ -37,7 +36,6 @@ interface Props {
  * one, because that is the tree the reviewer is looking at.
  */
 function crumbs(doc: OpenedDocument, root: string | null): string[] {
-  if (doc.ref.kind === "url") return [doc.ref.value];
   const path = doc.ref.value;
   const relative = root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
   const parts = relative.split("/").filter(Boolean);
@@ -47,7 +45,6 @@ function crumbs(doc: OpenedDocument, root: string | null): string[] {
 
 export function TopBar(props: Props): React.JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [url, setUrl] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
 
   // A menu that outlives the click that dismissed it is a menu in the way.
@@ -129,20 +126,6 @@ export function TopBar(props: Props): React.JSX.Element {
             >
               Folder as a workspace…
             </button>
-            <div className="rex-open-url">
-              <input
-                className="rex-url"
-                placeholder="https://…"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" || url.trim().length === 0) return;
-                  setMenuOpen(false);
-                  props.onOpenUrl(url.trim());
-                  setUrl("");
-                }}
-              />
-            </div>
           </div>
         ) : null}
       </div>

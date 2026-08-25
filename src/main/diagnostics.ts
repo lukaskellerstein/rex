@@ -9,20 +9,16 @@
 import { app, type WebContents } from "electron";
 import { record, recordError } from "./log.ts";
 
-/** `renderer` for REX's own window, `guest` for a tier 2 `<webview>`. */
-function sourceOf(contents: WebContents): string {
-  return contents.getType() === "webview" ? "guest" : "renderer";
-}
-
 /** `…/App.tsx:412` — where a console line came from, without the whole URL. */
 function origin(sourceId: string, lineNumber: number): string {
   const tail = sourceId.split("/").slice(-2).join("/");
   return tail ? `${tail}:${lineNumber}` : "unknown";
 }
 
-function watch(contents: WebContents): void {
-  const source = sourceOf(contents);
+/** Every `WebContents` REX makes is its own window — there is no guest process. */
+const SOURCE = "renderer";
 
+function watch(contents: WebContents): void {
   // Electron 43 merges the params onto the event object; the trailing
   // (level, message, line, sourceId) arguments of the old signature are
   // deprecated and not read here.
@@ -32,7 +28,7 @@ function watch(contents: WebContents): void {
     if (details.level !== "warning" && details.level !== "error") return;
     record(
       details.level === "error" ? "error" : "warn",
-      source,
+      SOURCE,
       `${details.message} (${origin(details.sourceId, details.lineNumber)})`,
     );
   });
@@ -49,10 +45,10 @@ function watch(contents: WebContents): void {
   });
 
   contents.on("render-process-gone", (_event, details) => {
-    record("error", "crash", `${source} gone: ${details.reason} (exit ${details.exitCode})`);
+    record("error", "crash", `${SOURCE} gone: ${details.reason} (exit ${details.exitCode})`);
   });
 
-  contents.on("unresponsive", () => record("warn", "crash", `${source} is unresponsive`));
+  contents.on("unresponsive", () => record("warn", "crash", `${SOURCE} is unresponsive`));
 }
 
 /**

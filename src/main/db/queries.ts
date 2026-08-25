@@ -28,7 +28,7 @@ const now = (): string => new Date().toISOString();
 
 interface DocumentRow {
   id: string;
-  kind: "file" | "url";
+  kind: "file";
   value: string;
   title: string | null;
   content_hash: string | null;
@@ -93,7 +93,7 @@ interface ApplyRunRow {
 function toDocument(row: DocumentRow): DocumentRecord {
   return {
     id: row.id,
-    ref: { kind: row.kind, value: row.value } as DocumentRef,
+    ref: { kind: row.kind, value: row.value },
     title: row.title,
     contentHash: row.content_hash,
     lastSeenAt: row.last_seen_at,

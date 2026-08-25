@@ -267,12 +267,11 @@ test("one target still in review keeps the whole comment in scope", () => {
 
 test("a comment that names no file is never out of scope", () => {
   const excluded = ["/w/docs/archive"];
-  // A synthesis comment has no targets at all, and a URL document sits under no
-  // directory. Exclusion is a statement about a folder; neither of these names
-  // one, so neither can be its subject.
+  // A synthesis comment has no targets at all, and a target whose document row
+  // has gone resolves to null. Exclusion is a statement about a folder; neither
+  // of these names one, so neither can be its subject.
   assert.equal(outOfReviewScope([], excluded), false);
   assert.equal(outOfReviewScope([null], excluded), false);
-  assert.equal(outOfReviewScope([{ kind: "url", value: "https://example.com" }], excluded), false);
 });
 
 test("a sibling with the excluded folder's name as a prefix stays in review", () => {

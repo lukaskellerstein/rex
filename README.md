@@ -230,7 +230,7 @@ src/
 ├── renderer/    the document view, the shadow-root overlay, the anchor resolver
 │   ├── anchor/     create, resolve, highlight, section, lasso, pick
 │   └── overlay/    the shell, the cards, the sidebar, the graph, the pen
-├── preload/     the contextBridge surface, and the tier 2 webview resolver
+├── preload/     the contextBridge surface
 ├── shared/      types.ts and channels.ts — the contract between the two
 └── cli/         rex export
 ```

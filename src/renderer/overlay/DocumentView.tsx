@@ -1,26 +1,18 @@
 // The document under review, plus the margin REX draws beside it.
 //
-// Tier 1 (§5.2) renders into an iframe that is `sandbox="allow-same-origin"`
+// Every document renders into an iframe that is `sandbox="allow-same-origin"`
 // and nothing else: same-origin so the resolver can reach the DOM for
 // anchoring (§6.3 rule 3), and without `allow-scripts` so a local file's
-// scripts cannot run (§5.4 step 2). Tier 2 renders into a <webview>, where the
-// resolver runs behind a preload instead.
+// scripts cannot run (§5.4 step 2).
 //
 // The pane is a row — frame, then a 32px gutter — rather than a gutter floating
 // over the frame, so nothing the author wrote ever sits under REX's markers.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type ForwardedKey, GUEST_EVENT } from "../../shared/channels.ts";
 import type { OpenedDocument, StrokeRef, ThreadWithMessages } from "../../shared/types.ts";
 import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
-import {
-  type DocumentSurface,
-  FrameSurface,
-  type ResolvedThread,
-  type WebviewElement,
-  WebviewSurface,
-} from "./anchoring.ts";
+import { type DocumentSurface, FrameSurface, type ResolvedThread } from "./anchoring.ts";
 import { enrichDocument } from "./enrich.ts";
 import { Gutter } from "./Gutter.tsx";
 import { Trash } from "./Icons.tsx";
@@ -240,23 +232,15 @@ function forwardKeysToParent(inner: Document): void {
   inner.addEventListener("keyup", forward);
 }
 
-/** The two fields of Electron's `ipc-message` event the overlay reads. */
-interface IpcMessage extends Event {
-  channel: string;
-  args: unknown[];
-}
-
 /** A drag-resize fires continuously; answer once it stops. */
 const RESIZE_SETTLE_MS = 200;
 
 export function DocumentView(props: Props): React.JSX.Element {
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const webviewRef = useRef<WebviewElement>(null);
   const paneRef = useRef<HTMLElement>(null);
 
   const { doc, onSurfaceReady, onSelectionChanged } = props;
-  const isWebview = doc !== null && doc.presentation.kind === "url";
 
   /**
    * Spec 06 §5.4 — where the document's content starts, in pane coordinates,
@@ -299,11 +283,11 @@ export function DocumentView(props: Props): React.JSX.Element {
   const previewRef = useRef(props.onPreview);
   previewRef.current = props.onPreview;
 
-  // ── Tiers 1 and 3: fill the iframe, enrich it, then hand up a surface ──
+  // ── Fill the iframe, enrich it, then hand up a surface ──
 
   useEffect(() => {
     const frame = frameRef.current;
-    if (!doc || doc.presentation.kind === "url" || !frame) return;
+    if (!doc || !frame) return;
 
     // Spec 03 §9 — `presentation` is a union so this stays exhaustive.
     // `noFallthroughCasesInSwitch` is on, so a format added later is a compile
@@ -371,7 +355,7 @@ export function DocumentView(props: Props): React.JSX.Element {
       // Left alone, the frame inherits the reader's own preference, the
       // document's media query decides, and REX renders rather than restyles.
 
-      onSurfaceReady(new FrameSurface(frame, doc.ref.kind === "file" ? doc.ref.value : null));
+      onSurfaceReady(new FrameSurface(frame, doc.ref.value));
     };
 
     // `load` cannot await, so the async work is fired and the `live` flag is
@@ -386,53 +370,6 @@ export function DocumentView(props: Props): React.JSX.Element {
       frame.removeEventListener("load", onLoadEvent);
     };
   }, [doc, onSurfaceReady, onSelectionChanged]);
-
-  // ── Tier 2: the <webview> resolves inside its own process ───
-
-  useEffect(() => {
-    const webview = webviewRef.current;
-    if (doc?.presentation.kind !== "url" || !webview) return;
-
-    const onReady = (): void => {
-      onSurfaceReady(new WebviewSurface(webview));
-      // A remote page scrolls in its own process; markers follow its scroll
-      // rather than the overlay's, and a poll is the cheapest honest way to
-      // track it without another IPC surface.
-      setScroll({ x: 0, y: 0 });
-    };
-
-    // The same forwarding `forwardKeysToParent` does for the iframe. A guest
-    // process cannot dispatch into the overlay's document, so its preload sends
-    // the six fields and the copy is rebuilt on this side.
-    const onGuestKey = (event: Event): void => {
-      const message = event as IpcMessage;
-      if (message.channel !== GUEST_EVENT.key) return;
-      const forwarded = message.args[0] as ForwardedKey;
-      document.dispatchEvent(
-        new KeyboardEvent(forwarded.type, {
-          key: forwarded.key,
-          code: forwarded.code,
-          altKey: forwarded.altKey,
-          shiftKey: forwarded.shiftKey,
-          repeat: forwarded.repeat,
-        }),
-      );
-    };
-
-    webview.addEventListener("dom-ready", onReady);
-    webview.addEventListener("ipc-message", onGuestKey);
-    webview.setAttribute("src", doc.ref.value);
-    return () => {
-      webview.removeEventListener("dom-ready", onReady);
-      webview.removeEventListener("ipc-message", onGuestKey);
-    };
-  }, [doc, onSurfaceReady]);
-
-  useEffect(() => {
-    if (!isWebview) return;
-    const timer = window.setInterval(() => onSelectionChanged(), 700);
-    return () => window.clearInterval(timer);
-  }, [isWebview, onSelectionChanged]);
 
   // ── The pane's own size ─────────────────────────────────────
 
@@ -462,20 +399,11 @@ export function DocumentView(props: Props): React.JSX.Element {
   // every change after that.
   const { zoom, onZoomApplied } = props;
   useEffect(() => {
-    if (isWebview) {
-      // A remote page is another process, so the same one line is executed
-      // inside it. Electron's own `setZoomFactor` would scale the whole
-      // <webview> chrome-side, which is a different thing.
-      void webviewRef.current?.executeJavaScript(
-        `document.documentElement.style.zoom = ${JSON.stringify(String(zoom))}`,
-      );
-    } else {
-      applyZoom(frameRef.current?.contentDocument ?? null, zoom);
-    }
+    applyZoom(frameRef.current?.contentDocument ?? null, zoom);
     // Every box the overlay draws was measured at the old size, so the
     // resolver has to run again before any of them is believable.
     onZoomApplied();
-  }, [zoom, isWebview, onZoomApplied]);
+  }, [zoom, onZoomApplied]);
 
   // One outline per checked target, so a comment written against three rows
   // shows all three. The thread id alone is not unique, hence the position.
@@ -559,20 +487,12 @@ export function DocumentView(props: Props): React.JSX.Element {
         </div>
       ) : null}
 
-      {isWebview ? (
-        <webview
-          ref={webviewRef as unknown as React.Ref<HTMLWebViewElement>}
-          className="rex-frame"
-          preload={doc?.webviewPreload ?? undefined}
-        />
-      ) : (
-        <iframe
-          ref={frameRef}
-          className="rex-frame"
-          title="Document under review"
-          sandbox="allow-same-origin"
-        />
-      )}
+      <iframe
+        ref={frameRef}
+        className="rex-frame"
+        title="Document under review"
+        sandbox="allow-same-origin"
+      />
 
       {/*
         Spec 05 §5.6.1 — what an Apply just changed, in the write colour, while
@@ -734,12 +654,7 @@ export function DocumentView(props: Props): React.JSX.Element {
         The two bars above are the other two; this is the resting one.
       */}
       {props.doc && !props.picking && !props.penning ? (
-        <ModeStrip
-          canPick
-          canDraw={props.doc.presentation.kind !== "url"}
-          onTogglePick={props.onTogglePick}
-          onTogglePen={props.onTogglePen}
-        />
+        <ModeStrip canPick onTogglePick={props.onTogglePick} onTogglePen={props.onTogglePen} />
       ) : null}
     </main>
   );

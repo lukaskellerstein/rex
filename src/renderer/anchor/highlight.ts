@@ -83,8 +83,8 @@ function ensureStylesheet(win: Window): void {
  * SPEC.md §6.7 — replaces every registry wholesale, so a thread that stopped
  * resolving simply stops being painted.
  *
- * `win` is the window owning the ranges: for tier 1 that is the document
- * iframe, not the renderer, and its `CSS.highlights` is a different registry.
+ * `win` is the window owning the ranges: the document iframe, not the
+ * renderer, and its `CSS.highlights` is a different registry.
  */
 export function paintHighlights(
   win: Window,

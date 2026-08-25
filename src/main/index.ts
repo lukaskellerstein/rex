@@ -61,8 +61,6 @@ function createWindow(): BrowserWindow {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // Tier 2 (§5.2, milestone 7) shows a remote page in a <webview>.
-      webviewTag: true,
       // Chromium suspends the "update the rendering" steps for a window it
       // considers hidden — behind another window, on another Space, minimised.
       // Everything that hangs off those steps stops with them:

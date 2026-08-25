@@ -37,16 +37,16 @@ function isUnder(path: string, root: string): boolean {
  * - **Every** file target must be excluded, not merely one. A comment that spans
  *   an excluded appendix and a chapter still in review is a comment about the
  *   chapter, and skipping it would drop a real question on the floor.
- * - A comment with no file target at all — a synthesis comment, or one on a URL
- *   document, which sits under no directory — is never out of scope. Exclusion
- *   is a statement about a folder, and a thread that names no folder cannot be
- *   the subject of one.
+ * - A comment with no file target at all — a synthesis comment, or one whose
+ *   document row has gone — is never out of scope. Exclusion is a statement
+ *   about a folder, and a thread that names no folder cannot be the subject of
+ *   one.
  */
 export function outOfReviewScope(
   targetRefs: ReadonlyArray<DocumentRef | null>,
   excluded: readonly string[],
 ): boolean {
   if (excluded.length === 0) return false;
-  const files = targetRefs.filter((ref) => ref?.kind === "file").map((ref) => ref.value);
+  const files = targetRefs.filter((ref) => ref !== null).map((ref) => ref.value);
   return files.length > 0 && files.every((path) => excluded.some((root) => isUnder(path, root)));
 }

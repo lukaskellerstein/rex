@@ -503,10 +503,11 @@ export function CommentCard(props: Props): React.JSX.Element {
         </div>
 
         {/*
-          The same strip that closes the conversation, at the head of it. A run
-          of 32 steps buries its own strip under the answer it produced, and
-          "what did the agent touch" is asked most often while that answer is
-          still being read.
+          The strip, at the head of the conversation and only there. A run of 32
+          steps buries a closing strip under the answer it produced, and "what
+          did the agent touch" is asked most often while that answer is still
+          being read. A second copy below the transcript said the same thing
+          twice and sat between the answer and the reply box.
         */}
         {steps.length > 0 ? (
           <StepStrip steps={steps} tracing={props.tracing} onShowTrace={props.onShowTrace} />
@@ -527,10 +528,6 @@ export function CommentCard(props: Props): React.JSX.Element {
             <span className="rex-spinner" />
             working…
           </span>
-        ) : null}
-
-        {steps.length > 0 ? (
-          <StepStrip steps={steps} tracing={props.tracing} onShowTrace={props.onShowTrace} />
         ) : null}
       </div>
 

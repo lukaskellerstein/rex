@@ -182,7 +182,6 @@ test("a document Apply cannot edit is skipped, not a refusal for the whole comme
     );
     document.run("md", "file", "/tmp/rex-targets-spec/notes.md", "2026-08-21T00:00:00.000Z");
     document.run("pdf", "file", "/tmp/rex-targets-spec/report.pdf", "2026-08-21T00:00:00.000Z");
-    document.run("url", "url", "https://example.com/page", "2026-08-21T00:00:00.000Z");
 
     const anchor = anchorQuoting("Something worth changing.");
     const thread = createThread(db, {
@@ -190,7 +189,6 @@ test("a document Apply cannot edit is skipped, not a refusal for the whole comme
       targets: [
         { documentId: "md", anchor },
         { documentId: "pdf", anchor },
-        { documentId: "url", anchor },
       ],
       note: "Make these agree.",
       profile: "read",
@@ -200,16 +198,16 @@ test("a document Apply cannot edit is skipped, not a refusal for the whole comme
     assert.deepEqual(plan.editable, ["/tmp/rex-targets-spec/notes.md"]);
     assert.deepEqual(
       plan.skipped.map((entry) => entry.file),
-      ["/tmp/rex-targets-spec/report.pdf", "https://example.com/page"],
+      ["/tmp/rex-targets-spec/report.pdf"],
     );
     assert.match(plan.skipped[0].reason, /Apply cannot edit a PDF/);
 
     // And the card is told it can act, so the button is offered rather than
-    // disabled by the two it must leave alone.
+    // disabled by the one it must leave alone.
     const detailed = withDetail(db, getThread(db, thread.id) ?? thread);
     assert.equal(detailed.applyEnabled, true);
     assert.equal(detailed.applyDisabledReason, null);
-    assert.deepEqual(detailed.documentNames, ["notes.md", "report.pdf", "example.com"]);
+    assert.deepEqual(detailed.documentNames, ["notes.md", "report.pdf"]);
   } finally {
     db.close();
   }

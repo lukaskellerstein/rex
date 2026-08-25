@@ -109,19 +109,6 @@ function escapeHtml(value: string): string {
  * separate path. The IPC handler that calls this already awaits.
  */
 export async function renderDocument(ref: DocumentRef): Promise<RenderedDocument> {
-  if (ref.kind === "url") {
-    // Tier 2 (§5.2): shown in a <webview>, so there is no HTML to hand over
-    // and no local file to write back into.
-    return {
-      presentation: { kind: "url" },
-      contentHash: null,
-      title: null,
-      baseDir: null,
-      applyEnabled: false,
-      applyDisabledReason: "Apply needs a local source file; this document is a URL.",
-    };
-  }
-
   if (isMarkdownPath(ref.value)) {
     const bytes = readFileSync(ref.value);
     const source = bytes.toString("utf8");

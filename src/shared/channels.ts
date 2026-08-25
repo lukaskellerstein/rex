@@ -112,33 +112,6 @@ export const EVENT = {
   renderRequest: "render:request",
 } as const;
 
-/**
- * Guest page → renderer, via `ipcRenderer.sendToHost`.
- *
- * A third axis, and the only one: a tier 2 `<webview>` is its own process, so
- * neither `invoke` nor `send` reaches it. Spec 08 §4.2's keys are bound on the
- * overlay's document and a key pressed in the guest never arrives there.
- */
-export const GUEST_EVENT = {
-  key: "guest:key",
-} as const;
-
-/**
- * The fields of a `KeyboardEvent` the overlay's bindings read.
- *
- * A `KeyboardEvent` is not structured-clonable, so the event cannot cross a
- * process boundary; these six fields are what `App.tsx` and the two layers
- * test, and rebuilding a copy from them is exact for every binding REX has.
- */
-export interface ForwardedKey {
-  type: "keydown" | "keyup";
-  key: string;
-  code: string;
-  altKey: boolean;
-  shiftKey: boolean;
-  repeat: boolean;
-}
-
 // ── Request and response payloads ───────────────────────────────
 
 /**
@@ -146,8 +119,8 @@ export interface ForwardedKey {
  *
  * `root` is the workspace root, or null when a single file was opened by path;
  * main then uses that document's own directory. `documentId` is not a duplicate
- * of it: a tier 2 URL document sits under no directory at all, and without this
- * its comments would vanish the moment the list stopped being per-document.
+ * of it: the open document's own comments must be in the list whatever the root
+ * turns out to be, and naming it is what guarantees that.
  */
 export interface ThreadListRequest {
   root: string | null;

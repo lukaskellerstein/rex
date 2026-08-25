@@ -116,7 +116,7 @@ function currentSourceLine(documentPath: string, anchor: Anchor): number | null 
 function pathsOf(db: Db, thread: Thread): Map<string, string> {
   const paths = new Map<string, string>();
   for (const record of documentsOf(db, thread)) {
-    if (record.ref.kind === "file") paths.set(record.id, record.ref.value);
+    paths.set(record.id, record.ref.value);
   }
   return paths;
 }
@@ -457,7 +457,7 @@ export async function confirmApply(
   const changed = new Set(run.files);
   const changedDocumentIds: string[] = [];
   for (const record of documentsOf(db, thread)) {
-    if (record.ref.kind !== "file" || !changed.has(record.ref.value)) continue;
+    if (!changed.has(record.ref.value)) continue;
     changedDocumentIds.push(record.id);
     try {
       setDocumentHash(db, record.id, sha256(readFileSync(record.ref.value)));

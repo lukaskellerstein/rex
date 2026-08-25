@@ -1,10 +1,11 @@
 // The glue between the anchor resolver (§6) and the overlay (§7).
 //
-// Two tiers, one interface. Tier 1 renders into a same-origin iframe whose DOM
-// the renderer can touch directly. Tier 2 is a <webview>, a separate process
-// whose DOM it cannot — so the same resolver runs *inside* it, loaded by a
-// preload, and only serialisable results come back. Invariant I1 holds either
-// way: resolution happens in a renderer, on the live DOM, never in main.
+// One surface, one interface. The document renders into a same-origin iframe
+// whose DOM the renderer can touch directly, which is what invariant I1 asks
+// for: resolution happens in a renderer, on the live DOM, never in main.
+//
+// `DocumentSurface` is still an interface rather than a class. It is the seam
+// the resolver is called through, and a test double implements it.
 //
 // Not in §3.1's tree — the files it lists are the resolver itself, which stays
 // free of anything React or IPC shaped.
@@ -314,9 +315,11 @@ function documentTop(rect: DOMRect, view: Window): number {
 
 /**
  * SPEC.md §6.5 and §6.6 — resolve every thread against a live DOM, then paint.
- * Shared by both surfaces: the webview preload calls exactly this function.
+ *
+ * Takes the `Window` and `Document` rather than reaching for the frame itself,
+ * so the resolver never assumes which document it is looking at.
  */
-export function resolveAgainst(
+function resolveAgainst(
   view: Window,
   doc: Document,
   threads: Thread[],
@@ -435,7 +438,7 @@ export function resolveAgainst(
  * drops it: `create.ts` gives an element anchor a quote too, and answering the
  * quote first would measure the text rather than the table it was taken from.
  */
-export function rectForAnchorIn(
+function rectForAnchorIn(
   view: Window,
   index: TextIndex,
   anchor: Anchor,
@@ -595,7 +598,7 @@ function labelFor(scope: PickScope | undefined, region: boolean): string {
 }
 
 /** SPEC.md §6.4 — the user's selection becomes an anchor, or nothing. */
-export function anchorFromSelectionIn(
+function anchorFromSelectionIn(
   view: Window,
   index: TextIndex | null,
   sourceFile: string | null,
@@ -644,7 +647,7 @@ export function anchorFromSelectionIn(
  * Every scope writes the same `Anchor` shape: no new fields, and the widening
  * is the same widening the path bar performs before the click.
  */
-export function anchorFromScopeIn(
+function anchorFromScopeIn(
   view: Window,
   index: TextIndex | null,
   chain: ScopeChain | null,
@@ -730,11 +733,8 @@ export function anchorFromScopeIn(
  * that was clicked. Nothing downstream learns a new kind of target, and an
  * agent that never hears the word "pen" still answers correctly — which is the
  * test of whether §5.3 was designed properly.
- *
- * Shared by both surfaces, like `resolveAgainst`: in tier 2 the work has to
- * happen inside the webview's own process, which is why `lasso.ts` is pure DOM.
  */
-export function targetsFromDrawingIn(
+function targetsFromDrawingIn(
   view: Window,
   doc: Document,
   index: TextIndex | null,
@@ -797,11 +797,8 @@ export function targetsFromDrawingIn(
 
 /**
  * Spec 05 §5.6.1 — where an Apply's changed lines landed, as boxes to outline.
- *
- * Shared by both surfaces for the same reason `resolveAgainst` is: the work is
- * DOM work, and in tier 2 it has to happen inside the webview's own process.
  */
-export function boxesForLinesIn(
+function boxesForLinesIn(
   view: Window,
   doc: Document,
   ranges: ReadonlyArray<LineRange>,
@@ -811,7 +808,7 @@ export function boxesForLinesIn(
   );
 }
 
-// ── Tier 1: a same-origin iframe the renderer can reach into ────
+// ── The surface: a same-origin iframe the renderer reaches into ──
 
 export class FrameSurface implements DocumentSurface {
   private index: TextIndex | null = null;
@@ -962,11 +959,8 @@ export class FrameSurface implements DocumentSurface {
 
 /**
  * §3.3 — bring an anchor into view, without touching the document's own tree.
- *
- * Exported because the tier 2 preload needs exactly this, and a second copy of
- * it there is a second place for the run case to be forgotten.
  */
-export function scrollToAnchorIn(view: Window, index: TextIndex, anchor: Anchor): void {
+function scrollToAnchorIn(view: Window, index: TextIndex, anchor: Anchor): void {
   const resolution = resolveAnchor(index, anchor);
   if (!resolution) return;
   const rect =
@@ -979,122 +973,4 @@ export function scrollToAnchorIn(view: Window, index: TextIndex, anchor: Anchor)
   // A third of the way down rather than at the very top: a passage pinned to
   // the top edge reads as if its context has been cut off.
   view.scrollTo({ top: rect.top + view.scrollY - view.innerHeight / 3, behavior: "smooth" });
-}
-
-// ── Tier 2: a <webview>, driven through its preload ─────────────
-
-/** The subset of Electron's <webview> element this file uses. */
-export interface WebviewElement extends HTMLElement {
-  executeJavaScript(code: string): Promise<unknown>;
-}
-
-export class WebviewSurface implements DocumentSurface {
-  private readonly webview: WebviewElement;
-
-  constructor(webview: WebviewElement) {
-    this.webview = webview;
-  }
-
-  private async call<T>(method: string, args: unknown[]): Promise<T | null> {
-    const call = `window.__rexAnchor && window.__rexAnchor.${method}(${args
-      .map((argument) => JSON.stringify(argument))
-      .join(", ")})`;
-    const raw = await this.webview.executeJavaScript(call);
-    return typeof raw === "string" ? (JSON.parse(raw) as T) : null;
-  }
-
-  async resolve(
-    threads: Thread[],
-    documentChanged: boolean,
-    openDocumentId: string,
-    activeThreadId: string | null,
-  ): Promise<ResolvedThread[]> {
-    const result = await this.call<ResolvedThread[]>("resolveAll", [
-      JSON.stringify(threads),
-      documentChanged,
-      openDocumentId,
-      activeThreadId,
-    ]);
-    return result ?? [];
-  }
-
-  async rectsForAnchors(items: AnchorToMeasure[]): Promise<Array<ScopeRect | null>> {
-    const result = await this.call<Array<ScopeRect | null>>("rectsForAnchors", [
-      JSON.stringify(items),
-    ]);
-    return result ?? items.map(() => null);
-  }
-
-  clearTextSelection(): void {
-    void this.webview.executeJavaScript(
-      "window.getSelection() && getSelection().removeAllRanges()",
-    );
-  }
-
-  repaintActive(activeThreadId: string | null): void {
-    void this.webview.executeJavaScript(
-      `window.__rexAnchor && window.__rexAnchor.repaintActive(${JSON.stringify(activeThreadId)})`,
-    );
-  }
-
-  async selectionMade(): Promise<Selected | null> {
-    // A remote page has no local source file, so `Anchor.source` stays null and
-    // Apply is disabled for it (§5.2).
-    return await this.call<Selected>("createFromSelection", []);
-  }
-
-  async probeAt(x: number, y: number, keep: number): Promise<Probe | null> {
-    return await this.call<Probe>("probeAt", [x, y, keep]);
-  }
-
-  async anchorFromScope(index: number): Promise<Selected | null> {
-    return await this.call<Selected>("anchorFromScope", [index]);
-  }
-
-  async anchorFromRegion(index: number, box: ScopeRect): Promise<Selected | null> {
-    return await this.call<Selected>("anchorFromRegion", [index, box]);
-  }
-
-  /**
-   * Spec 06 §11 — the pen is not offered on a remote page in this milestone
-   * set, so nothing calls this here. It exists because `lasso.ts` was written to
-   * run in the preload, which is what keeps tier 2 possible later; the bridge
-   * being in place is the difference between "possible" and "a rewrite".
-   */
-  async targetsFromDrawing(strokes: Stroke[], zoom: number): Promise<Drawn> {
-    const result = await this.call<Drawn>("targetsFromDrawing", [JSON.stringify(strokes), zoom]);
-    return result ?? { targets: [], strokes: [] };
-  }
-
-  async scopesForAnchor(anchor: Anchor, kind: SelectedKind): Promise<Probe | null> {
-    return await this.call<Probe>("scopesForAnchor", [JSON.stringify(anchor), kind]);
-  }
-
-  async anchorFromAnchorScope(
-    anchor: Anchor,
-    kind: SelectedKind,
-    index: number,
-  ): Promise<Selected | null> {
-    return await this.call<Selected>("anchorFromAnchorScope", [
-      JSON.stringify(anchor),
-      kind,
-      index,
-    ]);
-  }
-
-  scrollBy(dx: number, dy: number): void {
-    void this.webview.executeJavaScript(`window.scrollBy(${dx}, ${dy})`);
-  }
-
-  scrollToAnchor(anchor: Anchor): void {
-    void this.webview.executeJavaScript(
-      `window.__rexAnchor && window.__rexAnchor.scrollToAnchor(${JSON.stringify(JSON.stringify(anchor))})`,
-    );
-  }
-
-  async boxesForLines(_ranges: LineRange[]): Promise<ScopeRect[]> {
-    // A remote page has no local source file, so Apply never edits one and
-    // there is nothing here that could have changed (§5.2).
-    return [];
-  }
 }

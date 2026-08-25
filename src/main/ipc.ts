@@ -4,8 +4,7 @@
 // output is `webContents.send`. Nothing here listens on anything.
 
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename, dirname, resolve } from "node:path";
 import { app, type BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -66,7 +65,7 @@ import { allowDirectory, baseHrefFor } from "./protocol.ts";
 import { isPptxPath } from "./render/formats.ts";
 import { renderDocument } from "./render/index.ts";
 import { ensureSidecar } from "./render/pptx.ts";
-import { agentCwd, documentsOf, URL_SCRATCH, withDetail } from "./threads.ts";
+import { agentCwd, documentsOf, SCRATCH_DIR, withDetail } from "./threads.ts";
 import { buildReferenceGraph } from "./workspace/graph.ts";
 import { scanWorkspace } from "./workspace/tree.ts";
 
@@ -173,7 +172,7 @@ export function registerIpc(
    */
   const workingDirectory = (thread: Thread): string => {
     const cwd = agentCwd(db, thread);
-    if (cwd === URL_SCRATCH) mkdirSync(cwd, { recursive: true });
+    if (cwd === SCRATCH_DIR) mkdirSync(cwd, { recursive: true });
     return cwd;
   };
 
@@ -203,7 +202,7 @@ export function registerIpc(
     // Spec 11 §6.4.2 — a `.pptx` is a marker like any other, so the design
     // plugins load for a deck review and a Markdown review pays nothing.
     const document = getDocument(db, thread.documentId);
-    const documentPath = document?.ref.kind === "file" ? document.ref.value : null;
+    const documentPath = document?.ref.value ?? null;
 
     const result = await agents.run(() =>
       runAgent({
@@ -328,7 +327,6 @@ export function registerIpc(
       contentHash: rendered.contentHash,
       title: rendered.title,
       baseDir: rendered.baseDir,
-      webviewPreload: pathToFileURL(join(import.meta.dirname, "..", "preload", "webview.cjs")).href,
       applyEnabled: rendered.applyEnabled,
       applyDisabledReason: rendered.applyDisabledReason,
       // §6.6 — "changed since the comments were written" is what separates
@@ -348,8 +346,7 @@ export function registerIpc(
    */
   handle(COMMAND.threadList, (_event, request: ThreadListRequest): ThreadWithMessages[] => {
     const document = request.documentId ? getDocument(db, request.documentId) : null;
-    const root =
-      request.root ?? (document?.ref.kind === "file" ? dirname(document.ref.value) : null);
+    const root = request.root ?? (document ? dirname(document.ref.value) : null);
     return listThreads(db, { root, documentId: request.documentId }).map((thread) =>
       withDetail(db, thread),
     );
@@ -375,10 +372,8 @@ export function registerIpc(
     if (!thread) throw new Error(`No such thread: ${threadId}`);
 
     const document = getDocument(db, thread.documentId);
-    const documentPath =
-      document?.ref.kind === "file" ? document.ref.value : (document?.ref.value ?? "");
-    const root =
-      document?.ref.kind === "file" ? repositoryRoot(documentPath) : dirname(documentPath);
+    const documentPath = document?.ref.value ?? "";
+    const root = document ? repositoryRoot(documentPath) : dirname(documentPath);
 
     // Spec 05 §5.5 — every target's document, so the prompt can group them.
     // Spec 11 §6.2 — a deck is named by its text sidecar instead of by the zip.
@@ -609,7 +604,7 @@ export function registerIpc(
  * the zip is named and the agent's `Read` fails loudly instead of quietly.
  */
 async function readablePath(ref: DocumentRef): Promise<string> {
-  if (ref.kind !== "file" || !isPptxPath(ref.value)) return ref.value;
+  if (!isPptxPath(ref.value)) return ref.value;
   return (await ensureSidecar(ref.value)) ?? ref.value;
 }
 

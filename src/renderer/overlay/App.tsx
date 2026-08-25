@@ -86,14 +86,9 @@ function same(a: ScopeRect | null, b: ScopeRect | null): boolean {
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
 }
 
-/** Spec 05 §3.5 — the file name, or the host for a URL. Never the whole path. */
+/** Spec 05 §3.5 — the file name. Never the whole path. */
 function nameOf(ref: DocumentRef): string {
-  if (ref.kind === "file") return ref.value.split("/").pop() ?? ref.value;
-  try {
-    return new URL(ref.value).host;
-  } catch {
-    return ref.value;
-  }
+  return ref.value.split("/").pop() ?? ref.value;
 }
 
 interface ApplyOutcome {
@@ -484,7 +479,7 @@ export function App(): React.JSX.Element {
       setChangeBoxes([]);
       return;
     }
-    const path = current.ref.kind === "file" ? current.ref.value : null;
+    const path = current.ref.value;
     const ranges = pending.regions
       .filter((region) => region.file === path)
       .map((region) => ({ from: region.from, to: region.to }));
@@ -610,7 +605,7 @@ export function App(): React.JSX.Element {
 
   const openDocument = useCallback(
     async (ref: DocumentRef): Promise<void> => {
-      if (ref.kind === "file") setSelectedPath(ref.value);
+      setSelectedPath(ref.value);
       const opened = await window.rex.docOpen(ref);
       const list = await window.rex.threadList(listRequest(opened.documentId));
       surfaceRef.current = null;
@@ -641,21 +636,18 @@ export function App(): React.JSX.Element {
    *
    * `frameChildren` is read here rather than tracked, because the case it
    * exists for is the frame never coming up at all: an empty `<body>` beside a
-   * non-zero `documentBytes` is that failure stated. A `<webview>` guest is
-   * another process and its document cannot be reached, so it reports `null` —
+   * non-zero `documentBytes` is that failure stated. It stays nullable — a
+   * frame that has not loaded has no `contentDocument` to count, which is
    * "not measurable", never "empty".
    */
   const viewState = useCallback((): ViewState => {
     const open = docRef.current;
     const list = threadsRef.current;
-    // Tier 2 draws a <webview>, which is another process: its document cannot
-    // be reached, and the box is still worth having.
-    const frame = appRef.current?.querySelector<HTMLElement>("iframe, webview") ?? null;
+    const frame = appRef.current?.querySelector<HTMLIFrameElement>("iframe") ?? null;
     const box = frame?.getBoundingClientRect() ?? null;
     let frameChildren: number | null = null;
     try {
-      frameChildren =
-        (frame as HTMLIFrameElement | null)?.contentDocument?.body?.childElementCount ?? null;
+      frameChildren = frame?.contentDocument?.body?.childElementCount ?? null;
     } catch {
       frameChildren = null;
     }
@@ -705,11 +697,6 @@ export function App(): React.JSX.Element {
         const ref = await window.rex.docPick();
         if (ref) await openDocument(ref);
       }),
-    [guard, openDocument],
-  );
-
-  const openUrl = useCallback(
-    (value: string) => guard(() => openDocument({ kind: "url", value })),
     [guard, openDocument],
   );
 
@@ -901,7 +888,7 @@ export function App(): React.JSX.Element {
         resolvedRef.current.filter((e) => e.state === "orphaned").map((e) => e.threadId),
       );
       const current = docRef.current;
-      const path = current?.ref.kind === "file" ? current.ref.value : null;
+      const path = current?.ref.value ?? null;
       if (!current || !path || !event.files.includes(path)) {
         void refreshChangeBoxes();
         return;
@@ -1490,9 +1477,6 @@ export function App(): React.JSX.Element {
     };
 
     const canPick = doc !== null && centre === "document";
-    // Spec 06 §11 — the pen is not offered on a remote page in this milestone
-    // set: a `<webview>` has no local source file and therefore no Apply.
-    const canDraw = canPick && doc.presentation.kind !== "url";
 
     const onKeyDown = (event: KeyboardEvent): void => {
       if (
@@ -1533,7 +1517,7 @@ export function App(): React.JSX.Element {
         case "N":
           // Spec 06 §5.1 — `P` is already pick, and `N` is the free letter in
           // "pen". Both layers swallow the pointer, so only one can be on.
-          if (!canDraw) return;
+          if (!canPick) return;
           setPicking(false);
           setPenning((on) => !on);
           break;
@@ -1675,7 +1659,6 @@ export function App(): React.JSX.Element {
         onAskAll={askAll}
         onOpenFile={pick}
         onOpenFolder={pickFolder}
-        onOpenUrl={openUrl}
         onDebug={copyDebug}
       />
 
@@ -1938,7 +1921,7 @@ export function App(): React.JSX.Element {
           number={numbers.get(pendingApply.threadId) ?? 0}
           anchorState={stateById.get(pendingApply.threadId) ?? null}
           outlined={changeBoxes.length}
-          openDocumentPath={doc?.ref.kind === "file" ? doc.ref.value : null}
+          openDocumentPath={doc?.ref.value ?? null}
           onOpenFile={(path) => void guard(() => openDocument({ kind: "file", value: path }))}
           onDecide={decideApply}
         />
