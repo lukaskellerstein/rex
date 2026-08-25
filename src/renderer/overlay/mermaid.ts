@@ -93,8 +93,21 @@ export async function drawDiagramPng(source: string, scale = 2): Promise<Uint8Ar
 export async function posterFramePng(
   url: string,
 ): Promise<{ png: Uint8Array; durationSeconds: number }> {
+  // Fetched into a **same-origin blob** rather than loaded from `rex-doc://`
+  // directly. Measured on 2026-08-25: the video decodes fine either way, but
+  // `rex-doc://` is a different origin, so `drawImage` taints the canvas and
+  // `toDataURL` throws `Tainted canvases may not be exported`. A blob URL is
+  // same-origin and does not.
+  //
+  // The alternative — sending the clip's bytes over IPC — is 67 MB of base64
+  // for a 50 MB video, to produce one still picture. `connect-src rex-doc:` is
+  // already allowed for PDF.js's range fetches, so this needs no new privilege.
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`REX could not read the video (${response.status}).`);
+  const blobUrl = URL.createObjectURL(await response.blob());
+
   const video = document.createElement("video");
-  video.src = url;
+  video.src = blobUrl;
   video.muted = true;
   video.preload = "auto";
   // Off-screen but attached: a detached element is allowed not to decode.
@@ -132,6 +145,7 @@ export async function posterFramePng(
     };
   } finally {
     video.remove();
+    URL.revokeObjectURL(blobUrl);
   }
 }
 

@@ -99,20 +99,64 @@ export function writeStep(toolInput: Record<string, unknown>): MessageDraft | nu
   return draft("assistant", "diff", lines.join("\n"));
 }
 
-/** Port of `_classify_error` — an actionable message instead of a stack. */
-export function classifyError(error: unknown): string {
-  const text = error instanceof Error ? error.message : String(error);
+/**
+ * The phrases the SDK itself produces when it cannot start or run its binary.
+ *
+ * Matched as phrases rather than as the words "not found", and that distinction
+ * is the whole point of this constant. The SDK ships and resolves its own
+ * `claude`; it does not look for one on `PATH`. Verified on 2026-08-25 — a query
+ * spawns normally under `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, which is what a
+ * Mac app started from the Dock gets.
+ */
+const EXECUTABLE_FAILURE =
+  /claude code (?:executable|native binary) not found|claude code executable at .* failed to launch|spawn \S*claude\S* enoent/i;
+
+/**
+ * A hint to put ABOVE the error, or null when REX has nothing useful to add.
+ *
+ * Every pattern here matches a phrase only that one failure produces. The
+ * previous version matched substrings — `auth` inside "author", and `not found`
+ * inside any of the dozen sentences that contain it — and a wrong hint is worse
+ * than none, because it is read as a diagnosis.
+ */
+function hintFor(text: string): string | null {
   const lowered = text.toLowerCase();
-  if (lowered.includes("auth") || lowered.includes("api_key") || lowered.includes("401")) {
+
+  if (
+    /\b(401|403)\b/.test(text) ||
+    lowered.includes("api_key") ||
+    lowered.includes("unauthorized") ||
+    lowered.includes("authentication")
+  ) {
     return "Authentication failed. Set ANTHROPIC_API_KEY, or run 'claude login' to authenticate.";
   }
   if (lowered.includes("timeout") || lowered.includes("timed out")) {
     return "The agent timed out. The question may be too broad — try narrowing the comment.";
   }
-  if (lowered.includes("not found") || lowered.includes("enoent")) {
-    return "The Claude Agent SDK could not start. Check that the claude executable is installed and on PATH.";
+  if (EXECUTABLE_FAILURE.test(text)) {
+    return "The Claude Code executable could not be started. Reinstall Claude Code, or set options.pathToClaudeCodeExecutable.";
   }
-  return `Agent error: ${text}`;
+  return null;
+}
+
+/**
+ * Port of `_classify_error` — an actionable message ABOVE the stack, not
+ * instead of it.
+ *
+ * Measured on 2026-08-25, thread `e2c37e06`: a run failed and the debug report
+ * said *"check that the claude executable is installed and on PATH"*. The SDK
+ * does not use `PATH` for that (see `EXECUTABLE_FAILURE`), so the sentence was
+ * not merely unhelpful — it was false, it sent the reader after a bug that does
+ * not exist, and the SDK's own words, which said what had really happened, had
+ * already been thrown away by the `return` that replaced them.
+ *
+ * So the original text always survives. REX may add a sentence in front of it;
+ * REX never speaks in its place.
+ */
+export function classifyError(error: unknown): string {
+  const text = error instanceof Error ? error.message : String(error);
+  const hint = hintFor(text);
+  return hint ? `${hint}\n\n${text}` : `Agent error: ${text}`;
 }
 
 function flattenToolResult(content: unknown): string {
@@ -261,6 +305,9 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       }
     }
   } catch (thrown) {
+    // The stack is what a maintainer needs and the one thing the reviewer's
+    // screen has no room for, so it goes to the console rather than nowhere.
+    console.error("[rex] agent run failed", thrown);
     error = classifyError(thrown);
     emit(draft("system", "error", error, { isError: true }));
   }

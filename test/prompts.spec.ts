@@ -17,7 +17,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
-import { askPrompt } from "../src/main/agent/prompts.ts";
+import { askPrompt, writeInstructions } from "../src/main/agent/prompts.ts";
 import type { Anchor, AnchorTarget, Thread } from "../src/shared/types.ts";
 
 /** Spec 06 §7.1 needs a real source file — the section's range is computed. */
@@ -264,4 +264,45 @@ test("a section target is named by its heading, not quoted as one", () => {
   assert.match(prompt, /2\. Section "3\. Findings"/);
   // A section is not a document, so it gets no read-in-full instruction.
   assert.equal(prompt.includes("Read the document in full"), false);
+});
+
+// ── Spec 12 §4.2 — the tail of an ACT prompt ────────────────────
+//
+// ACT sends the reviewer's own sentence as the instruction. Before spec 12 the
+// instruction WAS the discussion: Apply read the whole transcript and inferred
+// what to do from it, which is why it could not run until the agent had answered
+// once, and why a reviewer who already knew what they wanted had to ask a
+// question first.
+
+test("§4.2 — the instruction and the discussion are two sections, never one", () => {
+  const parts = writeInstructions("YOU: is 1024 right?\nREX: it is the default.", "make it 2048");
+  const prompt = parts.join("\n");
+
+  assert.match(prompt, /## The discussion/);
+  assert.match(prompt, /## What to do/);
+  assert.match(prompt, /make it 2048/);
+  // The conversation is still carried: ACT mid-thread means "yes, do that", and
+  // "that" is only in the transcript.
+  assert.match(prompt, /is 1024 right\?/);
+});
+
+/**
+ * The order comes LAST, and that is the assertion worth keeping.
+ *
+ * A discussion can run to thousands of words of somebody thinking aloud, some
+ * of it abandoned. The instruction is one sentence that supersedes all of it.
+ * Put it first and it reads as the opening of a conversation that then changes
+ * its mind.
+ */
+test("§4.2 — the instruction comes after the discussion, not before it", () => {
+  const prompt = writeInstructions("YOU: what about 4096?", "make it 2048").join("\n");
+  assert.ok(
+    prompt.indexOf("## What to do") > prompt.indexOf("## The discussion"),
+    "the order must be the last thing the agent reads",
+  );
+});
+
+test("§4.2 — an empty discussion is fine, because ACT no longer waits for one", () => {
+  const prompt = writeInstructions("", "set the tile size to 2048").join("\n");
+  assert.match(prompt, /## What to do\nset the tile size to 2048$/);
 });

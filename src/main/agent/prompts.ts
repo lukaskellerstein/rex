@@ -300,6 +300,29 @@ function sectionLineRange(documentPath: string, anchor: Anchor): LineRange | nul
  * produce 1, 3 under one heading and 2 under the other, which is correct: the
  * number identifies the place, not the line of the prompt.
  */
+/**
+ * Spec 12 §4.2 — the tail of every ACT prompt: the context, then the order.
+ *
+ * Two sections, never one. Before this spec the instruction WAS the discussion
+ * — Apply read the whole transcript and inferred what to do from it — and that
+ * is why Apply could not run before the agent had answered at least once, and
+ * why a reviewer who already knew what they wanted had to ask a question first
+ * (§1.3).
+ *
+ * The order comes LAST, and that ordering is the reason this lives here rather
+ * than being inlined at its two call sites. The discussion can run to thousands
+ * of words of somebody thinking aloud, some of it abandoned; the instruction is
+ * one sentence that supersedes all of it. Put it first and it is read as the
+ * opening of a conversation that then changes its mind.
+ *
+ * Both write paths use it — the prose one in `apply.ts` and the deck one in
+ * `pptx/run.ts` — so a deck and a Markdown file are told what to do the same
+ * way.
+ */
+export function writeInstructions(transcript: string, instruction: string): string[] {
+  return ["## The discussion", transcript, "", "## What to do", instruction.trim()];
+}
+
 export function passageSection(input: {
   thread: Thread;
   documentPaths: ReadonlyMap<string, string>;

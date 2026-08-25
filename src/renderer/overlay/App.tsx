@@ -15,6 +15,7 @@ import type {
   ReferenceGraph,
   StrokeRef,
   ThreadWithMessages,
+  ViewState,
   WorkspaceRef,
   WorkspaceTree,
 } from "../../shared/types.ts";
@@ -22,6 +23,7 @@ import { createDocumentAnchor } from "../anchor/create.ts";
 import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import { ApplyResult } from "./ApplyResult.tsx";
+import type { Mode } from "./mode.ts";
 import {
   type DocumentSurface,
   NO_KEPT_SCOPE,
@@ -111,6 +113,29 @@ export function App(): React.JSX.Element {
   const [pendingApply, setPendingApply] = useState<ApplyReadyEvent | null>(null);
   const [applyOutcome, setApplyOutcome] = useState<ApplyOutcome | null>(null);
   const [busyThreads, setBusyThreads] = useState<string[]>([]);
+  /**
+   * Spec 12 §3.3 — the mode each thread's next send will run in.
+   *
+   * Renderer state, keyed by thread id, defaulting to ASK. It is deliberately
+   * NOT persisted, and the argument is one-way: the state that survives a
+   * restart should be the safe one. A thread reopened tomorrow opens on ASK,
+   * which can only cost a click; the opposite mistake costs a diff the reviewer
+   * was not expecting.
+   *
+   * `threads.profile` is not the place for it either. That column records what
+   * the CONVERSATION ran under, and a thread whose row said `write` would run
+   * every later question through the write profile.
+   */
+  const [modeByThread, setModeByThread] = useState<Record<string, Mode>>({});
+  /** §3.2 — the mode a comment that does not exist yet will be created in. */
+  const [selectionMode, setSelectionMode] = useState<Mode>("ask");
+
+  /** §3.3 — ASK unless this thread has been switched. */
+  const modeOf = (threadId: string): Mode => modeByThread[threadId] ?? "ask";
+
+  const setMode = (threadId: string, mode: Mode): void =>
+    setModeByThread((current) => ({ ...current, [threadId]: mode }));
+
   const [notice, setNotice] = useState<string | null>(null);
   // Spec 02: the workspace is a view of a folder, independent of which
   // document is open, so switching documents never disturbs it.
@@ -197,6 +222,22 @@ export function App(): React.JSX.Element {
     hadSelection.current = has;
   }, [selection.length]);
 
+  /**
+   * Spec 08 §3.1 — entering pick or the pen is starting to select, so the tab
+   * that shows a selection comes forward with the mode.
+   *
+   * The edge rule above is not enough on its own. It fires when the panel goes
+   * from empty to holding something, so a *second* place picked while the
+   * reviewer is reading the Comments tab lands in a tab they cannot see, and
+   * the pick reads as having done nothing. Hooking the mode rather than the
+   * place also puts the panel in front before the first click, which is where
+   * the reviewer needs it: the row appears under a heading they are already
+   * looking at.
+   */
+  useEffect(() => {
+    if (picking || penning) setSidebarTab("selection");
+  }, [picking, penning]);
+
   const surfaceRef = useRef<DocumentSurface | null>(null);
   const docRef = useRef<OpenedDocument | null>(null);
   const threadsRef = useRef<ThreadWithMessages[]>([]);
@@ -259,6 +300,20 @@ export function App(): React.JSX.Element {
    */
   const pickChosenByHand = useRef(false);
 
+  /**
+   * Spec 13 §4.2 — the four view fields the debug report needs, and the shell
+   * element it reaches the document frame through.
+   *
+   * Refs and not the render's own values: `copyDebug` is registered once, as a
+   * key binding, and a callback that captured state would report whatever was
+   * true when it was made.
+   */
+  const centreRef = useRef<Centre>("document");
+  const sidebarTabRef = useRef<SidebarTab>("comments");
+  const traceIdRef = useRef<string | null>(null);
+  const noticeRef = useRef<string | null>(null);
+  const appRef = useRef<HTMLDivElement>(null);
+
   docRef.current = doc;
   threadsRef.current = threads;
   workspaceRef.current = workspace;
@@ -268,6 +323,10 @@ export function App(): React.JSX.Element {
   pickActiveRef.current = pickActive;
   pickScopesRef.current = pickScopes;
   zoomRef.current = zoom;
+  centreRef.current = centre;
+  sidebarTabRef.current = sidebarTab;
+  traceIdRef.current = traceId;
+  noticeRef.current = notice;
 
   /**
    * Each thread's targets' states, in target order — the stored one, or the
@@ -576,6 +635,69 @@ export function App(): React.JSX.Element {
       setNotice(error instanceof Error ? error.message : String(error));
     }
   }, []);
+
+  /**
+   * Spec 13 §4 — what the overlay knows about itself, measured at the click.
+   *
+   * `frameChildren` is read here rather than tracked, because the case it
+   * exists for is the frame never coming up at all: an empty `<body>` beside a
+   * non-zero `documentBytes` is that failure stated. A `<webview>` guest is
+   * another process and its document cannot be reached, so it reports `null` —
+   * "not measurable", never "empty".
+   */
+  const viewState = useCallback((): ViewState => {
+    const open = docRef.current;
+    const list = threadsRef.current;
+    // Tier 2 draws a <webview>, which is another process: its document cannot
+    // be reached, and the box is still worth having.
+    const frame = appRef.current?.querySelector<HTMLElement>("iframe, webview") ?? null;
+    const box = frame?.getBoundingClientRect() ?? null;
+    let frameChildren: number | null = null;
+    try {
+      frameChildren =
+        (frame as HTMLIFrameElement | null)?.contentDocument?.body?.childElementCount ?? null;
+    } catch {
+      frameChildren = null;
+    }
+
+    return {
+      window: { width: window.innerWidth, height: window.innerHeight },
+      workspaceRoot: workspaceRef.current?.root ?? null,
+      document: open
+        ? {
+            documentId: open.documentId,
+            value: open.ref.value,
+            kind: open.ref.kind,
+            title: open.title,
+            presentation: open.presentation.kind,
+            documentBytes: open.presentation.kind === "html" ? open.presentation.html.length : null,
+            contentChanged: open.contentChanged,
+            surfaceReady: surfaceRef.current !== null,
+            frameChildren,
+            frameWidth: box ? Math.round(box.width) : null,
+            frameHeight: box ? Math.round(box.height) : null,
+          }
+        : null,
+      centre: centreRef.current,
+      sidebarTab: sidebarTabRef.current,
+      zoom: zoomRef.current,
+      threads: list.length,
+      unanswered: list.filter((thread) => thread.messages.length === 0).length,
+      activeThreadId: activeIdRef.current,
+      traceOpen: traceIdRef.current !== null,
+      selectionItems: selectionRef.current.length,
+      notice: noticeRef.current,
+    };
+  }, []);
+
+  const copyDebug = useCallback(
+    () =>
+      guard(async () => {
+        await window.rex.debugSnapshot(viewState());
+        setNotice("Debug report copied — paste it to Claude Code.");
+      }),
+    [guard, viewState],
+  );
 
   const pick = useCallback(
     () =>
@@ -998,7 +1120,17 @@ export function App(): React.JSX.Element {
       await refreshThreads();
       await sweep();
       setActiveId(thread.id);
-      await withBusy(thread.id, () => window.rex.threadAsk(thread.id));
+
+      // Spec 12 §3.2 and §4 — the panel's mode becomes the new thread's mode,
+      // and decides which channel this first send reaches. ACT here is the flow
+      // §1.3 says was missing: a reviewer who already knows what they want does
+      // not have to ask a question first.
+      const mode = selectionMode;
+      setMode(thread.id, mode);
+      await withBusy(thread.id, async () => {
+        if (mode === "act") await window.rex.threadApply({ threadId: thread.id, note });
+        else await window.rex.threadAsk(thread.id);
+      });
     });
   }, [
     guard,
@@ -1006,6 +1138,7 @@ export function App(): React.JSX.Element {
     leavePick,
     refreshThreads,
     selection,
+    selectionMode,
     selectionNote,
     selectionStroke,
     sweep,
@@ -1421,6 +1554,12 @@ export function App(): React.JSX.Element {
           if (!event.shiftKey) return;
           void askAll();
           break;
+        case "b":
+        case "B":
+          // Spec 13 §4.1 — the free letter, and the mnemonic one. It writes a
+          // string to the clipboard, so unlike ⇧A it needs no shift to be safe.
+          void copyDebug();
+          break;
         default:
           return;
       }
@@ -1443,7 +1582,7 @@ export function App(): React.JSX.Element {
       document.removeEventListener("keyup", onKeyUp);
       if (altTimer !== null) window.clearTimeout(altTimer);
     };
-  }, [arming, askAll, centre, doc, penning, showCentre, workspace, zoomBy]);
+  }, [arming, askAll, centre, copyDebug, doc, penning, showCentre, workspace, zoomBy]);
 
   // ── Apply (§8.7, spec 05 §5.6.1) ────────────────────────────
 
@@ -1484,6 +1623,34 @@ export function App(): React.JSX.Element {
   );
 
   const active = threads.find((thread) => thread.id === activeId) ?? null;
+
+  /**
+   * One reply path, two boxes. The comment card has one and the trace sheet has
+   * one, and they send the same message to the same thread — so the handler is
+   * written once here rather than inlined at each of them, where the two could
+   * quietly stop agreeing about what a reply does.
+   */
+  /**
+   * Spec 12 §4 — one gesture, two destinations.
+   *
+   * The card and the trace sheet both call this, and the mode decides which
+   * channel it reaches. That is the whole change: before, the reply box always
+   * went to the read profile, so "yes, do that" could not be sent and the
+   * reviewer had to find a different button and let the agent infer the
+   * instruction from the transcript.
+   */
+  const replyToActive = (text: string): void => {
+    if (!active) return;
+    const threadId = active.id;
+    if (modeOf(threadId) === "act") {
+      void withBusy(threadId, async () => {
+        await window.rex.threadApply({ threadId, note: text });
+      });
+      return;
+    }
+    void withBusy(threadId, () => window.rex.threadReply({ threadId, text }));
+  };
+
   const unanswered = threads.filter((thread) => thread.messages.length === 0).length;
   const applyTarget = pendingApply
     ? (threads.find((thread) => thread.id === pendingApply.threadId) ?? null)
@@ -1495,7 +1662,7 @@ export function App(): React.JSX.Element {
   const sideHidden = centre !== "document" && selection.length === 0;
 
   return (
-    <div className="rex-app">
+    <div className="rex-app" ref={appRef}>
       <TopBar
         doc={doc}
         workspace={workspace}
@@ -1509,6 +1676,7 @@ export function App(): React.JSX.Element {
         onOpenFile={pick}
         onOpenFolder={pickFolder}
         onOpenUrl={openUrl}
+        onDebug={copyDebug}
       />
 
       {notice ? (
@@ -1618,7 +1786,10 @@ export function App(): React.JSX.Element {
               thread={active}
               number={numbers.get(active.id) ?? 0}
               tokenClass={tokenClass(active.status, stateById.get(active.id) ?? null)}
+              busy={busyThreads.includes(active.id)}
+              mode={modeOf(active.id)}
               onClose={() => setTraceId(null)}
+              onReply={replyToActive}
             />
           ) : null}
 
@@ -1691,6 +1862,8 @@ export function App(): React.JSX.Element {
               scopeActive={rowActive}
               arming={arming}
               hoveredId={hoveredItemId}
+              mode={selectionMode}
+              onMode={setSelectionMode}
               onNote={setSelectionNote}
               onExpand={expandRow}
               onScope={changeRowScope}
@@ -1709,6 +1882,8 @@ export function App(): React.JSX.Element {
               targetStates={targetStatesById.get(active.id) ?? []}
               targetPlaces={targetPlacesById.get(active.id) ?? []}
               busy={busyThreads.includes(active.id)}
+              mode={modeOf(active.id)}
+              onMode={(mode) => setMode(active.id, mode)}
               tracing={traceId === active.id}
               openDocumentId={doc?.documentId ?? null}
               hoveredPlace={hoveredPlace}
@@ -1720,19 +1895,10 @@ export function App(): React.JSX.Element {
                 // The sheet belongs to one comment, so it goes with it.
                 setTraceId(null);
               }}
-              onReply={(text) =>
-                void withBusy(active.id, () =>
-                  window.rex.threadReply({ threadId: active.id, text }),
-                )
-              }
+              onReply={replyToActive}
               onResolve={(resolvedFlag) =>
                 void withBusy(active.id, async () => {
                   await window.rex.threadResolve({ threadId: active.id, resolved: resolvedFlag });
-                })
-              }
-              onApply={() =>
-                void withBusy(active.id, async () => {
-                  await window.rex.threadApply(active.id);
                 })
               }
               onDelete={() => removeThread(active.id)}

@@ -15,9 +15,9 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { applyPlanToPackage } from "../src/main/pptx/edit.ts";
 import {
+  describeSource,
   MAX_IMAGE_BYTES,
   MAX_VIDEO_BYTES,
-  describeSource,
   sniffMediaType,
 } from "../src/main/pptx/media.ts";
 import { openPackage } from "../src/main/pptx/package.ts";
@@ -33,6 +33,7 @@ import {
   structuralProblems,
   videoProblems,
 } from "../src/main/pptx/validate.ts";
+import { slideHtml } from "../src/main/render/pptxSlides.ts";
 import { parseDeck, slideTexts } from "../src/main/render/pptxText.ts";
 
 const AGROFERT = join(
@@ -50,8 +51,12 @@ async function textOf(bytes: Buffer): Promise<string[][]> {
   return slideTexts(deck.slides).map((slide) => slide.shapes.map((shape) => shape.text));
 }
 
-async function run(source: Buffer, plan: EditPlan): ReturnType<typeof applyPlanToPackage> {
-  return applyPlanToPackage(await openPackage(source), plan);
+async function run(
+  source: Buffer,
+  plan: EditPlan,
+  resolver?: Parameters<typeof applyPlanToPackage>[2],
+): ReturnType<typeof applyPlanToPackage> {
+  return applyPlanToPackage(await openPackage(source), plan, resolver);
 }
 
 // ── §7.2.2 — the plan's own rules, before a byte is written ──────
@@ -1051,16 +1056,19 @@ test(
 
 // ── §7.4.5 — moving pictures (milestones 11.10 and 11.11) ───────
 
-const CLIP = join(
-  tmpdir(),
-  "..",
-  "claude-501/-Users-lukaskellerstein-Projects-Github-lukaskellerstein-rex/68094411-0a1c-4af1-936d-5792d2e49372/scratchpad/decktest/clip.mp4",
-);
+/**
+ * Two tiny media files, committed rather than made on the fly.
+ *
+ * §10 says to run against real decks rather than fixtures, and that is about
+ * DECKS: a deck REX's author chose is the one kind that cannot surprise it.
+ * A three-second test pattern is not that — it is a container with real moving
+ * pictures in it, and committing it is what makes §10's moving-picture criteria
+ * runnable on a machine without ffmpeg.
+ */
+const CLIP = join(import.meta.dirname, "fixtures", "clip.mp4");
+const GIF = join(import.meta.dirname, "fixtures", "loop.gif");
 
-/** A tiny animated GIF, made with ffmpeg for this suite. */
-const GIF = CLIP.replace("clip.mp4", "loop.gif");
-
-test("§7.4.5 — a GIF is a picture and needs no new code", { skip: existsSync(GIF) ? false : "no test GIF" }, async () => {
+test("§7.4.5 — a GIF is a picture and needs no new code", skipUnless(GIF), async () => {
   const source = readFileSync(AGROFERT);
   const plan = parsePlan({
     deck: AGROFERT,
@@ -1077,22 +1085,18 @@ test("§7.4.5 — a GIF is a picture and needs no new code", { skip: existsSync(
 
   // `image/gif` is already in the accepted type list and `<p:pic>` is already
   // how a picture is referenced, so `insertImage` handles it whole.
+  const before = await openPackage(source);
   const { bytes } = await run(source, plan);
   const after = await openPackage(bytes);
-  const added = after.paths().filter((part) => !(await0(source)).includes(part));
-  assert.equal(added.length, 1);
+
+  const added = after.paths().filter((part) => !before.paths().includes(part));
+  assert.equal(added.length, 1, `expected one new part, got ${JSON.stringify(added)}`);
   assert.match(added[0], /\.gif$/);
   assert.match(await after.readText("[Content_Types].xml"), /Extension="gif"/);
-  assert.deepEqual(await newProblems(await openPackage(source), after), []);
+  assert.deepEqual(await newProblems(before, after), []);
 });
 
-/** The original's part list, for comparing what an operation added. */
-let originalParts: string[] | null = null;
-function await0(_source: Buffer): string[] {
-  return originalParts ?? [];
-}
-
-test("§7.4.5 — insertVideo writes all six of its pieces", { skip: existsSync(CLIP) ? false : "no test clip" }, async () => {
+test("§7.4.5 — insertVideo writes all six of its pieces", skipUnless(CLIP), async () => {
   const source = readFileSync(AGROFERT);
   const before = await openPackage(source);
 
@@ -1146,8 +1150,10 @@ test("§7.4.5 — insertVideo writes all six of its pieces", { skip: existsSync(
 
   // §7.4.5 — a deck that gains three clips gains tens of megabytes, and a
   // reviewer emailing it afterwards should not learn that from a bounce.
+  // The unit follows the size — "0.0 MB" beside a real clip reads as "nothing
+  // was added" — but both facts are always there.
   assert.ok(
-    outcomes[0].flags.some((flag) => /MB/.test(flag) && /seconds/.test(flag)),
+    outcomes[0].flags.some((flag) => /\d+(\.\d+)? (KB|MB)/.test(flag) && /seconds/.test(flag)),
     `expected size and duration in the preview, got ${JSON.stringify(outcomes[0].flags)}`,
   );
 });
@@ -1196,4 +1202,42 @@ test("§6.4.3 — generated media is absent without a key, not broken", () => {
   });
   assert.equal(plan.operations.length, 1);
   setGenerationEnabled(false);
+});
+
+test("§4.8 — a video is an ordinary element, so it is anchorable", skipUnless(CLIP), async () => {
+  const source = readFileSync(AGROFERT);
+  const resolver = {
+    drawDiagram: async (): Promise<Buffer> => {
+      throw new Error("not used here");
+    },
+    drawPoster: async (): Promise<{ png: Buffer; durationSeconds: number }> => ({
+      png: TINY_PNG,
+      durationSeconds: 3,
+    }),
+  };
+  const plan = parsePlan({
+    deck: AGROFERT,
+    operations: [
+      {
+        op: "insertVideo",
+        slide: 4,
+        box: { x: 0.1, y: 0.5, w: 0.4, h: 0.3 },
+        source: { from: "file", path: CLIP },
+        alt: "A clip",
+      },
+    ],
+  });
+
+  const { bytes } = await run(source, plan, resolver);
+  const deck = await parseDeck(bytes);
+  const html = slideHtml(deck.slides[3], 4, (ref) => `rex-doc://media/${ref.split("/").pop()}`);
+
+  // §4.8 — "Both are ordinary elements, so both are anchorable and
+  // commentable." That is only true if the reader draws the video inside a
+  // named `.rex-shape`, which is what every anchor layer keys on.
+  assert.match(html, /<div class="rex-shape"[^>]*data-kind="video"/);
+  assert.match(html, /<video class="rex-media"[^>]*controls/);
+  // §4.8 — and it does NOT autoplay: a reviewer scrolling a deck should not be
+  // ambushed by five clips starting at once.
+  assert.ok(!/<video[^>]*autoplay/.test(html), "a deck's clips never start on their own");
 });

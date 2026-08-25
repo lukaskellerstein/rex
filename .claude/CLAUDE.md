@@ -93,8 +93,12 @@ restate them here.
   repo root (`package.json`, `tsconfig.json`, `electron.vite.config.ts`).
 - Installing declared dependencies — the ones `SPEC.md` §3.2 names — and running
   `electron-rebuild` for `better-sqlite3`.
-- Building and launching REX locally, including with
-  `--remote-debugging-port=9334`.
+- Building and launching REX locally. Since spec 13 the debugger port needs no
+  flag — every run opens 9334 — so **check `curl -s http://localhost:9334/json/version`
+  before starting one**: an answering endpoint is a REX that already exists, and
+  it is probably the reviewer's own.
+- Reading `~/.rex/rex.log` — this run's errors, renderer console included, with
+  no debugger needed.
 - Driving the running app with the `mcp__playwright-rex__browser_*` tools, and
   closing the browser afterwards.
 - Deleting and recreating `~/.rex/rex.db` **during development**, when a schema

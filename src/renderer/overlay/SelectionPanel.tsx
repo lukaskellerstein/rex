@@ -15,8 +15,10 @@
 import { useState } from "react";
 import type { RegionRef } from "../../shared/types.ts";
 import type { AnchorStrength, PickScope } from "../anchor/pick.ts";
-import { Shield, Trash } from "./Icons.tsx";
+import { Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
+import type { Mode } from "./mode.ts";
+import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
 import type { SelectionItem } from "./selection.ts";
 
 interface Props {
@@ -38,6 +40,13 @@ interface Props {
   onArmRegion: () => void;
   onRemove: (id: string) => void;
   onClear: () => void;
+  /**
+   * Spec 12 §3.2 — ASK for a new comment, always. A comment is a question until
+   * its author says otherwise, and the switch is how they say otherwise.
+   */
+  mode: Mode;
+  onMode: (mode: Mode) => void;
+  /** Sends in `mode`. §4 — ASK goes to `thread:ask`, ACT to `thread:apply`. */
   onAsk: () => void;
   onHover: (id: string | null) => void;
   onReorder: (from: number, to: number) => void;
@@ -294,27 +303,46 @@ export function SelectionPanel(props: Props): React.JSX.Element {
       <div className="rex-selection-foot">
         <textarea
           className="rex-input"
-          placeholder="What about these?"
+          placeholder={props.mode === "act" ? "What should change here?" : "What about these?"}
           value={props.note}
           onChange={(event) => props.onNote(event.target.value)}
-          onKeyDown={onSendChord(canAsk, props.onAsk)}
+          onKeyDown={(event) => {
+            // §3.1 — ⇧⇥ toggles the mode from inside the box, without sending.
+            // Checked first, and it must preventDefault: the browser's own
+            // meaning for ⇧⇥ is "walk focus backwards out of this field".
+            if (isModeChord(event)) {
+              event.preventDefault();
+              props.onMode(other(props.mode));
+              return;
+            }
+            onSendChord(canAsk, props.onAsk)(event);
+          }}
         />
         <div className="rex-row">
+          {/*
+            Spec 12 §3 — the switch replaces the `read-only` badge that used to
+            sit here. The badge stated a fact the reviewer could not change,
+            which is exactly what this control now lets them change; leaving
+            both would say the mode is fixed and offer to move it in one row.
+          */}
+          <ModeSwitch mode={props.mode} actDisabled={null} onPick={props.onMode} />
+          <span className="rex-spacer" />
           <button
             type="button"
-            className="rex-button rex-primary"
-            title={`Ask about ${props.items.length === 1 ? "this place" : `these ${props.items.length} places`} — ${SEND_CHORD_HINT}`}
-            // The note is the question; without it there is nothing to ask.
+            className={`rex-button rex-primary${props.mode === "act" ? " rex-button-write" : ""}`}
+            title={
+              props.mode === "act"
+                ? `Change ${props.items.length === 1 ? "this place" : `these ${props.items.length} places`} — you will see a diff before anything is kept — ${SEND_CHORD_HINT}`
+                : `Ask about ${props.items.length === 1 ? "this place" : `these ${props.items.length} places`} — ${SEND_CHORD_HINT}`
+            }
+            // The note is the question, or the instruction. Without it there is
+            // nothing to ask and nothing to do (§4.3).
             disabled={!canAsk}
             onClick={props.onAsk}
           >
-            Ask about {props.items.length}
+            {props.mode === "act" ? "Change" : "Ask about"} {props.items.length}
             <SendChord />
           </button>
-          <span className="rex-readonly" title="The read profile cannot write to disk">
-            <Shield />
-            read-only
-          </span>
         </div>
       </div>
     </section>

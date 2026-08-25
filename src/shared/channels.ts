@@ -17,6 +17,7 @@ import type {
   StrokeRef,
   Thread,
   ThreadWithMessages,
+  ViewState,
   WorkspaceRef,
   WorkspaceTree,
 } from "./types.ts";
@@ -78,6 +79,15 @@ export const COMMAND = {
    * reviewer is trying to report a bug.
    */
   debugCopy: "debug:copy",
+  /**
+   * Spec 13 §4 — the app's own state, on the clipboard.
+   *
+   * A separate channel from `debug:copy` rather than a nullable argument on it.
+   * That one names a thread and always will; the failure this one is for
+   * happens before any thread exists, and a channel that means two things
+   * depending on a null is the kind of economy that costs an afternoon later.
+   */
+  debugSnapshot: "debug:snapshot",
 } as const;
 
 /** Main → renderer, via `webContents.send`. */
@@ -101,6 +111,33 @@ export const EVENT = {
    */
   renderRequest: "render:request",
 } as const;
+
+/**
+ * Guest page → renderer, via `ipcRenderer.sendToHost`.
+ *
+ * A third axis, and the only one: a tier 2 `<webview>` is its own process, so
+ * neither `invoke` nor `send` reaches it. Spec 08 §4.2's keys are bound on the
+ * overlay's document and a key pressed in the guest never arrives there.
+ */
+export const GUEST_EVENT = {
+  key: "guest:key",
+} as const;
+
+/**
+ * The fields of a `KeyboardEvent` the overlay's bindings read.
+ *
+ * A `KeyboardEvent` is not structured-clonable, so the event cannot cross a
+ * process boundary; these six fields are what `App.tsx` and the two layers
+ * test, and rebuilding a copy from them is exact for every binding REX has.
+ */
+export interface ForwardedKey {
+  type: "keydown" | "keyup";
+  key: string;
+  code: string;
+  altKey: boolean;
+  shiftKey: boolean;
+  repeat: boolean;
+}
 
 // ── Request and response payloads ───────────────────────────────
 
@@ -148,6 +185,19 @@ export interface WorkspaceExcludeRequest {
 export interface ThreadReplyRequest {
   threadId: string;
   text: string;
+}
+
+/**
+ * Spec 12 §4.2 — an ACT send.
+ *
+ * `note` is what the reviewer typed with the switch on ACT, and it is the
+ * instruction. Before this spec the same channel took a bare `threadId` and the
+ * agent inferred what to do from the transcript, which is why Apply could not
+ * run until something had been said. Empty is not valid: §4.3.
+ */
+export interface ThreadApplyRequest {
+  threadId: string;
+  note: string;
 }
 
 export interface ThreadResolveRequest {
@@ -294,11 +344,13 @@ export interface RexApi {
   /** Removes the comment and everything that belonged to it. Irreversible. */
   threadDelete(threadId: string): Promise<void>;
   threadSynthesise(request: ThreadSynthesiseRequest): Promise<Thread>;
-  threadApply(threadId: string): Promise<string>;
+  threadApply(request: ThreadApplyRequest): Promise<string>;
   applyConfirm(request: ApplyConfirmRequest): Promise<ApplyConfirmResponse>;
   anchorRestate(request: AnchorRestateRequest): Promise<void>;
   /** Puts this thread's debug report on the clipboard and returns it. */
   debugCopy(threadId: string): Promise<string>;
+  /** Spec 13 §4 — the same, for the app rather than for one comment. */
+  debugSnapshot(view: ViewState): Promise<string>;
 
   onStreamStep(listener: (message: Message) => void): () => void;
   onStreamCost(listener: (event: CostEvent) => void): () => void;

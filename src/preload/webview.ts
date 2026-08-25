@@ -9,7 +9,7 @@
 // walking its ancestors is DOM work, so the renderer sends coordinates and gets
 // back descriptions. The live elements never leave this process.
 
-import { contextBridge } from "electron";
+import { contextBridge, ipcRenderer } from "electron";
 import { type HighlightHit, paintHighlights } from "../renderer/anchor/highlight.ts";
 import type { Stroke } from "../renderer/anchor/lasso.ts";
 import {
@@ -28,6 +28,7 @@ import {
   scrollToAnchorIn,
   targetsFromDrawingIn,
 } from "../renderer/overlay/anchoring.ts";
+import type { ForwardedKey, GUEST_EVENT } from "../shared/channels.ts";
 import type { Anchor, Thread } from "../shared/types.ts";
 
 let index: TextIndex | null = null;
@@ -158,3 +159,42 @@ contextBridge.exposeInMainWorld("__rexAnchor", {
     scrollToAnchorIn(window, index, JSON.parse(anchorJson) as Anchor);
   },
 });
+
+/**
+ * The channel name is written out rather than imported as a value.
+ *
+ * `channels.ts` is a value import in `index.ts`, and the two preload entries
+ * sharing one value module makes Rollup emit `chunks/channels-*.cjs` — which
+ * Electron cannot load, because a preload script is a single file with no
+ * module resolution. Measured on 2026-08-25: `index.cjs` shrank from 5.15 kB to
+ * 2.52 kB, the window came up with no `window.rex` at all, and every IPC call
+ * threw. It is the same fault the `externalizeDepsPlugin` note in
+ * `electron.vite.config.ts` records, from the other direction.
+ *
+ * The type annotation is what keeps the literal honest: rename the channel in
+ * `channels.ts` and this stops compiling.
+ */
+const KEY_CHANNEL: (typeof GUEST_EVENT)["key"] = "guest:key";
+
+/**
+ * Spec 08 §4.2 — the mode keys, sent out of the guest process.
+ *
+ * The same hole `forwardKeysToParent` closes for tier 1, one process further
+ * away: every REX binding lives on the overlay's document, and a key pressed in
+ * the page under review reaches nothing. `⌘`/`ctrl` combinations stay here —
+ * they belong to the page and to Electron, not to REX.
+ */
+for (const type of ["keydown", "keyup"] as const) {
+  document.addEventListener(type, (event: KeyboardEvent) => {
+    if (event.ctrlKey || event.metaKey) return;
+    const forwarded: ForwardedKey = {
+      type,
+      key: event.key,
+      code: event.code,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      repeat: event.repeat,
+    };
+    ipcRenderer.sendToHost(KEY_CHANNEL, forwarded);
+  });
+}

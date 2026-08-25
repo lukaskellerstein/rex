@@ -9,12 +9,15 @@ import { useState } from "react";
 import { totalsOf } from "../../shared/totals.ts";
 import type { AnchorState, Message, ThreadWithMessages } from "../../shared/types.ts";
 import { tokenClass } from "./Gutter.tsx";
-import { Bubble, ChevronLeft, ChevronRight, Pencil, Shield, Sparkle, Trash } from "./Icons.tsx";
+import { Bubble, ChevronLeft, ChevronRight, Pencil, Sparkle, Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
+import type { Mode } from "./mode.ts";
+import { ModeBadge } from "./ModeBadge.tsx";
+import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
 import { placeWords } from "./place.ts";
 import { Prose } from "./prose.tsx";
-import { progressOf, washClass } from "./ThreadRow.tsx";
-import { argumentOf } from "./trace.ts";
+import { stepsOf, StepStrip } from "./StepStrip.tsx";
+import { washClass } from "./ThreadRow.tsx";
 
 /** What the sweep found out about one place, or nothing where it could not look. */
 export interface PlaceFacts {
@@ -39,6 +42,17 @@ interface Props {
   /** What each target turned out to be and where it now sits, in target order. */
   targetPlaces: PlaceFacts[];
   busy: boolean;
+  /**
+   * Spec 12 §3.2 — the mode this thread's next send will run in, and the mode
+   * the band above the card is showing.
+   *
+   * A prop rather than `thread.profile`, because the thread's stored profile is
+   * `read` for its whole life: an ACT run uses a `write` agent WITHOUT rewriting
+   * the row, so a card that read the row would say ASK through the one run that
+   * can change a file. §3.3 says where it does live.
+   */
+  mode: Mode;
+  onMode: (mode: Mode) => void;
   /** Spec 08 §6 — true while this comment's trace is covering the pane. */
   tracing: boolean;
   /** Spec 08 §7 — the open document, so a row knows if it has a mark to light. */
@@ -51,52 +65,8 @@ interface Props {
   onBack: () => void;
   onReply: (text: string) => void;
   onResolve: (resolved: boolean) => void;
-  onApply: () => void;
   /** Removes the comment for good. The card confirms before calling it. */
   onDelete: () => void;
-}
-
-interface Step {
-  id: string;
-  name: string;
-  detail: string;
-  denied: boolean;
-}
-
-/**
- * The machinery, in order. One step per tool CALL — never one per message.
- *
- * A refused call arrives as two rows: the `tool_call`, and a `tool_result`
- * carrying the refusal. Pushing both made the strip draw eight bars for seven
- * calls and disagree with the meta strip beside it, which counts calls. So an
- * error result marks the call it belongs to instead of adding to the list: a
- * result follows its own call in `seq` order, so the most recent step that is
- * not already denied is that call.
- *
- * The refusal is kept, not dropped. `deny` in red is how the read profile's
- * gate becomes visible, and that is worth a whole design rule.
- */
-function stepsOf(thread: ThreadWithMessages): Step[] {
-  const steps: Step[] = [];
-  for (const message of thread.messages) {
-    if (message.kind === "tool_call") {
-      steps.push({
-        id: message.id,
-        name: message.toolName ?? "tool",
-        detail: argumentOf(message),
-        denied: false,
-      });
-      continue;
-    }
-    if (message.kind !== "tool_result" || !message.isError) continue;
-
-    const call = steps.findLast((step) => !step.denied);
-    if (call) {
-      call.denied = true;
-      call.detail = `${call.detail} — ${message.content ?? "refused"}`;
-    }
-  }
-  return steps;
 }
 
 /** The conversation: what the agent said, and what the reviewer said back. */
@@ -169,55 +139,6 @@ function turnsOf(thread: ThreadWithMessages): Turn[] {
 }
 
 /**
- * Spec 08 §5.4 — the step strip. The machinery, standing in for itself.
- *
- * One bar per tool call, in order, so the SHAPE of a run reads at a glance
- * without opening anything: four quick reads look nothing like one long search.
- *
- * The bars are neutral ON PURPOSE. Colour means state in this design, and
- * "which tool ran" is not a state. The single exception is a denied write —
- * taller, and in the same red the write-capable agent wears everywhere else —
- * because the gate firing is the one step worth seeing at a glance.
- *
- * The whole row opens the trace (§6), which takes the document pane. It does
- * not open a list in place any more: a bash line, a path or a diff is wide, and
- * 384px wraps all three into mush.
- */
-function ToolSteps({
-  steps,
-  tracing,
-  onShowTrace,
-}: {
-  steps: Step[];
-  tracing: boolean;
-  onShowTrace: () => void;
-}): React.JSX.Element {
-  const denied = steps.filter((step) => step.denied).length;
-
-  return (
-    <div className={tracing ? "rex-steps rex-steps-on" : "rex-steps"}>
-      <button type="button" className="rex-steps-toggle" onClick={onShowTrace}>
-        <span className="rex-strip-bars" aria-hidden="true">
-          {steps.map((step) => (
-            <i
-              key={step.id}
-              className={step.denied ? "rex-strip-deny" : ""}
-              title={`${step.name} · ${step.detail}`}
-            />
-          ))}
-        </span>
-        {steps.length} step{steps.length === 1 ? "" : "s"}
-        {denied > 0 ? <span className="rex-strip-denied">· {denied} denied</span> : null}
-        <span className="rex-steps-show">
-          {tracing ? "showing" : "show trace"}
-          {tracing ? null : <ChevronRight />}
-        </span>
-      </button>
-    </div>
-  );
-}
-
-/**
  * One place's state, in words. Spec 05 §5.4.
  *
  * `null` is the case worth being careful about: it means nobody has looked,
@@ -286,19 +207,21 @@ function costLine(thread: ThreadWithMessages, turns: number): string {
  *
  * The answer is the one block here that is a raised, bordered card: it outranks
  * the machinery, and on a column this narrow a difference in text colour alone
- * did not survive being scrolled past. It carries the profile it ran under on
- * its own head, where the claim is made, rather than in a strip of book-keeping
- * that a reviewer has no reason to read.
+ * did not survive being scrolled past.
+ *
+ * Spec 12 §7.1 — it no longer carries a profile pill. That pill was drawn on a
+ * FINISHED answer, so it appeared exactly when it was least needed and was
+ * absent during the run, which is when a refusal happens. `ModeBadge` on the
+ * card head says the same thing from the first step. One card, one mode, one
+ * place.
  */
 const VOICE_LABEL: Record<Voice, string> = { you: "YOU ASKED", agent: "ANSWER", note: "NOTE" };
 
 function TurnBlock({
   turn,
-  profile,
   footer,
 }: {
   turn: Turn;
-  profile: string;
   /** The thread's cost, on the last answer only. */
   footer: string | null;
 }): React.JSX.Element {
@@ -311,14 +234,7 @@ function TurnBlock({
         {answer ? <Sparkle /> : turn.voice === "you" ? <Bubble size={12} /> : null}
         <span className="rex-label">{turn.failed ? "ERROR" : VOICE_LABEL[turn.voice]}</span>
         <span className="rex-spacer" />
-        {answer ? (
-          <span className="rex-pill-profile" title={`Answered by the ${profile} profile`}>
-            <Shield size={10} />
-            {profile.toUpperCase()}
-          </span>
-        ) : (
-          <span className="rex-turn-spent">{clock(turn.at)}</span>
-        )}
+        <span className="rex-turn-spent">{clock(turn.at)}</span>
       </div>
 
       {answer ? (
@@ -439,7 +355,6 @@ export function CommentCard(props: Props): React.JSX.Element {
   const { thread } = props;
   const steps = stepsOf(thread);
   const turns = turnsOf(thread);
-  const { answered } = progressOf(thread);
   const spansDocuments = thread.documentNames.length > 1;
   // The cost rides the LAST answer, so a long thread reports itself once, at
   // the bottom, beside the reply box the reviewer is about to use.
@@ -523,8 +438,32 @@ export function CommentCard(props: Props): React.JSX.Element {
         ) : null}
       </header>
 
-      <div className="rex-card">
-        <div className={`rex-card-anchor ${washClass(thread.status, props.anchorState)}`}>
+      {/*
+        Spec 12 §7.1 — a band between the head and the card, not a row inside
+        it. The card scrolls; the mode must not. A mode that scrolls away is
+        absent for most of a long run, which is the whole failure this replaces.
+      */}
+      <ModeBadge mode={props.mode} busy={props.busy} />
+
+      {/*
+        Pinned, above the conversation: the places the comment is about, and the
+        strip that opens the trace.
+
+        Both answer a question a reviewer asks WHILE reading an answer — "which
+        passage is this about" and "what did it actually run" — and both used to
+        sit at the two ends of one scrolling column, so a long answer pushed one
+        off the top and the other off the bottom. Only the conversation scrolls
+        now.
+
+        The list of places is the part that can grow, so it is the part that is
+        capped and scrolls inside itself. The strip is one row and stays outside
+        that cap — a control that can be scrolled out of the pinned area is not
+        pinned.
+      */}
+      <div className="rex-card-head">
+        <div
+          className={`rex-card-anchor rex-card-places ${washClass(thread.status, props.anchorState)}`}
+        >
           <div className="rex-card-anchor-head">
             <span className={`rex-token ${tokenClass(thread.status, props.anchorState)}`}>
               {props.number}
@@ -571,11 +510,22 @@ export function CommentCard(props: Props): React.JSX.Element {
           {noteInConversation ? null : <p className="rex-card-note">{thread.note}</p>}
         </div>
 
+        {/*
+          The same strip that closes the conversation, at the head of it. A run
+          of 32 steps buries its own strip under the answer it produced, and
+          "what did the agent touch" is asked most often while that answer is
+          still being read.
+        */}
+        {steps.length > 0 ? (
+          <StepStrip steps={steps} tracing={props.tracing} onShowTrace={props.onShowTrace} />
+        ) : null}
+      </div>
+
+      <div className="rex-card">
         {turns.map((turn) => (
           <TurnBlock
             key={turn.id}
             turn={turn}
-            profile={thread.profile}
             footer={turn.id === lastAnswer?.id ? costLine(thread, turns.length) : null}
           />
         ))}
@@ -588,29 +538,56 @@ export function CommentCard(props: Props): React.JSX.Element {
         ) : null}
 
         {steps.length > 0 ? (
-          <ToolSteps steps={steps} tracing={props.tracing} onShowTrace={props.onShowTrace} />
+          <StepStrip steps={steps} tracing={props.tracing} onShowTrace={props.onShowTrace} />
         ) : null}
       </div>
 
       <div className="rex-reply">
         <textarea
           className="rex-input"
-          placeholder="Reply to this thread"
+          placeholder={props.mode === "act" ? "What should change?" : "Reply to this thread"}
           value={reply}
           onChange={(event) => setReply(event.target.value)}
-          onKeyDown={onSendChord(canSend, sendReply)}
+          onKeyDown={(event) => {
+            // Spec 12 §3.1 — toggle the mode without leaving the box. This is
+            // the gesture the whole spec is for: a conversation that started as
+            // a question ends in "yes, do that", and that sentence is typed
+            // here.
+            if (isModeChord(event)) {
+              event.preventDefault();
+              props.onMode(other(props.mode));
+              return;
+            }
+            onSendChord(canSend, sendReply)(event);
+          }}
         />
         <div className="rex-row">
+          {/*
+            Spec 12 §3.4 — `applyDisabledReason` used to grey out `Apply…`. It
+            greys out the ACT segment now, carrying the same sentence, because
+            that is where the choice is made.
+          */}
+          <ModeSwitch
+            mode={props.mode}
+            actDisabled={thread.applyEnabled ? null : (thread.applyDisabledReason ?? "")}
+            onPick={props.onMode}
+          />
           <button
             type="button"
-            className="rex-button rex-primary"
-            title={`Send this reply — ${SEND_CHORD_HINT}`}
+            className={`rex-button rex-primary${props.mode === "act" ? " rex-button-write" : ""}`}
+            title={
+              props.mode === "act"
+                ? `Make this change in ${thread.documentNames.join(", ")} — you will see a diff before anything is kept — ${SEND_CHORD_HINT}`
+                : `Send this reply — ${SEND_CHORD_HINT}`
+            }
             disabled={!canSend}
             onClick={sendReply}
           >
-            Send
+            {props.mode === "act" ? <Pencil /> : null}
+            {props.mode === "act" ? "Change" : "Send"}
             <SendChord />
           </button>
+          <span className="rex-spacer" />
           <button
             type="button"
             className="rex-button"
@@ -619,30 +596,20 @@ export function CommentCard(props: Props): React.JSX.Element {
           >
             {thread.status === "open" ? "Resolve" : "Reopen"}
           </button>
-          <button
-            type="button"
-            className="rex-button rex-button-write"
-            disabled={props.busy || !answered || !thread.applyEnabled}
-            title={
-              thread.applyEnabled
-                ? `Let a write-capable agent make this change in ${thread.documentNames.join(", ")} — you will see it before anything is kept`
-                : (thread.applyDisabledReason ?? "")
-            }
-            onClick={props.onApply}
-          >
-            <Pencil />
-            Apply…
-          </button>
         </div>
 
         {/*
           Spec 05 §5.6 — said before the button is pressed, not after. A comment
           about three documents leads to a change in three documents, and the
           reviewer should know that while deciding, not while reading a diff.
+
+          Spec 12 §5 — shown while ACT is selected, which is now when the
+          decision is being made. Under ASK it is not yet a decision about
+          anything.
         */}
-        {spansDocuments && thread.applyEnabled ? (
+        {props.mode === "act" && spansDocuments && thread.applyEnabled ? (
           <span className="rex-meta">
-            Apply edits {thread.documentNames.join(", ")}. You see every change, in each document,
+            This edits {thread.documentNames.join(", ")}. You see every change, in each document,
             before anything is kept.
           </span>
         ) : null}

@@ -24,11 +24,16 @@ export const IMAGE_REL_TYPE =
 export const VIDEO_REL_TYPE =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships/video";
 
-/** Place 1 — a media part name nothing in the package already uses. */
-export function freeMediaPart(pkg: DeckPackage, extension: string): string {
+/**
+ * Place 1 — a media part name nothing in the package already uses.
+ *
+ * Named for what it is: a clip called `rex-image1.mp4` is a small lie that
+ * anyone unzipping the deck later has to see through.
+ */
+export function freeMediaPart(pkg: DeckPackage, extension: string, kind = "image"): string {
   const taken = new Set(pkg.paths());
   for (let n = 1; ; n++) {
-    const candidate = `ppt/media/rex-image${n}.${extension}`;
+    const candidate = `ppt/media/rex-${kind}${n}.${extension}`;
     if (!taken.has(candidate)) return candidate;
   }
 }

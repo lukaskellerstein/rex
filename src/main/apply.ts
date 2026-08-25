@@ -24,7 +24,7 @@ import type {
   Thread,
 } from "../shared/types.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
-import { passageSection } from "./agent/prompts.ts";
+import { passageSection, writeInstructions } from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
 import { renderTranscript } from "./agent/transcript.ts";
 import type { Db } from "./db/database.ts";
@@ -126,6 +126,7 @@ function writePrompt(input: {
   thread: Thread;
   root: string;
   files: string[];
+  instruction: string;
   transcript: string;
 }): string {
   const parts = ["Files you may edit:"];
@@ -142,8 +143,24 @@ function writePrompt(input: {
     }),
   );
 
-  parts.push("## The discussion", input.transcript);
+  parts.push(...writeInstructions(input.transcript, input.instruction));
   return parts.join("\n");
+}
+
+/**
+ * The conversation so far, WITHOUT the instruction that started this run.
+ *
+ * `thread:apply` records the reviewer's text as a user message before calling
+ * in, so the card shows it while the agent works. That message is the last one
+ * in the list, and leaving it in the transcript would print the instruction
+ * twice — once as the order and once as the final line of its own context.
+ */
+function transcriptBefore(db: Db, threadId: string, note: string): string {
+  const messages = listMessages(db, threadId);
+  const last = messages.at(-1);
+  const earlier =
+    last?.role === "user" && last.content === note ? messages.slice(0, -1) : messages;
+  return renderTranscript(earlier);
 }
 
 /** Spec 05 §5.6 — the editable documents, grouped by the repository that owns them. */
@@ -221,6 +238,7 @@ async function startDeckApply(
   decks: string[],
   others: string[],
   skipped: SkippedDocument[],
+  instruction: string,
 ): Promise<string> {
   const { db } = context;
   for (const file of others) {
@@ -232,7 +250,7 @@ async function startDeckApply(
   }
 
   const run = createApplyRun(db, thread.id);
-  const transcript = renderTranscript(listMessages(db, thread.id));
+  const transcript = transcriptBefore(db, thread.id, instruction);
   const previews: DeckPreview[] = [];
 
   for (const [position, deckPath] of decks.entries()) {
@@ -240,6 +258,7 @@ async function startDeckApply(
       const result = await runDeckApply({
         runKey: deckRunKey(run.id, position),
         deckPath,
+        instruction,
         transcript,
         passages: passageSection({
           thread,
@@ -274,10 +293,21 @@ async function startDeckApply(
 }
 
 /** SPEC.md §8.7 steps 1–4, across every document the comment is about. */
-export async function startApply(context: ApplyContext, threadId: string): Promise<string> {
+export async function startApply(
+  context: ApplyContext,
+  threadId: string,
+  instruction: string,
+): Promise<string> {
   const { db } = context;
   const thread = getThread(db, threadId);
   if (!thread) throw new Error(`No such thread: ${threadId}`);
+  // §4.3 — ACT with an empty box does nothing. The button is disabled for it,
+  // and this is the backstop: an empty instruction reaches the agent as an
+  // order to do nothing in particular, which is the one way a write run can go
+  // wrong without anybody having asked for anything.
+  if (instruction.trim().length === 0) {
+    throw new Error("Say what to change. ACT needs an instruction, not an empty message.");
+  }
 
   const plan = applyPlan(db, thread);
   const skipped = [...plan.skipped];
@@ -290,6 +320,7 @@ export async function startApply(context: ApplyContext, threadId: string): Promi
       decks,
       plan.editable.filter((path) => !isPptxPath(path)),
       skipped,
+      instruction,
     );
   }
 
@@ -305,7 +336,7 @@ export async function startApply(context: ApplyContext, threadId: string): Promi
   refuseDirtyTargets(groups);
 
   const run = createApplyRun(db, threadId);
-  const transcript = renderTranscript(listMessages(db, threadId));
+  const transcript = transcriptBefore(db, threadId, instruction);
 
   const touched: string[] = [];
   const diffs: string[] = [];
@@ -319,7 +350,7 @@ export async function startApply(context: ApplyContext, threadId: string): Promi
     const result = await runAgent({
       cwd: root,
       profile: "write",
-      prompt: writePrompt({ db, thread, root, files, transcript }),
+      prompt: writePrompt({ db, thread, root, files, instruction, transcript }),
       // One session per repository: two turns sharing a session id would resume
       // the first one's transcript in the second one's working directory.
       sessionId: sessionIdFor(`${run.id}:${root}`),

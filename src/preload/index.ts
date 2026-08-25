@@ -27,10 +27,11 @@ const api: RexApi = {
   threadResolve: (request) => ipcRenderer.invoke(COMMAND.threadResolve, request),
   threadDelete: (threadId) => ipcRenderer.invoke(COMMAND.threadDelete, threadId),
   threadSynthesise: (request) => ipcRenderer.invoke(COMMAND.threadSynthesise, request),
-  threadApply: (threadId) => ipcRenderer.invoke(COMMAND.threadApply, threadId),
+  threadApply: (request) => ipcRenderer.invoke(COMMAND.threadApply, request),
   applyConfirm: (request) => ipcRenderer.invoke(COMMAND.applyConfirm, request),
   anchorRestate: (request) => ipcRenderer.invoke(COMMAND.anchorRestate, request),
   debugCopy: (threadId) => ipcRenderer.invoke(COMMAND.debugCopy, threadId),
+  debugSnapshot: (view) => ipcRenderer.invoke(COMMAND.debugSnapshot, view),
   renderResult: (request) => ipcRenderer.invoke(COMMAND.renderResult, request),
 
   onStreamStep: (listener) => subscribe(EVENT.streamStep, listener),

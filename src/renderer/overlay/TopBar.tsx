@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 // copied into src/, so there is one source of truth for the brand.
 import logo from "../../../docs/logo/mark/rex-mark-color-128.png";
 import type { OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
-import { ChevronDown } from "./Icons.tsx";
+import { Bug, ChevronDown } from "./Icons.tsx";
 
 interface Props {
   doc: OpenedDocument | null;
@@ -27,6 +27,8 @@ interface Props {
   onOpenFile: () => void;
   onOpenFolder: () => void;
   onOpenUrl: (url: string) => void;
+  /** Spec 13 §4.1 — the app's state on the clipboard, for a bug report. */
+  onDebug: () => void;
 }
 
 /**
@@ -231,6 +233,26 @@ export function TopBar(props: Props): React.JSX.Element {
         onClick={props.onAskAll}
       >
         Ask all · {props.unanswered}
+      </button>
+
+      {/*
+        Spec 13 §4.1 — icon only, and always there. It is about the APP, not
+        about the document, so it must still work when nothing opened; that
+        failure is the one it was written for.
+
+        Last in the bar, past the primary action. Everything to its left acts on
+        the document under review; this one acts on REX itself, and the end of
+        the row is where a control that belongs to nothing else can sit without
+        being read as part of the group before it.
+      */}
+      <button
+        type="button"
+        className="rex-icon-button rex-debug"
+        title="Copy a debug report — what REX is doing, its debugger port and its recent errors. Paste it to Claude Code — B"
+        aria-label="Copy a debug report"
+        onClick={props.onDebug}
+      >
+        <Bug />
       </button>
     </header>
   );

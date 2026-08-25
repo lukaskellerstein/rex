@@ -36,6 +36,25 @@ launching its own browser:
    a snapshot, don't just assert the page loaded.
 3. **Close the browser when done.**
 
+> [!important]
+> **If 9334 already answers, that REX is very probably Lukas's own**, started
+> with `npm run dev` — spec 13 §2.1 gives every run the port, so an answering
+> endpoint is no longer evidence that an agent left one behind. Attach to it;
+> do not quit it, restart it, or start a second one beside it. Ask first.
+>
+> Two things follow from spec 13 and are worth knowing before debugging blind:
+>
+> - **`~/.rex/rex.log`** holds this run's errors — renderer console included —
+>   and can be read with no debugger at all. Start there.
+> - **The reviewer can hand you the whole state**: the `B` key, or the bug
+>   button in the top bar, copies a report naming the port, the open document,
+>   the frame's state and the recent errors. If they are reporting a bug and did
+>   not paste one, ask for it before guessing.
+>
+> A second REX cannot have the port — Chromium fails to bind it and runs on
+> with no debugger, silently. `REX_CDP_PORT=9444 npm run dev` is how a second
+> one gets its own.
+
 > The browser opens on its own desktop/space and is closed automatically at
 > session end by `.claude/hooks/`. That is a safety net, not a substitute for
 > closing it yourself when the test is finished.

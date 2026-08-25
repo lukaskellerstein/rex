@@ -432,6 +432,18 @@
   color: var(--lost-text);
 }
 
+/*
+  Spec 13 §4.1 — the debug button, in the bar beside the running cost.
+
+  Dim until it is wanted, like every other icon-only control here. It is the one
+  control in the bar that still means something when nothing is open, so it is
+  never disabled and never hidden.
+*/
+.rex-debug:hover {
+  background: var(--raised);
+  color: var(--fg-dim);
+}
+
 /* ── Context menu ────────────────────────────────────────── */
 
 .rex-menu {
@@ -1462,12 +1474,92 @@
   background: var(--active);
 }
 
-.rex-readonly {
+/*
+  Spec 12 §3.1 — the mode switch, in the selection panel's foot and the comment
+  card's reply row.
+
+  It replaces `.rex-readonly`, the `read-only` badge that used to sit in the
+  panel foot. That badge stated a fact the reviewer could not change, which is
+  exactly what this control now lets them change — keeping both would say the
+  mode is fixed and offer to move it, in one row.
+
+  A segmented control and not a dropdown, for the reason in §3.1: with two
+  options that are both always relevant, folding one away hides the current
+  state as well as the alternative.
+*/
+.rex-modeswitch {
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-left: auto;
+  gap: 7px;
+  flex: none;
+}
+
+/*
+  The track. One sunken groove holding both segments, so the pair reads as a
+  switch rather than as two buttons that happen to touch.
+
+  The first version bordered each segment and put a `.rex-key` cap beside them,
+  which drew three outlined boxes in a row: the reviewer could not tell the
+  control from its own keyboard hint. Chrome belongs to the track, the accent
+  belongs to the selected segment, and the hint gets no box at all.
+*/
+.rex-modetrack {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: var(--well);
+}
+
+.rex-modeseg {
+  padding: 3px 11px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
   color: var(--faint);
+  font-family: inherit;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.rex-modeseg:hover:not(:disabled):not(.rex-modeseg-on) {
+  color: var(--fg-dim);
+}
+
+.rex-modeseg:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/*
+  The thumb: a SOLID pill in the mode's accent, with the panel's own ground as
+  its text. The same two colours the band above the card uses (§7.1), so the
+  switch and the band agree without either of them explaining itself.
+
+  Solid rather than tinted, because this is the one control on the card whose
+  state changes what the next send DOES. A tint reads as "hovered".
+*/
+.rex-modeseg-ask.rex-modeseg-on {
+  background: #4d84e8;
+  color: var(--bg);
+}
+
+.rex-modeseg-act.rex-modeseg-on {
+  background: #d9b23a;
+  color: var(--bg);
+}
+
+/* The hint. No border: beside a two-segment control a cap reads as a third. */
+.rex-modehint {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono);
   font-size: 10px;
 }
 
@@ -1986,6 +2078,57 @@
 
 /* ── The open thread ─────────────────────────────────────── */
 
+/*
+  What the comment is about, and what the run did — held above the conversation
+  and never scrolled.
+
+  The card used to be one scroller holding the places, the whole conversation
+  and the step strip. A 32-step answer therefore pushed the passage off the top
+  and the strip off the bottom, so the two facts a reviewer needs WHILE reading
+  were the two that were never on screen.
+*/
+.rex-card-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: none;
+  padding: 14px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.rex-card-head > * {
+  flex: none;
+}
+
+/*
+  The list of places is the only part of the head that can grow, so it is the
+  only part that is capped and scrolls inside itself: a comment on eight places
+  would otherwise pin two thirds of the column and leave the answer a slot.
+
+  `vh` and not a percentage — the head sizes itself from its content, so a
+  percentage height inside it has nothing definite to resolve against. The
+  320px ceiling is for the tall window, where a quarter of the screen is more
+  pinned quotes than anyone reads before scrolling to the answer.
+*/
+.rex-card-places {
+  max-height: min(24vh, 320px);
+  overflow-y: auto;
+}
+
+/* A capped column flex box shrinks its rows; these must scroll past instead. */
+.rex-card-places > * {
+  flex: none;
+}
+
+/*
+  The conversation, on a ground of its own.
+
+  It is the one part of this column that scrolls, and a scrolling region that
+  shares its surface with the fixed rows above and below it reads as one long
+  page that happens to move in the middle. So it is sunk to the app's own ground
+  — the deepest surface in the stepped set — and the head's rule and the reply
+  box then sit on it as edges rather than as more of the same.
+*/
 .rex-card {
   display: flex;
   flex-direction: column;
@@ -1993,6 +2136,9 @@
   flex: 1;
   min-height: 0;
   padding: 14px;
+  background: var(--bg);
+  /* The well's own edge, under the head's rule: depth says "this part moves". */
+  box-shadow: inset 0 7px 8px -8px #000;
   overflow-y: auto;
 }
 
@@ -2113,18 +2259,115 @@
 }
 
 /* The read profile's promise, on the head of the answer it constrained. */
-.rex-pill-profile {
+/*
+  Spec 12 §7.1 — the mode badge, at the head of the card.
+
+  It replaces `.rex-pill-profile`, which was a pill on the ANSWER block: drawn
+  only once a run had finished, and therefore absent for the whole of the run,
+  which is when a refusal happens and when the promise is the thing a reviewer
+  wants to read. This is a full-width band rather than a pill because it carries
+  the promise as well as the name, and the promise is the half worth reading.
+*/
+/*
+  A BAND, and a peer of the card's head — not a row inside the scrolling card.
+
+  The first draft was a bordered strip at the top of `.rex-card`, in `--sunk`
+  with `--muted` text. Two things were wrong with it and they compounded: it
+  scrolled away with the conversation, so it was absent for most of a long run;
+  and at that weight it read as a caption on the anchor block below it, which
+  made it look like a note about the comment rather than a state the agent is
+  in. A mode is a state you are in. It gets the weight of one.
+
+  The accent is carried three times over — the left rule, the icon, and the
+  name — because one of them alone is a colour a reviewer stops seeing.
+*/
+.rex-mode-badge {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   flex: none;
-  padding: 1px 8px;
-  border: 1px solid var(--rule);
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--mode-edge);
+  background: var(--mode-bg);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+/* ASK is cool and settled. ACT is warm and awake. */
+.rex-mode-ask {
+  --mode-edge: #4d84e8;
+  --mode-bg: #1b2634;
+}
+
+.rex-mode-act {
+  --mode-edge: #d9b23a;
+  --mode-bg: var(--write-bg);
+}
+
+.rex-mode-badge svg {
+  flex: none;
+  color: var(--mode-edge);
+}
+
+.rex-mode-name {
+  flex: none;
+  color: var(--mode-edge);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+/*
+  `--fg-dim` and not `--muted`. The promise is the half of this band worth
+  reading, and at `--muted` on a tinted ground it was the faintest thing in the
+  panel.
+*/
+.rex-mode-promise {
+  min-width: 0;
+  color: var(--fg-dim);
+}
+
+/* The mode is a standing fact; this says it is being exercised right now. */
+.rex-mode-live {
+  flex: none;
+  width: 6px;
+  height: 6px;
   border-radius: 999px;
-  color: var(--muted);
+  background: var(--mode-edge);
+  animation: rex-mode-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rex-mode-pulse {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* §4.3 — the mode a refusal happened in, beside DENIED. */
+.rex-trace-mode {
+  flex: none;
+  color: var(--lost-text);
   font-size: 9.5px;
   font-weight: 600;
   letter-spacing: 0.06em;
+}
+
+/* §4.2 — the same fact, once, in the sheet's own head. */
+.rex-trace-mode-line {
+  flex: none;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.rex-trace-mode-line strong {
+  color: var(--fg-dim);
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .rex-turn-error .rex-label,
@@ -2470,6 +2713,16 @@
   The order is the bar's own priority: what the comment says, then what it cost,
   and a refusal and the two controls survive both.
 */
+/*
+  The card's step strip, in the head of the sheet it opens. It follows the
+  summary's rule rather than the controls': a 32-step run is 160px of bars, and
+  on a narrow pane the shape is what can be clipped without losing a fact.
+*/
+.rex-trace-bar .rex-strip-bars {
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+
 .rex-trace-summary {
   flex: 0 1 auto;
   min-width: 0;
@@ -2730,6 +2983,54 @@
   padding: 12px 14px 14px;
   border-top: 1px solid var(--rule-soft);
   background: var(--well);
+}
+
+/*
+  The trace's own reply box — the same send, at the foot of the sheet.
+
+  A ROW, where the card stacks. The card's column is 384px wide, so its box and
+  its buttons have to stack; the sheet has the whole document pane, and stacking
+  there puts the button a long way below the last word typed. So the box grows
+  and the send sits beside it, baseline-aligned to the bottom of the textarea
+  the reviewer just finished in.
+
+  `.rex-input` is `width: 100%`, which is right in a column and wrong in a row —
+  it fixes the flex base at the full pane and the button gets squeezed out. The
+  override is the whole reason this rule reaches into it.
+
+  It WRAPS, and the 220px basis is what makes it wrap in time. The document pane
+  is not a fixed width — the explorer and the comments column are both draggable,
+  and at a 200px pane an unwrapped row squeezed the box down to two letters
+  beside a full-size Send. Measured on 2026-08-25 at that width. Below the
+  basis the send drops onto its own line and the box keeps the width it needs,
+  which is the card's stack arrived at from the other direction.
+*/
+.rex-trace-reply {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 12px;
+  flex: none;
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--rule-soft);
+  background: var(--well);
+}
+
+.rex-trace-reply .rex-input {
+  flex: 1 1 220px;
+  width: auto;
+  min-width: 0;
+}
+
+.rex-trace-send {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  /* Right-hand end of its line, wrapped or not. */
+  margin-left: auto;
+  /* Level with the textarea's last line, not floating above it. */
+  padding-bottom: 2px;
 }
 
 /* ── Reference graph (spec 02 §5.6) ──────────────────────── */

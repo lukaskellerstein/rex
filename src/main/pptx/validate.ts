@@ -370,10 +370,7 @@ export async function intentProblems(
  * inferred from the file opening: **a missing `p14:media` extension opens
  * fine and never plays.** So all six are looked for by name.
  */
-export async function videoProblems(
-  pkg: DeckPackage,
-  slidePart: string,
-): Promise<IntentProblem[]> {
+export async function videoProblems(pkg: DeckPackage, slidePart: string): Promise<IntentProblem[]> {
   const problems: IntentProblem[] = [];
   const xml = await pkg.readText(slidePart);
 
@@ -385,7 +382,10 @@ export async function videoProblems(
   if (!video) {
     problems.push({ operation: "insertVideo", message: "The slide has no video relationship." });
   } else if (!pkg.has(resolveTarget(slidePart, video.target))) {
-    problems.push({ operation: "insertVideo", message: "The video relationship points at nothing." });
+    problems.push({
+      operation: "insertVideo",
+      message: "The video relationship points at nothing.",
+    });
   }
 
   // §7.4.5 step 2 — a video with no poster is a black rectangle in the editing

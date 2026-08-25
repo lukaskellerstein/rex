@@ -23,7 +23,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { DeckPreview, DeckSlidePreview } from "../../shared/channels.ts";
 import { sessionIdFor } from "../agent/profiles.ts";
-import { DECK_WRITE_SYSTEM_PROMPT, NO_GENERATION_NOTE } from "../agent/prompts.ts";
+import { DECK_WRITE_SYSTEM_PROMPT, NO_GENERATION_NOTE, writeInstructions } from "../agent/prompts.ts";
 import { runAgent } from "../agent/runner.ts";
 import type { MessageDraft } from "../db/queries.ts";
 import { ensureSidecar, renderSlidePage } from "../render/pptx.ts";
@@ -68,6 +68,8 @@ export interface DeckApplyInput {
    */
   runKey: string;
   deckPath: string;
+  /** Spec 12 §4.2 — what the reviewer typed in ACT mode. The order itself. */
+  instruction: string;
   /** The discussion, rendered the way the prose path renders it. */
   transcript: string;
   /** What the reviewer highlighted, already described. */
@@ -89,6 +91,7 @@ function buildPrompt(input: {
   sidecarPath: string;
   planPath: string;
   passages: string[];
+  instruction: string;
   transcript: string;
 }): string {
   return [
@@ -97,8 +100,9 @@ function buildPrompt(input: {
     `Write your plan to: ${input.planPath}`,
     "",
     ...input.passages,
-    "## The discussion",
-    input.transcript,
+    // Spec 12 §4.2 — the same tail the prose path uses, so a deck and a
+    // Markdown file are told what to do the same way.
+    ...writeInstructions(input.transcript, input.instruction),
   ].join("\n");
 }
 
@@ -140,6 +144,7 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
       sidecarPath,
       planPath: plans,
       passages: input.passages,
+      instruction: input.instruction,
       transcript: input.transcript,
     }),
     // §8.1 — one turn, one session, and the id has to be a UUID the SDK will

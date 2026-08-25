@@ -453,3 +453,63 @@ export interface OpenedDocument {
   /** True when the file changed since the anchors were written (§6.6). */
   contentChanged: boolean;
 }
+
+/**
+ * Spec 13 §4.2 — what the overlay knows about itself, for the debug report.
+ *
+ * Nothing else can produce it: which tab is open, what the document frame did,
+ * and what notice is on screen are facts only the renderer holds. It travels as
+ * one argument on `debug:snapshot` and is never stored.
+ *
+ * No document text, no comment text — §3.4. `documentBytes` is a size, and the
+ * note fields are counts.
+ */
+export interface ViewState {
+  /**
+   * The window's own size, in CSS pixels.
+   *
+   * Measured on 2026-08-25 and the reason this field exists: a tiling window
+   * manager gave REX an 857px column of a 3440px screen, the two side panels
+   * kept their widths, and the document pane collapsed to a 164px strip. The
+   * document had rendered — 102 nodes, right title — and was invisible. Nothing
+   * else in this report could have said so.
+   */
+  window: { width: number; height: number };
+  workspaceRoot: string | null;
+  document: {
+    documentId: string;
+    /** The path or the URL — `ref.value`. */
+    value: string;
+    kind: DocumentRef["kind"];
+    title: string | null;
+    /** `html`, `pdf` or `url`. */
+    presentation: DocumentPresentation["kind"];
+    /** How much HTML main handed over, when it handed over any. */
+    documentBytes: number | null;
+    contentChanged: boolean;
+    /**
+     * Whether the document frame ever came up and registered its surface.
+     *
+     * `false` beside a non-zero `documentBytes` is spec 13 §1's own bug stated
+     * in one line: main rendered the document and the frame never appeared.
+     */
+    surfaceReady: boolean;
+    /** Children of the frame's `<body>`, or `null` when it cannot be reached. */
+    frameChildren: number | null;
+    /** The document pane's size on screen. A width near zero is the bug above. */
+    frameWidth: number | null;
+    frameHeight: number | null;
+  } | null;
+  centre: "document" | "graph";
+  sidebarTab: string;
+  /** 1 is 100%. */
+  zoom: number;
+  threads: number;
+  unanswered: number;
+  activeThreadId: string | null;
+  traceOpen: boolean;
+  /** Rows in the selection panel — a comment being built. */
+  selectionItems: number;
+  /** The notice bar's text, which is where a failed command already shows up. */
+  notice: string | null;
+}

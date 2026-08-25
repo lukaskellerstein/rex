@@ -12,12 +12,13 @@ import {
   type AnchorRestateRequest,
   type ApplyConfirmRequest,
   COMMAND,
-  type RenderResultRequest,
   EVENT,
   type InitialTarget,
+  type RenderResultRequest,
   type ThreadCreateRequest,
   type ThreadListRequest,
   type ThreadReplyRequest,
+  type ThreadApplyRequest,
   type ThreadResolveRequest,
   type ThreadSynthesiseRequest,
   type WorkspaceExcludeRequest,
@@ -30,6 +31,7 @@ import type {
   ReferenceGraph,
   Thread,
   ThreadWithMessages,
+  ViewState,
   WorkspaceRef,
   WorkspaceTree,
 } from "../shared/types.ts";
@@ -38,6 +40,7 @@ import { askPrompt, synthesisPrompt } from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
 import { renderTranscript, replayPrompt, sessionExists } from "./agent/transcript.ts";
 import { type ApplyContext, confirmApply, startApply } from "./apply.ts";
+import type { CdpStatus } from "./cdp.ts";
 import type { Db } from "./db/database.ts";
 import {
   appendMessage,
@@ -55,8 +58,10 @@ import {
   toggleWorkspaceRule,
   upsertDocument,
 } from "./db/queries.ts";
-import { debugReport } from "./debug.ts";
+import { appReport, debugReport } from "./debug.ts";
 import { porcelainStatus, repositoryRoot } from "./git.ts";
+// Aliased: `registerIpc` has its own `record`, which appends a message row.
+import { entries, lineCount, logFile, record as logLine } from "./log.ts";
 import { allowDirectory, baseHrefFor } from "./protocol.ts";
 import { isPptxPath } from "./render/formats.ts";
 import { renderDocument } from "./render/index.ts";
@@ -94,7 +99,33 @@ class Semaphore {
   }
 }
 
-export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void {
+/**
+ * Spec 13 §3.3 — a command that throws says so, and nothing else changes.
+ *
+ * The error is recorded with its channel name and then rethrown UNCHANGED, so
+ * `guard` in `App.tsx` still shows the same notice it always showed. The only
+ * thing this adds is that the failure stops being invisible to whoever ran
+ * `npm run dev` — `doc:open` refusing a file extension was the line spec 13 §1
+ * went looking for and could not find anywhere.
+ */
+type InvokeHandler = Parameters<typeof ipcMain.handle>[1];
+
+function handle(channel: string, listener: InvokeHandler): void {
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await listener(event, ...args);
+    } catch (error) {
+      logLine("error", "ipc", `${channel} — ${error instanceof Error ? error.message : error}`);
+      throw error;
+    }
+  });
+}
+
+export function registerIpc(
+  db: Db,
+  getWindow: () => BrowserWindow | null,
+  getCdp: () => CdpStatus,
+): void {
   const agents = new Semaphore(MAX_CONCURRENT_AGENTS);
 
   const send = (channel: string, payload: unknown): void => {
@@ -221,7 +252,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
 
   // ── Documents ─────────────────────────────────────────────────
 
-  ipcMain.handle(COMMAND.docPick, async (): Promise<DocumentRef | null> => {
+  handle(COMMAND.docPick, async (): Promise<DocumentRef | null> => {
     const window = getWindow();
     const result = await (window
       ? dialog.showOpenDialog(window, pickerOptions())
@@ -230,7 +261,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     return { kind: "file", value: result.filePaths[0] };
   });
 
-  ipcMain.handle(COMMAND.docInitial, (): InitialTarget | null => {
+  handle(COMMAND.docInitial, (): InitialTarget | null => {
     // `rex <path>` — the first argument that exists, skipping the executable,
     // the app path, and every --flag Electron adds. Spec 02 §7: a directory
     // opens as a workspace, a file as a single document.
@@ -247,7 +278,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
 
   // ── Workspace (spec 02 §7) ────────────────────────────────────
 
-  ipcMain.handle(COMMAND.workspacePick, async (): Promise<WorkspaceRef | null> => {
+  handle(COMMAND.workspacePick, async (): Promise<WorkspaceRef | null> => {
     const window = getWindow();
     const options: Electron.OpenDialogOptions = {
       title: "Open a folder",
@@ -260,30 +291,27 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     return { root: result.filePaths[0] };
   });
 
-  ipcMain.handle(
-    COMMAND.workspaceTree,
-    (_event, ref: WorkspaceRef, reveal: boolean): WorkspaceTree => {
-      // The whole workspace is served over rex-doc://, so a document's siblings
-      // and images resolve however deep in the tree they sit.
-      allowDirectory(ref.root);
-      return scanWorkspace(db, ref.root, { reveal });
-    },
-  );
+  handle(COMMAND.workspaceTree, (_event, ref: WorkspaceRef, reveal: boolean): WorkspaceTree => {
+    // The whole workspace is served over rex-doc://, so a document's siblings
+    // and images resolve however deep in the tree they sit.
+    allowDirectory(ref.root);
+    return scanWorkspace(db, ref.root, { reveal });
+  });
 
   // Spec 10 §3.4. The renderer says what the reviewer chose; main works out
   // whether that means writing a rule or deleting one, because the rules are
   // its own and a renderer that guessed would drift from them.
-  ipcMain.handle(COMMAND.workspaceExclude, (_event, request: WorkspaceExcludeRequest): void => {
+  handle(COMMAND.workspaceExclude, (_event, request: WorkspaceExcludeRequest): void => {
     toggleWorkspaceRule(db, request.root, request.path, request.exclude ? "exclude" : "include");
   });
 
-  ipcMain.handle(
+  handle(
     COMMAND.workspaceGraph,
     (_event, ref: WorkspaceRef): ReferenceGraph =>
       buildReferenceGraph(db, scanWorkspace(db, ref.root)),
   );
 
-  ipcMain.handle(COMMAND.docOpen, async (_event, ref: DocumentRef): Promise<OpenedDocument> => {
+  handle(COMMAND.docOpen, async (_event, ref: DocumentRef): Promise<OpenedDocument> => {
     const rendered = await renderDocument(ref);
     const { record: document, previousHash } = upsertDocument(
       db,
@@ -318,7 +346,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
    * single file opened by path behaves as it did: its siblings' comments are in
    * reach, and nothing else is.
    */
-  ipcMain.handle(COMMAND.threadList, (_event, request: ThreadListRequest): ThreadWithMessages[] => {
+  handle(COMMAND.threadList, (_event, request: ThreadListRequest): ThreadWithMessages[] => {
     const document = request.documentId ? getDocument(db, request.documentId) : null;
     const root =
       request.root ?? (document?.ref.kind === "file" ? dirname(document.ref.value) : null);
@@ -327,7 +355,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     );
   });
 
-  ipcMain.handle(COMMAND.threadCreate, (_event, request: ThreadCreateRequest): Thread => {
+  handle(COMMAND.threadCreate, (_event, request: ThreadCreateRequest): Thread => {
     // §7 — a payload with no target has no document either, and a thread with
     // neither is a comment about nothing.
     if (request.targets.length === 0) throw new Error("A comment needs at least one place.");
@@ -342,7 +370,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     });
   });
 
-  ipcMain.handle(COMMAND.threadAsk, async (_event, threadId: string): Promise<void> => {
+  handle(COMMAND.threadAsk, async (_event, threadId: string): Promise<void> => {
     const thread = getThread(db, threadId);
     if (!thread) throw new Error(`No such thread: ${threadId}`);
 
@@ -374,31 +402,28 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     await runTurn(thread, prompt, sessionIdFor(threadId), false);
   });
 
-  ipcMain.handle(
-    COMMAND.threadReply,
-    async (_event, request: ThreadReplyRequest): Promise<void> => {
-      const thread = getThread(db, request.threadId);
-      if (!thread) throw new Error(`No such thread: ${request.threadId}`);
+  handle(COMMAND.threadReply, async (_event, request: ThreadReplyRequest): Promise<void> => {
+    const thread = getThread(db, request.threadId);
+    if (!thread) throw new Error(`No such thread: ${request.threadId}`);
 
-      const cwd = workingDirectory(thread);
-      const existing = thread.sessionId ?? sessionIdFor(thread.id);
-      recordUserText(thread.id, request.text);
+    const cwd = workingDirectory(thread);
+    const existing = thread.sessionId ?? sessionIdFor(thread.id);
+    recordUserText(thread.id, request.text);
 
-      // SPEC.md §8.5 — the SDK's transcript cache can be cleaned at any time.
-      // REX keeps the thread; only the SDK's own record was lost.
-      if (await sessionExists(cwd, existing)) {
-        await runTurn(thread, request.text, existing, true);
-        return;
-      }
+    // SPEC.md §8.5 — the SDK's transcript cache can be cleaned at any time.
+    // REX keeps the thread; only the SDK's own record was lost.
+    if (await sessionExists(cwd, existing)) {
+      await runTurn(thread, request.text, existing, true);
+      return;
+    }
 
-      const transcript = renderTranscript(
-        listMessages(db, thread.id).filter((m) => m.content !== request.text),
-      );
-      await runTurn(thread, replayPrompt(transcript, request.text), uuidv4(), false);
-    },
-  );
+    const transcript = renderTranscript(
+      listMessages(db, thread.id).filter((m) => m.content !== request.text),
+    );
+    await runTurn(thread, replayPrompt(transcript, request.text), uuidv4(), false);
+  });
 
-  ipcMain.handle(COMMAND.threadResolve, (_event, request: ThreadResolveRequest): Thread => {
+  handle(COMMAND.threadResolve, (_event, request: ThreadResolveRequest): Thread => {
     setThreadStatus(db, request.threadId, request.resolved);
     const thread = getThread(db, request.threadId);
     if (!thread) throw new Error(`No such thread: ${request.threadId}`);
@@ -413,11 +438,11 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
    * reviewer asking for a comment to be gone should not have to wait out a
    * four-minute answer to get it.
    */
-  ipcMain.handle(COMMAND.threadDelete, (_event, threadId: string): void => {
+  handle(COMMAND.threadDelete, (_event, threadId: string): void => {
     deleteThread(db, threadId);
   });
 
-  ipcMain.handle(
+  handle(
     COMMAND.threadSynthesise,
     (_event, request: ThreadSynthesiseRequest): Thread =>
       createThread(db, {
@@ -432,7 +457,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
       }),
   );
 
-  ipcMain.handle(COMMAND.anchorRestate, (_event, request: AnchorRestateRequest): void => {
+  handle(COMMAND.anchorRestate, (_event, request: AnchorRestateRequest): void => {
     setTargetState(db, request.threadId, request.position, request.anchorState);
   });
 
@@ -451,7 +476,7 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     }
   >();
 
-  ipcMain.handle(COMMAND.renderResult, (_event, request: RenderResultRequest): void => {
+  handle(COMMAND.renderResult, (_event, request: RenderResultRequest): void => {
     const waiting = pendingRenders.get(request.id);
     if (!waiting) return;
     pendingRenders.delete(request.id);
@@ -506,7 +531,10 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     videoPath: string,
   ): Promise<{ png: Buffer; durationSeconds: number }> => {
     allowDirectory(dirname(videoPath));
-    return askRenderer("poster", `${baseHrefFor(dirname(videoPath))}${encodeURIComponent(basename(videoPath))}`);
+    return askRenderer(
+      "poster",
+      `${baseHrefFor(dirname(videoPath))}${encodeURIComponent(basename(videoPath))}`,
+    );
   };
 
   // ── Apply ─────────────────────────────────────────────────────
@@ -519,18 +547,53 @@ export function registerIpc(db: Db, getWindow: () => BrowserWindow | null): void
     onApplyReady: (event) => send(EVENT.applyReady, event),
   };
 
-  ipcMain.handle(COMMAND.threadApply, (_event, threadId: string) =>
-    startApply(applyContext, threadId),
-  );
+  /**
+   * Spec 12 §4.2 — an ACT send, which is the only thing that changes a file.
+   *
+   * The note is recorded as a user message FIRST, before the agent starts. It
+   * is what the reviewer just said, the card and the trace show it while the
+   * run is working, and `startApply` takes it back out of the transcript it
+   * builds so the instruction is not printed twice.
+   */
+  handle(COMMAND.threadApply, (_event, request: ThreadApplyRequest) => {
+    recordUserText(request.threadId, request.note);
+    return startApply(applyContext, request.threadId, request.note);
+  });
 
-  ipcMain.handle(COMMAND.applyConfirm, (_event, request: ApplyConfirmRequest) =>
+  handle(COMMAND.applyConfirm, (_event, request: ApplyConfirmRequest) =>
     confirmApply(applyContext, request.applyRunId, request.accept),
   );
 
   // ── Debug ─────────────────────────────────────────────────────
 
-  ipcMain.handle(COMMAND.debugCopy, async (_event, threadId: string): Promise<string> => {
+  handle(COMMAND.debugCopy, async (_event, threadId: string): Promise<string> => {
     const report = await debugReport(db, threadId, app.getVersion());
+    clipboard.writeText(report);
+    return report;
+  });
+
+  /**
+   * Spec 13 §4 — the app's own report.
+   *
+   * The clipboard is written here and not in the renderer for the reason §6.2
+   * already gave: Electron owns it, and a copy that needs the renderer focused
+   * fails in exactly the case where the renderer is the thing that is wrong.
+   */
+  handle(COMMAND.debugSnapshot, (_event, view: ViewState | null): string => {
+    const report = appReport(
+      {
+        appVersion: app.getVersion(),
+        pid: process.pid,
+        packaged: app.isPackaged,
+        uptimeMs: Math.round(process.uptime() * 1000),
+        userDataPath: app.getPath("userData"),
+        cdp: getCdp(),
+        logPath: logFile(),
+        logLines: lineCount(),
+      },
+      view,
+      entries(40),
+    );
     clipboard.writeText(report);
     return report;
   });

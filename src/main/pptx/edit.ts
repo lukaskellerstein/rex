@@ -504,27 +504,17 @@ async function performInsertVideo(
 
   // Thing 1 — the clip, and thing 2 — its poster, each its own part with its
   // own content type.
-  const videoPart = freeMediaPart(context.pkg, media.extension);
+  const videoPart = freeMediaPart(context.pkg, media.extension, "video");
   context.pkg.write(videoPart, media.bytes);
   await declareContentType(context.pkg, media.extension, media.contentType);
 
-  const posterPart = freeMediaPart(context.pkg, "png");
+  const posterPart = freeMediaPart(context.pkg, "png", "poster");
   context.pkg.write(posterPart, poster.png);
   await declareContentType(context.pkg, "png", "image/png");
 
   // Thing 3 — two relationships on the slide, one per part.
-  const videoRelationshipId = await addRelationship(
-    context.pkg,
-    part,
-    VIDEO_REL_TYPE,
-    videoPart,
-  );
-  const posterRelationshipId = await addRelationship(
-    context.pkg,
-    part,
-    IMAGE_REL_TYPE,
-    posterPart,
-  );
+  const videoRelationshipId = await addRelationship(context.pkg, part, VIDEO_REL_TYPE, videoPart);
+  const posterRelationshipId = await addRelationship(context.pkg, part, IMAGE_REL_TYPE, posterPart);
 
   // Things 4 and 5 — the picture, and the extension that makes it play.
   const shapeId = nextShapeId(xml);
@@ -541,7 +531,7 @@ async function performInsertVideo(
   // Thing 6 — the timing entry, so the media node exists on the slide.
   context.pkg.write(part, withMediaTiming(insertShapeXml(xml, fragment, "back"), shapeId));
 
-  const megabytes = media.bytes.length / 1024 / 1024;
+  const size = describeSize(media.bytes.length);
   return {
     op: "insertVideo",
     summary:
@@ -553,9 +543,16 @@ async function performInsertVideo(
       // §7.4.5 — a deck that gains three clips gains tens of megabytes, and a
       // reviewer emailing it afterwards should not find that out from a bounce
       // message.
-      `${megabytes.toFixed(1)} MB, ${poster.durationSeconds.toFixed(1)} seconds long. The deck grows by that much.`,
+      `${size}, ${poster.durationSeconds.toFixed(1)} seconds long. The deck grows by that much.`,
     ],
   };
+}
+
+/** §7.4.5 — the size, in the unit a reviewer would use for it. */
+function describeSize(bytes: number): string {
+  const megabytes = bytes / 1024 / 1024;
+  // "0.0 MB" beside a real clip reads as "nothing was added".
+  return megabytes >= 0.1 ? `${megabytes.toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 }
 
 /** §7.7 — what a reviewer must be told about a picture before accepting it. */

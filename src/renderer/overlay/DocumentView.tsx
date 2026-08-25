@@ -10,6 +10,7 @@
 // over the frame, so nothing the author wrote ever sits under REX's markers.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { type ForwardedKey, GUEST_EVENT } from "../../shared/channels.ts";
 import type { OpenedDocument, StrokeRef, ThreadWithMessages } from "../../shared/types.ts";
 import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
@@ -199,6 +200,52 @@ function zoomFromInside(
   });
 }
 
+/**
+ * Spec 08 §4.2 — the mode keys work wherever the reviewer last clicked.
+ *
+ * Every REX binding is registered on the *overlay's* document (`App.tsx`, and
+ * both layers), and an event inside an iframe never reaches it — the same fact
+ * `zoomFromInside` exists for. So the moment the reviewer clicks in the prose,
+ * or drags a text selection, focus moves into the frame and `P`, `N`, `D`, `G`,
+ * `esc` and the ⌥ hold all go dead. That is exactly when they are wanted: a
+ * selection is what you make just before you widen it with a pick.
+ *
+ * Measured on 2026-08-25 against `components.md`: a `keydown` dispatched inside
+ * the frame never arrived at the parent, and the reviewer read the whole thing
+ * as "pick element does not work on the Comments tab", because clicking that
+ * tab is what they did in between and a button click does not move focus on
+ * macOS.
+ *
+ * A rebuilt copy rather than the event itself — an event can only be dispatched
+ * once, and the copy has no target inside the frame, so `typing()` in `App.tsx`
+ * reads it as "not a field" and the binding fires.
+ *
+ * `⌘`/`ctrl` combinations are left where they are: `zoomFromInside` already
+ * answers the zoom keys here, and a forwarded copy would zoom a second time.
+ */
+function forwardKeysToParent(inner: Document): void {
+  const forward = (event: KeyboardEvent): void => {
+    if (event.ctrlKey || event.metaKey) return;
+    document.dispatchEvent(
+      new KeyboardEvent(event.type, {
+        key: event.key,
+        code: event.code,
+        altKey: event.altKey,
+        shiftKey: event.shiftKey,
+        repeat: event.repeat,
+      }),
+    );
+  };
+  inner.addEventListener("keydown", forward);
+  inner.addEventListener("keyup", forward);
+}
+
+/** The two fields of Electron's `ipc-message` event the overlay reads. */
+interface IpcMessage extends Event {
+  channel: string;
+  args: unknown[];
+}
+
 /** A drag-resize fires continuously; answer once it stops. */
 const RESIZE_SETTLE_MS = 200;
 
@@ -281,6 +328,7 @@ export function DocumentView(props: Props): React.JSX.Element {
       inner.addEventListener("mouseup", onSelectionChanged);
       jumpToFragmentsInsteadOfNavigating(inner);
       zoomFromInside(inner, zoomCommands);
+      forwardKeysToParent(inner);
 
       // Before the zoom, and long before the surface: a face that lands after
       // the page has been measured reflows every line under it.
@@ -353,9 +401,31 @@ export function DocumentView(props: Props): React.JSX.Element {
       setScroll({ x: 0, y: 0 });
     };
 
+    // The same forwarding `forwardKeysToParent` does for the iframe. A guest
+    // process cannot dispatch into the overlay's document, so its preload sends
+    // the six fields and the copy is rebuilt on this side.
+    const onGuestKey = (event: Event): void => {
+      const message = event as IpcMessage;
+      if (message.channel !== GUEST_EVENT.key) return;
+      const forwarded = message.args[0] as ForwardedKey;
+      document.dispatchEvent(
+        new KeyboardEvent(forwarded.type, {
+          key: forwarded.key,
+          code: forwarded.code,
+          altKey: forwarded.altKey,
+          shiftKey: forwarded.shiftKey,
+          repeat: forwarded.repeat,
+        }),
+      );
+    };
+
     webview.addEventListener("dom-ready", onReady);
+    webview.addEventListener("ipc-message", onGuestKey);
     webview.setAttribute("src", doc.ref.value);
-    return () => webview.removeEventListener("dom-ready", onReady);
+    return () => {
+      webview.removeEventListener("dom-ready", onReady);
+      webview.removeEventListener("ipc-message", onGuestKey);
+    };
   }, [doc, onSurfaceReady]);
 
   useEffect(() => {
