@@ -12,7 +12,6 @@ import { tokenClass } from "./Gutter.tsx";
 import { Bubble, ChevronLeft, ChevronRight, Pencil, Sparkle, Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import type { Mode } from "./mode.ts";
-import { ModeBadge } from "./ModeBadge.tsx";
 import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
 import { placeWords } from "./place.ts";
 import { Prose } from "./prose.tsx";
@@ -211,9 +210,9 @@ function costLine(thread: ThreadWithMessages, turns: number): string {
  *
  * Spec 12 §7.1 — it no longer carries a profile pill. That pill was drawn on a
  * FINISHED answer, so it appeared exactly when it was least needed and was
- * absent during the run, which is when a refusal happens. `ModeBadge` on the
- * card head says the same thing from the first step. One card, one mode, one
- * place.
+ * absent during the run, which is when a refusal happens. The mode lives on the
+ * switch beside Send, which is pinned, always on screen, and the place the mode
+ * is chosen. One card, one mode, one place.
  */
 const VOICE_LABEL: Record<Voice, string> = { you: "YOU ASKED", agent: "ANSWER", note: "NOTE" };
 
@@ -437,13 +436,6 @@ export function CommentCard(props: Props): React.JSX.Element {
           <span className="rex-pill rex-pill-moved">TEXT MOVED</span>
         ) : null}
       </header>
-
-      {/*
-        Spec 12 §7.1 — a band between the head and the card, not a row inside
-        it. The card scrolls; the mode must not. A mode that scrolls away is
-        absent for most of a long run, which is the whole failure this replaces.
-      */}
-      <ModeBadge mode={props.mode} busy={props.busy} />
 
       {/*
         Pinned, above the conversation: the places the comment is about, and the

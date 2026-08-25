@@ -13,6 +13,7 @@
 // where the bars sit beside the numbers they are the shape of. One strip, one
 // rule for what a bar means.
 
+import { useLayoutEffect, useRef, useState } from "react";
 import type { Message, ThreadWithMessages } from "../../shared/types.ts";
 import { ChevronRight } from "./Icons.tsx";
 import { argumentOf } from "./trace.ts";
@@ -80,12 +81,31 @@ export function stepCount(steps: number): string {
   return `${steps} step${steps === 1 ? "" : "s"}`;
 }
 
+/** One bar and the gap after it — `.rex-strip-bars` in the stylesheet. */
+const BAR_PITCH = 5;
+
+/**
+ * How much of the row the shape may take before it is dropped.
+ *
+ * The words are the fact and the bars are the picture, so when both cannot fit
+ * the picture goes. A third leaves room for `32 steps · 2 denied` and
+ * `show trace ›` at every width the splitter allows, and those must never wrap:
+ * a strip that wraps to three lines is a paragraph, and the whole point of it
+ * is being one row you take in without reading.
+ */
+const BAR_SHARE = 0.35;
+
 /**
  * The whole row, on the comment card.
  *
  * It opens the trace (§6), which takes the document pane. It does not open a
  * list in place any more: a bash line, a path or a diff is wide, and 384px
  * wraps all three into mush.
+ *
+ * The bars are drawn only while ALL of them fit. Never a clipped run: a
+ * truncated strip is a picture of a shorter run, and the bar it drops may be
+ * the red one. The count and the refusals stay whichever way it goes, and the
+ * trace's own head — a whole pane wide — always has the full shape.
  */
 export function StepStrip({
   steps,
@@ -97,11 +117,22 @@ export function StepStrip({
   onShowTrace: () => void;
 }): React.JSX.Element {
   const denied = steps.filter((step) => step.denied).length;
+  const row = useRef<HTMLButtonElement>(null);
+  /** The row's content box, watched: the reviewer drags this column's width. */
+  const [room, setRoom] = useState(0);
+
+  useLayoutEffect(() => {
+    const box = row.current;
+    if (!box) return;
+    const watch = new ResizeObserver(([entry]) => setRoom(entry.contentRect.width));
+    watch.observe(box);
+    return () => watch.disconnect();
+  }, []);
 
   return (
     <div className={tracing ? "rex-steps rex-steps-on" : "rex-steps"}>
-      <button type="button" className="rex-steps-toggle" onClick={onShowTrace}>
-        <StepBars steps={steps} />
+      <button type="button" className="rex-steps-toggle" ref={row} onClick={onShowTrace}>
+        {steps.length * BAR_PITCH <= room * BAR_SHARE ? <StepBars steps={steps} /> : null}
         {stepCount(steps.length)}
         {denied > 0 ? <span className="rex-strip-denied">· {denied} denied</span> : null}
         <span className="rex-steps-show">

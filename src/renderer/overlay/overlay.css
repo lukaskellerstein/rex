@@ -2258,96 +2258,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The read profile's promise, on the head of the answer it constrained. */
-/*
-  Spec 12 §7.1 — the mode badge, at the head of the card.
-
-  It replaces `.rex-pill-profile`, which was a pill on the ANSWER block: drawn
-  only once a run had finished, and therefore absent for the whole of the run,
-  which is when a refusal happens and when the promise is the thing a reviewer
-  wants to read. This is a full-width band rather than a pill because it carries
-  the promise as well as the name, and the promise is the half worth reading.
-*/
-/*
-  A BAND, and a peer of the card's head — not a row inside the scrolling card.
-
-  The first draft was a bordered strip at the top of `.rex-card`, in `--sunk`
-  with `--muted` text. Two things were wrong with it and they compounded: it
-  scrolled away with the conversation, so it was absent for most of a long run;
-  and at that weight it read as a caption on the anchor block below it, which
-  made it look like a note about the comment rather than a state the agent is
-  in. A mode is a state you are in. It gets the weight of one.
-
-  The accent is carried three times over — the left rule, the icon, and the
-  name — because one of them alone is a colour a reviewer stops seeing.
-*/
-.rex-mode-badge {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--rule-soft);
-  border-left: 3px solid var(--mode-edge);
-  background: var(--mode-bg);
-  font-size: 11px;
-  line-height: 1.3;
-}
-
-/* ASK is cool and settled. ACT is warm and awake. */
-.rex-mode-ask {
-  --mode-edge: #4d84e8;
-  --mode-bg: #1b2634;
-}
-
-.rex-mode-act {
-  --mode-edge: #d9b23a;
-  --mode-bg: var(--write-bg);
-}
-
-.rex-mode-badge svg {
-  flex: none;
-  color: var(--mode-edge);
-}
-
-.rex-mode-name {
-  flex: none;
-  color: var(--mode-edge);
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-}
-
-/*
-  `--fg-dim` and not `--muted`. The promise is the half of this band worth
-  reading, and at `--muted` on a tinted ground it was the faintest thing in the
-  panel.
-*/
-.rex-mode-promise {
-  min-width: 0;
-  color: var(--fg-dim);
-}
-
-/* The mode is a standing fact; this says it is being exercised right now. */
-.rex-mode-live {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: var(--mode-edge);
-  animation: rex-mode-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes rex-mode-pulse {
-  0%,
-  100% {
-    opacity: 0.2;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 /* §4.3 — the mode a refusal happened in, beside DENIED. */
 .rex-trace-mode {
   flex: none;
@@ -2548,6 +2458,8 @@
   font: inherit;
   font-size: 12px;
   text-align: left;
+  /* One row, always. `32 steps` broken over two lines is not a strip. */
+  white-space: nowrap;
   cursor: pointer;
 }
 

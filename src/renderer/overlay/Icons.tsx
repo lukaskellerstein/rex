@@ -55,11 +55,6 @@ export const Pencil = (p: Props): React.JSX.Element => (
   <Line {...p} size={p.size ?? 11} d="M11.2 2.8 13.2 4.8 5.6 12.4 2.8 13.2 3.6 10.4z" />
 );
 
-/** The read profile's promise: this agent cannot write. */
-export const Shield = (p: Props): React.JSX.Element => (
-  <Line {...p} size={p.size ?? 11} d="M8 2 13 4v4.2C13 11 10.8 13.2 8 14 5.2 13.2 3 11 3 8.2V4z" />
-);
-
 export const Check = (p: Props): React.JSX.Element => (
   <Line {...p} size={p.size ?? 13} d="M3.5 8.5 6.5 11.5 12.5 5" />
 );
