@@ -94,6 +94,85 @@ export function migrateThreadStroke(db: Db): boolean {
 }
 
 /**
+ * Spec 14 §6.2 — `thread.title`, `thread.group_id` and `thread.position`.
+ *
+ * Idempotent the same way the two above are: it asks the table what it already
+ * has. Returns the number of comments whose `position` it filled, so a caller
+ * can say whether anything happened; a second run returns 0.
+ *
+ * **The order must not change.** `position` is filled from the `created_at`
+ * rank, which is the order `listThreads` used before this spec — so a reviewer
+ * who upgrades sees the list they closed, in the order they closed it. An
+ * upgrade that reshuffles somebody's comments has broken the feature it is
+ * shipping.
+ *
+ * `title` and `group_id` are left NULL. Nothing is invented: NULL title means
+ * "named by the note" (§3.1) and NULL group means the top level.
+ */
+export function migrateCommentOrder(db: Db): number {
+  const columns = (): string[] =>
+    db
+      .prepare<[], { name: string }>("PRAGMA table_info(thread)")
+      .all()
+      .map((row) => row.name);
+
+  const present = new Set(columns());
+  if (!present.has("title")) db.exec("ALTER TABLE thread ADD COLUMN title TEXT");
+  if (!present.has("group_id")) {
+    // No default and no NOT NULL: SQLite refuses ADD COLUMN with a REFERENCES
+    // clause unless the default is NULL, and NULL is the meaning wanted anyway.
+    db.exec(
+      "ALTER TABLE thread ADD COLUMN group_id TEXT REFERENCES comment_group(id) ON DELETE SET NULL",
+    );
+  }
+  const hadPosition = present.has("position");
+  if (!hadPosition) {
+    db.exec("ALTER TABLE thread ADD COLUMN position INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // Here rather than in schema.sql, which runs before every migration: on a
+  // database made before this spec the column does not exist when that file is
+  // executed, and an index naming it would throw.
+  db.exec("CREATE INDEX IF NOT EXISTS idx_thread_group ON thread(group_id, position)");
+
+  // A fresh database has the column from schema.sql and no rows, so there is
+  // nothing to rank. An existing one has every row at the default 0.
+  if (hadPosition) return 0;
+
+  const rows = db
+    .prepare<[], { id: string }>("SELECT id FROM thread ORDER BY created_at, id")
+    .all();
+  if (rows.length === 0) return 0;
+
+  const update = db.prepare("UPDATE thread SET position = ? WHERE id = ?");
+  const rank = db.transaction((ordered: Array<{ id: string }>): void => {
+    for (const [position, row] of ordered.entries()) update.run(position, row.id);
+  });
+  rank(rows);
+
+  return rows.length;
+}
+
+/**
+ * `thread.is_note` — a comment saved without being sent to any agent.
+ *
+ * Its own guarded `ALTER TABLE`, and idempotent the same way the others are.
+ * Returns true when it added the column.
+ *
+ * 0 is right for every row written before it existed: every comment REX could
+ * make until now was sent the moment it was created.
+ */
+export function migrateNoteFlag(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(thread)")
+    .all()
+    .some((row) => row.name === "is_note");
+  if (present) return false;
+  db.exec("ALTER TABLE thread ADD COLUMN is_note INTEGER NOT NULL DEFAULT 0");
+  return true;
+}
+
+/**
  * The primary anchor, then the extras.
  *
  * Both columns are parsed defensively. They were written by an earlier build and

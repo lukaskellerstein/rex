@@ -193,7 +193,10 @@ const GIT_GUARDED: Record<string, (operands: string[]) => boolean> = {
   worktree: (operands) => operands[0] === "list",
   submodule: (operands) => operands[0] === "status",
   remote: (operands) =>
-    operands.length === 0 || operands[0] === "-v" || operands[0] === "--verbose" || operands[0] === "show",
+    operands.length === 0 ||
+    operands[0] === "-v" ||
+    operands[0] === "--verbose" ||
+    operands[0] === "show",
   // `git config x y` writes `.git/config`, and `--global` writes the user's
   // own. Only the four reading forms are allowed, and they are named rather
   // than inferred.
@@ -401,7 +404,11 @@ const S_FLAG_W = /s(.)(?:[^\\]|\\.)*?\1(?:[^\\]|\\.)*?\1[a-zA-Z]*w/;
  * A sed or awk program is the first operand that is not a flag, plus whatever
  * follows each `-e`; everything after it is a filename and is not a program.
  */
-function programsOf(words: string[], valueFlags: ReadonlySet<string>, scriptFlags: ReadonlySet<string>): string[] {
+function programsOf(
+  words: string[],
+  valueFlags: ReadonlySet<string>,
+  scriptFlags: ReadonlySet<string>,
+): string[] {
   const programs: string[] = [];
   let found = false;
 
@@ -562,8 +569,7 @@ function readRedirect(command: string, start: number): number {
   if (!command.startsWith(DISCARD, at)) return -1;
 
   const after = command[at + DISCARD.length];
-  const ends =
-    after === undefined || " \t\n;|&".includes(after);
+  const ends = after === undefined || " \t\n;|&".includes(after);
   return ends ? at + DISCARD.length : -1;
 }
 
@@ -711,9 +717,11 @@ function splitStages(command: string): string[][] | null {
  * all along: a refusal here is REX admitting it cannot tell, not REX calling
  * the command dangerous.
  */
-const INTERPRETER = "can write any file, so a read session does not run an interpreter. Use grep, rg or jq";
+const INTERPRETER =
+  "can write any file, so a read session does not run an interpreter. Use grep, rg or jq";
 const RUNS_ANOTHER = "exists to run another command, and REX cannot see what that command would be";
-const BUILDS = "writes files as a matter of course. Only Apply changes anything, and it shows a diff first";
+const BUILDS =
+  "writes files as a matter of course. Only Apply changes anything, and it shows a diff first";
 
 const WHY_REFUSED: Record<string, string> = {
   tee: "tee writes a file. Read the output instead — it is returned to you",

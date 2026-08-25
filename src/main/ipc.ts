@@ -3,7 +3,7 @@
 // Invariant I3: every command is `ipcRenderer.invoke`, every piece of agent
 // output is `webContents.send`. Nothing here listens on anything.
 
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { app, type BrowserWindow, clipboard, dialog, ipcMain } from "electron";
 import { v4 as uuidv4 } from "uuid";
@@ -12,25 +12,35 @@ import {
   type ApplyConfirmRequest,
   COMMAND,
   EVENT,
+  type GroupCreateRequest,
+  type GroupDeleteRequest,
+  type GroupListRequest,
+  type GroupUpdateRequest,
   type InitialTarget,
   type RenderResultRequest,
+  type ThreadApplyRequest,
   type ThreadCreateRequest,
   type ThreadListRequest,
+  type ThreadRenameRequest,
   type ThreadReplyRequest,
-  type ThreadApplyRequest,
   type ThreadResolveRequest,
   type ThreadSynthesiseRequest,
+  type WorkApproveResponse,
   type WorkspaceExcludeRequest,
 } from "../shared/channels.ts";
 import type {
   AnchorSummary,
+  CommentGroup,
+  CommentMove,
   DocumentRef,
+  DocumentVersion,
   Message,
   OpenedDocument,
   ReferenceGraph,
   Thread,
   ThreadWithMessages,
   ViewState,
+  WorkingCopyView,
   WorkspaceRef,
   WorkspaceTree,
 } from "../shared/types.ts";
@@ -38,11 +48,14 @@ import { sessionIdFor } from "./agent/profiles.ts";
 import { askPrompt, synthesisPrompt } from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
 import { renderTranscript, replayPrompt, sessionExists } from "./agent/transcript.ts";
-import { type ApplyContext, confirmApply, startApply } from "./apply.ts";
+import { type ApplyContext, confirmApply, startApply, viewOf } from "./apply.ts";
 import type { CdpStatus } from "./cdp.ts";
 import type { Db } from "./db/database.ts";
+import { createGroup, deleteGroup, listGroups, moveItem, updateGroup } from "./db/groups.ts";
 import {
   appendMessage,
+  clearNoteFlag,
+  completeApplyRun,
   createThread,
   deleteThread,
   documentCostUsd,
@@ -51,6 +64,8 @@ import {
   listMessages,
   listThreads,
   type MessageDraft,
+  renameThread,
+  setDocumentHash,
   setTargetState,
   setThreadSession,
   setThreadStatus,
@@ -63,9 +78,19 @@ import { porcelainStatus, repositoryRoot } from "./git.ts";
 import { entries, lineCount, logFile, record as logLine } from "./log.ts";
 import { allowDirectory, baseHrefFor } from "./protocol.ts";
 import { isPptxPath } from "./render/formats.ts";
+import { sha256 } from "./render/html.ts";
 import { renderDocument } from "./render/index.ts";
 import { ensureSidecar } from "./render/pptx.ts";
 import { agentCwd, documentsOf, SCRATCH_DIR, withDetail } from "./threads.ts";
+import {
+  approveWorkingCopy,
+  currentPath,
+  discardWorkingCopy,
+  listWorkingCopies,
+  readMeta,
+  readMetaByPath,
+  undoLastRevision,
+} from "./work.ts";
 import { buildReferenceGraph } from "./workspace/graph.ts";
 import { scanWorkspace } from "./workspace/tree.ts";
 
@@ -310,29 +335,82 @@ export function registerIpc(
       buildReferenceGraph(db, scanWorkspace(db, ref.root)),
   );
 
-  handle(COMMAND.docOpen, async (_event, ref: DocumentRef): Promise<OpenedDocument> => {
-    const rendered = await renderDocument(ref);
-    const { record: document, previousHash } = upsertDocument(
-      db,
-      ref,
-      rendered.title,
-      rendered.contentHash,
-    );
-    if (rendered.baseDir) allowDirectory(rendered.baseDir);
+  handle(
+    COMMAND.docOpen,
+    async (_event, ref: DocumentRef, version?: DocumentVersion): Promise<OpenedDocument> => {
+      // Spec 15 §6.1 — a version, never a path. The renderer displays untrusted
+      // content, so it names which of the two it wants and main decides where
+      // that is; a path from the renderer would be a file main reads on its say.
+      const meta = readMetaByPath(ref.value);
+      const wanted: DocumentVersion = meta && version !== "original" ? "current" : "original";
+      const rendered = await renderDocument(
+        ref,
+        wanted === "current" && meta ? currentPath(meta) : undefined,
+      );
 
-    return {
-      documentId: document.id,
-      ref,
-      presentation: rendered.presentation,
-      contentHash: rendered.contentHash,
-      title: rendered.title,
-      baseDir: rendered.baseDir,
-      applyEnabled: rendered.applyEnabled,
-      applyDisabledReason: rendered.applyDisabledReason,
-      // §6.6 — "changed since the comments were written" is what separates
-      // `ok` from `moved` for an anchor that still resolves at layer 1.
-      contentChanged: previousHash !== null && previousHash !== rendered.contentHash,
-    };
+      // The hash stored and compared is the FILE's, whichever version was drawn.
+      // §6.6 uses it to tell `ok` from `moved`, and a working copy's hash here
+      // would report the document as changed while it demonstrably had not.
+      const onDisk = fileHash(ref.value) ?? rendered.contentHash;
+      const { record: document, previousHash } = upsertDocument(db, ref, rendered.title, onDisk);
+      if (rendered.baseDir) allowDirectory(rendered.baseDir);
+
+      return {
+        documentId: document.id,
+        ref,
+        presentation: rendered.presentation,
+        contentHash: onDisk,
+        title: rendered.title,
+        baseDir: rendered.baseDir,
+        applyEnabled: rendered.applyEnabled,
+        applyDisabledReason: rendered.applyDisabledReason,
+        // §6.6 — "changed since the comments were written" is what separates
+        // `ok` from `moved` for an anchor that still resolves at layer 1.
+        contentChanged: previousHash !== null && previousHash !== onDisk,
+        version: wanted,
+        working: meta ? viewOf(meta, repositoryRoot(meta.path)) : null,
+      };
+    },
+  );
+
+  // ── The working copy (spec 15 §7) ─────────────────────────────
+
+  handle(COMMAND.workList, (): WorkingCopyView[] =>
+    listWorkingCopies().map((meta) => viewOf(meta, repositoryRoot(meta.path))),
+  );
+
+  handle(COMMAND.workApprove, async (_event, documentId: string): Promise<WorkApproveResponse> => {
+    const meta = readMeta(documentId);
+    const result = approveWorkingCopy(documentId);
+    if (!result.ok) return { ok: false, reason: result.reason ?? null, reanchored: null };
+
+    // §7.2 — the file changed, so every run that contributed to it is applied
+    // and the document is re-hashed before the sweep compares against it.
+    if (meta) {
+      for (const revision of meta.revisions) completeApplyRun(db, revision.applyRunId, "applied");
+      setDocumentHash(db, documentId, fileHash(meta.path) ?? "");
+    }
+    return { ok: true, reason: null, reanchored: await reanchor([documentId]) };
+  });
+
+  handle(COMMAND.workDiscard, async (_event, documentId: string): Promise<void> => {
+    const meta = readMeta(documentId);
+    discardWorkingCopy(documentId);
+    if (meta) {
+      for (const revision of meta.revisions) completeApplyRun(db, revision.applyRunId, "rejected");
+    }
+    // The file was never touched, so nothing on disk moved — but the document on
+    // screen goes back to being the file, and its anchors were resolved against
+    // the version that has just gone.
+    await reanchor([documentId]);
+  });
+
+  handle(COMMAND.workUndo, async (_event, documentId: string): Promise<void> => {
+    const before = readMeta(documentId);
+    const dropped = before?.revisions.at(-1) ?? null;
+    undoLastRevision(documentId);
+    if (dropped) completeApplyRun(db, dropped.applyRunId, "rejected");
+    await reanchor([documentId]);
   });
 
   // ── Threads ───────────────────────────────────────────────────
@@ -364,12 +442,18 @@ export function registerIpc(
       // Spec 06 §5.4 — the ink, when the places were circled rather than
       // clicked. Absent for every other comment, which is most of them.
       stroke: request.stroke,
+      // NOTE mode. The renderer simply does not follow this call with a send,
+      // and the flag is what lets the panel and "Ask all" tell that apart from
+      // a comment whose send failed.
+      isNote: request.isNote === true,
     });
   });
 
   handle(COMMAND.threadAsk, async (_event, threadId: string): Promise<void> => {
     const thread = getThread(db, threadId);
     if (!thread) throw new Error(`No such thread: ${threadId}`);
+    // It is being sent, so it is not a note any more.
+    clearNoteFlag(db, threadId);
 
     const document = getDocument(db, thread.documentId);
     const documentPath = document?.ref.value ?? "";
@@ -377,9 +461,13 @@ export function registerIpc(
 
     // Spec 05 §5.5 — every target's document, so the prompt can group them.
     // Spec 11 §6.2 — a deck is named by its text sidecar instead of by the zip.
+    // Spec 15 §5 — while a working copy exists it IS the current version of the
+    // document, so ASK reads it. Asking "is this better?" about a version the
+    // agent cannot see would be worse than useless.
     const documentPaths = new Map<string, string>();
     for (const record of documentsOf(db, thread)) {
-      documentPaths.set(record.id, await readablePath(record.ref));
+      const meta = readMeta(record.id);
+      documentPaths.set(record.id, meta ? currentPath(meta) : await readablePath(record.ref));
     }
 
     const prompt =
@@ -397,9 +485,25 @@ export function registerIpc(
     await runTurn(thread, prompt, sessionIdFor(threadId), false);
   });
 
+  /**
+   * NOTE mode, in an open comment: record what was typed and run nothing.
+   *
+   * The same `recordUserText` every send already uses, and then it stops — no
+   * agent, no session, no cost. It deliberately does NOT clear `is_note`: adding
+   * a note to a note leaves it a note, and adding one to an answered comment
+   * does not turn that comment back into a note either.
+   */
+  handle(COMMAND.threadNote, (_event, request: ThreadReplyRequest): void => {
+    if (!getThread(db, request.threadId)) {
+      throw new Error(`No such thread: ${request.threadId}`);
+    }
+    recordUserText(request.threadId, request.text);
+  });
+
   handle(COMMAND.threadReply, async (_event, request: ThreadReplyRequest): Promise<void> => {
     const thread = getThread(db, request.threadId);
     if (!thread) throw new Error(`No such thread: ${request.threadId}`);
+    clearNoteFlag(db, request.threadId);
 
     const cwd = workingDirectory(thread);
     const existing = thread.sessionId ?? sessionIdFor(thread.id);
@@ -435,6 +539,45 @@ export function registerIpc(
    */
   handle(COMMAND.threadDelete, (_event, threadId: string): void => {
     deleteThread(db, threadId);
+  });
+
+  // ── Spec 14 — the name, the order and the groups ──────────────
+
+  handle(COMMAND.threadRename, (_event, request: ThreadRenameRequest): void => {
+    renameThread(db, request.threadId, request.title);
+  });
+
+  handle(COMMAND.groupList, (_event, request: GroupListRequest): CommentGroup[] =>
+    listGroups(db, request.root),
+  );
+
+  handle(
+    COMMAND.groupCreate,
+    (_event, request: GroupCreateRequest): CommentGroup => createGroup(db, request),
+  );
+
+  handle(COMMAND.groupUpdate, (_event, request: GroupUpdateRequest): void => {
+    updateGroup(db, request);
+  });
+
+  /**
+   * Spec 14 §5.4 — everything inside is promoted to this group's own parent
+   * first, so the schema's cascade has nothing to take. No comment is destroyed
+   * by deleting a group.
+   */
+  handle(COMMAND.groupDelete, (_event, request: GroupDeleteRequest): void => {
+    deleteGroup(db, request.groupId);
+  });
+
+  /**
+   * Spec 14 §4.2 — the panel sends a gesture; every position is computed here.
+   *
+   * The refusals are main's and not the panel's: §5.5's cycle makes the tree
+   * walk non-terminating, and a panel is not where a rule that can hang the app
+   * belongs.
+   */
+  handle(COMMAND.commentsMove, (_event, request: CommentMove): void => {
+    moveItem(db, request);
   });
 
   handle(
@@ -551,6 +694,7 @@ export function registerIpc(
    * builds so the instruction is not printed twice.
    */
   handle(COMMAND.threadApply, (_event, request: ThreadApplyRequest) => {
+    clearNoteFlag(db, request.threadId);
     recordUserText(request.threadId, request.note);
     return startApply(applyContext, request.threadId, request.note);
   });
@@ -606,6 +750,21 @@ export function registerIpc(
 async function readablePath(ref: DocumentRef): Promise<string> {
   if (!isPptxPath(ref.value)) return ref.value;
   return (await ensureSidecar(ref.value)) ?? ref.value;
+}
+
+/**
+ * The hash of what is on disk, whichever version was drawn.
+ *
+ * Spec 15 §6.1 — §6.6 compares this to decide `ok` against `moved`, so it has
+ * to be the FILE's hash even while the pane is showing a working copy. Storing
+ * the copy's would report every anchor as moved the moment a revision landed.
+ */
+function fileHash(path: string): string | null {
+  try {
+    return sha256(readFileSync(path));
+  } catch {
+    return null;
+  }
 }
 
 function pickerOptions(): Electron.OpenDialogOptions {

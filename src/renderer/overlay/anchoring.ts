@@ -67,6 +67,16 @@ export interface CheckedTarget {
    */
   mark: ScopeRect | null;
   /**
+   * Spec 15 §8.2 — the box the margin bar spans: the BLOCK this place sits in.
+   *
+   * Not `mark`, and the difference is the whole point of the new mark. A
+   * comment on one sentence has a `mark` that starts mid-line, and a bar drawn
+   * at that x would stand in the middle of the prose. The reviewer asked for a
+   * line beside the *section*, so a text target reports the paragraph, the list
+   * item or the table cell that contains it, and a block target reports itself.
+   */
+  bar: ScopeRect | null;
+  /**
    * What this place turned out to BE — `Code block`, `Table · 3 rows × 4
    * columns`, `Section · “…”`. Null when the place holds a passage, which is
    * the one case that keeps its quote instead. `place.ts` is the rule.
@@ -211,7 +221,7 @@ export interface DocumentSurface {
   clearTextSelection(): void;
 
   /** §6 — repaints the passages, with `activeThreadId`'s in the open colour. */
-  repaintActive(activeThreadId: string | null): void;
+  repaintActive(activeThreadId: string | null, hoveredThreadId?: string | null): void;
 
   /** A text selection, or null when there is none worth taking (§3.1 rule 1). */
   selectionMade(): Promise<Selected | null>;
@@ -313,6 +323,28 @@ function documentTop(rect: DOMRect, view: Window): number {
   return rect.top + view.scrollY;
 }
 
+/** Elements that are not a passage in their own right, so the walk goes past them. */
+const INLINE = new Set(["A", "B", "I", "EM", "STRONG", "CODE", "SPAN", "SMALL", "SUP", "SUB"]);
+
+/**
+ * Spec 15 §8.2 — the block a range sits in, for the margin bar to span.
+ *
+ * Walks out of inline elements, because a comment on a bold phrase is a comment
+ * on the paragraph it is in as far as the margin is concerned. Stops at the
+ * body: a bar down the whole document is the outline §6.7 already refused to
+ * draw, for the same reason.
+ */
+function blockRectOf(view: Window, range: Range): ScopeRect | null {
+  let node: Node | null = range.commonAncestorContainer;
+  while (node && node.nodeType !== Node.ELEMENT_NODE) node = node.parentNode;
+
+  let element = node as Element | null;
+  while (element && INLINE.has(element.tagName)) element = element.parentElement;
+  if (!element || element.tagName === "BODY" || element.tagName === "HTML") return null;
+
+  return toDocumentRect(view, element.getBoundingClientRect());
+}
+
 /**
  * SPEC.md §6.5 and §6.6 — resolve every thread against a live DOM, then paint.
  *
@@ -367,7 +399,15 @@ function resolveAgainst(
         hits.push({ threadId: thread.id, range: resolution.range, status: thread.status, state });
         // No box — the highlight fills it — but a mark, so its row can point.
         const where = toDocumentRect(view, resolution.range.getBoundingClientRect());
-        checked.push({ position, state, box: null, mark: where, label: words, line });
+        checked.push({
+          position,
+          state,
+          box: null,
+          mark: where,
+          bar: blockRectOf(view, resolution.range) ?? where,
+          label: words,
+          line,
+        });
         widen(where);
         if (first) {
           top = documentTop(resolution.range.getBoundingClientRect(), view);
@@ -376,7 +416,7 @@ function resolveAgainst(
       } else if (resolution?.kind === "element") {
         const outline = toDocumentRect(view, resolution.element.getBoundingClientRect());
         const box = anchor.region ? regionWithin(outline, anchor) : outline;
-        checked.push({ position, state, box, mark: box, label: words, line });
+        checked.push({ position, state, box, mark: box, bar: box, label: words, line });
         widen(box);
         if (first) {
           top = box.y;
@@ -397,6 +437,7 @@ function resolveAgainst(
           state,
           box: whole ? null : box,
           mark: whole ? null : box,
+          bar: whole ? null : box,
           label: words,
           line,
         });
@@ -410,7 +451,15 @@ function resolveAgainst(
       } else {
         // Orphaned: nothing to paint and nowhere to draw it, but the target is
         // still checked and still has to be restated.
-        checked.push({ position, state, box: null, mark: null, label: null, line: null });
+        checked.push({
+          position,
+          state,
+          box: null,
+          mark: null,
+          bar: null,
+          label: null,
+          line: null,
+        });
       }
     }
 
@@ -798,7 +847,7 @@ function targetsFromDrawingIn(
 /**
  * Spec 05 §5.6.1 — where an Apply's changed lines landed, as boxes to outline.
  */
-function boxesForLinesIn(
+export function boxesForLinesIn(
   view: Window,
   doc: Document,
   ranges: ReadonlyArray<LineRange>,
@@ -861,9 +910,9 @@ export class FrameSurface implements DocumentSurface {
     this.frame.contentWindow?.getSelection()?.removeAllRanges();
   }
 
-  repaintActive(activeThreadId: string | null): void {
+  repaintActive(activeThreadId: string | null, hoveredThreadId: string | null = null): void {
     const view = this.frame.contentWindow;
-    if (view) paintHighlights(view, this.hits, activeThreadId);
+    if (view) paintHighlights(view, this.hits, activeThreadId, hoveredThreadId);
   }
 
   async selectionMade(): Promise<Selected | null> {

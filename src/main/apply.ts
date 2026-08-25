@@ -1,19 +1,24 @@
 // SPEC.md §8.7 and spec 05 §5.6 — Apply.
 //
 // Step 5 is not optional: an agent must never change a file the user has not
-// seen a diff for. The write agent does edit the files first — that is how the
-// diff comes to exist — so rejecting reverts them, and the guards below refuse
-// to start at all unless that revert is guaranteed to be clean.
+// seen. **Spec 15 changed how that promise is kept.** The write agent no longer
+// edits the reviewer's file at all — it edits a working copy in `~/.rex/work`,
+// which survives the run so the reviewer can keep talking to it, and the file is
+// replaced only when the new version is approved (spec 15 §7.2).
+//
+// What that buys, and why the old mechanism had to go: git was the only source
+// of "what changed", and `git status --porcelain` prints one line for an
+// untracked tree — identical before an edit and after it. So an ACT run on an
+// untracked document reported nothing, showed no diff, and could not be undone
+// (spec 15 §1). Content hashes replaced it; git keeps one job, in §4.3.
 //
 // Spec 05 widens what Apply reaches from one document to every document the
-// comment is about. Two things follow, and both are safety rather than plumbing:
-// one agent turn per **repository**, because `git checkout` is a per-repository
-// promise; and the revert list is the files this run *introduced*, never every
-// dirty file in the tree, because somebody else's uncommitted work is not ours
-// to discard.
+// comment is about, so there is one agent turn per **repository** — the working
+// directory an agent reads from is per-repository even now that what it writes
+// is not.
 
 import { readFileSync } from "node:fs";
-import { dirname, relative } from "node:path";
+import { basename, dirname, relative } from "node:path";
 import type { ApplyConfirmResponse, DeckPreview } from "../shared/channels.ts";
 import type {
   Anchor,
@@ -22,6 +27,7 @@ import type {
   Message,
   SkippedDocument,
   Thread,
+  WorkingCopyView,
 } from "../shared/types.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
 import { passageSection, writeInstructions } from "./agent/prompts.ts";
@@ -38,13 +44,26 @@ import {
   setApplyRunDiff,
   setDocumentHash,
 } from "./db/queries.ts";
-import { changedRegions } from "./diff.ts";
-import { changedFiles, diff, isRepository, repositoryRoot, revert } from "./git.ts";
+import { changedFiles, isRepository, repositoryRoot, revert } from "./git.ts";
 import type { MediaResolver } from "./pptx/media.ts";
 import { acceptDeckApply, discardDeckApply, runDeckApply } from "./pptx/run.ts";
 import { isPptxPath } from "./render/formats.ts";
 import { sha256 } from "./render/html.ts";
 import { applyPlan, documentsOf } from "./threads.ts";
+import {
+  type BeforeSet,
+  basePath,
+  currentHash,
+  currentPath,
+  forkWorkingCopy,
+  movedSince,
+  restoreFromBeforeSet,
+  saveRevision,
+  takeBeforeSet,
+  type WorkingMeta,
+  workRoot,
+} from "./work.ts";
+import { workingDiff } from "./workDiff.ts";
 
 export interface ApplyContext {
   db: Db;
@@ -73,6 +92,10 @@ export interface ApplyContext {
     files: string[];
     regions: ChangedRegion[];
     skipped: SkippedDocument[];
+    /** Spec 15 §3 — the working copy of each document this run changed. */
+    working: WorkingCopyView[];
+    /** Spec 15 §4.3 — files the agent wrote that were not its to write. */
+    restored: string[];
     /** Spec 11 §7.7 — the before-and-after slides that replace the diff. */
     decks?: DeckPreview[];
   }) => void;
@@ -121,25 +144,58 @@ function pathsOf(db: Db, thread: Thread): Map<string, string> {
   return paths;
 }
 
+/** One document this run may change: the reviewer's file, and REX's copy of it. */
+interface Editable {
+  documentId: string;
+  /** The reviewer's file. Never written by the agent (spec 15 §2). */
+  original: string;
+  /** `~/.rex/work/<documentId>/current<ext>` — the one file the agent may edit. */
+  copy: string;
+  meta: WorkingMeta;
+}
+
+/**
+ * Spec 15 §4.1 — the agent is pointed at the working copies, and told what they
+ * are.
+ *
+ * The passages keep naming the **document**, because that is what the reviewer
+ * commented on and what the agent should reason about. Only the line numbers
+ * come from the copy, through `lineOf` — they have to, since the copy is what
+ * the agent will open and a line number from the original is wrong the moment
+ * the first revision lands.
+ */
 function writePrompt(input: {
   db: Db;
   thread: Thread;
   root: string;
-  files: string[];
+  files: Editable[];
   instruction: string;
   transcript: string;
 }): string {
   const parts = ["Files you may edit:"];
-  for (const file of input.files) parts.push(`- ${relative(input.root, file) || file}`);
+  for (const file of input.files) {
+    parts.push(`- ${file.copy}`);
+    parts.push(
+      `  — the current version of ${relative(input.root, file.original) || file.original}`,
+    );
+  }
   parts.push("");
+  parts.push(
+    "Edit those files in place. They are REX's working copies: the reviewer has not",
+    "accepted these changes yet, so the originals must not be touched. Anything you",
+    "write outside the list above is put back and reported.",
+    "",
+  );
 
+  const copies = new Map(input.files.map((file) => [file.original, file.copy]));
   parts.push(
     ...passageSection({
       thread: input.thread,
       documentPaths: pathsOf(input.db, input.thread),
       repositoryRoot: input.root,
       heading: "## The passages under discussion",
-      lineOf: currentSourceLine,
+      lineOf: (documentPath, anchor) =>
+        currentSourceLine(copies.get(documentPath) ?? documentPath, anchor),
     }),
   );
 
@@ -158,8 +214,7 @@ function writePrompt(input: {
 function transcriptBefore(db: Db, threadId: string, note: string): string {
   const messages = listMessages(db, threadId);
   const last = messages.at(-1);
-  const earlier =
-    last?.role === "user" && last.content === note ? messages.slice(0, -1) : messages;
+  const earlier = last?.role === "user" && last.content === note ? messages.slice(0, -1) : messages;
   return renderTranscript(earlier);
 }
 
@@ -186,25 +241,23 @@ function groupByRepository(editable: string[], skipped: SkippedDocument[]): Map<
 }
 
 /**
- * The guard that makes step 5 reversible.
+ * Spec 15 §3.4 — everything REX might have to put back, copied before the run.
  *
- * A target file that already differs from HEAD cannot be offered: rejecting the
- * Apply runs `git checkout` on it, which would throw away whatever was there
- * before the agent ran. Other dirty files in the same repository are none of
- * Apply's business and are left alone — see the note at the top of this file.
+ * Narrow on purpose: the working copy is where the change lives, so this exists
+ * only to undo a write the agent had no business making (§4.3). Every path in
+ * it is one `git checkout` could not restore — untracked, or already modified
+ * when the run started — plus the targets themselves, which the agent is told
+ * not to touch and might.
+ *
+ * Spec 14 and earlier refused to start on a dirty target for exactly the
+ * opposite reason: the undo was `git checkout`, which discards everything since
+ * the last commit. It is a copy now, so a dirty file is not even touched, and
+ * `refuseDirtyTargets` is gone.
  */
-function refuseDirtyTargets(groups: Map<string, string[]>): void {
-  for (const [root, files] of groups) {
-    const dirty = new Set(changedFiles(root));
-    for (const file of files) {
-      const path = relative(root, file);
-      if (dirty.has(path)) {
-        throw new Error(
-          `${path} already has uncommitted changes. Commit or stash them first — rejecting this Apply would discard them too.`,
-        );
-      }
-    }
-  }
+function beforeSetFor(root: string, targets: readonly string[]): BeforeSet {
+  const paths = new Set<string>(targets);
+  for (const relativePath of changedFiles(root)) paths.add(`${root}/${relativePath}`);
+  return takeBeforeSet(root, [...paths]);
 }
 
 /**
@@ -287,6 +340,11 @@ async function startDeckApply(
     files: decks,
     regions: [],
     skipped,
+    // Spec 15 §10 — the deck pipeline is untouched. Its copy already lives in
+    // the deck cache under its own name, and it is still accepted through
+    // `apply:confirm` rather than through a working copy.
+    working: [],
+    restored: [],
     decks: previews,
   });
   return run.id;
@@ -333,54 +391,79 @@ export async function startApply(
         : "This comment has no document to edit.",
     );
   }
-  refuseDirtyTargets(groups);
 
   const run = createApplyRun(db, threadId);
   const transcript = transcriptBefore(db, threadId, instruction);
+  const documentIds = documentIdsByPath(db, thread);
 
   const touched: string[] = [];
-  const diffs: string[] = [];
+  const working: WorkingCopyView[] = [];
+  const restored: string[] = [];
   const regions: ChangedRegion[] = [];
+  const diffs: string[] = [];
 
   for (const [root, files] of groups) {
-    // What was already dirty here before this run. Anything outside this set
-    // afterwards is ours, and only that is diffed, shown and reverted.
-    const before = new Set(changedFiles(root));
+    // §3 — fork before anything runs. `base` is the reviewer's bytes, and it is
+    // on disk before the agent's first tool call.
+    const editable: Editable[] = files.map((original) => {
+      const documentId = documentIds.get(original) as string;
+      const meta = forkWorkingCopy(documentId, original);
+      return { documentId, original, copy: currentPath(meta), meta };
+    });
+    const hashesBefore = new Map(editable.map((file) => [file.copy, currentHash(file.meta)]));
+    const allowed = new Set(editable.map((file) => file.copy));
+    const beforeSet = beforeSetFor(root, files);
+
+    // §4.3 — the primary source for what this run touched. Exact, and it needs
+    // no git: every write tool call carries the path it is about to write.
+    const wrote = new Set<string>();
 
     const result = await runAgent({
       cwd: root,
       profile: "write",
-      prompt: writePrompt({ db, thread, root, files, instruction, transcript }),
+      prompt: writePrompt({ db, thread, root, files: editable, instruction, transcript }),
       // One session per repository: two turns sharing a session id would resume
       // the first one's transcript in the second one's working directory.
       sessionId: sessionIdFor(`${run.id}:${root}`),
       resume: false,
       model: thread.model,
       onMessage: (message) => context.record(threadId, message),
+      onWrote: (path) => wrote.add(path),
     });
 
+    // §4.3 — put back anything written outside the working copies, whichever
+    // source found it. Done before the error check, because a failed run can
+    // have written just as much as a successful one.
+    restored.push(...putBack(run.id, root, beforeSet, wrote, allowed));
+
     if (result.error) {
-      // Whatever this run has already written elsewhere is undone before the
-      // error is raised: a half-applied comment is the one state with no button
-      // to fix it.
-      revertAll(touched);
       completeApplyRun(db, run.id, "failed");
       throw new Error(result.error);
     }
 
-    const introduced = changedFiles(root).filter((path) => !before.has(path));
-    if (introduced.length === 0) continue;
+    for (const file of editable) {
+      // §4.2 — a file is changed when its hash moved. A rewrite with identical
+      // bytes is not a revision anybody needs to undo.
+      const next = saveRevision(file.meta, {
+        applyRunId: run.id,
+        threadId,
+        before: hashesBefore.get(file.copy) ?? "",
+      });
+      if (!next) continue;
 
-    const unified = diff(root, introduced);
-    diffs.push(unified);
-    regions.push(...changedRegions(unified, root));
-    touched.push(...introduced.map((path) => `${root}/${path}`));
+      const view = viewOf(next, root);
+      working.push(view);
+      touched.push(file.original);
+      regions.push(...view.added);
+      diffs.push(view.patch);
+    }
   }
 
   const unified = diffs.join("\n");
   setApplyRunDiff(db, run.id, unified, touched);
 
-  // §8.7 step 5 — show the change and WAIT. Nothing is final until apply:confirm.
+  // §7.4 — a notice, not a gate. The reviewer's files still hold exactly what
+  // they held before this ran, and they keep holding it until §7.2.
   context.onApplyReady({
     applyRunId: run.id,
     threadId,
@@ -388,8 +471,90 @@ export async function startApply(
     files: touched,
     regions,
     skipped,
+    working,
+    restored,
   });
   return run.id;
+}
+
+/** Absolute path → documentId, for every document the thread targets. */
+function documentIdsByPath(db: Db, thread: Thread): Map<string, string> {
+  const ids = new Map<string, string>();
+  for (const record of documentsOf(db, thread)) ids.set(record.ref.value, record.id);
+  return ids;
+}
+
+/** Spec 15 §3 — one working copy, as the two panes and the top bar need it. */
+export function viewOf(meta: WorkingMeta, root: string): WorkingCopyView {
+  const change = workingDiff({
+    base: basePath(meta),
+    current: currentPath(meta),
+    path: meta.path,
+    root,
+  });
+  let conflict: string | null = null;
+  try {
+    if (sha256(readFileSync(meta.path)) !== meta.baseSha256) {
+      conflict =
+        "This file has changed on disk since REX made its copy. Approving would throw your own edit away. Discard the copy and ask again, or open the two versions and copy across what you want.";
+    }
+  } catch {
+    conflict = "This file cannot be read any more, so REX will not write over it.";
+  }
+
+  return {
+    documentId: meta.documentId,
+    path: meta.path,
+    name: basename(meta.path),
+    revisions: meta.revisions.length,
+    addedLines: change.addedLines,
+    removedLines: change.removedLines,
+    added: change.added,
+    removed: change.removed,
+    patch: change.patch,
+    conflict,
+  };
+}
+
+/**
+ * Spec 15 §4.3 — every file the agent wrote that was not its to write, put back.
+ *
+ * Two sources, because neither is complete on its own. `wrote` is exact but
+ * blind to `Bash` — the write profile allows it (spec 11 §6.4.4), so `sed -i`
+ * is a write no tool call names. The before-set catches those by content, but
+ * only for paths git listed, so a brand-new file in an ignored directory is
+ * seen by the first source and not the second.
+ *
+ * Restoring is a copy back, or a delete for a file that did not exist —
+ * `git checkout` is not used, and cannot be: the paths that most need putting
+ * back are the ones git does not track.
+ */
+function putBack(
+  applyRunId: string,
+  root: string,
+  beforeSet: BeforeSet,
+  wrote: ReadonlySet<string>,
+  allowed: ReadonlySet<string>,
+): string[] {
+  const store = `${workRoot()}/`;
+  const suspects = new Set<string>();
+  for (const path of wrote) if (!allowed.has(path)) suspects.add(path);
+  for (const path of beforeSet.contents.keys()) {
+    if (!allowed.has(path) && movedSince(beforeSet, path)) suspects.add(path);
+  }
+
+  const done: string[] = [];
+  for (const path of suspects) {
+    // Never REX's own store. A stray write to a working copy's `base` would be
+    // "restored" by deleting it, and `base` is the only copy of the reviewer's
+    // original bytes — the one file in this design that must never be lost.
+    if (path.startsWith(store)) continue;
+    // A path the agent named but never changed is not a write. It happens: an
+    // Edit that fails leaves the tool call in the transcript and the file alone.
+    if (beforeSet.contents.has(path) && !movedSince(beforeSet, path)) continue;
+    if (restoreFromBeforeSet(beforeSet, path, applyRunId)) done.push(relative(root, path) || path);
+  }
+  return done;
 }
 
 /** Undo everything a run wrote, whichever repositories it wrote into. */

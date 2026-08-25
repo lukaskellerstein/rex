@@ -6,17 +6,19 @@
 // firing is worth seeing.
 
 import { useState } from "react";
+import { commentName } from "../../shared/names.ts";
 import { totalsOf } from "../../shared/totals.ts";
 import type { AnchorState, Message, ThreadWithMessages } from "../../shared/types.ts";
-import { tokenClass } from "./Gutter.tsx";
 import { Bubble, ChevronLeft, ChevronRight, Pencil, Sparkle, Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
-import type { Mode } from "./mode.ts";
 import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
+import type { Mode } from "./mode.ts";
+import { NameBox } from "./NameBox.tsx";
 import { placeWords } from "./place.ts";
 import { Prose } from "./prose.tsx";
-import { stepsOf, StepStrip } from "./StepStrip.tsx";
+import { StepStrip, stepsOf } from "./StepStrip.tsx";
 import { washClass } from "./ThreadRow.tsx";
+import { tokenClass } from "./wash.ts";
 
 /** What the sweep found out about one place, or nothing where it could not look. */
 export interface PlaceFacts {
@@ -66,6 +68,8 @@ interface Props {
   onResolve: (resolved: boolean) => void;
   /** Removes the comment for good. The card confirms before calling it. */
   onDelete: () => void;
+  /** Spec 14 §3 — the name. Null puts the note back. */
+  onRename: (title: string | null) => void;
 }
 
 /** The conversation: what the agent said, and what the reviewer said back. */
@@ -345,6 +349,8 @@ function PlaceRow({
 
 export function CommentCard(props: Props): React.JSX.Element {
   const [reply, setReply] = useState("");
+  /** Spec 14 §3.3 — the name box, open over the card's own title. */
+  const [renaming, setRenaming] = useState(false);
   /** A reply needs words, and a thread already working takes no second turn. */
   const canSend = !props.busy && reply.trim().length > 0;
   const sendReply = (): void => {
@@ -454,10 +460,45 @@ export function CommentCard(props: Props): React.JSX.Element {
       */}
       <div className="rex-card-head">
         <div
-          className={`rex-card-anchor rex-card-places ${washClass(thread.status, props.anchorState)}`}
+          className={`rex-card-anchor rex-card-places ${washClass(thread.status, props.anchorState, thread.isNote)}`}
         >
+          {/*
+            Spec 14 §3.4 — the name, and the same pen the row carries. Renaming
+            from the open card is the same act as renaming from the list, so it
+            is the same control and the same box.
+          */}
+          <div className="rex-card-title">
+            {renaming ? (
+              <NameBox
+                value={commentName(thread)}
+                label={`Name for comment ${props.number}`}
+                allowEmpty
+                onSave={(title) => {
+                  props.onRename(title);
+                  setRenaming(false);
+                }}
+                onCancel={() => setRenaming(false)}
+              />
+            ) : (
+              <>
+                <h2 className="rex-card-name">{commentName(thread)}</h2>
+                <button
+                  type="button"
+                  className="rex-row-pen"
+                  aria-label={`Rename comment ${props.number}`}
+                  title="Rename this comment"
+                  onClick={() => setRenaming(true)}
+                >
+                  <Pencil size={12} />
+                </button>
+              </>
+            )}
+          </div>
+
           <div className="rex-card-anchor-head">
-            <span className={`rex-token ${tokenClass(thread.status, props.anchorState)}`}>
+            <span
+              className={`rex-token ${tokenClass(thread.status, props.anchorState, thread.isNote)}`}
+            >
               {props.number}
             </span>
             <span className="rex-meta">
@@ -563,17 +604,26 @@ export function CommentCard(props: Props): React.JSX.Element {
           />
           <button
             type="button"
-            className={`rex-button rex-primary${props.mode === "act" ? " rex-button-write" : ""}`}
+            className={[
+              "rex-button",
+              // NOTE is not the send, so it does not wear the send's colour.
+              props.mode === "note" ? "rex-button-note" : "rex-primary",
+              props.mode === "act" ? "rex-button-write" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             title={
               props.mode === "act"
                 ? `Make this change in ${thread.documentNames.join(", ")} — you will see a diff before anything is kept — ${SEND_CHORD_HINT}`
-                : `Send this reply — ${SEND_CHORD_HINT}`
+                : props.mode === "note"
+                  ? `Write this down in the comment — no agent runs, and nothing is spent — ${SEND_CHORD_HINT}`
+                  : `Send this reply — ${SEND_CHORD_HINT}`
             }
             disabled={!canSend}
             onClick={sendReply}
           >
             {props.mode === "act" ? <Pencil /> : null}
-            {props.mode === "act" ? "Change" : "Send"}
+            {props.mode === "act" ? "Change" : props.mode === "note" ? "Save" : "Send"}
             <SendChord />
           </button>
           <span className="rex-spacer" />

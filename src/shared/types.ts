@@ -154,6 +154,46 @@ export interface AnchorTarget {
   state: AnchorState | null;
 }
 
+/**
+ * Spec 14 §5.1 — a named container for comments, nested to any depth.
+ *
+ * Not a directory. The explorer's folders are paths on disk; these exist only
+ * in `rex.db`, hold comments from any document under one workspace root, and
+ * mean nothing to any agent — §2.1 is why they are called groups and not
+ * folders.
+ */
+export interface CommentGroup {
+  id: string;
+  /** The workspace root this group belongs to. Spec 14 §5.3. */
+  root: string;
+  /** Null is the top level. */
+  parentId: string | null;
+  name: string;
+  /** Rank among the groups sharing `parentId`, and among them only (§4.1). */
+  position: number;
+  collapsed: boolean;
+  createdAt: string;
+}
+
+/** Spec 14 §4.3 — the two kinds of row a drag can move. */
+export type CommentItem = { kind: "thread"; id: string } | { kind: "group"; id: string };
+
+/** Spec 14 §4.2 — one drop, as a gesture rather than as a computed order. */
+export interface CommentMove {
+  item: CommentItem;
+  /** The group it lands in; null is the top level. */
+  parentId: string | null;
+  /**
+   * The sibling it lands after — always of the same kind as `item` (§4.3), and
+   * null means first.
+   *
+   * An id and not an index. The panel is filtered, so the third row on screen
+   * can be the ninth comment in its group; an index computed from what the
+   * reviewer sees describes a different place than the one they dropped onto.
+   */
+  after: string | null;
+}
+
 export interface Thread {
   id: string;
   /**
@@ -167,6 +207,29 @@ export interface Thread {
   /** Every place this comment is about, in the order the panel listed them. */
   targets: AnchorTarget[]; // empty for a synthesis thread
   note: string; // the comment the user typed
+  /**
+   * Spec 14 §3.1 — the name the reviewer typed, or null.
+   *
+   * Null is not "unnamed", it is "named by the note": every surface calls
+   * `commentName()` in `shared/names.ts`, which falls back to the note's first
+   * line. Nothing is ever written here by REX, so a comment made before this
+   * column existed reads exactly as it always did.
+   */
+  title: string | null;
+  /** Spec 14 §5 — the group this comment sits in. Null is the top level. */
+  groupId: string | null;
+  /** Spec 14 §4.1 — rank among the comments sharing `groupId`. */
+  position: number;
+  /**
+   * True for a comment the reviewer saved and never sent — NOTE mode.
+   *
+   * It is not "has no answer yet": an ASK that failed has no answer either, and
+   * the two must not look alike. This says the reviewer *chose* not to send it,
+   * which is why "Ask all" skips it and why the panel draws it in its own
+   * colour. It goes false the moment the comment is sent, because a note that
+   * has been asked is not a note any more.
+   */
+  isNote: boolean;
   sessionId: string | null;
   profile: Profile;
   model: string | null;
@@ -435,6 +498,54 @@ export type DocumentPresentation =
    */
   | { kind: "pdf"; url: string; assetsUrl: string };
 
+/**
+ * Spec 15 §6.1 — which version of a document a render is.
+ *
+ * `original` is the reviewer's file. `current` is the working copy, which is
+ * the version that will exist if they approve it — so it is where comments are
+ * made and what a second ACT run edits.
+ */
+export type DocumentVersion = "original" | "current";
+
+/**
+ * Spec 15 §6.1 — which of the two panes the reviewer wants on screen.
+ *
+ * `both` is the default the moment a working copy exists. `new` alone is what
+ * they want once they have read the change; `original` alone is how they check
+ * what a passage used to say.
+ */
+export type PaneMode = "original" | "both" | "new";
+
+/**
+ * Spec 15 §3 — a document with a change waiting for the reviewer.
+ *
+ * It is a fact about a *document*, not about a run: the working copy survives
+ * the run that made it, which is the whole of §5. Every field here is what the
+ * two panes and the top bar need to draw themselves.
+ */
+export interface WorkingCopyView {
+  documentId: string;
+  /** The reviewer's file. Absolute. */
+  path: string;
+  /** The file name, which is what a row shows. */
+  name: string;
+  /** How many ACT runs are in it. `undo` steps back one. */
+  revisions: number;
+  addedLines: number;
+  removedLines: number;
+  /** Blocks the new version added or changed, in ITS line numbers (§6.2). */
+  added: ChangedRegion[];
+  /** Blocks only the original has, in ITS line numbers (§6.2). */
+  removed: ChangedRegion[];
+  /** The unified patch, collapsed under the panes (§6.3). */
+  patch: string;
+  /**
+   * §7.3 — set when the file changed on disk since the fork, in the words the
+   * reviewer sees. Approval refuses while it is non-null; REX does not merge.
+   */
+  conflict: string | null;
+}
+
 /** What `doc:open` hands the renderer. */
 export interface OpenedDocument {
   documentId: string;
@@ -450,6 +561,10 @@ export interface OpenedDocument {
   applyDisabledReason: string | null;
   /** True when the file changed since the anchors were written (§6.6). */
   contentChanged: boolean;
+  /** Spec 15 §6.1 — which version this render is. */
+  version: DocumentVersion;
+  /** Spec 15 §3 — non-null when this document has a working copy. */
+  working: WorkingCopyView | null;
 }
 
 /**
@@ -503,6 +618,8 @@ export interface ViewState {
   /** 1 is 100%. */
   zoom: number;
   threads: number;
+  /** Spec 14 — groups in this workspace, at every depth. */
+  groups: number;
   unanswered: number;
   activeThreadId: string | null;
   traceOpen: boolean;

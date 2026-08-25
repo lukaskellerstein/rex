@@ -9,13 +9,17 @@ import type {
   Anchor,
   AnchorState,
   AnchorSummary,
+  CommentGroup,
+  CommentMove,
   DocumentRef,
   Message,
   OpenedDocument,
+  PaneMode,
   ReferenceGraph,
   StrokeRef,
   ThreadWithMessages,
   ViewState,
+  WorkingCopyView,
   WorkspaceRef,
   WorkspaceTree,
 } from "../../shared/types.ts";
@@ -23,7 +27,6 @@ import { createDocumentAnchor } from "../anchor/create.ts";
 import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import { ApplyResult } from "./ApplyResult.tsx";
-import type { Mode } from "./mode.ts";
 import {
   type DocumentSurface,
   NO_KEPT_SCOPE,
@@ -35,10 +38,10 @@ import { DiffDialog } from "./DiffDialog.tsx";
 import { DocumentView } from "./DocumentView.tsx";
 import { Explorer } from "./Explorer.tsx";
 import { GraphView } from "./GraphView.tsx";
-import { tokenClass } from "./Gutter.tsx";
 import { rescaleRect, strokeRefFrom, unionOfRects } from "./ink.ts";
 import { Lightbox } from "./Lightbox.tsx";
 import { drawDiagramPng, posterFramePng } from "./mermaid.ts";
+import type { Mode } from "./mode.ts";
 import { PEN_WIDTH } from "./PenLayer.tsx";
 import type { PreviewFigure } from "./preview.ts";
 import { SelectionPanel } from "./SelectionPanel.tsx";
@@ -53,6 +56,7 @@ import {
 } from "./selection.ts";
 import { TopBar } from "./TopBar.tsx";
 import { TraceSheet } from "./TraceSheet.tsx";
+import { tokenClass } from "./wash.ts";
 
 /** What the middle of the window is showing. */
 type Centre = "document" | "graph";
@@ -102,11 +106,31 @@ const NO_SUMMARY: AnchorSummary = { ok: 0, moved: 0, orphaned: 0, total: 0 };
 export function App(): React.JSX.Element {
   const [doc, setDoc] = useState<OpenedDocument | null>(null);
   const [threads, setThreads] = useState<ThreadWithMessages[]>([]);
+  /**
+   * Spec 14 §5 — the reviewer's groups for this workspace, flat.
+   *
+   * The tree is built where it is drawn, from `shared/commentTree.ts`, which is
+   * the same function main walks to decide the order `threads` arrives in. Two
+   * implementations of one order is the bug §4.4 exists to prevent.
+   */
+  const [groups, setGroups] = useState<CommentGroup[]>([]);
   const [resolved, setResolved] = useState<ResolvedThread[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cost, setCost] = useState(0);
   const [pendingApply, setPendingApply] = useState<ApplyReadyEvent | null>(null);
   const [applyOutcome, setApplyOutcome] = useState<ApplyOutcome | null>(null);
+  /**
+   * Spec 15 §6.1 — the left-hand pane's document, rendered from the file.
+   *
+   * A second `OpenedDocument` and not a flag, because the two panes are two
+   * renders of two different byte streams. It is null whenever there is nothing
+   * to compare — no working copy, or the control is on `New`.
+   */
+  const [original, setOriginal] = useState<OpenedDocument | null>(null);
+  /** §6.1 — which of the two versions is on screen. `Both` once one exists. */
+  const [paneMode, setPaneMode] = useState<PaneMode>("both");
+  /** §7.1 — every document with a change waiting, for `Approve all`. */
+  const [working, setWorking] = useState<WorkingCopyView[]>([]);
   const [busyThreads, setBusyThreads] = useState<string[]>([]);
   /**
    * Spec 12 §3.3 — the mode each thread's next send will run in.
@@ -236,6 +260,7 @@ export function App(): React.JSX.Element {
   const surfaceRef = useRef<DocumentSurface | null>(null);
   const docRef = useRef<OpenedDocument | null>(null);
   const threadsRef = useRef<ThreadWithMessages[]>([]);
+  const groupsRef = useRef<CommentGroup[]>([]);
   const workspaceRef = useRef<WorkspaceRef | null>(null);
   const pendingApplyRef = useRef<ApplyReadyEvent | null>(null);
   /**
@@ -475,12 +500,16 @@ export function App(): React.JSX.Element {
     const surface = surfaceRef.current;
     const current = docRef.current;
     const pending = pendingApplyRef.current;
-    if (!surface || !current || !pending) {
+    if (!surface || !current || (!pending && !current.working)) {
       setChangeBoxes([]);
       return;
     }
     const path = current.ref.value;
-    const ranges = pending.regions
+    // Spec 15 §6.2 — the working copy's own added blocks when there is one. It
+    // outlives the run that made it, so `pendingApply` is the wrong source the
+    // moment a second run lands or the reviewer reopens the document.
+    const regions = current.working ? current.working.added : (pending?.regions ?? []);
+    const ranges = regions
       .filter((region) => region.file === path)
       .map((region) => ({ from: region.from, to: region.to }));
     setChangeBoxes(ranges.length > 0 ? await surface.boxesForLines(ranges) : []);
@@ -603,10 +632,28 @@ export function App(): React.JSX.Element {
     [],
   );
 
+  /**
+   * Spec 14 §5.3 — the groups of the open workspace, or none.
+   *
+   * With no workspace there is no root to hang a group on, so the panel shows a
+   * flat list and hides the group controls. Emptying the state here is what
+   * makes that true rather than leaving the last workspace's groups on screen.
+   */
+  const refreshGroups = useCallback(async (): Promise<void> => {
+    const root = workspaceRef.current?.root ?? null;
+    const list = root ? await window.rex.groupList({ root }) : [];
+    setGroups(list);
+    // A ref as well as state, for the same reason `threadsRef` is one: the debug
+    // report (spec 13 §4.2) is assembled inside a callback that must not depend
+    // on this render's closure.
+    groupsRef.current = list;
+  }, []);
+
   const openDocument = useCallback(
     async (ref: DocumentRef): Promise<void> => {
       setSelectedPath(ref.value);
       const opened = await window.rex.docOpen(ref);
+      await refreshGroups();
       const list = await window.rex.threadList(listRequest(opened.documentId));
       surfaceRef.current = null;
       setActiveId(null);
@@ -620,7 +667,7 @@ export function App(): React.JSX.Element {
       setThreads(list);
       setDoc(opened);
     },
-    [leavePen, leavePick, listRequest],
+    [leavePen, leavePick, listRequest, refreshGroups],
   );
 
   const guard = useCallback(async (task: () => Promise<void>): Promise<void> => {
@@ -674,6 +721,7 @@ export function App(): React.JSX.Element {
       sidebarTab: sidebarTabRef.current,
       zoom: zoomRef.current,
       threads: list.length,
+      groups: groupsRef.current.length,
       unanswered: list.filter((thread) => thread.messages.length === 0).length,
       activeThreadId: activeIdRef.current,
       traceOpen: traceIdRef.current !== null,
@@ -703,11 +751,74 @@ export function App(): React.JSX.Element {
   const refreshThreads = useCallback(async (): Promise<ThreadWithMessages[]> => {
     const current = docRef.current;
     if (!current) return [];
+    // Both, always. The list arrives in the walk order main computed from these
+    // very groups (§4.4); fetching one without the other is how a row ends up
+    // drawn under a group that is no longer there.
+    await refreshGroups();
     const list = await window.rex.threadList(listRequest(current.documentId));
     setThreads(list);
     threadsRef.current = list;
     return list;
-  }, [listRequest]);
+  }, [listRequest, refreshGroups]);
+
+  // ── The name, the order and the groups (spec 14) ────────────
+  //
+  // Every one of these is the same three steps: send the gesture, then reload
+  // the list and the groups together. Nothing is predicted locally — main
+  // computes every position (§4.2), and a renderer that guessed one would be
+  // right until the first time it was not.
+
+  const renameThread = useCallback(
+    (threadId: string, title: string | null) =>
+      guard(async () => {
+        await window.rex.threadRename({ threadId, title });
+        await refreshThreads();
+      }),
+    [guard, refreshThreads],
+  );
+
+  const createGroup = useCallback(
+    async (parentId: string | null, name: string): Promise<string | null> => {
+      const root = workspaceRef.current?.root;
+      if (!root) return null;
+      try {
+        const group = await window.rex.groupCreate({ root, parentId, name });
+        await refreshThreads();
+        return group.id;
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error));
+        return null;
+      }
+    },
+    [refreshThreads],
+  );
+
+  const updateGroup = useCallback(
+    (request: { groupId: string; name?: string; collapsed?: boolean }) =>
+      guard(async () => {
+        await window.rex.groupUpdate(request);
+        await refreshThreads();
+      }),
+    [guard, refreshThreads],
+  );
+
+  const deleteGroup = useCallback(
+    (groupId: string) =>
+      guard(async () => {
+        await window.rex.groupDelete({ groupId });
+        await refreshThreads();
+      }),
+    [guard, refreshThreads],
+  );
+
+  const moveComment = useCallback(
+    (move: CommentMove) =>
+      guard(async () => {
+        await window.rex.commentsMove(move);
+        await refreshThreads();
+      }),
+    [guard, refreshThreads],
+  );
 
   // ── Workspace (spec 02) ─────────────────────────────────────
 
@@ -718,8 +829,10 @@ export function App(): React.JSX.Element {
         workspaceRef.current = ref;
         setGraph(null);
         setTree(await window.rex.workspaceTree(ref, showSkipped));
+        // Spec 14 §5.3 — groups belong to a root, so they change with it.
+        await refreshGroups();
       }),
-    [guard, showSkipped],
+    [guard, refreshGroups, showSkipped],
   );
 
   /** Re-scans the tree so comment counts follow what just happened. */
@@ -788,6 +901,115 @@ export function App(): React.JSX.Element {
         }
       }),
     [guard, leavePen, leavePick, sweep, workspace],
+  );
+
+  // ── Spec 15 §6 and §7 — the working copy ────────────────────
+
+  /** §7.1 — how many documents are waiting, for `Approve all`. */
+  const refreshWorking = useCallback(async (): Promise<void> => {
+    setWorking(await window.rex.workList());
+  }, []);
+
+  useEffect(() => {
+    void refreshWorking();
+  }, [refreshWorking]);
+
+  /**
+   * §6.1 — the left-hand pane follows the right one.
+   *
+   * Rendered from the file every time the working copy changes, because that is
+   * the only moment it can have: `base` and the file agree until somebody edits
+   * the file, and §7.3 is what refuses when they stop agreeing.
+   */
+  useEffect(() => {
+    let live = true;
+    const wanted = doc?.working && paneMode !== "new" ? doc.ref : null;
+    if (!wanted) {
+      setOriginal(null);
+      return;
+    }
+    void window.rex
+      .docOpen(wanted, "original")
+      .then((opened) => {
+        if (live) setOriginal(opened);
+      })
+      .catch(() => {
+        if (live) setOriginal(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [doc?.working, doc?.ref, paneMode]);
+
+  /** Every route that changes what is on disk ends here: re-render and re-sweep. */
+  const reopenDocument = useCallback(async (): Promise<void> => {
+    const current = docRef.current;
+    if (!current) return;
+    const reopened = await window.rex.docOpen(current.ref);
+    surfaceRef.current = null;
+    setDoc(reopened);
+    await refreshWorking();
+  }, [refreshWorking]);
+
+  const approveWorking = useCallback(
+    (documentId: string) =>
+      guard(async () => {
+        const answer = await window.rex.workApprove(documentId);
+        if (!answer.ok) {
+          // §7.3 — the file moved under the copy. Nothing was written, and the
+          // reviewer is told in the same sentence why and what to do.
+          setNotice(answer.reason);
+          await refreshWorking();
+          return;
+        }
+        await reopenDocument();
+        const summary = answer.reanchored;
+        setNotice(
+          summary
+            ? `Approved. ${summary.ok} anchor(s) still exact, ${summary.moved} moved, ${summary.orphaned} orphaned.`
+            : "Approved.",
+        );
+      }),
+    [guard, refreshWorking, reopenDocument],
+  );
+
+  /** §7.1 — every waiting document, in turn, and one report at the end. */
+  const approveAllWorking = useCallback(
+    () =>
+      guard(async () => {
+        const all = await window.rex.workList();
+        const refused: string[] = [];
+        for (const copy of all) {
+          const answer = await window.rex.workApprove(copy.documentId);
+          if (!answer.ok) refused.push(copy.name);
+        }
+        await reopenDocument();
+        setNotice(
+          refused.length === 0
+            ? `Approved ${all.length} document(s).`
+            : `Approved ${all.length - refused.length} of ${all.length}. ${refused.join(", ")} changed on disk since REX copied ${refused.length === 1 ? "it" : "them"}, so ${refused.length === 1 ? "it was" : "they were"} left alone.`,
+        );
+      }),
+    [guard, reopenDocument],
+  );
+
+  const discardWorking = useCallback(
+    (documentId: string) =>
+      guard(async () => {
+        await window.rex.workDiscard(documentId);
+        await reopenDocument();
+        setNotice("Discarded. Your file was never changed.");
+      }),
+    [guard, reopenDocument],
+  );
+
+  const undoWorking = useCallback(
+    (documentId: string) =>
+      guard(async () => {
+        await window.rex.workUndo(documentId);
+        await reopenDocument();
+      }),
+    [guard, reopenDocument],
   );
 
   // ── §8.7 step 6 — main drives the post-Apply sweep through here ──
@@ -877,22 +1099,42 @@ export function App(): React.JSX.Element {
         );
     });
 
-    // §5.6.1 — the agent has written to disk and is waiting. The document on
-    // screen is re-rendered if it is one of the files that changed, so the
-    // reviewer reads the new text rather than the text it replaced.
+    // Spec 15 §7.4 — the run is over and its change is in a working copy. The
+    // document on screen is re-rendered from that copy if it is one of the ones
+    // that changed, so the reviewer reads the new version beside the old.
     const offApply = window.rex.onApplyReady((event) => {
-      setPendingApply(event);
-      pendingApplyRef.current = event;
+      // §7.4 — a run that produced a working copy has already said everything
+      // this bar used to say, in the head of the pane the change is in. Keeping
+      // both would put two answers on screen, and the bar's are now wrong: it
+      // offers OK and Undo, and neither exists any more.
+      //
+      // A deck run still has it, because spec 11 §7.7's pipeline is untouched
+      // and is still accepted through `apply:confirm`.
+      const notice = event.working.length === 0 ? event : null;
+      setPendingApply(notice);
+      pendingApplyRef.current = notice;
       // Before anything is re-rendered or re-swept — see the ref's own note.
       orphansBeforeApply.current = new Set(
         resolvedRef.current.filter((e) => e.state === "orphaned").map((e) => e.threadId),
       );
+      // §4.3 — a file the agent wrote that was not its to write, put back. It
+      // is never silent: a document nobody commented on is not part of a review.
+      if (event.restored.length > 0) {
+        setNotice(
+          `The agent also changed ${event.restored.join(", ")}. REX put ${
+            event.restored.length === 1 ? "it" : "them"
+          } back — a change outside this comment's documents cannot be reviewed here.`,
+        );
+      }
+      void refreshWorking();
       const current = docRef.current;
       const path = current?.ref.value ?? null;
       if (!current || !path || !event.files.includes(path)) {
         void refreshChangeBoxes();
         return;
       }
+      // Both panes come back, because the reviewer is now comparing.
+      setPaneMode("both");
       void guard(async () => {
         const reopened = await window.rex.docOpen(current.ref);
         surfaceRef.current = null;
@@ -906,7 +1148,7 @@ export function App(): React.JSX.Element {
       offApply();
       offRender();
     };
-  }, [guard, refreshChangeBoxes]);
+  }, [guard, refreshChangeBoxes, refreshWorking]);
 
   // ── Commands ────────────────────────────────────────────────
 
@@ -1083,12 +1325,16 @@ export function App(): React.JSX.Element {
       const note = selectionNote.trim();
       if (items.length === 0 || note.length === 0) return;
 
+      const mode = selectionMode;
       const thread = await window.rex.threadCreate({
         targets: items.map((item) => ({ documentId: item.documentId, anchor: item.anchor })),
         note,
         // §5.4 — the ink rides inside the payload that already exists; §10's
         // IPC contract is unchanged.
         stroke: selectionStroke ?? undefined,
+        // NOTE mode. The flag is stored so the panel and "Ask all" can tell a
+        // comment the reviewer chose not to send from one whose send failed.
+        isNote: mode === "note",
       });
 
       setSelection([]);
@@ -1112,8 +1358,13 @@ export function App(): React.JSX.Element {
       // and decides which channel this first send reaches. ACT here is the flow
       // §1.3 says was missing: a reviewer who already knows what they want does
       // not have to ask a question first.
-      const mode = selectionMode;
       setMode(thread.id, mode);
+
+      // NOTE stops here, and that is the whole feature: the comment is written
+      // down, nothing runs, nothing is spent. No `withBusy` either — there is
+      // no work to be busy with, and a spinner over an instant save is a lie.
+      if (mode === "note") return;
+
       await withBusy(thread.id, async () => {
         if (mode === "act") await window.rex.threadApply({ threadId: thread.id, note });
         else await window.rex.threadAsk(thread.id);
@@ -1167,7 +1418,12 @@ export function App(): React.JSX.Element {
   excludedRef.current = tree?.excluded ?? [];
 
   const askAll = useCallback(async (): Promise<void> => {
-    const waiting = threadsRef.current.filter((thread) => thread.messages.length === 0);
+    // A note is a comment the reviewer chose not to send. "Ask all" is the one
+    // command that would send it behind their back, so it is the one command
+    // that has to know about the flag.
+    const waiting = threadsRef.current.filter(
+      (thread) => thread.messages.length === 0 && !thread.isNote,
+    );
     // §3.3 — a comment about nothing but excluded documents is not asked. It
     // stays in the list and can still be asked on its own; what it stops doing
     // is costing money on a fan-out over a folder the reviewer has set aside.
@@ -1479,12 +1735,25 @@ export function App(): React.JSX.Element {
     const canPick = doc !== null && centre === "document";
 
     const onKeyDown = (event: KeyboardEvent): void => {
+      /*
+        Spec 14 §4.5 — Alt inside the comments panel belongs to the panel.
+
+        Holding Alt arms pick mode, and the keys that move a row are Alt plus an
+        arrow. Without this the two collide: reordering three rows in a row
+        turns the document into a pick surface behind the reviewer's back. Alt
+        is the panel's while the focus is in it, and pick's everywhere else.
+      */
+      const inCommentList = event
+        .composedPath()
+        .some((node) => node instanceof HTMLElement && node.classList.contains("rex-side-scroll"));
+
       if (
         event.key === "Alt" &&
         altTimer === null &&
         !arming &&
         !penning &&
         canPick &&
+        !inCommentList &&
         !typing(event)
       ) {
         altTimer = window.setTimeout(() => setPicking(true), ALT_PICK_DELAY);
@@ -1626,16 +1895,29 @@ export function App(): React.JSX.Element {
   const replyToActive = (text: string): void => {
     if (!active) return;
     const threadId = active.id;
-    if (modeOf(threadId) === "act") {
+    const mode = modeOf(threadId);
+    if (mode === "act") {
       void withBusy(threadId, async () => {
         await window.rex.threadApply({ threadId, note: text });
+      });
+      return;
+    }
+    // NOTE writes the text into the comment and runs nothing. No `withBusy`:
+    // there is no turn to wait for, and the notice bar still reports a failure
+    // because `guard` is where that lives.
+    if (mode === "note") {
+      void guard(async () => {
+        await window.rex.threadNote({ threadId, text });
+        await refreshThreads();
       });
       return;
     }
     void withBusy(threadId, () => window.rex.threadReply({ threadId, text }));
   };
 
-  const unanswered = threads.filter((thread) => thread.messages.length === 0).length;
+  const unanswered = threads.filter(
+    (thread) => thread.messages.length === 0 && !thread.isNote,
+  ).length;
   const applyTarget = pendingApply
     ? (threads.find((thread) => thread.id === pendingApply.threadId) ?? null)
     : null;
@@ -1714,6 +1996,23 @@ export function App(): React.JSX.Element {
           >
             <DocumentView
               doc={doc}
+              original={original}
+              removedLines={doc?.working?.removed ?? []}
+              patch={doc?.working?.patch ?? ""}
+              workingBar={
+                doc?.working
+                  ? {
+                      view: doc.working,
+                      others: working.length - 1,
+                      onApprove: () => approveWorking(doc.working?.documentId ?? ""),
+                      onApproveAll: approveAllWorking,
+                      onUndo: () => undoWorking(doc.working?.documentId ?? ""),
+                      onDiscard: () => discardWorking(doc.working?.documentId ?? ""),
+                    }
+                  : null
+              }
+              paneMode={paneMode}
+              onPaneMode={setPaneMode}
               resolved={resolved}
               threads={threads}
               activeId={activeId}
@@ -1729,6 +2028,7 @@ export function App(): React.JSX.Element {
               penning={penning}
               selectionStroke={selectionStroke}
               hoveredThreadId={hoveredThreadId}
+              onHoverThread={setHoveredThreadId}
               hoveredPlace={hoveredPlace}
               onTogglePick={() => {
                 setPenning(false);
@@ -1768,7 +2068,11 @@ export function App(): React.JSX.Element {
             <TraceSheet
               thread={active}
               number={numbers.get(active.id) ?? 0}
-              tokenClass={tokenClass(active.status, stateById.get(active.id) ?? null)}
+              tokenClass={tokenClass(
+                active.status,
+                stateById.get(active.id) ?? null,
+                active.isNote,
+              )}
               busy={busyThreads.includes(active.id)}
               mode={modeOf(active.id)}
               onClose={() => setTraceId(null)}
@@ -1885,6 +2189,7 @@ export function App(): React.JSX.Element {
                 })
               }
               onDelete={() => removeThread(active.id)}
+              onRename={(title) => void renameThread(active.id, title)}
             />
           ) : (
             <Sidebar
@@ -1892,9 +2197,17 @@ export function App(): React.JSX.Element {
               stateById={stateById}
               labelById={labelById}
               busyThreads={busyThreads}
+              groups={groups}
+              root={workspace?.root ?? null}
               onSelect={setActiveId}
               onHover={setHoveredThreadId}
               onDelete={removeThread}
+              onRename={renameThread}
+              onGroupCreate={createGroup}
+              onGroupRename={(groupId, name) => void updateGroup({ groupId, name })}
+              onGroupCollapse={(groupId, collapsed) => void updateGroup({ groupId, collapsed })}
+              onGroupDelete={deleteGroup}
+              onMove={moveComment}
               onSynthesise={(refThreadIds, note) =>
                 void guard(async () => {
                   const current = docRef.current;

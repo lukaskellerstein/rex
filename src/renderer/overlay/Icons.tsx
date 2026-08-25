@@ -50,7 +50,15 @@ export const TriangleDown = (p: Props): React.JSX.Element => <Solid {...p} d="M4
 /** Tree row, collapsed; also the closed tool-steps row. */
 export const TriangleRight = (p: Props): React.JSX.Element => <Solid {...p} d="M6 4v8l5-4z" />;
 
-/** Apply — the only place in REX a pencil appears, and it writes to disk. */
+/**
+ * The pen. Two meanings, and spec 14 §7.5 is the argument for letting it have
+ * both.
+ *
+ * Inside a control that says **Change** or **WRITE PROFILE** in words, it is
+ * ACT: the agent may write to disk (spec 12). Bare, in a list row's corner
+ * beside a trash, it is rename — the reading the rest of the world has trained.
+ * The two are never side by side; if they ever are, split the glyph then.
+ */
 export const Pencil = (p: Props): React.JSX.Element => (
   <Line {...p} size={p.size ?? 11} d="M11.2 2.8 13.2 4.8 5.6 12.4 2.8 13.2 3.6 10.4z" />
 );
@@ -60,6 +68,35 @@ export const Check = (p: Props): React.JSX.Element => (
 );
 
 export const Lines = (p: Props): React.JSX.Element => <Line {...p} d="M3 5h10M3 8h10M3 11h6" />;
+
+/**
+ * Spec 14 §2.1 — a comment group.
+ *
+ * A folder, decided by the reviewer on 2026-08-25 after the first build drew a
+ * pair of brackets and it read as nothing at all. The spec had argued against a
+ * folder, on the grounds that the explorer's folders are directories and these
+ * are not; the answer was that an unreadable glyph is the worse problem, and a
+ * folder is what "a place I put things in" looks like to everybody.
+ *
+ * Two states, because a closed folder and an open one are the strongest signal
+ * a tree has, and the twisty beside it is 9px of triangle.
+ */
+export const FolderClosed = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 13} d="M2.5 4.5h4l1.2 1.6h5.8v6.4h-11z" />
+);
+
+export const FolderOpen = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M2.5 12.5v-8h4l1.2 1.6h5.3v1.6" />
+    <path d="M2.5 12.5 4.3 7.7h11L13.5 12.5z" />
+  </svg>
+);
 
 export const Warning = (p: Props): React.JSX.Element => (
   <svg
@@ -261,6 +298,16 @@ export const Trash = (p: Props): React.JSX.Element => (
 /** Close — the lightbox, and anything else that is over the whole window. */
 export const Cross = (p: Props): React.JSX.Element => (
   <Line {...p} size={p.size ?? 13} d="M4 4l8 8M12 4l-8 8" />
+);
+
+/**
+ * Add — a group inside a group (spec 14 §7.4).
+ *
+ * A bare plus, and it is not the zoom's: those are inside a magnifier for
+ * exactly this reason, so a plus on its own is free to mean "one more of these".
+ */
+export const Plus = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 12} d="M8 3.5v9M3.5 8h9" />
 );
 
 /**

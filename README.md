@@ -131,6 +131,7 @@ the Agent SDK, and there is no way to patch a running one.
 | `npm run rebuild` | rebuild `better-sqlite3` for the current Electron |
 | `npm run typecheck` | `tsc --noEmit` over everything |
 | `npm run test:anchor` | the anchor gate, against two real documents |
+| `npm run test:comments` | comment names, the tree, the drop rules and the group store |
 | `npm run test:errors` | what a failed run tells you, and what it must not guess |
 | `npm run test:gate` | the read profile's deny gate |
 | `npm run test:lasso` | what a drawn circle selects, as pure geometry |
@@ -511,6 +512,8 @@ predecessors rather than restating them:
 | 12 | [ASK and ACT](docs/my-specs/12-ask-and-act/SPEC.md) | the mode is a choice, and it is on the screen |
 | 13 | [debugging](docs/my-specs/13-debugging/SPEC.md) | every run opens a debugger, and the log a reviewer can paste |
 | 14 | [naming, order and groups](docs/my-specs/14-naming-order-groups/SPEC.md) | a name on every comment, an order you set, groups that nest |
+| 15 | [the working copy, and the two panes](docs/my-specs/15-the-working-copy/SPEC.md) | the agent edits a copy you iterate on, read side by side, and approve when it is right |
+| 16 | [the two versions](docs/my-specs/16-the-two-versions/SPEC.md) | what a gesture means in each pane, and a place between two blocks |
 
 ## Contributing
 

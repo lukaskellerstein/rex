@@ -338,7 +338,7 @@ function viewLines(view: ViewState | null): string[] {
 
   lines.push(
     `  centre     ${view.centre} · sidebar ${view.sidebarTab} · zoom ${Math.round(view.zoom * 100)}%${view.traceOpen ? " · trace open" : ""}`,
-    `  comments   ${view.threads} · ${view.unanswered} unanswered · ${view.activeThreadId ? `open ${view.activeThreadId}` : "none open"} · ${view.selectionItems} in the panel`,
+    `  comments   ${view.threads} · ${view.unanswered} unanswered · ${view.activeThreadId ? `open ${view.activeThreadId}` : "none open"} · ${view.selectionItems} in the panel · ${view.groups} group${view.groups === 1 ? "" : "s"}`,
     `  notice     ${view.notice ? clip(view.notice, 200) : "(none)"}`,
   );
   return lines;

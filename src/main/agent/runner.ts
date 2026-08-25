@@ -44,6 +44,15 @@ export interface AgentRunInput {
    */
   documentPath?: string | null;
   onMessage: (draft: MessageDraft) => void;
+  /**
+   * Spec 15 §4.3 — every path a write tool named, as it is called.
+   *
+   * The primary source for "what did this run touch", and better than git in
+   * every way that matters: it is exact, and it works on an untracked file, a
+   * new file, and a file outside any repository. `Bash` can still write behind
+   * its back, which is why §4.3 has a second source.
+   */
+  onWrote?: (path: string) => void;
 }
 
 export interface AgentRunResult {
@@ -169,8 +178,15 @@ function flattenToolResult(content: unknown): string {
   return "";
 }
 
+/** The three tools that put bytes on disk. Spec 15 §4.3. */
+const WRITE_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
+
 /** Assistant content blocks → message rows. */
-function handleAssistant(message: any, emit: (d: MessageDraft) => void): void {
+function handleAssistant(
+  message: any,
+  emit: (d: MessageDraft) => void,
+  wrote: (path: string) => void,
+): void {
   for (const block of message.message?.content ?? []) {
     switch (block.type) {
       case "text":
@@ -187,6 +203,13 @@ function handleAssistant(message: any, emit: (d: MessageDraft) => void): void {
           }),
         );
         const input = (block.input ?? {}) as Record<string, unknown>;
+        // Spec 15 §4.3 — reported before the diff step and for all three tools,
+        // not only the two that draw one: `NotebookEdit` writes a file whether
+        // or not REX can show it as a patch.
+        if (WRITE_TOOLS.has(block.name)) {
+          const path = String(input.file_path ?? "");
+          if (path) wrote(path);
+        }
         if (block.name === "Edit") {
           const step = diffStep(input);
           if (step) emit(step);
@@ -274,7 +297,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
           for (const block of event.message?.content ?? []) {
             if (block.type === "tool_use" && block.id) toolNames.set(block.id, block.name);
           }
-          handleAssistant(event, emit);
+          handleAssistant(event, emit, (path) => input.onWrote?.(path));
           break;
 
         case "user":

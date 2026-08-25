@@ -5,28 +5,73 @@
 // anchoring (§6.3 rule 3), and without `allow-scripts` so a local file's
 // scripts cannot run (§5.4 step 2).
 //
-// The pane is a row — frame, then a 32px gutter — rather than a gutter floating
-// over the frame, so nothing the author wrote ever sits under REX's markers.
+// Spec 15 §6.1 — the pane is a row of up to two halves: the original on the
+// left when there is a change to read against, and the version that will exist
+// on the right. Comments belong to the right-hand one, because that is the
+// version that will exist.
+//
+// The 32px rail of numbered discs that used to sit beside the frame is gone
+// (spec 15 §8.5). Its column is what the second half is drawn in, and the marks
+// it carried are now bars in the margin — `MarginBars.tsx`.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { OpenedDocument, StrokeRef, ThreadWithMessages } from "../../shared/types.ts";
+import type {
+  LineRange,
+  OpenedDocument,
+  PaneMode,
+  StrokeRef,
+  ThreadWithMessages,
+  WorkingCopyView,
+} from "../../shared/types.ts";
 import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import { type DocumentSurface, FrameSurface, type ResolvedThread } from "./anchoring.ts";
 import { enrichDocument } from "./enrich.ts";
-import { Gutter } from "./Gutter.tsx";
+import { applyZoom, srcdocFor } from "./frame.ts";
 import { Trash } from "./Icons.tsx";
 import { pointsOfStroke, rescaleRect, unionOfRects } from "./ink.ts";
+import { MarginBars } from "./MarginBars.tsx";
 import { ModeStrip } from "./ModeStrip.tsx";
+import { OriginalPane } from "./OriginalPane.tsx";
 import { PenLayer, pathData } from "./PenLayer.tsx";
 import { PickLayer } from "./PickLayer.tsx";
 import { addPaperFonts } from "./paperFonts.ts";
 import { attachFigurePreview, type PreviewFigure } from "./preview.ts";
-import { prepareDocumentHtml } from "./sanitise.ts";
 import type { SelectionItem } from "./selection.ts";
+import { syncPanes } from "./syncPanes.ts";
 
 interface Props {
   doc: OpenedDocument | null;
+  /**
+   * Spec 15 §6.1 — the left-hand pane, when the reviewer is comparing.
+   *
+   * Null whenever there is nothing to compare against: no working copy, or the
+   * pane control is on `New`. `doc` is then the only document on screen, exactly
+   * as it was before spec 15.
+   */
+  original: OpenedDocument | null;
+  /** §6.2 — line ranges only the original has, tinted in that pane. */
+  removedLines: LineRange[];
+  /** §6.3 — the patch, which is what keeps the two panes level. */
+  patch: string;
+  /**
+   * Spec 15 §7.1 — the head of the new-version pane, and the three answers.
+   *
+   * One object rather than five props: they are one thing, they arrive and go
+   * together, and null is the ordinary state of a document nobody has changed.
+   */
+  workingBar: {
+    view: WorkingCopyView;
+    /** How many OTHER documents are waiting, for `Approve all`. */
+    others: number;
+    onApprove: () => void;
+    /** §7.1 — every waiting document, in turn. Only offered when there is one. */
+    onApproveAll: () => void;
+    onUndo: () => void;
+    onDiscard: () => void;
+  } | null;
+  paneMode: PaneMode;
+  onPaneMode: (mode: PaneMode) => void;
   resolved: ResolvedThread[];
   threads: ThreadWithMessages[];
   activeId: string | null;
@@ -49,6 +94,8 @@ interface Props {
   selectionStroke: StrokeRef | null;
   /** §6.4 — a saved comment's ink shows when its row is hovered, too. */
   hoveredThreadId: string | null;
+  /** Spec 15 §8.4 — pointing at a bar lights its passage, and its row. */
+  onHoverThread: (threadId: string | null) => void;
   /** Spec 08 §7.2 — which of the open comment's places is being pointed at. */
   hoveredPlace: number | null;
   /** Spec 08 §4 — both modes are turned on from the foot of the paper now. */
@@ -88,23 +135,6 @@ interface Props {
   onZoomApplied: () => void;
 }
 
-function baseHref(directory: string): string {
-  const encoded = directory
-    .split("/")
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
-  return `rex-doc://doc${encoded}/`;
-}
-
-/**
- * The empty page a PDF is drawn into (spec 03 §7.2).
- *
- * REX's own markup, not the author's, so it does not go through DOMPurify. Its
- * stylesheet arrives with the pass that creates the elements it styles.
- */
-const PDF_SHELL =
-  '<!doctype html><html lang="en" data-rex-paper><head><meta charset="utf-8"></head><body></body></html>';
-
 /**
  * Fragment links, which `<base href>` breaks.
  *
@@ -141,21 +171,6 @@ function jumpToFragmentsInsteadOfNavigating(inner: Document): void {
 /** One wheel notch, or one press of ⌘+. */
 const ZOOM_IN = 1.1;
 const ZOOM_OUT = 1 / 1.1;
-
-/**
- * CSS `zoom`, not `transform: scale`.
- *
- * `zoom` takes part in layout, so `getBoundingClientRect()` and `scrollY`
- * inside the frame both report the scaled geometry and keep agreeing with each
- * other — which is the only reason the overlay's boxes still land on the right
- * things. `transform` would leave layout at 1× and every rect the resolver
- * reads would be a lie. It also reflows a Markdown document to the new size
- * instead of letting a scaled page run off the side.
- */
-function applyZoom(inner: Document | null, zoom: number): void {
-  if (!inner) return;
-  inner.documentElement.style.zoom = String(zoom);
-}
 
 /**
  * ⌘/ctrl with the wheel, or with + − 0, while the pointer or the caret is
@@ -235,10 +250,92 @@ function forwardKeysToParent(inner: Document): void {
 /** A drag-resize fires continuously; answer once it stops. */
 const RESIZE_SETTLE_MS = 200;
 
+const PANES: Array<{ mode: PaneMode; label: string }> = [
+  { mode: "original", label: "Original" },
+  { mode: "both", label: "Both" },
+  { mode: "new", label: "New" },
+];
+
+/**
+ * Spec 15 §7.1 and §7.4 — the head of the new-version pane.
+ *
+ * A notice and not a gate. Nothing is waiting on it: the reviewer's file
+ * already holds what it held before the run, and it keeps holding it until
+ * Approve is pressed. So it carries the counts, the three answers, and the
+ * conflict when there is one — and it can be ignored for as long as they like.
+ */
+function WorkingHead(props: {
+  bar: NonNullable<Props["workingBar"]>;
+  mode: PaneMode;
+  onMode: (mode: PaneMode) => void;
+}): React.JSX.Element {
+  const { view } = props.bar;
+  return (
+    <header className="rex-half-head">
+      <span className="rex-half-title">New version</span>
+      <span className="rex-half-count">
+        <span className="rex-added">+{view.addedLines}</span>{" "}
+        <span className="rex-removed">−{view.removedLines}</span>
+      </span>
+      <span className="rex-half-hint">
+        {view.revisions === 1 ? "1 change" : `${view.revisions} changes`} · comments live here
+      </span>
+
+      <span className="rex-half-modes">
+        {PANES.map((pane) => (
+          <button
+            key={pane.mode}
+            type="button"
+            className={`rex-half-mode${props.mode === pane.mode ? " rex-half-mode-on" : ""}`}
+            onClick={() => props.onMode(pane.mode)}
+          >
+            {pane.label}
+          </button>
+        ))}
+      </span>
+
+      <span className="rex-half-actions">
+        <button type="button" className="rex-approve" onClick={props.bar.onApprove}>
+          Approve
+        </button>
+        {/*
+          §7.1 — two gestures, not one button that means different things
+          depending on how many documents happen to be waiting. It appears only
+          when there is a second one, and it names how many it will write.
+        */}
+        {props.bar.others > 0 ? (
+          <button type="button" className="rex-half-button" onClick={props.bar.onApproveAll}>
+            Approve all ({props.bar.others + 1})
+          </button>
+        ) : null}
+        <button type="button" className="rex-half-button" onClick={props.bar.onUndo}>
+          Undo last
+        </button>
+        <button type="button" className="rex-half-button" onClick={props.bar.onDiscard}>
+          Discard
+        </button>
+      </span>
+
+      {/* §7.3 — REX does not merge, so it says so before Approve is pressed. */}
+      {view.conflict ? <p className="rex-half-conflict">{view.conflict}</p> : null}
+    </header>
+  );
+}
+
 export function DocumentView(props: Props): React.JSX.Element {
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
   const frameRef = useRef<HTMLIFrameElement>(null);
-  const paneRef = useRef<HTMLElement>(null);
+  /**
+   * Spec 15 §6.1 — the box every overlay mark is measured against.
+   *
+   * It is the half's BODY, not the half itself, and that distinction is
+   * load-bearing now that a head can sit above the frame: every mark is drawn at
+   * `box.y - scroll.y`, which is a frame coordinate, so a root that included the
+   * head would draw every outline, bar and badge exactly the head's height too
+   * high. Measured on 2026-08-26 — the changed-block outline landed on the
+   * paragraph above the one it belonged to.
+   */
+  const paneRef = useRef<HTMLDivElement>(null);
 
   const { doc, onSurfaceReady, onSelectionChanged } = props;
 
@@ -289,15 +386,7 @@ export function DocumentView(props: Props): React.JSX.Element {
     const frame = frameRef.current;
     if (!doc || !frame) return;
 
-    // Spec 03 §9 — `presentation` is a union so this stays exhaustive.
-    // `noFallthroughCasesInSwitch` is on, so a format added later is a compile
-    // error here rather than a blank pane.
-    const srcdoc =
-      doc.presentation.kind === "html"
-        ? prepareDocumentHtml(doc.presentation.html, doc.baseDir ? baseHref(doc.baseDir) : null)
-        : // A PDF starts as an empty page; the §7 pass builds every page into
-          // it before the surface is handed up.
-          PDF_SHELL;
+    const srcdoc = srcdocFor(doc);
 
     let live = true;
     const onLoad = async (): Promise<void> => {
@@ -405,6 +494,21 @@ export function DocumentView(props: Props): React.JSX.Element {
     onZoomApplied();
   }, [zoom, onZoomApplied]);
 
+  /**
+   * Spec 15 §6.2 — the two panes, kept level.
+   *
+   * The left pane hands its frame up when it has drawn, because that is the
+   * first moment there is anything to align against; `null` on the way out
+   * takes the listeners with it.
+   */
+  const [originalFrame, setOriginalFrame] = useState<HTMLIFrameElement | null>(null);
+  const { patch } = props;
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame || !originalFrame) return;
+    return syncPanes(frame, originalFrame, patch);
+  }, [originalFrame, patch]);
+
   // One outline per checked target, so a comment written against three rows
   // shows all three. The thread id alone is not unique, hence the position.
   const blocks = props.resolved.flatMap((entry) => {
@@ -477,7 +581,7 @@ export function DocumentView(props: Props): React.JSX.Element {
   })();
 
   return (
-    <main className="rex-doc" ref={paneRef}>
+    <main className="rex-doc">
       {doc === null ? (
         <div className="rex-empty">
           <h1>REX</h1>
@@ -487,73 +591,96 @@ export function DocumentView(props: Props): React.JSX.Element {
         </div>
       ) : null}
 
-      <iframe
-        ref={frameRef}
-        className="rex-frame"
-        title="Document under review"
-        sandbox="allow-same-origin"
-      />
-
       {/*
+        Spec 15 §6.1 — the original, read-only, when there is a change to read
+        against. It hands up no surface, so nothing in it can be commented on.
+      */}
+      {props.original ? (
+        <OriginalPane
+          doc={props.original}
+          removed={props.removedLines}
+          zoom={props.zoom}
+          onFrameReady={setOriginalFrame}
+        />
+      ) : null}
+
+      <section
+        className={`rex-half rex-half-current${props.original ? " rex-half-split" : ""}${
+          props.paneMode === "original" && props.original ? " rex-half-hidden" : ""
+        }`}
+      >
+        {props.workingBar ? (
+          <WorkingHead bar={props.workingBar} mode={props.paneMode} onMode={props.onPaneMode} />
+        ) : null}
+
+        <div className="rex-half-body" ref={paneRef}>
+          <iframe
+            ref={frameRef}
+            className="rex-frame"
+            title="Document under review"
+            sandbox="allow-same-origin"
+          />
+
+          {/*
         Spec 05 §5.6.1 — what an Apply just changed, in the write colour, while
         the reviewer decides. Drawn first so a selection outline over the same
         block still reads on top of it.
       */}
-      {props.changeBoxes.map((box) => (
-        <div
-          key={`change-${box.x}-${box.y}-${box.w}-${box.h}`}
-          className="rex-change-outline"
-          style={{
-            left: box.x - scroll.x,
-            top: box.y - scroll.y,
-            width: box.w,
-            height: box.h,
-          }}
-        />
-      ))}
+          {props.changeBoxes.map((box) => (
+            <div
+              key={`change-${box.x}-${box.y}-${box.w}-${box.h}`}
+              className="rex-change-outline"
+              style={{
+                left: box.x - scroll.x,
+                top: box.y - scroll.y,
+                width: box.w,
+                height: box.h,
+              }}
+            />
+          ))}
 
-      {/*
+          {/*
         Every place the selection is about, outlined at once. A list of nine
         cells in the panel does not tell the reviewer *which* nine, and the whole
         reason to comment on nine cells is that their arrangement matters. Drawn
         from the rect captured at the click, so no anchor has to be resolved
         before the comment exists.
       */}
-      {marks.map((mark) => (
-        <div
-          key={mark.id}
-          className={`rex-draft-outline${
-            props.hoveredItemId === mark.id ? " rex-draft-outline-lit" : ""
-          }`}
-          style={{
-            left: mark.box.x - scroll.x,
-            top: mark.box.y - scroll.y,
-            width: mark.box.w,
-            height: mark.box.h,
-          }}
-          onMouseEnter={() => props.onHoverItem(mark.id)}
-          onMouseLeave={() => props.onHoverItem(null)}
-        >
-          <span className="rex-draft-index">{mark.number}</span>
-          {/*
+          {marks.map((mark) => (
+            <div
+              key={mark.id}
+              className={`rex-draft-outline${
+                props.hoveredItemId === mark.id ? " rex-draft-outline-lit" : ""
+              }`}
+              style={{
+                left: mark.box.x - scroll.x,
+                top: mark.box.y - scroll.y,
+                width: mark.box.w,
+                height: mark.box.h,
+              }}
+              onMouseEnter={() => props.onHoverItem(mark.id)}
+              onMouseLeave={() => props.onHoverItem(null)}
+            >
+              <span className="rex-draft-index">{mark.number}</span>
+              {/*
             Dropping a place without going to find its row in the panel. It
             mirrors the number badge across the box — badge left, trash right —
             and like the badge it is the only other part of the outline that
             takes the mouse, sitting in the margin rather than over the prose.
           */}
-          <button
-            type="button"
-            className="rex-draft-remove"
-            aria-label={`Remove place ${mark.number} from the selection`}
-            title="Remove this place"
-            onClick={() => props.onRemoveItem(mark.id)}
-          >
-            <Trash size={11} />
-          </button>
-        </div>
-      ))}
+              <button
+                type="button"
+                className="rex-draft-remove"
+                aria-label={`Remove place ${mark.number} from the selection`}
+                title="Remove this place"
+                onClick={() => props.onRemoveItem(mark.id)}
+              >
+                <Trash size={11} />
+              </button>
+            </div>
+          ))}
 
-      {/*
+          {/*
         Spec 08 §7.2 — REX pointing back.
 
         Point at a place in the open comment's card and its mark here takes the
@@ -564,98 +691,108 @@ export function DocumentView(props: Props): React.JSX.Element {
         One at a time, and only while pointed at: nine permanent badges over the
         prose is the wall this is meant to avoid.
       */}
-      {activeMark ? (
-        <span
-          className="rex-place-mark"
-          style={{ left: activeMark.box.x - scroll.x, top: activeMark.box.y - scroll.y }}
-        >
-          {activeMark.number}
-        </span>
-      ) : null}
+          {activeMark ? (
+            <span
+              className="rex-place-mark"
+              style={{ left: activeMark.box.x - scroll.x, top: activeMark.box.y - scroll.y }}
+            >
+              {activeMark.number}
+            </span>
+          ) : null}
 
-      {/*
+          {/*
         An anchor on a whole element or a region of one is an outline, not a
         fill: the Custom Highlight API paints ranges, so there is no range to
         paint here — and drawing it as an overlay box keeps the promise that
         REX never touches the document's own tree.
       */}
-      {blocks.map(({ entry, check, box, run }) => (
-        <div
-          key={`${entry.threadId}-${check.position}`}
-          className={`rex-block-outline${check.state === "moved" ? " rex-block-moved" : ""}${
-            props.activeId === entry.threadId ? " rex-block-active" : ""
-          }${run ? " rex-block-run" : ""}`}
-          style={{
-            left: box.x - scroll.x,
-            top: box.y - scroll.y,
-            width: box.w,
-            height: box.h,
-          }}
-        />
-      ))}
+          {blocks.map(({ entry, check, box, run }) => (
+            <div
+              key={`${entry.threadId}-${check.position}`}
+              className={`rex-block-outline${check.state === "moved" ? " rex-block-moved" : ""}${
+                props.activeId === entry.threadId ? " rex-block-active" : ""
+              }${run ? " rex-block-run" : ""}`}
+              style={{
+                left: box.x - scroll.x,
+                top: box.y - scroll.y,
+                width: box.w,
+                height: box.h,
+              }}
+            />
+          ))}
 
-      {/*
+          {/*
         Above the document and below the pen's own toolbar, offset by scroll
         like every other mark. Drawn here rather than in `PenLayer` because the
         ink outlives the layer: the layer is mounted only while the mode is on.
       */}
-      {shownStroke ? (
-        <svg className="rex-ink rex-ink-shown" aria-hidden="true">
-          {pointsOfStroke(shownStroke.stroke, shownStroke.union).map((path, position) => (
-            // A stroke has no id of its own; its place in the drawing is it.
-            <path
-              key={position}
-              d={pathData(path, (point) => ({ x: point.x - scroll.x, y: point.y - scroll.y }))}
-              strokeWidth={shownStroke.stroke.width * props.zoom}
+          {shownStroke ? (
+            <svg className="rex-ink rex-ink-shown" aria-hidden="true">
+              {pointsOfStroke(shownStroke.stroke, shownStroke.union).map((path, position) => (
+                // A stroke has no id of its own; its place in the drawing is it.
+                <path
+                  key={position}
+                  d={pathData(path, (point) => ({ x: point.x - scroll.x, y: point.y - scroll.y }))}
+                  strokeWidth={shownStroke.stroke.width * props.zoom}
+                />
+              ))}
+            </svg>
+          ) : null}
+
+          {/*
+        Spec 15 §8 — one bar per comment, in the margin beside its block, with
+        the number on it. The 32px rail of numbered discs this replaces is gone,
+        and its column is what the second pane is drawn in.
+      */}
+          <MarginBars
+            resolved={props.resolved}
+            threads={props.threads}
+            activeId={props.activeId}
+            hoveredThreadId={props.hoveredThreadId}
+            scrollX={scroll.x}
+            scrollY={scroll.y}
+            onSelect={props.onSelectMarker}
+            onHover={props.onHoverThread}
+          />
+
+          {props.penning ? (
+            <PenLayer
+              origin={contentOrigin}
+              zoom={props.zoom}
+              onDone={props.onDrawn}
+              onCancel={props.onPenCancel}
+              onScrollBy={props.onScrollBy}
+              onZoomBy={props.onZoomBy}
             />
-          ))}
-        </svg>
-      ) : null}
+          ) : null}
 
-      <Gutter
-        resolved={props.resolved}
-        threads={props.threads}
-        activeId={props.activeId}
-        scrollY={scroll.y}
-        onSelect={props.onSelectMarker}
-      />
+          {props.picking ? (
+            <PickLayer
+              scopes={props.pickScopes}
+              active={props.pickActive}
+              scrollX={scroll.x}
+              scrollY={scroll.y}
+              arming={props.arming}
+              onProbe={props.onProbe}
+              onActive={props.onPickActive}
+              onCommit={props.onPickCommit}
+              onCommitAt={props.onPickCommitAt}
+              onRegion={props.onRegion}
+              onCancel={props.onPickCancel}
+              onScrollBy={props.onScrollBy}
+              onZoomBy={props.onZoomBy}
+            />
+          ) : null}
 
-      {props.penning ? (
-        <PenLayer
-          origin={contentOrigin}
-          zoom={props.zoom}
-          onDone={props.onDrawn}
-          onCancel={props.onPenCancel}
-          onScrollBy={props.onScrollBy}
-          onZoomBy={props.onZoomBy}
-        />
-      ) : null}
-
-      {props.picking ? (
-        <PickLayer
-          scopes={props.pickScopes}
-          active={props.pickActive}
-          scrollX={scroll.x}
-          scrollY={scroll.y}
-          arming={props.arming}
-          onProbe={props.onProbe}
-          onActive={props.onPickActive}
-          onCommit={props.onPickCommit}
-          onCommitAt={props.onPickCommitAt}
-          onRegion={props.onRegion}
-          onCancel={props.onPickCancel}
-          onScrollBy={props.onScrollBy}
-          onZoomBy={props.onZoomBy}
-        />
-      ) : null}
-
-      {/*
+          {/*
         Spec 08 §4.1 — one strip, three states, and only ever one at a time.
         The two bars above are the other two; this is the resting one.
       */}
-      {props.doc && !props.picking && !props.penning ? (
-        <ModeStrip canPick onTogglePick={props.onTogglePick} onTogglePen={props.onTogglePen} />
-      ) : null}
+          {props.doc && !props.picking && !props.penning ? (
+            <ModeStrip canPick onTogglePick={props.onTogglePick} onTogglePen={props.onTogglePen} />
+          ) : null}
+        </div>
+      </section>
     </main>
   );
 }

@@ -17,8 +17,8 @@ import type { RegionRef } from "../../shared/types.ts";
 import type { AnchorStrength, PickScope } from "../anchor/pick.ts";
 import { Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
-import type { Mode } from "./mode.ts";
 import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
+import { MODE_VERB, type Mode } from "./mode.ts";
 import type { SelectionItem } from "./selection.ts";
 
 interface Props {
@@ -144,6 +144,11 @@ const CONFIRM_ABOVE = 3;
  */
 function isCutOut(region: RegionRef | null): boolean {
   return region !== null && (region.w < 1 || region.h < 1);
+}
+
+/** "this place" / "these 3 places" — used in three tooltips, so it is written once. */
+function places(count: number): string {
+  return count === 1 ? "this place" : `these ${count} places`;
 }
 
 export function SelectionPanel(props: Props): React.JSX.Element {
@@ -327,20 +332,33 @@ export function SelectionPanel(props: Props): React.JSX.Element {
           */}
           <ModeSwitch mode={props.mode} actDisabled={null} onPick={props.onMode} />
           <span className="rex-spacer" />
+          {/*
+            NOTE gets the quiet treatment: not `rex-primary`, because it is not
+            the send. A filled accent button that reaches nobody would be the
+            loudest control on the panel doing the least.
+          */}
           <button
             type="button"
-            className={`rex-button rex-primary${props.mode === "act" ? " rex-button-write" : ""}`}
+            className={[
+              "rex-button",
+              props.mode === "note" ? "rex-button-note" : "rex-primary",
+              props.mode === "act" ? "rex-button-write" : "",
+            ]
+              .filter(Boolean)
+              .join(" ")}
             title={
               props.mode === "act"
-                ? `Change ${props.items.length === 1 ? "this place" : `these ${props.items.length} places`} — you will see a diff before anything is kept — ${SEND_CHORD_HINT}`
-                : `Ask about ${props.items.length === 1 ? "this place" : `these ${props.items.length} places`} — ${SEND_CHORD_HINT}`
+                ? `Change ${places(props.items.length)} — you will see a diff before anything is kept — ${SEND_CHORD_HINT}`
+                : props.mode === "note"
+                  ? `Save this comment about ${places(props.items.length)} — no agent runs, and nothing is spent — ${SEND_CHORD_HINT}`
+                  : `Ask about ${places(props.items.length)} — ${SEND_CHORD_HINT}`
             }
-            // The note is the question, or the instruction. Without it there is
-            // nothing to ask and nothing to do (§4.3).
+            // The note is the question, the instruction, or the note itself.
+            // Without it there is nothing to ask, do or save (§4.3).
             disabled={!canAsk}
             onClick={props.onAsk}
           >
-            {props.mode === "act" ? "Change" : "Ask about"} {props.items.length}
+            {MODE_VERB[props.mode]} {props.items.length}
             <SendChord />
           </button>
         </div>

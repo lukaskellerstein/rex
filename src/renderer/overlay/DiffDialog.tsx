@@ -17,9 +17,9 @@
 import { useState } from "react";
 import type { ApplyReadyEvent, DeckPreview, DeckSlidePreview } from "../../shared/channels.ts";
 import type { AnchorState, ThreadWithMessages } from "../../shared/types.ts";
-import { tokenClass } from "./Gutter.tsx";
 import { Pencil, Warning } from "./Icons.tsx";
 import { StateWord, washClass } from "./ThreadRow.tsx";
+import { tokenClass } from "./wash.ts";
 
 interface Props {
   event: ApplyReadyEvent;

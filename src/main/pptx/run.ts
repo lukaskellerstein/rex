@@ -23,7 +23,11 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import type { DeckPreview, DeckSlidePreview } from "../../shared/channels.ts";
 import { sessionIdFor } from "../agent/profiles.ts";
-import { DECK_WRITE_SYSTEM_PROMPT, NO_GENERATION_NOTE, writeInstructions } from "../agent/prompts.ts";
+import {
+  DECK_WRITE_SYSTEM_PROMPT,
+  NO_GENERATION_NOTE,
+  writeInstructions,
+} from "../agent/prompts.ts";
 import { runAgent } from "../agent/runner.ts";
 import type { MessageDraft } from "../db/queries.ts";
 import { ensureSidecar, renderSlidePage } from "../render/pptx.ts";

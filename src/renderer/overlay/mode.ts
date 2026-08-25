@@ -17,7 +17,14 @@
 
 import type { Profile } from "../../shared/types.ts";
 
-export type Mode = "ask" | "act";
+/**
+ * Three, since the reviewer asked for a comment that reaches nobody.
+ *
+ * NOTE is the same KIND of choice as the other two — it decides what pressing
+ * the button does — which is why it is a third position on the one switch and
+ * not a second button beside it. What it decides is "nothing runs".
+ */
+export type Mode = "ask" | "act" | "note";
 
 export function modeOf(profile: Profile): Mode {
   return profile === "write" ? "act" : "ask";
@@ -26,6 +33,7 @@ export function modeOf(profile: Profile): Mode {
 export const MODE_LABEL: Record<Mode, string> = {
   ask: "ASK",
   act: "ACT",
+  note: "NOTE",
 };
 
 /**
@@ -36,4 +44,28 @@ export const MODE_LABEL: Record<Mode, string> = {
 export const MODE_PROMISE: Record<Mode, string> = {
   ask: "cannot change any file, by any route",
   act: "changes are shown as a diff and kept only when you accept",
+  note: "saved for you only — no agent runs, and nothing is spent",
 };
+
+/** What the send button says. NOTE's verb is the reason it exists. */
+export const MODE_VERB: Record<Mode, string> = {
+  ask: "Ask about",
+  act: "Change",
+  note: "Save",
+};
+
+/**
+ * The next mode the ⇧⇥ chord goes to. A cycle now, not a toggle.
+ *
+ * ASK → ACT → NOTE → ASK. The two that spend money come first and stay
+ * adjacent, so the habit the chord built stays intact: from ASK, one press is
+ * still ACT.
+ *
+ * In `mode.ts` and not in `ModeSwitch.tsx` so `node --test` can load it — plain
+ * node cannot read `.tsx`.
+ */
+export function other(mode: Mode): Mode {
+  if (mode === "ask") return "act";
+  if (mode === "act") return "note";
+  return "ask";
+}

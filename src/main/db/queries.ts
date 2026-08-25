@@ -3,6 +3,7 @@
 
 import { v4 as uuidv4 } from "uuid";
 import type { ThreadListRequest } from "../../shared/channels.ts";
+import { buildCommentTree, walkOrder } from "../../shared/commentTree.ts";
 import type {
   Anchor,
   AnchorState,
@@ -21,6 +22,7 @@ import type {
   ThreadKind,
 } from "../../shared/types.ts";
 import type { Db } from "./database.ts";
+import { listGroups, nextThreadPosition } from "./groups.ts";
 
 const now = (): string => new Date().toISOString();
 
@@ -47,6 +49,14 @@ interface ThreadRow {
   kind: ThreadKind;
   status: "open" | "resolved";
   note: string;
+  /** Spec 14 §3.1. NULL means "named by the note", which is not the same as unnamed. */
+  title: string | null;
+  /** Spec 14 §5. NULL is the top level. */
+  group_id: string | null;
+  /** Spec 14 §4.1. Rank among the comments sharing `group_id`. */
+  position: number;
+  /** 1 for a comment saved and never sent. Cleared when it IS sent. */
+  is_note: number;
   /** Spec 06 §5.4. NULL for every comment that was not drawn. */
   stroke_json: string | null;
   session_id: string | null;
@@ -108,6 +118,10 @@ function toThread(row: ThreadRow, refThreadIds: string[], targets: AnchorTarget[
     status: row.status,
     targets,
     note: row.note,
+    title: row.title,
+    groupId: row.group_id,
+    position: row.position,
+    isNote: row.is_note !== 0,
     sessionId: row.session_id,
     profile: row.profile,
     model: row.model,
@@ -259,6 +273,8 @@ export function createThread(
     refThreadIds?: string[];
     /** Spec 06 §5.4 — the ink, when the places were circled rather than clicked. */
     stroke?: StrokeRef;
+    /** True for NOTE mode: save it, send it to nobody. */
+    isNote?: boolean;
   },
 ): Thread {
   const documentId = input.targets[0]?.documentId ?? input.documentId;
@@ -268,17 +284,23 @@ export function createThread(
 
   const id = uuidv4();
   const timestamp = now();
+  // Spec 14 §4.1 — a new comment lands at the end of the top level, which is
+  // where `ORDER BY created_at` used to put it. Nothing about making a comment
+  // changed; only where the list keeps it is now written down.
+  const position = nextThreadPosition(db, null);
 
   const insert = db.transaction(() => {
     db.prepare(
-      `INSERT INTO thread (id, document_id, kind, status, note, stroke_json,
-                           session_id, profile, model, created_at, updated_at, resolved_at)
-       VALUES (?, ?, ?, 'open', ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
+      `INSERT INTO thread (id, document_id, kind, status, note, title, group_id, position, is_note,
+                           stroke_json, session_id, profile, model, created_at, updated_at, resolved_at)
+       VALUES (?, ?, ?, 'open', ?, NULL, NULL, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
     ).run(
       id,
       documentId,
       input.kind,
       input.note,
+      position,
+      input.isNote ? 1 : 0,
       input.stroke ? JSON.stringify(input.stroke) : null,
       input.profile,
       timestamp,
@@ -310,6 +332,10 @@ export function createThread(
     status: "open",
     targets: input.targets.map((entry) => ({ ...entry, state: null })),
     note: input.note,
+    title: null,
+    groupId: null,
+    position,
+    isNote: input.isNote === true,
     sessionId: null,
     profile: input.profile,
     model: null,
@@ -369,14 +395,21 @@ export function listThreads(db: Db, request: ThreadListRequest): Thread[] {
             WHERE t.document_id IN (SELECT id FROM scope)
               AND NOT EXISTS (SELECT 1 FROM thread_target x WHERE x.thread_id = t.id)
          )
-         SELECT * FROM thread WHERE id IN (SELECT id FROM included) ORDER BY created_at`)
+         SELECT * FROM thread WHERE id IN (SELECT id FROM included) ORDER BY position, created_at`)
     .all({
       documentId: request.documentId,
       prefix,
       prefixLength: prefix?.length ?? 0,
     });
 
-  return rows.map((row) => hydrate(db, row));
+  const threads = rows.map((row) => hydrate(db, row));
+
+  // Spec 14 §4.4 — the walk order is main's, not the panel's. The gutter's
+  // numbered markers, the card's token and `rex export`'s headings are all
+  // `index + 1` over this array, so a panel that sorted its own copy would put
+  // `4` on a row whose marker in the margin says `7`.
+  const groups = request.root === null ? [] : listGroups(db, request.root);
+  return walkOrder(buildCommentTree(groups, threads));
 }
 
 /**
@@ -400,6 +433,35 @@ export function listThreadsInDocument(db: Db, documentId: string): Thread[] {
 
 function withSeparator(root: string): string {
   return root.endsWith("/") ? root : `${root}/`;
+}
+
+/**
+ * Spec 14 §3.1 — the name the reviewer typed, or null to go back to the note.
+ *
+ * An empty string is stored as NULL rather than as `''`. "Delete the name" and
+ * "go back to the note" are the same wish, and a `''` in the column would make
+ * `commentName` fall back correctly while every `title IS NOT NULL` test in the
+ * future got the wrong answer.
+ */
+export function renameThread(db: Db, threadId: string, title: string | null): void {
+  const trimmed = title?.trim();
+  db.prepare("UPDATE thread SET title = ?, updated_at = ? WHERE id = ?").run(
+    trimmed ? trimmed : null,
+    now(),
+    threadId,
+  );
+}
+
+/**
+ * The comment has been sent, so it is not a note any more.
+ *
+ * Called on every path that reaches an agent — ASK, ACT and the synthesis
+ * fan-out. Idempotent, and a no-op for the ordinary comment that was never a
+ * note. Keeping the flag set after a send would leave the panel drawing a
+ * "saved, sent to nobody" colour on a comment with an answer in it.
+ */
+export function clearNoteFlag(db: Db, threadId: string): void {
+  db.prepare("UPDATE thread SET is_note = 0 WHERE id = ? AND is_note = 1").run(threadId);
 }
 
 export function setThreadStatus(db: Db, threadId: string, resolved: boolean): void {

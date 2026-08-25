@@ -15,6 +15,25 @@ CREATE TABLE IF NOT EXISTS document (
   UNIQUE (kind, value)
 );
 
+-- Spec 14 §6.1 — the reviewer's own arrangement of the comment list.
+--
+-- Not a directory. `root` scopes a group to one workspace (§5.3); `parent_id`
+-- nests it; `position` ranks it among its siblings and among them only (§4.1).
+-- Nothing inside a group records where the group is, which is what makes moving
+-- a group of forty comments one UPDATE of one row (§4.6).
+CREATE TABLE IF NOT EXISTS comment_group (
+  id          TEXT PRIMARY KEY,
+  root        TEXT NOT NULL,
+  parent_id   TEXT REFERENCES comment_group(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  position    INTEGER NOT NULL,
+  collapsed   INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_group_root
+  ON comment_group(root, parent_id, position);
+
 CREATE TABLE IF NOT EXISTS thread (
   id            TEXT PRIMARY KEY,
   document_id   TEXT NOT NULL REFERENCES document(id) ON DELETE CASCADE,
@@ -27,6 +46,24 @@ CREATE TABLE IF NOT EXISTS thread (
   extra_anchors_json TEXT,
   anchor_state  TEXT CHECK (anchor_state IN ('ok','moved','orphaned')),
   note          TEXT NOT NULL,
+  -- Spec 14 §3.1 — the name the reviewer typed. NULL is not "unnamed", it is
+  -- "named by the note": every surface falls back to the note's first line, so
+  -- a comment nobody renames reads exactly as it did before this column.
+  title         TEXT,
+  -- Spec 14 §5 — the group this comment sits in. NULL is the top level, and
+  -- ON DELETE SET NULL is the backstop: the delete path promotes a group's
+  -- contents to its parent first (§5.4), so this fires only for a row deleted
+  -- some other way. A comment is never destroyed by rearranging groups.
+  group_id      TEXT REFERENCES comment_group(id) ON DELETE SET NULL,
+  -- A comment the reviewer saved and never sent. 1 means NOTE mode made it, so
+  -- "Ask all" leaves it alone and the panel draws it in its own colour. Cleared
+  -- the moment the comment IS sent — a note that has been asked is not a note
+  -- any more, and nothing about it should keep saying so.
+  is_note       INTEGER NOT NULL DEFAULT 0,
+  -- Spec 14 §4.1 — rank among the comments sharing group_id. Renumbered 0..n-1
+  -- inside one transaction on every drop; never a fractional key, which has a
+  -- precision cliff and buys nothing at this size.
+  position      INTEGER NOT NULL DEFAULT 0,
   -- Spec 06 §5.4 — the reviewer's ink, as fractions of the union box of this
   -- comment's targets. A column and not a field inside anchor_json, because a
   -- stroke is not a property of any one anchor: it is drawn across all of them,
@@ -44,6 +81,11 @@ CREATE TABLE IF NOT EXISTS thread (
 
 CREATE INDEX IF NOT EXISTS idx_thread_doc
   ON thread(document_id, status);
+
+-- Spec 14 §4.4 needs an index on thread(group_id, position), and it is created
+-- by `migrateCommentOrder` rather than here. This file runs before every
+-- migration, and on a database made before spec 14 the column does not exist
+-- yet — an index naming it would throw and take the whole open with it.
 
 -- Spec 05 §5.2 — one row per place a comment is about, in panel order.
 --

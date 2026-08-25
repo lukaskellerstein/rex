@@ -33,7 +33,11 @@ export function isRepository(path: string): boolean {
  */
 export function porcelainStatus(root: string): string[] {
   try {
-    return git(root, ["status", "--porcelain"])
+    // Spec 15 §3.4 — `--untracked-files=all`, so an untracked TREE is listed as
+    // its files rather than as one directory line. `?? docs/` was the whole of
+    // spec 15 §1.2: one line for a thousand files, identical before and after
+    // any edit to any of them.
+    return git(root, ["status", "--porcelain", "--untracked-files=all"])
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
@@ -53,6 +57,30 @@ export function diff(root: string, paths: string[]): string {
     // new files are reported separately by the caller.
     return git(root, ["diff", "--", ...paths]);
   } catch {
+    return "";
+  }
+}
+
+/**
+ * Spec 15 §6.3 — a patch between any two files, in or out of a repository.
+ *
+ * `git diff` cannot draw one for a file it does not track, which is §1.3's
+ * second consequence. `--no-index` can draw one for any two paths, and a
+ * working copy's `base` and `current` are exactly two such paths.
+ *
+ * **It exits 1 when the files differ**, which is the normal case here, so the
+ * patch is read from the error rather than from the return value. Reading only
+ * the success path would silently produce an empty diff — the same failure this
+ * whole spec exists to end.
+ */
+export function diffFiles(before: string, after: string): string {
+  const args = ["diff", "--no-index", "--src-prefix=a/", "--dst-prefix=b/", "--", before, after];
+  try {
+    return git(process.cwd(), args);
+  } catch (error) {
+    const stdout = (error as { stdout?: string | Buffer }).stdout;
+    if (typeof stdout === "string") return stdout;
+    if (stdout) return stdout.toString("utf8");
     return "";
   }
 }

@@ -8,9 +8,15 @@
 //
 // The state is named in words in the meta line too, so nothing rests on colour.
 
+import { commentName, noteAddsToName } from "../../shared/names.ts";
 import type { AnchorState, ThreadWithMessages } from "../../shared/types.ts";
-import { tokenClass } from "./Gutter.tsx";
-import { TableGlyph, Trash } from "./Icons.tsx";
+import { tokenClass, washClass } from "./wash.ts";
+
+// Re-exported: the card and the diff dialog import it from here.
+export { washClass };
+
+import { Pencil, TableGlyph, Trash } from "./Icons.tsx";
+import { NameBox } from "./NameBox.tsx";
 import { placeWords } from "./place.ts";
 
 interface Props {
@@ -26,14 +32,15 @@ interface Props {
   onHover?: (over: boolean) => void;
   /** Removes the comment for good. The row confirms before calling it. */
   onDelete?: () => void;
-}
-
-/** The wash: status first, because a resolved thread is not an alarm. */
-export function washClass(status: string, state: AnchorState | null): string {
-  if (status === "resolved") return "rex-thread-done";
-  if (state === "orphaned") return "rex-thread-orphaned";
-  if (state === "moved") return "rex-thread-moved";
-  return "";
+  /** Spec 14 §3.3 — the pen. Absent where the row cannot be renamed. */
+  onRename?: () => void;
+  /** True while this row's name box is open. */
+  renaming?: boolean;
+  /** Null puts the note back — §3.1. */
+  onName?: (title: string | null) => void;
+  onCancelRename?: () => void;
+  /** Spec 14 §7.2 — one step in per level of nesting. */
+  depth?: number;
 }
 
 /** How far the agent got, in the two numbers the design shows. */
@@ -48,13 +55,18 @@ export function progressOf(thread: ThreadWithMessages): { answered: boolean; ste
 export function StateWord({
   status,
   state,
+  isNote = false,
 }: {
   status: string;
   state: AnchorState | null;
+  isNote?: boolean;
 }): React.JSX.Element | null {
   if (status === "resolved") return <span className="rex-state-resolved">resolved</span>;
   if (state === "orphaned") return <span className="rex-state-orphaned">anchor lost</span>;
   if (state === "moved") return <span className="rex-state-moved">text moved</span>;
+  // Last, like the wash and the token. Colour is never the only signal, so the
+  // word is what actually separates a note from a comment nobody has asked yet.
+  if (isNote) return <span className="rex-state-unsent">note</span>;
   return null;
 }
 
@@ -69,15 +81,44 @@ export function ThreadRow(props: Props): React.JSX.Element {
     ? placeWords(first, props.label)
     : { label: props.label, quote: null };
   const { answered, steps } = progressOf(thread);
-  const word = <StateWord status={thread.status} state={props.state} />;
+  const word = <StateWord status={thread.status} state={props.state} isNote={thread.isNote} />;
 
   const classes = [
     "rex-thread",
-    washClass(thread.status, props.state),
+    washClass(thread.status, props.state, thread.isNote),
     props.selected ? "rex-thread-on" : "",
   ]
     .filter(Boolean)
     .join(" ");
+
+  /*
+    Renaming replaces the row rather than sitting inside it. An `<input>` inside
+    a `<button>` is invalid for the same reason a button inside a button is, and
+    a browser that un-nests it leaves a box that cannot be typed into. The token
+    stays so the row does not jump while the name is being edited.
+  */
+  if (props.renaming && props.onName && props.onCancelRename) {
+    return (
+      <div
+        className="rex-thread-wrap rex-thread-naming"
+        style={props.depth ? { paddingLeft: `${props.depth * 14}px` } : undefined}
+      >
+        <div className={`rex-thread ${washClass(thread.status, props.state, thread.isNote)}`}>
+          <span className={`rex-token ${tokenClass(thread.status, props.state, thread.isNote)}`}>
+            {props.number}
+          </span>
+          <NameBox
+            value={commentName(thread)}
+            label={`Name for comment ${props.number}`}
+            // §3.1 — empty is the reset: it writes NULL and the note comes back.
+            allowEmpty
+            onSave={props.onName}
+            onCancel={props.onCancelRename}
+          />
+        </div>
+      </div>
+    );
+  }
 
   /*
     The row is a `<button>`, and a button cannot contain another one, so the
@@ -88,9 +129,31 @@ export function ThreadRow(props: Props): React.JSX.Element {
   return (
     <div
       className="rex-thread-wrap"
+      style={props.depth ? { paddingLeft: `${props.depth * 14}px` } : undefined}
       onMouseEnter={() => props.onHover?.(true)}
       onMouseLeave={() => props.onHover?.(false)}
     >
+      {/*
+        Spec 14 §3.3 — the pen sits in the WRAPPER, beside the trash, and not in
+        the row. The row is a `<button>`, HTML forbids a button inside a button,
+        and a browser that un-nests the markup makes clicking the pen select the
+        comment instead of renaming it.
+
+        Pen left, trash right: the safe control is the one the pointer reaches
+        first, and the destructive one keeps the corner it has had since spec 08.
+      */}
+      {props.onRename ? (
+        <button
+          type="button"
+          className="rex-thread-pen"
+          aria-label={`Rename comment ${props.number}`}
+          title="Rename this comment"
+          onClick={props.onRename}
+        >
+          <Pencil size={12} />
+        </button>
+      ) : null}
+
       {props.onDelete ? (
         <button
           type="button"
@@ -112,7 +175,7 @@ export function ThreadRow(props: Props): React.JSX.Element {
 
       <button type="button" className={classes} onClick={props.onSelect}>
         <span
-          className={`rex-token ${tokenClass(thread.status, props.state)} ${
+          className={`rex-token ${tokenClass(thread.status, props.state, thread.isNote)} ${
             props.selected ? "rex-token-active" : ""
           }`}
         >
@@ -120,7 +183,18 @@ export function ThreadRow(props: Props): React.JSX.Element {
         </span>
 
         <span className="rex-thread-body">
-          <span className="rex-thread-note">{thread.note}</span>
+          {/*
+            Spec 14 §3.4 — the headline is the NAME. With no title that is the
+            note's first line, which is exactly what this row showed before.
+          */}
+          <span className="rex-thread-note">{commentName(thread)}</span>
+
+          {/*
+            The note under the name only when it says something the name does
+            not. With no title the two are the same string, and printing it
+            twice turns a four-line row into a five-line one saying no more.
+          */}
+          {noteAddsToName(thread) ? <span className="rex-thread-prompt">{thread.note}</span> : null}
 
           {quote ? (
             <span className="rex-quote rex-quote-small">{quote}</span>
@@ -152,7 +226,10 @@ export function ThreadRow(props: Props): React.JSX.Element {
                 <span className="rex-spinner" />
                 working…
               </span>
-            ) : (
+            ) : thread.isNote ? // "note" is already in this line, one word to the left. Adding
+            // "not asked" says the same thing twice, and the second half
+            // reads like a reproach for a choice the reviewer made.
+            null : (
               <span>
                 {answered ? "answered" : "not asked"}
                 {steps > 0 ? ` · ${steps} step${steps === 1 ? "" : "s"}` : ""}

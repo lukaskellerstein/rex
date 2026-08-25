@@ -62,6 +62,21 @@
   --wash-lost-edge: #4a3229;
   --wash-lost-on: #3a2721;
   --wash-lost-edge-on: #a04b39;
+  /*
+    The note family — a comment saved and sent to nobody.
+
+    Slate, deliberately the coolest and least saturated of the five. The other
+    four say something happened to the comment (moved, lost, resolved) or that
+    an agent has it; a note is the absence of all of that, so its colour is the
+    quietest one on the panel. It never competes with the other four, because
+    `washClass` puts it last and it only fills the slot that had no colour.
+  */
+  --note: #7f8aa3;
+  --note-text: #a7b1c6;
+  --wash-note: #1b1e24;
+  --wash-note-edge: #333a46;
+  --wash-note-on: #232833;
+  --wash-note-edge-on: #4d5a70;
   --wash-done: #202a25;
   --wash-done-edge: #2e3833;
   --wash-done-on: #26302c;
@@ -885,81 +900,217 @@
   letter-spacing: -0.015em;
 }
 
-/* ── Gutter ──────────────────────────────────────────────── */
+/* ── The two halves (spec 15 §6.1) ───────────────────────── */
 
-.rex-gutter {
+/*
+  The document pane is a row of up to two halves: the file on the left, the
+  version that will exist on the right. One half when there is nothing to
+  compare against, which is every document nobody has changed.
+*/
+.rex-half {
   position: relative;
-  flex: none;
-  width: 32px;
-  border-left: 1px solid var(--rule-soft);
-  background: var(--panel);
-}
-
-.rex-marker {
-  position: absolute;
-  right: 7px;
   display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rex-app .rex-half-hidden {
+  display: none;
+}
+
+.rex-half-original {
+  border-right: 1px solid var(--rule);
+}
+
+/* The frame fills what the head leaves, and the marks are drawn over it. */
+.rex-half-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+  Spec 15 §7.4 — a notice, not a gate.
+
+  Nothing is waiting on it: the reviewer's file already holds what it held
+  before the run, and keeps holding it until Approve is pressed. So it sits at
+  the head of the half it describes rather than over the document, and it can be
+  read whenever they get to it.
+*/
+.rex-half-head {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: center;
-  width: 19px;
-  height: 19px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: var(--action);
-  color: #fff;
-  font: inherit;
-  font-size: 10px;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--panel);
+  font-size: 11px;
+}
+
+.rex-half-title {
+  color: var(--fg);
   font-weight: 600;
-  cursor: pointer;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
-.rex-marker-moved {
-  background: var(--moved);
-  color: #2b2000;
-  font-weight: 700;
-}
-
-/* Resolved is drained of colour but still numbered — it is not gone. On the
-   dark gutter that is the sunk surface, not white: a white disc beside three
-   coloured ones would be the loudest marker on the rail. */
-.rex-marker-done {
-  border: 1px solid var(--rule);
-  background: var(--sunk);
+.rex-half-hint,
+.rex-half-count {
   color: var(--muted);
 }
 
-.rex-marker-lost {
-  background: var(--lost);
-  color: #fff;
-  font-weight: 700;
+.rex-half-count {
+  font-variant-numeric: tabular-nums;
 }
 
-.rex-marker-active {
-  outline: 2px solid var(--link);
-  outline-offset: 2px;
+.rex-added {
+  color: #6fbf73;
 }
 
-/* An orphan has no position to draw at, so it pins to the foot and says so. */
-.rex-marker-pinned {
-  position: absolute;
-  right: 7px;
-  bottom: 10px;
+.rex-removed {
+  color: var(--lost-text);
+}
+
+/* The three positions push to the right, beside the answers they belong with. */
+.rex-half-modes {
   display: flex;
-  flex-direction: column;
+  margin-left: auto;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+}
+
+.rex-half-mode {
+  padding: 2px 8px;
+  border: none;
+  background: var(--sunk);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.rex-half-mode-on {
+  background: var(--action);
+  color: #fff;
+}
+
+.rex-half-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.rex-half-button,
+.rex-approve {
+  padding: 2px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 5px;
+  background: var(--sunk);
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+/* The one button that writes into the reviewer's own file, and it looks it. */
+.rex-approve {
+  border-color: transparent;
+  background: var(--action);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* §7.3 — REX does not merge, and says so before Approve is pressed. */
+.rex-half-conflict {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  color: var(--lost-text);
+  line-height: 1.45;
+}
+
+/*
+  §6.2 — a block only the original has, in the same red the write agent's other
+  marks use. Drawn over the pane, never on the document.
+*/
+.rex-removed-outline {
+  position: absolute;
+  border: 2px solid var(--lost);
+  border-radius: 2px;
+  background: rgb(208 87 68 / 12%);
+  pointer-events: none;
+}
+
+/* ── The marks in the margin (spec 15 §8) ────────────────── */
+
+/*
+  §8.2 — a bar beside the block, and nothing on the text.
+
+  It replaces a wash plus a 1.5px underline on every commented passage, which
+  made a document with six comments in it unreadable (§8.1). The state
+  vocabulary is unchanged — steel, amber, drained, red — it just costs the
+  reader nothing now that it lives in the margin.
+*/
+.rex-margin {
+  position: absolute;
+  width: 3px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--action);
+  cursor: pointer;
+}
+
+.rex-margin-moved {
+  background: var(--moved);
+}
+
+.rex-margin-done {
+  background: var(--rule);
+}
+
+.rex-margin-lost {
+  background: var(--lost);
+}
+
+/* §8.4 — the comment being read outranks its state, exactly as it always has. */
+.rex-margin-active,
+.rex-margin-lit {
+  background: #7a4fa3;
+}
+
+/*
+  §8.3 — the number, on the bar it belongs to.
+
+  This is the rail's disc, moved to the thing it names. `top` is set inline so
+  two bars that start at the same height do not stack their numbers on top of
+  each other.
+*/
+.rex-margin-number {
+  position: absolute;
+  right: 5px;
+  display: flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: inherit;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-.rex-marker-pinned .rex-marker {
-  position: static;
+.rex-margin-done .rex-margin-number {
+  color: var(--muted);
 }
 
-.rex-lost-label {
-  color: var(--lost);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+.rex-margin-moved .rex-margin-number {
+  color: #2b2000;
 }
 
 /* ── Block anchors ───────────────────────────────────────── */
@@ -1038,16 +1189,17 @@
 /*
   Spec 05 §5.6.1 — what an Apply changed, while the reviewer decides.
 
-  The write colour, never the selection's blue: a reviewer looking at a document
-  mid-Apply must not have to work out which marks are their own selection and
-  which are the agent's edit. Red is spent on exactly two things in this design,
-  and the write-capable agent is one of them.
+  Spec 15 §6.2 turned it green. Until then there was one document on screen and
+  one colour was enough; now the reviewer reads two, and the pair has to say
+  which way round the change goes — green for a block the new version has, red
+  for one only the original has (`.rex-removed-outline`). Same vocabulary as
+  every diff anybody has ever read, which is the point.
 */
 .rex-change-outline {
   position: absolute;
-  border: 2px solid var(--lost);
+  border: 2px solid #4f9d57;
   border-radius: 2px;
-  background: rgb(208 87 68 / 12%);
+  background: rgb(79 157 87 / 14%);
   pointer-events: none;
 }
 
@@ -1763,6 +1915,17 @@
 .rex-thread-wrap {
   position: relative;
   display: flex;
+  /*
+    Spec 14 §7.2 — the row takes the column's whole width.
+
+    `.rex-row` is a flex container, so without this each card shrank to its own
+    text and the list came out ragged: measured on 2026-08-25, six rows between
+    204px and 345px in a 345px column. It was survivable while every row started
+    at the same x. It is not survivable now that nesting is shown by an indent —
+    a step of 14px cannot be read against edges that already differ by 140.
+  */
+  flex: 1;
+  min-width: 0;
 }
 
 .rex-thread {
@@ -4212,4 +4375,306 @@
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+/* ── Spec 14 — the name, the order and the groups ─────────────── */
+
+/*
+  The pen, beside the trash. Same size, same corner, same reveal rule: hidden at
+  rest, shown on the row's hover and on its own keyboard focus. A second control
+  that appeared by a different rule would read as a different kind of thing.
+
+  Pen left of the trash — the safe control is the one the pointer reaches first,
+  and the destructive one keeps the corner it has had since spec 08.
+*/
+.rex-thread-pen {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 31px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--faint);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.rex-thread-wrap:hover .rex-thread-pen,
+.rex-thread-pen:focus-visible {
+  opacity: 1;
+}
+
+.rex-thread-pen:hover {
+  background: var(--sunk);
+  color: var(--fg-dim);
+}
+
+/* The prompt under a renamed comment: what was asked, when the name no longer
+   says it. Dim and one line — the whole note is in the card. */
+.rex-thread-prompt {
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── The inline name box ─────────────────────────────────────── */
+
+.rex-name-box {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--wash-ok-edge-on);
+  border-radius: 3px;
+  background: var(--well);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+.rex-name-box:focus {
+  outline: none;
+}
+
+.rex-thread-naming .rex-thread {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+}
+
+/* ── A group's header row ────────────────────────────────────── */
+
+.rex-group {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: var(--fg-dim);
+}
+
+.rex-group:hover {
+  background: var(--panel);
+}
+
+/*
+  The one drop that is not a line: dropping ON a group row files the dragged
+  row inside it. The row lights instead of showing a line, and the panel never
+  shows both at once — that is what tells "beside" from "inside".
+*/
+.rex-group-into {
+  border-color: var(--wash-ok-edge-on);
+  background: var(--wash-ok-on);
+}
+
+.rex-group-twisty {
+  display: flex;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/*
+  The name and its badge are one control, and the badge sits beside the name
+  rather than at the far end of the row. At the far end the number belonged to
+  the row instead of to the group, and pairing them meant crossing the column.
+
+  `max-width` and not `flex: 1`: the name takes what it needs and no more, so
+  the badge stays against it. The spacer after them is what pushes the three
+  buttons to the right edge.
+*/
+.rex-group-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 75%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The name itself clips; the badge never does. */
+.rex-group-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rex-group-count {
+  flex: none;
+  min-width: 16px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--sunk);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-align: center;
+}
+
+/* The group row's own three controls, on the same reveal rule as the pen. */
+.rex-row-pen,
+.rex-row-bin {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--faint);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.rex-group:hover .rex-row-pen,
+.rex-group:hover .rex-row-bin,
+.rex-card-title:hover .rex-row-pen,
+.rex-row-pen:focus-visible,
+.rex-row-bin:focus-visible {
+  opacity: 1;
+}
+
+.rex-row-pen:hover {
+  background: var(--sunk);
+  color: var(--fg-dim);
+}
+
+.rex-row-bin:hover {
+  background: var(--wash-lost);
+  color: var(--lost-text);
+}
+
+/* ── The drop line ───────────────────────────────────────────── */
+
+/*
+  Drawn on the row the pointer is over, at the indent of the parent it means.
+  Without the indent the last line of a subgroup and the line before the next
+  top-level row are the same pixel, and the two mean different parents.
+*/
+.rex-drop {
+  position: relative;
+}
+
+.rex-drop-before::before,
+.rex-drop-after::after {
+  position: absolute;
+  right: 0;
+  left: var(--rex-drop-indent, 0);
+  height: 2px;
+  border-radius: 1px;
+  background: var(--wash-ok-edge-on);
+  content: "";
+}
+
+.rex-drop-before::before {
+  top: -1px;
+}
+
+.rex-drop-after::after {
+  bottom: -1px;
+}
+
+/* ── The name at the head of an open card ────────────────────── */
+
+.rex-card-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.rex-card-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── A comment saved and sent to nobody ───────────────────────── */
+
+/*
+  The fourth wash, and the quietest. It fills the slot an ordinary open comment
+  left empty, so no card ever has to choose between this and a state colour —
+  `washClass` puts it last for exactly that reason.
+*/
+.rex-thread-unsent {
+  border-color: var(--wash-note-edge);
+  background: var(--wash-note);
+}
+
+.rex-thread-unsent.rex-thread-on {
+  border-color: var(--wash-note-edge-on);
+  background: var(--wash-note-on);
+}
+
+/* Hollow, where an agent comment's token is filled. The difference reads at a
+   glance down a column, before any word is read. */
+.rex-token-unsent {
+  border: 1px solid var(--note);
+  background: transparent;
+  color: var(--note-text);
+}
+
+/* A comment sent to nobody. Spec 15 §8.2 moved it from the rail to the bar. */
+.rex-margin-unsent {
+  background: var(--note);
+}
+
+.rex-margin-unsent .rex-margin-number {
+  color: var(--note-text);
+}
+
+.rex-state-unsent {
+  color: var(--note-text);
+  font-weight: 500;
+}
+
+/*
+  NOTE's own segment on the mode switch, and its button.
+
+  Not the accent blue ASK wears and not ACT's warning red: this is the mode that
+  spends nothing and reaches nobody, and the control should look like it.
+*/
+.rex-modeseg-note.rex-modeseg-on {
+  background: var(--note);
+  color: var(--bg);
+}
+
+.rex-button-note {
+  border-color: var(--wash-note-edge-on);
+  background: var(--wash-note-on);
+  color: var(--note-text);
+}
+
+.rex-button-note:hover:not(:disabled) {
+  border-color: var(--note);
+  background: var(--wash-note-edge);
 }

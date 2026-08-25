@@ -41,17 +41,17 @@
       height: 100%;
       background: #0d1420;
       /*
-                     The page should never scroll — the shell is exactly 100vh — so this is
-                     for the case where something has been left in the body and it does.
-                     Chromium's default scrollbar is light, and a white bar down the edge of
-                     a black window is how one such leak was found (see `mermaid.ts`). The
-                     palette lives in the shadow root and cannot be reached from here, so
-                     `--rule` is written out; it is the only duplicated value in this file
-                     besides the ground above.
+                                             The page should never scroll — the shell is exactly 100vh — so this is
+                                             for the case where something has been left in the body and it does.
+                                             Chromium's default scrollbar is light, and a white bar down the edge of
+                                             a black window is how one such leak was found (see `mermaid.ts`). The
+                                             palette lives in the shadow root and cannot be reached from here, so
+                                             `--rule` is written out; it is the only duplicated value in this file
+                                             besides the ground above.
 
-                     Not `color-scheme: dark`, which would be inherited by the document
-                     iframe and flip a local HTML file's own theme.
-                     */
+                                             Not `color-scheme: dark`, which would be inherited by the document
+                                             iframe and flip a local HTML file's own theme.
+                                             */
       scrollbar-width: thin;
       scrollbar-color: #414850 transparent;
     }

@@ -9,7 +9,10 @@ import type {
   AnchorState,
   AnchorSummary,
   ChangedRegion,
+  CommentGroup,
+  CommentMove,
   DocumentRef,
+  DocumentVersion,
   Message,
   OpenedDocument,
   ReferenceGraph,
@@ -18,6 +21,7 @@ import type {
   Thread,
   ThreadWithMessages,
   ViewState,
+  WorkingCopyView,
   WorkspaceRef,
   WorkspaceTree,
 } from "./types.ts";
@@ -58,7 +62,43 @@ export const COMMAND = {
   threadDelete: "thread:delete",
   threadSynthesise: "thread:synthesise",
   threadApply: "thread:apply",
+  /**
+   * NOTE mode — record what was typed in a comment, and run nothing.
+   *
+   * Its own channel and not a flag on `thread:reply`: that one always reaches
+   * an agent, and a channel that means "send" or "do not send" depending on a
+   * boolean is the kind of economy that ends with a paid run nobody asked for.
+   */
+  threadNote: "thread:note",
+  /** Spec 14 §3 — the name on a comment. Null goes back to the note. */
+  threadRename: "thread:rename",
+  /** Spec 14 §5 — the reviewer's own arrangement of the list. */
+  groupList: "group:list",
+  groupCreate: "group:create",
+  groupUpdate: "group:update",
+  groupDelete: "group:delete",
+  /**
+   * Spec 14 §4.2 — one drop, whatever kind of row was dragged.
+   *
+   * One channel and not two: the panel has exactly one drag gesture, and its
+   * payload differs only in a discriminator. `group:delete` stays separate and
+   * always will — it is the one that rearranges other rows, and a channel that
+   * deletes should never be reachable by leaving a field off another one.
+   */
+  commentsMove: "comments:move",
   applyConfirm: "apply:confirm",
+  /**
+   * Spec 15 §7 — the working copy, and the three things a reviewer does to one.
+   *
+   * They are separate channels rather than one carrying a verb, for the reason
+   * `group:delete` is separate from `group:update`: `work:approve` is the one
+   * that writes into the reviewer's own file, and a channel that does that only
+   * when a string says so is a channel that does it when the string is wrong.
+   */
+  workList: "work:list",
+  workApprove: "work:approve",
+  workDiscard: "work:discard",
+  workUndo: "work:undo",
   anchorRestate: "anchor:restate",
   /**
    * Spec 11 §7.4.2 — the renderer's answer to `render:request`.
@@ -140,6 +180,13 @@ export interface ThreadCreateRequest {
    * has a way to send what it holds.
    */
   stroke?: StrokeRef;
+  /**
+   * NOTE mode — save it and send it to nobody.
+   *
+   * Absent and false both mean the ordinary comment, which is created and then
+   * sent by whichever of `thread:ask` or `thread:apply` the mode picked.
+   */
+  isNote?: boolean;
 }
 
 /**
@@ -171,6 +218,45 @@ export interface ThreadReplyRequest {
 export interface ThreadApplyRequest {
   threadId: string;
   note: string;
+}
+
+/**
+ * Spec 14 §3.1 — `title: null` is the reset, and so is an empty string.
+ *
+ * "Delete the name" and "go back to the note" are the same wish, so the panel is
+ * not made to tell them apart.
+ */
+export interface ThreadRenameRequest {
+  threadId: string;
+  title: string | null;
+}
+
+/** Spec 14 §5.3 — groups belong to a workspace root, so every call names one. */
+export interface GroupListRequest {
+  root: string;
+}
+
+export interface GroupCreateRequest {
+  root: string;
+  /** Null is the top level. */
+  parentId: string | null;
+  name: string;
+}
+
+/**
+ * The name, the collapsed flag, or both.
+ *
+ * Both fields optional and both on one channel, because both are "a property of
+ * this group changed" and neither is worth a round trip of its own.
+ */
+export interface GroupUpdateRequest {
+  groupId: string;
+  name?: string;
+  collapsed?: boolean;
+}
+
+export interface GroupDeleteRequest {
+  groupId: string;
 }
 
 export interface ThreadResolveRequest {
@@ -252,19 +338,46 @@ export interface DeckPreview {
   problems: string[];
 }
 
+/**
+ * Spec 15 §7.4 — what a finished ACT run has to say for itself.
+ *
+ * It is a **notice**, not a gate. Before spec 15 this opened a bar with OK and
+ * Undo, and nothing was final until one was pressed — that bar was the whole of
+ * spec 01 §8.7 step 5. The two panes are step 5 now, so nothing is waiting on
+ * this: the reviewer's file already holds what it held before the run, and it
+ * keeps holding it until §7.2 runs.
+ */
 export interface ApplyReadyEvent {
   applyRunId: string;
   threadId: string;
   diff: string;
-  /** Absolute paths of every file the agent changed. */
+  /** Absolute paths of every document whose working copy this run changed. */
   files: string[];
   /** Spec 05 §5.6.1 — what to outline, per file. Empty for a file with no
       `data-src-line` stamps, which is the honest answer rather than a guess. */
   regions: ChangedRegion[];
   /** Spec 05 §5.6 — target documents Apply could not edit, and why. */
   skipped: SkippedDocument[];
+  /** Spec 15 §3 — the working copy of each document this run changed. */
+  working: WorkingCopyView[];
+  /**
+   * Spec 15 §4.3 — files the agent wrote that were not its to write, put back.
+   *
+   * Never empty for a well-behaved run, and never silent for any other kind: a
+   * file the reviewer did not comment on is not part of this review.
+   */
+  restored: string[];
   /** Spec 11 §7.7 — present when this run edited a deck, and never with a diff. */
   decks?: DeckPreview[];
+}
+
+/** Spec 15 §7.2 — approving writes into the reviewer's file, so it can refuse. */
+export interface WorkApproveResponse {
+  ok: boolean;
+  /** §7.3 — why not, in the words the reviewer sees. */
+  reason: string | null;
+  /** The sweep that follows a write (§8.7 step 6). Null when nothing was written. */
+  reanchored: AnchorSummary | null;
 }
 
 /** What main is asking the renderer to draw. */
@@ -303,7 +416,15 @@ export interface CostEvent {
 export interface RexApi {
   docPick(): Promise<DocumentRef | null>;
   docInitial(): Promise<InitialTarget | null>;
-  docOpen(ref: DocumentRef): Promise<OpenedDocument>;
+  /**
+   * Spec 15 §6.1 — `version` picks which of the two the render is.
+   *
+   * A version and never a path: the renderer displays untrusted document
+   * content (invariant I2), so it does not get to name a file for main to read.
+   * Omitted, or with no working copy, it is the reviewer's own file exactly as
+   * before.
+   */
+  docOpen(ref: DocumentRef, version?: DocumentVersion): Promise<OpenedDocument>;
   workspacePick(): Promise<WorkspaceRef | null>;
   /** `reveal` lists what the scan prunes, so an exclusion can be taken back. */
   workspaceTree(ref: WorkspaceRef, reveal?: boolean): Promise<WorkspaceTree>;
@@ -318,7 +439,27 @@ export interface RexApi {
   threadDelete(threadId: string): Promise<void>;
   threadSynthesise(request: ThreadSynthesiseRequest): Promise<Thread>;
   threadApply(request: ThreadApplyRequest): Promise<string>;
+  /** NOTE mode — saves the text in the thread. No agent, no session, no cost. */
+  threadNote(request: ThreadReplyRequest): Promise<void>;
+  /** Spec 14 §3 — name a comment, or pass null to go back to the note. */
+  threadRename(request: ThreadRenameRequest): Promise<void>;
+  /** Spec 14 §5 — every group in one workspace, at every depth, in walk order. */
+  groupList(request: GroupListRequest): Promise<CommentGroup[]>;
+  groupCreate(request: GroupCreateRequest): Promise<CommentGroup>;
+  groupUpdate(request: GroupUpdateRequest): Promise<void>;
+  /** Promotes everything inside to the group's own parent, then removes it. */
+  groupDelete(request: GroupDeleteRequest): Promise<void>;
+  /** Spec 14 §4.2 — one drop: this row, into that parent, after that sibling. */
+  commentsMove(request: CommentMove): Promise<void>;
   applyConfirm(request: ApplyConfirmRequest): Promise<ApplyConfirmResponse>;
+  /** Spec 15 §7 — every document with a change waiting, newest fork first. */
+  workList(): Promise<WorkingCopyView[]>;
+  /** Writes the new version over the reviewer's file, or says why it will not. */
+  workApprove(documentId: string): Promise<WorkApproveResponse>;
+  /** Throws the working copy away. The file was never touched. */
+  workDiscard(documentId: string): Promise<void>;
+  /** One ACT run back. The revision is kept, so this is a step, not a loss. */
+  workUndo(documentId: string): Promise<void>;
   anchorRestate(request: AnchorRestateRequest): Promise<void>;
   /** Puts this thread's debug report on the clipboard and returns it. */
   debugCopy(threadId: string): Promise<string>;

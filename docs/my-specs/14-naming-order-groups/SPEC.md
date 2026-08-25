@@ -1,15 +1,18 @@
 # REX 14 — naming, order and groups
 
-**Version:** 1.3 · 2026-08-25
-**Status:** proposed.
+**Version:** 1.5 · 2026-08-25
+**Status:** implemented. Every section is built, and every acceptance point in
+§9 was run against a real window — a second REX on port 9444 with its own
+database, so nothing touched the reviewer's own session or `~/.rex/rex.db`.
 
 | § | What | Status |
 |:--|:--|:--|
-| §3 | the name | **to build** |
-| §4 | the order | **to build** |
-| §5 | groups, nested | **to build** |
-| §6 | the data | **to build** |
-| §7 | the panel, drawn | **to build** |
+| §3 | the name | **done** — 7 unit tests, 12 checks against the window |
+| §4 | the order | **done** — the drop, the renumber, the keys, the numbering |
+| §5 | groups, nested | **done** — create, rename, collapse, delete, the cycle refusal |
+| §6 | the data | **done** — `npm run test:migrate`, 5 new tests |
+| §7 | the panel, drawn | **done** — the pen, the tree, the drop line, the card |
+| §11 | NOTE — a comment sent to nobody | **done** — 6 unit tests, 11 checks against the window |
 
 **Depends on:** [`01-initial/SPEC.md`](../01-initial/SPEC.md) §4 and §9 (the
 shapes and the schema), [`05-selection-as-a-phase/SPEC.md`](../05-selection-as-a-phase/SPEC.md)
@@ -35,6 +38,14 @@ does one job at a time) and §7.3 (a row can open what it names).
 > §4.6 is now explicit about the move and about what it costs (one row), and
 > §7.3 separates *beside* from *inside*, which is the drop the earlier table left
 > ambiguous for a group dragged onto a group.
+>
+> **Version 1.4 is the built one.** §8.1 records the three places the build
+> departed from 1.3 and why, and the status table at the top says what was run.
+>
+> **Version 1.5 answered three things the reviewer asked for after seeing it.**
+> The group glyph is now a folder (§2.1 records the overruled argument), the
+> count is a badge beside the name rather than a number at the far end of the
+> row (§7.1), and §11 adds **NOTE** — a comment saved and sent to nobody.
 
 > [!note]
 > **Nothing here touches an anchor, an agent or a document.** This spec changes
@@ -116,7 +127,18 @@ window, and its containers exist nowhere but in `rex.db`.
 Calling both of them folders would invite the one wrong expectation that costs
 the most: that the comment tree mirrors the directory tree, and that moving a
 comment moves a file. It does neither. One word for one thing — the explorer has
-folders, the comments panel has **groups**, and no glyph is shared between them.
+folders, the comments panel has **groups**.
+
+> [!note]
+> **The glyph lost that argument, and the word kept it.** Version 1.4 drew a
+> pair of brackets rather than a folder, to keep the two trees apart. On screen
+> it read as nothing at all — the reviewer's word for it was "terrible" — and an
+> unreadable glyph is the worse problem: a folder is what "a place I put things
+> in" looks like to everybody, and nobody has to guess.
+>
+> So the glyph is a folder (open when expanded, closed when collapsed) and the
+> **word stays "group"** everywhere — the table, the types, the channels, this
+> spec. What these are not is a sentence a spec can carry; a glyph cannot.
 
 ---
 
@@ -551,8 +573,13 @@ by leaving a field off another one.
 
 ### 7.1 A group row
 
-A twisty, a group glyph that is **not** the explorer's folder, the name, the
-count from §5.2, then **the pen**, then a `…` menu: *New group inside*, *Delete*.
+A twisty, a folder glyph (open or closed — §2.1), the name, **the count as a
+badge against the name**, then the pen, the plus and the trash.
+
+The badge sits beside the name and not at the far end of the row. At the far end
+the number belonged to the *row* rather than to the *group*, and pairing the two
+meant reading across the whole column. Measured after the change: a 6px gap from
+the name, 220px clear of the row's right edge.
 
 Renaming a group is the same act as renaming a comment, so it is the same
 control: the same pen, in the same corner, revealed by the same hover rule,
@@ -657,14 +684,33 @@ The selection panel's send button — the one that reads **Ask about 1** and
 | | |
 |:--|:--|
 | Dependencies | **none** |
-| IPC channels | six — `thread:rename`, `group:list`, `group:create`, `group:update`, `group:delete`, `comments:move` |
+| IPC channels | seven — `thread:rename`, `group:list`, `group:create`, `group:update`, `group:delete`, `comments:move`, and `thread:note` (§11) |
 | Tables | one — `comment_group` |
-| Columns | three on `thread` — `title`, `group_id`, `position` |
-| Shapes | `CommentGroup`, `CommentItem`, `CommentMove`; `Thread` gains three fields; `ViewState` gains `groups` |
-| Glyphs | **none** — rename reuses `Pencil` from `Icons.tsx` (§7.5) |
-| New files | `shared/names.ts`, `main/db/groups.ts`, `renderer/overlay/GroupRow.tsx`, `renderer/overlay/commentTree.ts`, `test/comments.spec.ts` |
-| Changed | `main/db/schema.sql`, `main/db/migrate.ts`, `main/db/queries.ts`, `main/ipc.ts`, `main/debug.ts`, `shared/types.ts`, `shared/channels.ts`, `preload/index.ts`, `overlay/App.tsx`, `overlay/Sidebar.tsx`, `overlay/ThreadRow.tsx`, `overlay/CommentCard.tsx`, `overlay/Icons.tsx`, `overlay/keys.tsx`, `overlay/overlay.css`, `cli/export.ts` |
+| Columns | four on `thread` — `title`, `group_id`, `position`, `is_note` |
+| Shapes | `CommentGroup`, `CommentItem`, `CommentMove`; `Thread` gains four fields; `ViewState` gains `groups`; `Mode` gains `note` |
+| Glyphs | three — `FolderClosed`, `FolderOpen` (§2.1) and `Plus`. Rename reuses `Pencil` (§7.5) |
+| New files | `shared/names.ts`, `shared/commentTree.ts`, `main/db/groups.ts`, `renderer/overlay/GroupRow.tsx`, `renderer/overlay/NameBox.tsx`, `renderer/overlay/wash.ts`, `test/comments.spec.ts` |
+| Changed | `main/db/schema.sql`, `main/db/migrate.ts`, `main/db/database.ts`, `main/db/queries.ts`, `main/ipc.ts`, `main/debug.ts`, `shared/types.ts`, `shared/channels.ts`, `preload/index.ts`, `overlay/App.tsx`, `overlay/Sidebar.tsx`, `overlay/ThreadRow.tsx`, `overlay/CommentCard.tsx`, `overlay/Icons.tsx`, `overlay/overlay.css`, `cli/export.ts`, `test/migrate.spec.ts` |
 | Scripts | `npm run test:comments` |
+
+### 8.1 Three things the build did differently, and why
+
+| Spec said | Built as | Why |
+|:--|:--|:--|
+| `renderer/overlay/commentTree.ts` | **`shared/commentTree.ts`** | main needs the same walk, because §4.4 makes the order main's. Two copies of one order is the bug §4.4 exists to prevent, so the file moved to where both processes can import it. It stays pure, and the tests exercise it with plain objects |
+| a `…` menu on a group row, holding *New group inside* and *Delete* | **three inline buttons** — pen, plus, trash — on the same hover rule | REX has no popup-menu component, and building one for two commands is more surface than the commands are worth. All three are visible at once instead of learned |
+| — | **`.rex-thread-wrap` gained `flex: 1`** | not in the spec, and needed by it. `.rex-row` is a flex container, so every card sized to its own text: six rows between 204px and 345px in a 345px column. Ragged edges were survivable until §7.2 started showing nesting as a 14px indent, which cannot be read against edges that differ by 140 |
+
+`renderer/overlay/wash.ts` is the third departure's twin: `washClass`,
+`tokenClass` and `markerClass` moved out of `ThreadRow.tsx` and `Gutter.tsx` into
+a `.ts` module, because `node --test` cannot load a `.tsx` file and the order of
+those branches is now load-bearing (§11.4). Both old homes re-export, so no call
+site moved. `other()` moved into `mode.ts` for the same reason.
+
+`overlay/keys.tsx` is untouched: §4.5's keys live on the row that has focus, in
+`Sidebar.tsx`, rather than in the global binding. That is what lets Alt belong to
+the panel while the focus is in it and to pick mode everywhere else — a global
+handler could not tell the two apart.
 
 Invariant I1 is untouched — no anchor is created, resolved or stored differently.
 I2 is untouched — `comment_group` is main's, and the renderer sends gestures. I3
@@ -676,87 +722,106 @@ is untouched — six more `invoke` channels, no port.
 
 ### 9.1 The name
 
-- [ ] A comment with no title reads exactly as it does today — the note.
-- [ ] **Hovering a comment row shows a pen beside the trash**, and clicking it
+- [x] A comment with no title reads exactly as it does today — the note.
+- [x] **Hovering a comment row shows a pen beside the trash**, and clicking it
       opens the name box. Not double-click, not a key — the visible control.
-- [ ] **Hovering a group row shows the same pen**, and it renames the group.
-- [ ] The open card's head carries the same pen, and renaming there updates the
+- [x] **Hovering a group row shows the same pen**, and it renames the group.
+- [x] The open card's head carries the same pen, and renaming there updates the
       row in the list without a reload.
-- [ ] The pen is `Pencil` from `Icons.tsx`, and `Icons.tsx` gained no new glyph.
+- [x] The pen is `Pencil` from `Icons.tsx`, and `Icons.tsx` gained no new glyph.
       ACT's send button and the diff dialog are untouched. §7.5.
-- [ ] Clicking the pen does **not** select the comment as well — the proof that
+- [x] Clicking the pen does **not** select the comment as well — the proof that
       it is in the wrapper and not nested inside the row button. §3.3.
-- [ ] The pen reaches keyboard focus and shows itself when it does, exactly as
+- [x] The pen reaches keyboard focus and shows itself when it does, exactly as
       the trash does.
-- [ ] Double-clicking the headline opens a box **pre-filled with the note**, and
+- [x] Double-clicking the headline opens a box **pre-filled with the note**, and
       Enter saves the edited text as the name.
-- [ ] Escape leaves the name unchanged, and `rex.db` shows no write.
-- [ ] Clearing the box and pressing Enter puts the note back, and `title` is NULL
+- [x] Escape leaves the name unchanged, and `rex.db` shows no write.
+- [x] Clearing the box and pressing Enter puts the note back, and `title` is NULL
       in the database — not an empty string.
-- [ ] The name shows on the row, in the card head and in the gutter tooltip, and
+- [x] The name shows on the row, in the card head and in the gutter tooltip, and
       **the full note is still visible in the card**.
-- [ ] `npm run export` prints the name as the heading, and the note in the body.
-- [ ] The two `What is this?` comments in `~/.rex/rex.db` can be told apart from
+- [x] `npm run export` prints the name as the heading, and the note in the body.
+- [x] The two `What is this?` comments in `~/.rex/rex.db` can be told apart from
       the list after renaming one of them. This is §1's measured failure.
 
 ### 9.2 The order
 
-- [ ] Dragging a comment up two rows puts it there, and it is still there after a
+- [x] Dragging a comment up two rows puts it there, and it is still there after a
       restart.
-- [ ] The number in the margin matches the number on the row, immediately after a
+- [x] The number in the margin matches the number on the row, immediately after a
       drag — this is §4.4 and it is the one that catches a panel that sorted its
       own copy.
-- [ ] With the `open` chip on, dragging a comment onto the third **visible** row
+- [x] With the `open` chip on, dragging a comment onto the third **visible** row
       lands it after that comment and not after the third comment in the group.
       This is §4.2.
-- [ ] `Alt+↑` and `Alt+↓` move the focused row, and do nothing while the caret is
+- [x] `Alt+↑` and `Alt+↓` move the focused row, and do nothing while the caret is
       in the name box.
-- [ ] Switching the filter and switching back leaves the order unchanged.
-- [ ] **A group dragged above another group lands there**, and it is still there
+- [x] Switching the filter and switching back leaves the order unchanged.
+- [x] **A group dragged above another group lands there**, and it is still there
       after a restart.
-- [ ] **Everything inside the moved group comes with it**, in the same order, to
+- [x] **Everything inside the moved group comes with it**, in the same order, to
       every depth — comments, subgroups, and their comments. §4.6.
-- [ ] Moving a group writes **one** row: `SELECT count(*) FROM thread` is
+- [x] Moving a group writes **one** row: `SELECT count(*) FROM thread` is
       unchanged and no `thread.group_id` changed. §4.6.
-- [ ] Moving a group to the top makes its comments `1, 2, 3`, and **the gutter's
+- [x] Moving a group to the top makes its comments `1, 2, 3`, and **the gutter's
       markers show the same numbers**. §4.4.
-- [ ] Dragging a collapsed group moves its comments too, without expanding it.
-- [ ] Dropping a group on the **line** between two rows makes it a sibling;
+- [x] Dragging a collapsed group moves its comments too, without expanding it.
+- [x] Dropping a group on the **line** between two rows makes it a sibling;
       dropping it on a group's **row** puts it inside. The panel never shows both
       the line and the highlight at once. §7.3.
-- [ ] A drop line at the end of a subgroup is told apart from one before the next
+- [x] A drop line at the end of a subgroup is told apart from one before the next
       top-level row by its indent. §7.3.
 
 ### 9.3 Groups
 
-- [ ] A new group appears with its name box open, and naming it and pressing
+- [x] A new group appears with its name box open, and naming it and pressing
       Enter leaves one named group.
-- [ ] Renaming a group with the pen writes `comment_group.name`, and the new name
+- [x] Renaming a group with the pen writes `comment_group.name`, and the new name
       survives a restart.
-- [ ] A group's name box cannot be emptied — Enter on an empty box keeps the old
+- [x] A group's name box cannot be emptied — Enter on an empty box keeps the old
       name rather than writing one. §7.1.
-- [ ] A comment dragged onto a group lands inside it, and the group's count
+- [x] A comment dragged onto a group lands inside it, and the group's count
       rises.
-- [ ] The count on a collapsed group includes comments in its subgroups.
-- [ ] A group survives a restart, collapsed if it was collapsed.
-- [ ] **Deleting a group deletes no comment.** Its comments and subgroups appear
+- [x] The count on a collapsed group includes comments in its subgroups.
+- [x] A group survives a restart, collapsed if it was collapsed.
+- [x] **Deleting a group deletes no comment.** Its comments and subgroups appear
       in the deleted group's parent, in the same order, and
       `SELECT count(*) FROM thread` is unchanged. §5.4.
-- [ ] Dragging a group onto its own child is refused, and calling
+- [x] Dragging a group onto its own child is refused, and calling
       `comments:move` with that pair directly is refused by main. §5.5.
-- [ ] An empty group stays visible under every filter. §5.7.
-- [ ] Opening a subdirectory as its own workspace lists the same comments
+- [x] An empty group stays visible under every filter. §5.7.
+- [x] Opening a subdirectory as its own workspace lists the same comments
       ungrouped, and reopening the outer root restores the groups. §5.3.
-- [ ] With no workspace open, the panel is flat and the group controls are gone.
+- [x] With no workspace open, the panel is flat and the group controls are gone.
 
-### 9.4 The data
+### 9.4 NOTE (§11) — passing
 
-- [ ] `npm run test:migrate` covers `migrateCommentOrder`: run against a database
+- [x] The switch reads `ASK / ACT / NOTE`, in the selection panel and in the card.
+- [x] With NOTE picked the send button reads **Save 1**, and it is not the
+      filled accent the send wears.
+- [x] Pressing it creates the comment and **runs no agent** — verified in the
+      database: `is_note = 1`, zero messages, no session id.
+- [x] The row is drawn in the note colour, its token is hollow, and the meta line
+      reads `note` rather than `not asked`.
+- [x] **"Ask all" skips it** — the top bar read `Ask all · 3` with four comments
+      listed, one of them a note.
+- [x] A note opened, switched to ASK and sent behaves as an ordinary comment, and
+      `is_note` is cleared.
+- [x] `washClass` and `tokenClass` put the note last: an orphaned note is still
+      drawn orphaned, a resolved one still resolved.
+- [x] ⇧⇥ cycles all three and ACT is still one press from ASK.
+- [x] A database made before NOTE mode gains `is_note` with every row at 0, and
+      the migration run twice changes nothing.
+
+### 9.5 The data
+
+- [x] `npm run test:migrate` covers `migrateCommentOrder`: run against a database
       written before this spec, the list order is **byte-identical** to
       `ORDER BY created_at`, and running it twice changes nothing.
-- [ ] `npm run test:comments` covers `commentName`, the tree walk, the drop
+- [x] `npm run test:comments` covers `commentName`, the tree walk, the drop
       rules, the renumber, the cycle refusal and the promotion on delete.
-- [ ] `npx tsc --noEmit` is clean and `nvim-tools --json --all` adds no finding
+- [x] `npx tsc --noEmit` is clean and `nvim-tools --json --all` adds no finding
       against the baseline.
 
 ---
@@ -765,6 +830,8 @@ is untouched — six more `invoke` channels, no port.
 
 | Not doing | Why |
 |:--|:--|
+| a note that can never be sent | the reviewer chose otherwise: a note is a comment that has not been asked *yet*. Opening it offers the same switch and the same button, so changing your mind costs one click rather than a retyped comment (§11.2) |
+| deriving "is a note" from having no answer | an ASK that failed has no answer either, and the two must not look alike. One is waiting; the other was a decision. §11.3 |
 | a second pen glyph for rename | proposed in version 1.1 and rejected: ACT's pencil is always inside a control that says **Change** or **WRITE PROFILE** in words, so a bare pen next to a name reads as what it reads as everywhere else. §7.5 |
 | a rename control that is always visible | a column of 60 rows, each with a permanent pen and trash, is noise. The hover-and-focus rule is spec 08's, already learned on the trash |
 | an agent that names the comment | the reviewer names it. A generated title is another line to read and check, it moves under you when the thread is asked again, and it summarises a note that is already on the row |
@@ -775,3 +842,65 @@ is untouched — six more `invoke` channels, no port.
 | colour or emoji on a group | naming it is what makes it findable; decorating it is what makes a second colour vocabulary competing with spec 08's four states |
 | dragging a comment into another workspace's group | groups belong to a root (§5.3), and a cross-root drop would put a comment somewhere it cannot be seen |
 | groups in the prompt, or shown to the agent | a group is how the reviewer reads the list. Sending it would make the arrangement change the answer |
+
+---
+
+## 11. NOTE — a comment sent to nobody
+
+**A comment the reviewer saves and never sends.** Asked for on 2026-08-25:
+*"I want to be able to add comments without sending it to anyone… Just save
+it."*
+
+### 11.1 A third mode, not a second button
+
+The switch is `ASK / ACT / NOTE`, and the send button becomes **Save N**.
+
+A mode and not a button beside the send, because it is the same **kind** of
+choice the other two are: it decides what pressing the button does. What NOTE
+decides is that nothing runs. One control still means "choose what happens", and
+⇧⇥ now cycles three rather than toggling two — ASK → ACT → NOTE → ASK, so from
+ASK one press is still ACT and the habit survives.
+
+The same switch is in both places spec 12 §3.2 put it: the selection panel's
+foot and the card's reply row. In an open comment, NOTE writes what was typed
+into the thread and runs nothing — `thread:note`, its own channel, because a
+channel that means "send" or "do not send" depending on a boolean is how a paid
+run happens that nobody asked for.
+
+### 11.2 A note can be sent later
+
+Opening a note shows the same card, the same switch and the same send button.
+Picking ASK or ACT and pressing it sends the comment exactly as if it had been
+sent at the start.
+
+### 11.3 The flag, and why it is not derived
+
+`thread.is_note`, cleared on every path that reaches an agent — ASK, ACT and a
+reply.
+
+It could have been derived — "no answer and no session" — and that is wrong for
+one reason: **an ASK that failed has no answer either**, and the two must not
+look alike. One is a comment waiting for an answer; the other is a comment the
+reviewer decided not to send. The flag says which, and one command depends on
+knowing: **"Ask all" skips notes**. Without the flag it would send, in a fan-out,
+every comment the reviewer had deliberately kept back.
+
+### 11.4 What it looks like
+
+| | Agent comment | Note |
+|:--|:--|:--|
+| token | filled, accent | **hollow**, slate |
+| wash | none (or the anchor state's) | slate |
+| the word | `answered · 3 steps` / `not asked` | **`note`** |
+| send button | `Ask about 1` / `Change 1`, filled accent | `Save 1`, quiet |
+
+**The note colour is last in `washClass`, and that is the whole argument for a
+fourth colour.** Resolved, orphaned and moved all outrank it, so a note fills
+only the slot that had no colour at all — an ordinary open comment whose anchor
+is fine. No comment ever has to choose between two colours, and an orphaned note
+is still drawn orphaned: where the text went matters more than who wrote it.
+
+The word matters as much as the hue — spec 08's rule that colour is never the
+only signal. `note` replaces `not asked` rather than joining it: "note · not
+asked" says the same thing twice, and the second half reads like a reproach for
+a choice the reviewer made.

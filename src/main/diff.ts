@@ -11,11 +11,25 @@
 import { isAbsolute, join } from "node:path";
 import type { ChangedRegion } from "../shared/types.ts";
 
-/** `@@ -12,3 +12,5 @@` — the group that matters is the second pair. */
-const HUNK = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+/** `@@ -12,3 +12,5 @@` — the old side is the first pair, the new side the second. */
+const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 
 /** `+++ b/docs/a.md`, or `+++ /dev/null` when the file was deleted. */
 const NEW_FILE = /^\+\+\+ (?:b\/)?(.+)$/;
+
+/** `--- a/docs/a.md` — the same header on the old side. */
+const OLD_FILE = /^--- (?:a\/)?(.+)$/;
+
+/**
+ * Spec 15 §6.2 — which half of the patch to walk.
+ *
+ * `new` is what the reviewer's document holds after the change, and it is the
+ * only side spec 05 §5.6.1 ever needed: there was one document on screen and it
+ * was the new one. The two panes put the OLD text on screen as well, so the
+ * removed lines now have somewhere to be drawn, and they are read out of the
+ * same patch by counting the other pair of numbers.
+ */
+export type DiffSide = "new" | "old";
 
 /**
  * Every run of added lines, per file, in the file as it is **now**.
@@ -35,10 +49,19 @@ const NEW_FILE = /^\+\+\+ (?:b\/)?(.+)$/;
  * A hunk that only deletes has no added lines and yields no range. There is
  * nothing left in the document to outline, and the diff says the rest.
  */
-export function changedRegions(unifiedDiff: string, root: string): ChangedRegion[] {
+export function changedRegions(
+  unifiedDiff: string,
+  root: string,
+  side: DiffSide = "new",
+): ChangedRegion[] {
   const regions: ChangedRegion[] = [];
+  // The marker whose lines this side counts, and the one that stands still.
+  const mine = side === "new" ? "+" : "-";
+  const theirs = side === "new" ? "-" : "+";
+  const fileHeader = side === "new" ? NEW_FILE : OLD_FILE;
+
   let file: string | null = null;
-  /** The next line number on the new side, as the hunk body is walked. */
+  /** The next line number on this side, as the hunk body is walked. */
   let line = 0;
   let run: ChangedRegion | null = null;
 
@@ -48,7 +71,7 @@ export function changedRegions(unifiedDiff: string, root: string): ChangedRegion
   };
 
   for (const text of unifiedDiff.split("\n")) {
-    const header = NEW_FILE.exec(text);
+    const header = fileHeader.exec(text);
     if (header) {
       closeRun();
       const path = header[1].trim();
@@ -59,20 +82,21 @@ export function changedRegions(unifiedDiff: string, root: string): ChangedRegion
     const hunk = HUNK.exec(text);
     if (hunk) {
       closeRun();
-      line = Number(hunk[1]);
+      line = Number(side === "new" ? hunk[2] : hunk[1]);
       continue;
     }
 
     if (file === null || line === 0) continue;
 
-    if (text.startsWith("+")) {
-      // `+++` is a file header and was handled above, so this is content.
+    // A file header starts with three of its marker, and both were handled
+    // above — so a line starting with one marker here is content.
+    if (text.startsWith(mine)) {
       if (run) run.to = line;
       else run = { file, from: line, to: line };
       line++;
-    } else if (text.startsWith("-")) {
-      // A removed line takes no room on the new side, so the numbering stands
-      // still — but the run of added lines has ended.
+    } else if (text.startsWith(theirs)) {
+      // A line belonging to the other side takes no room on this one, so the
+      // numbering stands still — but the run of changed lines has ended.
       closeRun();
     } else if (text.startsWith(" ") || text === "") {
       closeRun();

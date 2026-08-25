@@ -226,6 +226,7 @@ const VIEW: ViewState = {
   sidebarTab: "comments",
   zoom: 1,
   threads: 14,
+  groups: 2,
   unanswered: 3,
   activeThreadId: null,
   traceOpen: false,

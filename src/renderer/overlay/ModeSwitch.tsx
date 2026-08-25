@@ -9,7 +9,10 @@
 // The same component sits in the selection panel's foot and in the comment
 // card's reply row (§3.2). There is one way to choose a mode in REX.
 
-import { MODE_LABEL, MODE_PROMISE, type Mode } from "./mode.ts";
+import { MODE_LABEL, MODE_PROMISE, type Mode, other } from "./mode.ts";
+
+// Re-exported: the two prompt boxes import it from here, beside `isModeChord`.
+export { other };
 
 /** §3.1 — the key is drawn, because a shortcut nobody can see is unused. */
 export const MODE_CHORD_HINT = "shift + tab";
@@ -32,13 +35,7 @@ export const MODE_CHORD_HINT = "shift + tab";
  * comment.
  */
 export function isModeChord(event: React.KeyboardEvent | KeyboardEvent): boolean {
-  return (
-    event.key === "Tab" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey
-  );
-}
-
-export function other(mode: Mode): Mode {
-  return mode === "ask" ? "act" : "ask";
+  return event.key === "Tab" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
 }
 
 interface Props {
@@ -65,7 +62,7 @@ export function ModeSwitch({ mode, actDisabled, onPick }: Props): React.JSX.Elem
         in its mode's accent.
       */}
       <div className="rex-modetrack" role="group" aria-label="Mode">
-        {(["ask", "act"] as const).map((option) => {
+        {(["ask", "act", "note"] as const).map((option) => {
           const off = option === "act" && actDisabled !== null;
           return (
             <button
