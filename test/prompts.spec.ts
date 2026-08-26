@@ -225,27 +225,23 @@ test("a section names its line range on Markdown, and omits it on DOCX", () => {
   assert.equal(withoutLine.includes("lines"), false);
 });
 
-test("a drawn comment carries its one line, and the agent never hears 'pen'", () => {
-  const drawn: Thread = {
-    ...threadWith([
-      target("d1", anchorQuoting("The retry budget is 3.")),
-      target("d1", anchorQuoting("No retry is attempted.")),
-    ]),
-    stroke: { paths: [[{ x: 0.1, y: 0.2 }]], width: 2.5 },
-  };
+test("a drawn comment reads as any other — the pen leaves no trace in the prompt", () => {
+  // Spec 06 §7.1 said the agent never hears the word "pen"; it now hears
+  // nothing about the drawing at all. The circle is a way to fill the panel, so
+  // once it has, the places ARE the comment and there is nothing else to say.
+  // Reported on 2026-08-26.
+  const drawn = threadWith([
+    target("d1", anchorQuoting("The retry budget is 3.")),
+    target("d1", anchorQuoting("No retry is attempted.")),
+  ]);
   const prompt = askPrompt({ thread: drawn, documentPaths: PATHS, repositoryRoot: ROOT });
 
-  assert.match(prompt, /The reviewer drew a circle around these, in this order\./);
-  // §7.1 — the prompt stays text and the targets stay ordinary targets. That an
-  // agent which never hears the word still answers correctly is the test of
-  // whether §5.3 was designed properly.
   assert.equal(/\bpen\b/i.test(prompt), false);
-
-  // And a comment that was not drawn says nothing about a circle.
-  assert.equal(
-    promptFor([target("d1", anchorQuoting("The retry budget is 3."))]).includes("circle"),
-    false,
-  );
+  assert.equal(prompt.includes("circle"), false);
+  assert.equal(prompt.includes("drew"), false);
+  // The places themselves still arrive, in the order the panel left them in.
+  assert.match(prompt, /1\. The retry budget is 3\./);
+  assert.match(prompt, /2\. No retry is attempted\./);
 });
 
 test("a section target is named by its heading, not quoted as one", () => {

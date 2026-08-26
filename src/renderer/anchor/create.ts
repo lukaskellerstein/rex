@@ -1,15 +1,17 @@
 // SPEC.md §6.4 — Range → Anchor. Four layers are recorded at creation time so
 // that resolution has something to fall back to (§6.2).
 
-import type { Anchor, ElementRef, RegionRef, SourceRef } from "../../shared/types.ts";
+import {
+  type Anchor,
+  ELEMENT_QUOTE_MAX,
+  type ElementRef,
+  type RegionRef,
+  type SourceRef,
+} from "../../shared/types.ts";
 import { elementToOffsets, rangeToOffsets, type TextIndex } from "./textIndex.ts";
 
 /** How much context either side of the quote disambiguates a repeat (§4). */
 const CONTEXT_CHARS = 32;
-
-/** An element anchor quotes its opening text, not all of it — a long table
- * would otherwise store a copy of itself. */
-const ELEMENT_QUOTE_MAX = 320;
 
 /**
  * Framework-generated ids change on every render, so they are worse than no id

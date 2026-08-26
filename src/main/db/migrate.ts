@@ -70,26 +70,27 @@ export function migrateThreadTargets(db: Db): number {
 }
 
 /**
- * Spec 06 §5.4 — `thread.stroke_json`, for a database created before the pen.
+ * `thread.stroke_json`, dropped — the pen no longer keeps what it drew.
  *
- * `schema.sql` is all `CREATE TABLE IF NOT EXISTS`, so a column added to the
- * file reaches a fresh database and no existing one. This is the guarded
- * `ALTER TABLE` that closes that gap, and it is idempotent for the same reason
- * `migrateThreadTargets` is: it asks the table what it already has.
+ * The drawing is a gesture that names places, and once it has named them the
+ * places are the comment. Keeping the ink put a red circle over the prose it
+ * was drawn around and told the agent nothing the targets did not already say,
+ * so the column that carried it goes with it. Reported on 2026-08-26.
  *
- * NULL has a meaning — "this comment was not drawn" — which is what every row
- * written before the column existed in fact was.
+ * This is the one migration that removes data, and it removes only the ink:
+ * every comment, every target and every message is untouched. Idempotent the
+ * same way the others are — it asks the table what it already has.
  *
- * Returns true when it added the column, so a caller can say whether anything
- * happened. Running it twice returns false the second time.
+ * Returns true when it dropped the column. Running it twice returns false the
+ * second time.
  */
 export function migrateThreadStroke(db: Db): boolean {
   const present = db
     .prepare<[], { name: string }>("PRAGMA table_info(thread)")
     .all()
     .some((row) => row.name === "stroke_json");
-  if (present) return false;
-  db.exec("ALTER TABLE thread ADD COLUMN stroke_json TEXT");
+  if (!present) return false;
+  db.exec("ALTER TABLE thread DROP COLUMN stroke_json");
   return true;
 }
 
@@ -169,6 +170,28 @@ export function migrateNoteFlag(db: Db): boolean {
     .some((row) => row.name === "is_note");
   if (present) return false;
   db.exec("ALTER TABLE thread ADD COLUMN is_note INTEGER NOT NULL DEFAULT 0");
+  return true;
+}
+
+/**
+ * `message.mode` — which mode the reviewer sent a message in.
+ *
+ * Guarded and idempotent the same way the others are. **NULL is the honest
+ * value for every row written before it existed**, and the card is written to
+ * read it that way: an old user message says `YOU ASKED` because that is what
+ * the card always claimed, not because anyone checked. Backfilling a guess
+ * would put a confident `YOU NOTED` on a message nobody recorded.
+ *
+ * No CHECK constraint here, unlike `schema.sql`. SQLite cannot add one with
+ * `ALTER TABLE`, and the writer is the only thing that fills the column.
+ */
+export function migrateMessageMode(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(message)")
+    .all()
+    .some((row) => row.name === "mode");
+  if (present) return false;
+  db.exec("ALTER TABLE message ADD COLUMN mode TEXT");
   return true;
 }
 

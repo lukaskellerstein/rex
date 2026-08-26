@@ -30,6 +30,7 @@
     "test:pptx-edit": "node --test test/pptxEdit.spec.ts",
     "test:pptx-anchor": "node test/pptxAnchor.spec.ts",
     "test:profiles": "node --test test/profiles.spec.ts",
+    "test:runs": "node --test test/runs.spec.ts",
     "test:work": "node --test test/work.spec.ts"
   },
   "dependencies": {

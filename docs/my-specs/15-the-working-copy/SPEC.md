@@ -178,14 +178,26 @@ have.
 ```text
 ~/.rex/work/9a1f…/
   meta.json
-  base.md          the file exactly as it was when the fork happened
-  rev-1.md         after the first ACT run
-  rev-2.md         after the second
-  current.md       a copy of the newest revision — what the right pane shows
+  components.original.md   the file exactly as it was when the fork happened
+  components.v1.md         after the first ACT run
+  components.v2.md         after the second
+  components.new.md        a copy of the newest revision — what the right pane shows
 ```
 
 The extension is the original's, so every renderer that dispatches on it
 (`render/formats.ts`) works on a working copy with no special case.
+
+**Every name is the document's own.** The first version of this called them
+`base.md`, `current.md` and `rev-1.md`, and that leaked: ASK reads the working
+copy (§5), so the agent answered *"the joke at `current.md:31`"* and the reviewer
+read it as some **other file entirely**. Reported on 2026-08-26. `.original` and
+`.new` are the words the two pane headers already use (§6), so the files and the
+screen agree.
+
+A working copy outlives the REX that made it, so `migrateWorkingCopyNames()`
+renames what is already on disk at start-up — the bytes, the revisions and the
+comments all survive the change. A rename that cannot be made is left alone: the
+old file is the reviewer's only copy of work they have not approved.
 
 ```json
 {
@@ -246,7 +258,7 @@ edit:"*. It now lists the **working copy** paths, and says what they are:
 
 ```text
 Files you may edit:
-- ~/.rex/work/9a1f…/current.md
+- ~/.rex/work/9a1f…/components.new.md
 
 That file is the current version of docs/architecture/components.md. Edit it in
 place. Do not edit the original — the reviewer has not accepted these changes

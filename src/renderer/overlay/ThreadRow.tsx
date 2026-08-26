@@ -44,10 +44,23 @@ interface Props {
 }
 
 /** How far the agent got, in the two numbers the design shows. */
-export function progressOf(thread: ThreadWithMessages): { answered: boolean; steps: number } {
+export function progressOf(thread: ThreadWithMessages): {
+  answered: boolean;
+  steps: number;
+  stopped: boolean;
+} {
   return {
     answered: thread.messages.some((m) => m.role === "assistant" && m.kind === "text"),
     steps: thread.messages.filter((m) => m.kind === "tool_call").length,
+    /**
+     * Spec 17 §3.2 — the LAST message is a stop, so the run that ended this
+     * comment was ended by the reviewer.
+     *
+     * The last one and not "any of them": a comment stopped once and asked
+     * again is answered, and a row that still said `stopped` about it would be
+     * reporting the older fact.
+     */
+    stopped: thread.messages.at(-1)?.kind === "stopped",
   };
 }
 
@@ -80,7 +93,7 @@ export function ThreadRow(props: Props): React.JSX.Element {
   const { label, quote } = first
     ? placeWords(first, props.label)
     : { label: props.label, quote: null };
-  const { answered, steps } = progressOf(thread);
+  const { answered, steps, stopped } = progressOf(thread);
   const word = <StateWord status={thread.status} state={props.state} isNote={thread.isNote} />;
 
   const classes = [
@@ -231,7 +244,23 @@ export function ThreadRow(props: Props): React.JSX.Element {
             // reads like a reproach for a choice the reviewer made.
             null : (
               <span>
-                {answered ? "answered" : "not asked"}
+                {/*
+                  Spec 17 §3.2 — a comment whose last run the reviewer stopped
+                  was asked, so "not asked" about it is simply false. It is the
+                  same wrong reading the STOPPED block in the card exists to
+                  prevent, one column to the left.
+
+                  It carries the card's red for the same reason the card's block
+                  does: a list of fourteen comments is scanned, not read, and
+                  the one that did not finish is the one worth finding.
+                */}
+                {stopped ? (
+                  <span className="rex-state-stopped">stopped</span>
+                ) : answered ? (
+                  "answered"
+                ) : (
+                  "not asked"
+                )}
                 {steps > 0 ? ` · ${steps} step${steps === 1 ? "" : "s"}` : ""}
               </span>
             )}

@@ -3,8 +3,15 @@
 // and never a lost comment (§6.6).
 
 import diff_match_patch from "diff-match-patch";
-import type { Anchor, AnchorExtent, AnchorState, TextPosition } from "../../shared/types.ts";
+import {
+  type Anchor,
+  type AnchorExtent,
+  type AnchorState,
+  ELEMENT_QUOTE_MAX,
+  type TextPosition,
+} from "../../shared/types.ts";
 import { fingerprintElement, isStableId } from "./create.ts";
+import { blockOf, resolveGap } from "./gap.ts";
 import {
   closestHeading,
   documentRunFor,
@@ -12,7 +19,7 @@ import {
   isHeading,
   sectionRunFor,
 } from "./section.ts";
-import { offsetsToRange, type TextIndex } from "./textIndex.ts";
+import { elementToOffsets, offsetsToRange, rangeToOffsets, type TextIndex } from "./textIndex.ts";
 
 /** 1 = quote (exact or disambiguated), 2 = fuzzy, 3 = element. */
 export type AnchorLayer = 1 | 2 | 3;
@@ -59,6 +66,22 @@ export type Resolution =
       layer: AnchorLayer;
       matchedBy: ElementMatch;
       extent: AnchorExtent;
+    }
+  /**
+   * Spec 16 §6.5 — a place BETWEEN two blocks, which is none of the three
+   * above: there is no range to paint, no element to outline, and no run.
+   *
+   * At least one of `after` and `before` is non-null. A resolution that found
+   * neither is not returned at all — it is `null`, which `anchorStateFor`
+   * already turns into `orphaned`.
+   */
+  | {
+      kind: "gap";
+      /** The block above, when this resolution found it. */
+      after: Element | null;
+      /** The block below, when it found that. */
+      before: Element | null;
+      layer: AnchorLayer;
     };
 
 /** SPEC.md §6.5 step 3 — 0 is exact, 1 accepts anything. */
@@ -293,8 +316,116 @@ function resolveSection(index: TextIndex, anchor: Anchor): Resolution | null {
   return { kind: "run", ...run, layer: found.layer, matchedBy: found.matchedBy, extent: "section" };
 }
 
+/**
+ * Whether a block still holds the text a neighbour was written from.
+ *
+ * `createElementAnchor` records a block's own text, truncated at
+ * `ELEMENT_QUOTE_MAX`. So a short quote IS the block's entire text and a
+ * truncated one is its opening — and anything else is a *different* block that
+ * happens to contain the same words.
+ *
+ * Measured on 2026-08-26 against `components.md`: the gap below the last bullet
+ * of the deleted Specification Toolkit section resolved its lower neighbour —
+ * the `<h2>Specification Toolkit</h2>` — onto a list item reading
+ * "Specification Toolkit — The portable set of skills…" three hundred lines
+ * higher up. The quote matched, exactly once, and the gap reported `ok`.
+ */
+function isStillTheBlock(index: TextIndex, block: Element, stored: string): boolean {
+  const span = elementToOffsets(index, block);
+  if (!span) return false;
+  const text = index.text.slice(span.start, span.end);
+  return stored.length >= ELEMENT_QUOTE_MAX ? text.startsWith(stored) : text === stored;
+}
+
+/**
+ * The block a quote match turns out to be a pick OF, rather than a passage IN.
+ *
+ * Two anchors reach the quote layer and they mean different things. A text
+ * selection is about the words the reviewer dragged over. A block pick — a
+ * paragraph, a table, a card — is about the whole block, and its quote is only
+ * the key `createElementAnchor` recorded to find it again, truncated at
+ * `ELEMENT_QUOTE_MAX` so a long table does not store a copy of itself.
+ *
+ * Until 2026-08-26 both were painted as the range that matched, so a comment on
+ * an eight-paragraph block wore a wash over its first 320 characters, stopping
+ * mid-word. It read as "the comment is about this much", which was not true —
+ * and it was the wash spec 15 §8.4 had already ruled out for exactly this
+ * reason. An element resolution is outlined and never filled (`anchoring.ts`),
+ * and the bar in the margin already spans the block, so the block pick says
+ * what it covers without painting a word of it.
+ *
+ * The test is geometric rather than a stored flag, because that fixes the
+ * anchors already in the database as well as the ones written next. It asks the
+ * one question that separates the two: does the match START where its block
+ * starts, and then either cover the block or stop exactly at the cap?
+ *
+ * A drag selection that happens to cover a whole paragraph reads as a block
+ * pick under this test. That is not a defect worth a flag: the two say the same
+ * thing about the same words, and only their paint differs.
+ */
+function blockPickedBy(index: TextIndex, anchor: Anchor, range: Range): Element | null {
+  // No element ref means nothing named a block — a stored position only.
+  if (!anchor.element) return null;
+
+  const block = blockOf(range.commonAncestorContainer);
+  if (!block) return null;
+
+  const span = elementToOffsets(index, block);
+  const found = rangeToOffsets(index, range);
+  if (!span || !found || found.start !== span.start) return null;
+
+  // It covers the block outright. However it was made, it is about the block.
+  if (found.end === span.end) return block;
+
+  // Or the block is longer than the match, and the match stopped EXACTLY at the
+  // cap — which is `createElementAnchor` truncating, and nothing else. `>=`
+  // would be wrong here: a dragged selection that starts at a block's first
+  // character and runs past 320 of them is a passage, not a block, and the
+  // reviewer chose where it ends.
+  return (anchor.quote?.exact.length ?? 0) === ELEMENT_QUOTE_MAX ? block : null;
+}
+
+/**
+ * Spec 16 §6.3 — one side of a gap, resolved to the block it names.
+ *
+ * **Deliberately the strictest resolution in REX**, and the gate is what made
+ * it so. A gap looks the same everywhere, so a neighbour found in the wrong
+ * place cannot be seen; and the cost of refusing a doubtful one is only a
+ * `moved` badge, because the other side is still holding the place. Two rules
+ * follow:
+ *
+ *  · A side with text resolves through its quote and then has to still BE that
+ *    block. Fuzzy is not enough on its own, and neither is an exact hit.
+ *  · A side with no text at all — an image, a drawing — may use its element
+ *    ref, but only where that ref NAMES the element. A positional path still
+ *    matches something after an edit, and that something is a silent wrong
+ *    place. The same rule §6.5 already applies to a text anchor.
+ */
+function resolveNeighbour(index: TextIndex, side: Anchor): Element | null {
+  const stored = side.quote?.exact ?? null;
+
+  if (stored) {
+    const quoted = resolveQuote(index, side);
+    if (!quoted) return null;
+    const block = blockOf(quoted.range.commonAncestorContainer);
+    return block && isStillTheBlock(index, block, stored) ? block : null;
+  }
+
+  const found = resolveElement(index, side);
+  return found && found.matchedBy !== "path" ? (blockOf(found.element) ?? found.element) : null;
+}
+
 /** SPEC.md §6.5 — run the layers in order, stop at the first success. */
 export function resolveAnchor(index: TextIndex, anchor: Anchor): Resolution | null {
+  // Spec 16 §6.3 — read before the four layers, beside `region` and `extent`.
+  // A gap names no text and no element of its own, so none of them applies.
+  if (anchor.gap) {
+    const found = resolveGap(anchor.gap, (side) => resolveNeighbour(index, side));
+    // The layer is not consulted for a gap — `anchorStateFor` branches on which
+    // neighbours matched instead (§6.5) — so it records the strongest thing
+    // that could have found either side.
+    return found ? { kind: "gap", ...found, layer: 1 } : null;
+  }
   // Spec 06 §4.4 — `extent` is consulted first, exactly as `region` already is.
   if (anchor.extent === "document") return resolveDocument(index);
   if (anchor.extent === "section") return resolveSection(index, anchor);
@@ -310,7 +441,14 @@ export function resolveAnchor(index: TextIndex, anchor: Anchor): Resolution | nu
     // orphan tray. Layer 3 stays what §6.2 describes it as — the layer for
     // things that have no text.
     const quoted = resolveQuote(index, anchor);
-    if (quoted) return { kind: "range", range: quoted.range, layer: quoted.layer };
+    if (quoted) {
+      // Spec 06 §4.4 — the quote found the place; what the comment COVERS is a
+      // separate question, and for a block pick the answer is the block.
+      const block = blockPickedBy(index, anchor, quoted.range);
+      return block
+        ? { kind: "element", element: block, layer: quoted.layer, matchedBy: "identity" }
+        : { kind: "range", range: quoted.range, layer: quoted.layer };
+    }
 
     // Spec 11 §5.2 — the one exception, and it is the reason the exception is
     // safe rather than a hole in the rule above. A fingerprinted element ref is
@@ -354,6 +492,17 @@ export function anchorStateFor(
   documentChanged: boolean,
 ): AnchorState {
   if (!resolution) return "orphaned";
+  // Spec 16 §6.3 — before the layer tests, because the question a gap answers
+  // is which NEIGHBOURS matched rather than which layer found them.
+  //
+  // A single-sided match is `moved` and never `ok`: one of the two things that
+  // defined this place has gone, and a gap that resolved three paragraphs late
+  // looks exactly like a gap that did not. This is the one anchor kind whose
+  // wrong answer is invisible, so it is the one that reports doubt.
+  if (resolution.kind === "gap") {
+    if (documentChanged) return "moved";
+    return resolution.after && resolution.before ? "ok" : "moved";
+  }
   // Spec 06 §4.5 — a document target is always `ok` while its document opens,
   // and never `moved`. That is not a weakness in the model, it is the point: it
   // is the one comment whose subject cannot be edited away, so "is this file

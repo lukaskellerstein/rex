@@ -77,6 +77,14 @@ export const CODE = {
  * background-color, text-decoration, text-shadow and -webkit-text-stroke. The
  * underline is therefore a `text-decoration`, which is the same 1.5px rule in
  * the same colour and the only form the API will paint.
+ *
+ * **Every wash below is near-white, so whatever paints it must state `PAPER.ink`
+ * beside it.** These were drawn against `PAPER`, the ground of the Markdown REX
+ * renders itself. A local HTML file is rendered untouched (spec 01 §5.4 point
+ * 3), so one that themes itself dark keeps its own near-white body text — and
+ * on 2026-08-26 that measured 1.0:1 against `activeBg`, which is a highlighted
+ * passage nobody can read. `highlight.ts` pairs the two; a wash used anywhere
+ * else must do the same.
  */
 export const HIGHLIGHT = {
   /** Resolved exactly — steel. */

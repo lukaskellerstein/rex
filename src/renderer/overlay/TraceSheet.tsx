@@ -51,6 +51,7 @@ import {
   Check,
   FileGlyph,
   Sparkle,
+  StopSquare,
   TableGlyph,
   Terminal,
   TriangleDown,
@@ -109,6 +110,9 @@ function KindIcon({ kind, name }: { kind: TraceKind; name: string }): React.JSX.
   if (kind === "error") return <Warning size={13} />;
   if (kind === "diff") return <TableGlyph />;
   if (kind === "note") return <Warning size={13} />;
+  // Spec 17 §3.2 — not the warning triangle the notice gets. A stop is not
+  // something REX is warning about; it is something the reviewer did.
+  if (kind === "stopped") return <StopSquare size={9} />;
   return /READ|GLOB|GREP|SEARCH|FETCH/.test(name) ? <FileGlyph /> : <Terminal />;
 }
 

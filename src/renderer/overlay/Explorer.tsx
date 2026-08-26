@@ -7,10 +7,34 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CommentCounts, TreeEntry, WorkspaceTree } from "../../shared/types.ts";
 import { EyeOff, TriangleDown, TriangleRight } from "./Icons.tsx";
 
+/**
+ * Spec 18 §4.3 — a file's block counts, from its working copy.
+ *
+ * Absolute path → how many blocks the new version added or altered, and how
+ * many only the original has. Empty when nothing has a working copy.
+ */
+export type ChangeCounts = Map<string, { added: number; removed: number }>;
+
+/** The two facts one row draws markers for. Either half can be absent. */
+interface RowCounts {
+  comments: CommentCounts | null;
+  change: { added: number; removed: number } | null;
+}
+
+const EMPTY_COMMENTS: CommentCounts = { open: 0, resolved: 0, orphaned: 0 };
+
 interface Props {
   tree: WorkspaceTree;
   width: number;
   activePath: string | null;
+  /**
+   * Spec 18 §4.3 — kept out of `WorkspaceTree` on purpose.
+   *
+   * A block count is a fact about a working copy, and it moves when a run
+   * finishes rather than when the tree is rescanned. Carried on `TreeEntry` it
+   * would be stale exactly when the reviewer is looking at it.
+   */
+  changes: ChangeCounts;
   /**
    * Spec 10 §3.5 — whether the folders REX skips on its own are listed.
    *
@@ -51,6 +75,8 @@ interface MenuAt {
 const AUTO_EXPAND_DEPTH = 2;
 
 /**
+ * Spec 18 §4.1 — what one file's row says, in markers.
+ *
  * A dot and a number rather than a filled badge: twenty files with badges down
  * the right reads as a second, competing tree.
  *
@@ -58,17 +84,28 @@ const AUTO_EXPAND_DEPTH = 2;
  * excluding narrows what REX looks at and never what it holds, so the count of
  * what would be left behind is exactly the number somebody needs to judge
  * whether the exclusion was right.
+ *
+ * The gone count is a `?` and not a dot. It is the one comment state that has
+ * to be legible beside the two diff colours, and taking it off the colour axis
+ * is what leaves red and green free to mean one thing each (§3).
+ *
+ * Every marker a file has earned is drawn, resolved included. Spec 18 first hid
+ * the resolved dot behind "only when nothing is open", to hold a row to three
+ * markers — but that made a file with one open comment and twelve resolved ones
+ * look exactly like a file with one open comment, which hides the work rather
+ * than the clutter.
  */
-function Counts({ counts }: { counts: CommentCounts }): React.JSX.Element {
+function Counts({ comments, change }: RowCounts): React.JSX.Element {
+  const counts = comments ?? EMPTY_COMMENTS;
   return (
     <span className="rex-tree-counts">
       {counts.open > 0 ? (
         <>
           <span className="rex-dot rex-dot-open" />
-          <span className="rex-count">{counts.open}</span>
+          <span className="rex-count rex-count-open">{counts.open}</span>
         </>
       ) : null}
-      {counts.resolved > 0 && counts.open === 0 ? (
+      {counts.resolved > 0 ? (
         <>
           <span className="rex-dot rex-dot-resolved" />
           <span className="rex-count">{counts.resolved}</span>
@@ -76,12 +113,56 @@ function Counts({ counts }: { counts: CommentCounts }): React.JSX.Element {
       ) : null}
       {counts.orphaned > 0 ? (
         <>
-          <span className="rex-dot rex-dot-orphaned" />
-          <span className="rex-count rex-count-orphaned">{counts.orphaned}</span>
+          <span className="rex-gone-mark">?</span>
+          <span className="rex-count rex-count-gone">{counts.orphaned}</span>
+        </>
+      ) : null}
+      {change && change.added > 0 ? (
+        <>
+          <span className="rex-dot rex-dot-added" />
+          <span className="rex-count rex-count-added">{change.added}</span>
+        </>
+      ) : null}
+      {change && change.removed > 0 ? (
+        <>
+          <span className="rex-dot rex-dot-removed" />
+          <span className="rex-count rex-count-removed">{change.removed}</span>
         </>
       ) : null}
     </span>
   );
+}
+
+/**
+ * Spec 18 §4.4 — the same four numbers in words, for the row's tooltip.
+ *
+ * Colour is never the only signal. A number whose unit has to be guessed is
+ * worse than no number, so "blocks" is said out loud: the unit is a run of
+ * changed lines, which is what the panes outline, and not a paragraph.
+ */
+function countWords({ comments, change }: RowCounts): string[] {
+  const counts = comments ?? EMPTY_COMMENTS;
+  const words: string[] = [];
+  const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+  if (counts.open > 0) words.push(plural(counts.open, "open comment", "open comments"));
+  if (counts.resolved > 0) {
+    words.push(plural(counts.resolved, "resolved comment", "resolved comments"));
+  }
+  if (counts.orphaned > 0) {
+    words.push(
+      counts.orphaned === 1
+        ? "1 comment whose text is gone"
+        : `${counts.orphaned} comments whose text is gone`,
+    );
+  }
+  if (change && change.added > 0) {
+    words.push(plural(change.added, "block added or altered", "blocks added or altered"));
+  }
+  if (change && change.removed > 0) {
+    words.push(plural(change.removed, "block removed", "blocks removed"));
+  }
+  return words;
 }
 
 /** How long the row says "copied" before going quiet again. */
@@ -198,8 +279,14 @@ export function Explorer(props: Props): React.JSX.Element {
   const rows = (entries: TreeEntry[], depth: number): React.JSX.Element[] =>
     entries.flatMap((entry) => {
       const indent = { paddingLeft: `${12 + depth * 15}px` };
-      // The path on hover, and how to take it. Both are the same fact.
-      const hint = `${entry.path}\nRight-click for path and selection`;
+      const row: RowCounts = {
+        comments: entry.comments,
+        change: props.changes.get(entry.path) ?? null,
+      };
+      const words = countWords(row);
+      const marks = row.comments !== null || row.change !== null;
+      // The path on hover, what the markers mean, and how to take the path.
+      const hint = [entry.path, ...words, "Right-click for path and selection"].join("\n");
       const justCopied = copied === entry.path;
 
       if (entry.exclusion !== null) {
@@ -220,11 +307,13 @@ export function Explorer(props: Props): React.JSX.Element {
             key={entry.path}
             className={`rex-tree-row rex-tree-excluded${byHand ? " rex-tree-excluded-user" : ""}`}
             style={indent}
-            title={`${entry.path}\n${
+            title={[
+              entry.path,
               byHand
                 ? "Excluded from this review — right-click to include it"
-                : "Skipped by REX unless you ask for it — right-click to include it"
-            }`}
+                : "Skipped by REX unless you ask for it — right-click to include it",
+              ...words,
+            ].join("\n")}
             onContextMenu={(event) => openMenu(event, entry)}
           >
             <span className="rex-tree-twisty">
@@ -232,7 +321,7 @@ export function Explorer(props: Props): React.JSX.Element {
             </span>
             <span className="rex-tree-name">{entry.name}</span>
             {justCopied ? <span className="rex-tree-copied">copied</span> : null}
-            {entry.comments && !justCopied ? <Counts counts={entry.comments} /> : null}
+            {marks && !justCopied ? <Counts {...row} /> : null}
           </div>,
         ];
       }
@@ -276,7 +365,6 @@ export function Explorer(props: Props): React.JSX.Element {
         ];
       }
 
-      const counts = entry.comments;
       return [
         <button
           key={entry.path}
@@ -290,7 +378,7 @@ export function Explorer(props: Props): React.JSX.Element {
           <span className="rex-tree-twisty" />
           <span className="rex-tree-name">{entry.name}</span>
           {justCopied ? <span className="rex-tree-copied">copied</span> : null}
-          {counts && !justCopied ? <Counts counts={counts} /> : null}
+          {marks && !justCopied ? <Counts {...row} /> : null}
         </button>,
       ];
     });

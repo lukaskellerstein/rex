@@ -301,6 +301,17 @@ export const Cross = (p: Props): React.JSX.Element => (
 );
 
 /**
+ * Spec 17 §3.1 — end the run that is happening now.
+ *
+ * A filled square, the shape every transport control in the world uses for
+ * stop, and deliberately not `Blocked`: that one is the gate refusing a tool,
+ * which is REX saying no. This is the reviewer saying it.
+ */
+export const StopSquare = (p: Props): React.JSX.Element => (
+  <Solid {...p} size={p.size ?? 9} d="M4 4h8v8H4z" />
+);
+
+/**
  * Add — a group inside a group (spec 14 §7.4).
  *
  * A bare plus, and it is not the zoom's: those are inside a magnifier for

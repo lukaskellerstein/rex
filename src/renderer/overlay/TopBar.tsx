@@ -154,6 +154,30 @@ export function TopBar(props: Props): React.JSX.Element {
         </span>
       ) : null}
 
+      {/*
+        Spec 01 §5.2 — a format REX can read but cannot write, said once and in
+        the open.
+
+        The sentence existed already (`main/render/formats.ts`), but the only
+        place it appeared was the tooltip of a greyed-out ACT segment — which
+        means it was legible only to a reviewer who had already written the
+        comment, opened the card and hovered the thing that would not work.
+        Beside the file name it is a fact about the document, which is what it
+        is, and it is read before any of that.
+
+        Quiet, not an alarm: a PDF that cannot be written to is the format being
+        a PDF, not a fault. Amber is `FILE CHANGED`, which is a thing that
+        happened.
+      */}
+      {props.doc && !props.doc.applyEnabled ? (
+        <span
+          className="rex-pill rex-pill-quiet"
+          title={props.doc.applyDisabledReason ?? "Apply cannot edit this format."}
+        >
+          READ ONLY
+        </span>
+      ) : null}
+
       <span className="rex-spacer" />
 
       {/*

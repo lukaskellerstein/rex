@@ -8,11 +8,11 @@
 import { useState } from "react";
 import { commentName } from "../../shared/names.ts";
 import { totalsOf } from "../../shared/totals.ts";
-import type { AnchorState, Message, ThreadWithMessages } from "../../shared/types.ts";
-import { Bubble, ChevronLeft, ChevronRight, Pencil, Sparkle, Trash } from "./Icons.tsx";
+import type { AnchorState, Message, SendMode, ThreadWithMessages } from "../../shared/types.ts";
+import { Bubble, ChevronLeft, ChevronRight, Pencil, Sparkle, StopSquare, Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
-import type { Mode } from "./mode.ts";
+import { MODE_LABEL, type Mode } from "./mode.ts";
 import { NameBox } from "./NameBox.tsx";
 import { placeWords } from "./place.ts";
 import { Prose } from "./prose.tsx";
@@ -43,6 +43,10 @@ interface Props {
   /** What each target turned out to be and where it now sits, in target order. */
   targetPlaces: PlaceFacts[];
   busy: boolean;
+  /** Spec 17 §3.3 — Stop has been pressed and the run has not ended yet. */
+  stopping: boolean;
+  /** Ends every run this comment has. Spec 17 §2.1. */
+  onStop: () => void;
   /**
    * Spec 12 §3.2 — the mode this thread's next send will run in, and the mode
    * the band above the card is showing.
@@ -72,12 +76,18 @@ interface Props {
   onRename: (title: string | null) => void;
 }
 
-/** The conversation: what the agent said, and what the reviewer said back. */
+/**
+ * The conversation: what the agent said, and what the reviewer said back.
+ *
+ * Spec 17 §3.2 — and the stop, which is neither. A thread whose last turn
+ * trails off in the middle of a tool call is unreadable a week later without
+ * it: the one question the reader has is whether it broke or whether they
+ * stopped it, and only this row answers.
+ */
+const IN_CONVERSATION = new Set<Message["kind"]>(["text", "error", "stopped"]);
+
 function conversation(thread: ThreadWithMessages): Message[] {
-  return thread.messages.filter(
-    (message) =>
-      (message.kind === "text" && message.content) || (message.kind === "error" && message.content),
-  );
+  return thread.messages.filter((message) => IN_CONVERSATION.has(message.kind) && message.content);
 }
 
 /**
@@ -89,14 +99,18 @@ function conversation(thread: ThreadWithMessages): Message[] {
  * reader means by the word, and it is what the meta strip counts.
  */
 /**
- * Three voices, not two.
+ * Four voices, not two.
  *
  * A `system` text message is REX's own notice — the gate refusing a write is
  * one — and it is neither the reviewer's question nor the agent's answer.
  * Folded into the answer it reads as the agent saying it, which is exactly
- * backwards: the notice exists to say the agent was STOPPED.
+ * backwards: the notice exists to say the agent was stopped.
+ *
+ * Spec 17 §3.2 — `stopped` is the fourth, and it is separate from `note` for
+ * the same reason `note` is separate from `agent`. A notice is REX reporting
+ * something; a stop is the reviewer's own act, and it gets its own mark.
  */
-type Voice = "you" | "agent" | "note";
+type Voice = "you" | "agent" | "note" | "stopped";
 
 interface Turn {
   id: string;
@@ -107,9 +121,16 @@ interface Turn {
   costUsd: number;
   /** When the turn began. What a question, which costs nothing, shows instead. */
   at: string;
+  /**
+   * Spec 12 §3.3 — the mode this turn was sent in, for a turn the reviewer
+   * sent. Null on an answer, on a notice, and on a message written before the
+   * mode was recorded.
+   */
+  mode: SendMode | null;
 }
 
 function voiceOf(message: Message): Voice {
+  if (message.kind === "stopped") return "stopped";
   if (message.role === "user") return "you";
   if (message.role === "system") return "note";
   return "agent";
@@ -122,7 +143,11 @@ function turnsOf(thread: ThreadWithMessages): Turn[] {
     const failed = message.kind === "error";
     const open = turns.at(-1);
 
-    if (open && open.voice === voice && open.failed === failed) {
+    // Spec 12 §3.3 — a change of MODE ends a turn, exactly as a change of voice
+    // does. Two sends with no answer between them are one run of user messages,
+    // and merging them would label the pair by the first one's mode: a note
+    // followed by a change read as one long note. Measured on 2026-08-26.
+    if (open && open.voice === voice && open.failed === failed && open.mode === message.mode) {
       open.parts.push(message.content ?? "");
       open.durationMs += message.durationMs ?? 0;
       open.costUsd += message.costUsd ?? 0;
@@ -136,6 +161,9 @@ function turnsOf(thread: ThreadWithMessages): Turn[] {
       durationMs: message.durationMs ?? 0,
       costUsd: message.costUsd ?? 0,
       at: message.createdAt,
+      // Every message in a turn now shares this, because the test above breaks
+      // the turn when it changes.
+      mode: message.mode,
     });
   }
   return turns;
@@ -204,21 +232,42 @@ function costLine(thread: ThreadWithMessages, turns: number): string {
 /**
  * Spec 08 §5.3 — a turn is a block, not another paragraph in a run.
  *
- * `YOU ASKED` rather than `YOU`, because the two labels on this card are read
- * as a pair and `YOU`/`ANSWER` names one by its speaker and the other by its
- * function — so neither says which came first. The verb does.
+ * `YOU` names the speaker; the pill beside it names the mode. An earlier build
+ * carried the verb instead — `YOU ASKED` — because `YOU`/`ANSWER` names one
+ * side by its speaker and the other by its function, and neither said which
+ * came first. The pill settles that better than a verb could: it says which of
+ * the three the reviewer pressed, in that mode's own colour.
  *
  * The answer is the one block here that is a raised, bordered card: it outranks
  * the machinery, and on a column this narrow a difference in text colour alone
  * did not survive being scrolled past.
  *
- * Spec 12 §7.1 — it no longer carries a profile pill. That pill was drawn on a
- * FINISHED answer, so it appeared exactly when it was least needed and was
- * absent during the run, which is when a refusal happens. The mode lives on the
- * switch beside Send, which is pinned, always on screen, and the place the mode
- * is chosen. One card, one mode, one place.
+ * Spec 12 §7.1 — the pill this is NOT is the old profile pill, which was drawn
+ * on a FINISHED answer: it appeared exactly when it was least needed and was
+ * absent during the run, which is when a refusal happens. This one is on the
+ * reviewer's own message and records what they chose before anything ran.
  */
-const VOICE_LABEL: Record<Voice, string> = { you: "YOU ASKED", agent: "ANSWER", note: "NOTE" };
+const VOICE_LABEL: Record<Voice, string> = {
+  you: "YOU",
+  agent: "ANSWER",
+  note: "NOTE",
+  stopped: "STOPPED",
+};
+
+/**
+ * Spec 12 §3.3 — the reviewer's own turn is `YOU`, and a pill says which mode
+ * they were in.
+ *
+ * A phrase was tried first — `YOU ASKED TO ACT`, `YOU NOTED` — and a pill is
+ * better for the reason the mode switch is a switch: the reviewer PICKED one of
+ * three named things, and the label that reads back to them should be the same
+ * three names in the same three colours. `ASK` beside `YOU` is the word they
+ * pressed; "asked to act" is a sentence about it.
+ *
+ * A message with no recorded mode gets no pill at all — see
+ * `migrateMessageMode`. `YOU` on its own is the honest look for "nobody wrote
+ * it down", and inventing a third state for it would say more than is known.
+ */
 
 function TurnBlock({
   turn,
@@ -230,12 +279,22 @@ function TurnBlock({
 }): React.JSX.Element {
   const answer = turn.voice === "agent" && !turn.failed;
   const tone = turn.failed ? "error" : turn.voice;
+  // §3.3 — the reviewer's own turn wears its mode's colour, the same three the
+  // switch beside Send uses. Anything else keeps the tone it had.
+  const sent = turn.voice === "you" && !turn.failed ? turn.mode : null;
 
   return (
     <div className={`rex-turn rex-turn-${tone}`}>
       <div className="rex-turn-head">
-        {answer ? <Sparkle /> : turn.voice === "you" ? <Bubble size={12} /> : null}
+        {answer ? (
+          <Sparkle />
+        ) : turn.voice === "you" ? (
+          <Bubble size={12} />
+        ) : turn.voice === "stopped" ? (
+          <StopSquare size={8} />
+        ) : null}
         <span className="rex-label">{turn.failed ? "ERROR" : VOICE_LABEL[turn.voice]}</span>
+        {sent ? <span className={`rex-sent rex-sent-${sent}`}>{MODE_LABEL[sent]}</span> : null}
         <span className="rex-spacer" />
         <span className="rex-turn-spent">{clock(turn.at)}</span>
       </div>
@@ -410,9 +469,37 @@ export function CommentCard(props: Props): React.JSX.Element {
         <span className="rex-spacer" />
 
         {/*
-          Deliberately here and not beside Send / Resolve / Apply. Those three
-          are the things a reviewer reaches for constantly, and the one control
-          in this card that cannot be undone should not share a row with them.
+          Resolve belongs to the WHOLE comment, so it sits with the controls
+          that do — the name, the delete — and not at the foot of the card.
+
+          The foot is the composer: a box to type in, the mode the next send
+          runs under, and the send itself. They are one gesture read top to
+          bottom, and a button underneath them that ends the conversation
+          instead of continuing it reads as the last step of writing a reply.
+          Measured against the reviewer's own reaction on 2026-08-26: "it feels
+          unnatural to have the Resolve button below it."
+
+          It is a plain button rather than an icon, because unlike delete it
+          has two states and the word is what tells them apart.
+        */}
+        <button
+          type="button"
+          className="rex-head-button"
+          disabled={props.busy}
+          title={
+            thread.status === "open"
+              ? "Mark this comment resolved — it stays in the list, under the resolved filter"
+              : "Reopen this comment"
+          }
+          onClick={() => props.onResolve(thread.status === "open")}
+        >
+          {thread.status === "open" ? "Resolve" : "Reopen"}
+        </button>
+
+        {/*
+          Deliberately here and not beside Send / Apply. Those are the things a
+          reviewer reaches for constantly, and the one control in this card that
+          cannot be undone should not share a row with them.
         */}
         <button
           type="button"
@@ -564,11 +651,37 @@ export function CommentCard(props: Props): React.JSX.Element {
           />
         ))}
 
+        {/*
+          Spec 17 §3.1 — the only place in REX that says a run is happening, so
+          the only place a control to end one belongs.
+
+          The word changes to `stopping…` because the SDK's abort is not
+          instant: it closes the agent's stdin and gives it about two seconds,
+          so a tool call already in flight finishes. Leaving `working…` up
+          would be a lie, and swapping straight to a finished state would be a
+          bigger one.
+        */}
         {props.busy ? (
-          <span className="rex-working">
-            <span className="rex-spinner" />
-            working…
-          </span>
+          <div className="rex-running">
+            <span className="rex-working">
+              <span className="rex-spinner" />
+              {props.stopping ? "stopping…" : "working…"}
+            </span>
+            <span className="rex-spacer" />
+            <button
+              type="button"
+              className="rex-button rex-button-stop"
+              // Not red. Red in REX means irreversible — the delete — and a
+              // stop destroys nothing: the conversation, the session and the
+              // working copy all survive it.
+              title="Stop this run. Nothing is deleted, and you can reply again afterwards."
+              disabled={props.stopping}
+              onClick={props.onStop}
+            >
+              <StopSquare />
+              Stop
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -625,15 +738,6 @@ export function CommentCard(props: Props): React.JSX.Element {
             {props.mode === "act" ? <Pencil /> : null}
             {props.mode === "act" ? "Change" : props.mode === "note" ? "Save" : "Send"}
             <SendChord />
-          </button>
-          <span className="rex-spacer" />
-          <button
-            type="button"
-            className="rex-button"
-            disabled={props.busy}
-            onClick={() => props.onResolve(thread.status === "open")}
-          >
-            {thread.status === "open" ? "Resolve" : "Reopen"}
           </button>
         </div>
 

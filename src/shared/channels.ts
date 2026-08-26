@@ -17,7 +17,6 @@ import type {
   OpenedDocument,
   ReferenceGraph,
   SkippedDocument,
-  StrokeRef,
   Thread,
   ThreadWithMessages,
   ViewState,
@@ -57,6 +56,14 @@ export const COMMAND = {
   threadList: "thread:list",
   threadCreate: "thread:create",
   threadAsk: "thread:ask",
+  /**
+   * Spec 17 §2.1 — end this comment's running work.
+   *
+   * Its own channel and not a flag on anything: it is the one command that acts
+   * on a run rather than on a comment, and it is the only one a reviewer
+   * presses while another command of theirs is still in flight.
+   */
+  threadStop: "thread:stop",
   threadReply: "thread:reply",
   threadResolve: "thread:resolve",
   threadDelete: "thread:delete",
@@ -171,15 +178,6 @@ export interface ThreadListRequest {
 export interface ThreadCreateRequest {
   targets: Array<{ documentId: string; anchor: Anchor }>;
   note: string;
-  /**
-   * Spec 06 §5.4 — the reviewer's ink, when the places were circled.
-   *
-   * It rides inside this payload rather than in a channel of its own: §2 leaves
-   * §10's IPC contract **unchanged**, because a drawing is not a second way to
-   * make a comment. It is a fast way to fill the panel, and the panel already
-   * has a way to send what it holds.
-   */
-  stroke?: StrokeRef;
   /**
    * NOTE mode — save it and send it to nobody.
    *
@@ -367,6 +365,19 @@ export interface ApplyReadyEvent {
    * file the reviewer did not comment on is not part of this review.
    */
   restored: string[];
+  /**
+   * Spec 17 §3.4 — the reviewer stopped this run.
+   *
+   * It suppresses the notice bar, and nothing else. A run that was stopped has
+   * already reported itself in the conversation, in the STOPPED block the
+   * reviewer's own press produced; a bar saying *"This document was not
+   * changed"* under it is REX answering a question nobody asked.
+   *
+   * Any working copy the stopped run DID produce is unaffected — it is shown in
+   * the two panes exactly as a finished run's is, because a half-written change
+   * has to be visible whatever ended the run.
+   */
+  stopped: boolean;
   /** Spec 11 §7.7 — present when this run edited a deck, and never with a diff. */
   decks?: DeckPreview[];
 }
@@ -433,6 +444,13 @@ export interface RexApi {
   threadList(request: ThreadListRequest): Promise<ThreadWithMessages[]>;
   threadCreate(request: ThreadCreateRequest): Promise<Thread>;
   threadAsk(threadId: string): Promise<void>;
+  /**
+   * Spec 17 §3.1 — stops every run this comment has, and says how many.
+   *
+   * Zero means the run finished between the paint and the click, which is worth
+   * a sentence rather than a button that appears to do nothing.
+   */
+  threadStop(threadId: string): Promise<number>;
   threadReply(request: ThreadReplyRequest): Promise<void>;
   threadResolve(request: ThreadResolveRequest): Promise<Thread>;
   /** Removes the comment and everything that belonged to it. Irreversible. */

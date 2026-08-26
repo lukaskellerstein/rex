@@ -41,6 +41,17 @@ interface Created {
    * element, report `moved`, and read as a pass.
    */
   signature: string;
+  /**
+   * Spec 06 §4.4 — the same check for the resolutions that come back as an
+   * ELEMENT rather than a range.
+   *
+   * An anchor covering exactly one whole block now resolves to that block, so
+   * `landedOn` is a description of an element and `signature` — the text it was
+   * created from — cannot match it by construction. This is what an element
+   * resolution is compared against instead, and it is the same guard: landing
+   * on a different element still fails.
+   */
+  blockSignature: string;
 }
 
 interface Resolved {
@@ -49,6 +60,8 @@ interface Resolved {
   state: AnchorState;
   /** The raw DOM text (or element description) the anchor landed on. */
   landedOn: string | null;
+  /** Which of the two signatures `landedOn` has to be checked against. */
+  landedKind: "range" | "element" | null;
 }
 
 /** Anchors are created against the original and re-resolved against the edited copy. */
@@ -86,10 +99,17 @@ function createInPage(input: {
     if (at === -1) throw new Error(`marker not present in document: ${marker.id}`);
     const range = rex.offsetsToRange(index, { start: at, end: at + marker.quote.length });
     if (!range) throw new Error(`marker did not map back to a Range: ${marker.id}`);
+    const holder =
+      range.commonAncestorContainer.nodeType === 1
+        ? (range.commonAncestorContainer as Element)
+        : range.commonAncestorContainer.parentElement;
     created.push({
       id: marker.id,
       anchor: rex.createTextAnchor(index, range, input.sourceFile),
       signature: marker.quote,
+      // A marker whose quote happens to be a block's whole text resolves to
+      // that block, so the element it sits in has to be recorded too.
+      blockSignature: holder ? describe(holder) : marker.quote,
     });
   }
 
@@ -99,9 +119,11 @@ function createInPage(input: {
   created.push({
     id: input.element.id,
     anchor: elementAnchor,
-    // An element with text resolves through its quote, so compare against that;
-    // a textless one can only ever be compared as an element.
+    // Spec 06 §4.4 — an element anchor resolves to its ELEMENT now, whether or
+    // not it had text to quote. The quote is the key that finds the block, not
+    // a statement of what the comment covers, so this is checked as an element.
     signature: elementAnchor.quote ? elementAnchor.quote.exact : describe(el),
+    blockSignature: describe(el),
   });
 
   // Both test documents label their diagrams, so every anchorable element here
@@ -111,6 +133,7 @@ function createInPage(input: {
     id: `${input.element.id}/layer-3-probe`,
     anchor: { ...elementAnchor, quote: null, position: null },
     signature: describe(el),
+    blockSignature: describe(el),
   };
 
   return { created, probe };
@@ -126,11 +149,18 @@ function resolveInPage(created: Created[]): Resolved[] {
       `<${el.tagName.toLowerCase()}> ${(el.getAttribute("aria-label") ?? el.textContent ?? "").slice(0, 80)}`;
 
     let landedOn: string | null = null;
-    if (resolution?.kind === "range") landedOn = resolution.range.toString();
-    else if (resolution?.kind === "element") landedOn = describe(resolution.element);
+    let landedKind: "range" | "element" | null = null;
+    if (resolution?.kind === "range") {
+      landedOn = resolution.range.toString();
+      landedKind = "range";
+    } else if (resolution?.kind === "element") {
+      landedOn = describe(resolution.element);
+      landedKind = "element";
+    }
     return {
       id: record.id,
       layer: resolution ? resolution.layer : null,
+      landedKind,
       // The spike has no stored hash to compare against — that comparison is
       // the app's job (§6.6) — so state here reflects the resolution layer only.
       state: rex.anchorStateFor(resolution, false) as AnchorState,
@@ -160,6 +190,7 @@ async function withPage<T>(
 function report(testCase: Case, created: Created[], resolved: Resolved[]): number {
   const byId = new Map([...testCase.markers, testCase.element].map((m) => [m.id, m as Marker]));
   const signatures = new Map(created.map((c) => [c.id, c.signature]));
+  const blockSignatures = new Map(created.map((c) => [c.id, c.blockSignature]));
   let failures = 0;
 
   console.log(`\n── ${testCase.name} ${"─".repeat(Math.max(0, 58 - testCase.name.length))}`);
@@ -174,7 +205,13 @@ function report(testCase: Case, created: Created[], resolved: Resolved[]): numbe
     // The failure this whole script exists to catch: an anchor that reports
     // success while sitting on something it was never created from. Checked for
     // every layer, not just layer 1 — the element layer is where it happened.
-    const signature = signatures.get(row.id);
+    //
+    // Spec 06 §4.4 — compared against whichever signature matches what came
+    // back. An anchor covering exactly one whole block resolves to the block,
+    // so it is checked element-against-element; a passage inside a block is
+    // still checked text-against-text. Landing somewhere else fails either way.
+    const signature =
+      row.landedKind === "element" ? blockSignatures.get(row.id) : signatures.get(row.id);
     const wrongPlace =
       row.layer !== null &&
       row.layer !== 2 && // layer 2 is fuzzy by definition; its text is expected to differ
@@ -718,6 +755,195 @@ const HTML_SECTIONS: SectionMarker[] = [
   },
 ];
 
+// ── The gap gate (spec 16 §6.3) ─────────────────────────────────
+//
+// **A gap is the anchor kind most able to fail silently**, because a gap looks
+// the same everywhere. A quote that resolves to the wrong paragraph is visibly
+// wrong; a gap that resolves three paragraphs late looks exactly like a gap.
+//
+// So §6.3 makes it report doubt rather than confidence: a single-sided match is
+// `moved` and never `ok`, and no neighbour at all is `orphaned` rather than
+// "somewhere near where it used to be". This case is the proof of both, and it
+// runs against the same two hostile documents and the same three edits.
+
+interface GapMarker {
+  id: string;
+  /**
+   * The gap AFTER the block holding this text — so the two neighbours are
+   * genuinely adjacent, exactly as `GapLayer` would have offered them.
+   */
+  after: string;
+  expect: AnchorState;
+  why: string;
+}
+
+interface GapCreated {
+  id: string;
+  anchor: Anchor;
+  /** The opening words of each neighbour, so a wrong-place match is visible. */
+  afterSignature: string;
+  beforeSignature: string;
+}
+
+interface GapResult {
+  id: string;
+  state: AnchorState;
+  landedAfter: string | null;
+  landedBefore: string | null;
+}
+
+function createGapsInPage(input: {
+  markers: GapMarker[];
+  sourceFile: string | null;
+}): GapCreated[] {
+  const rex = (window as any).__rexAnchor;
+  const index = rex.buildTextIndex(document);
+  const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
+  const sign = (el: Element | null): string => norm(el?.textContent ?? "").slice(0, 60);
+
+  // The same set spec 16 §6.6 offers gaps between: stamped blocks where the
+  // renderer stamped any, keeping only the outermost. The hand-written HTML
+  // document carries no `data-src-line` at all, so there the block tags stand in
+  // — which is what the gap RESOLVER sees either way, since it walks to the
+  // nearest stamped ancestor and falls back to the element itself.
+  const stamped = [...document.querySelectorAll("[data-src-line]")];
+  const candidates =
+    stamped.length > 0
+      ? stamped
+      : [...document.querySelectorAll("p,li,h1,h2,h3,h4,h5,h6,pre,table,blockquote,figure")];
+  const blocks = candidates.filter(
+    (el) => !candidates.some((other) => other !== el && other.contains(el)),
+  );
+
+  return input.markers.map((marker) => {
+    const wanted = norm(marker.after);
+    const at = blocks.findIndex((el) => norm(el.textContent ?? "").includes(wanted));
+    if (at === -1) throw new Error(`gap marker's block not found: ${marker.id}`);
+    const after = blocks[at];
+    const before = blocks[at + 1] ?? null;
+    if (!before) throw new Error(`gap marker has no block below it: ${marker.id}`);
+    return {
+      id: marker.id,
+      anchor: rex.createGapAnchor(index, after, before, input.sourceFile),
+      afterSignature: sign(after),
+      beforeSignature: sign(before),
+    };
+  });
+}
+
+function resolveGapsInPage(created: GapCreated[]): GapResult[] {
+  const rex = (window as any).__rexAnchor;
+  const index = rex.buildTextIndex(document);
+  const norm = (s: string): string => s.replace(/\s+/g, " ").trim();
+
+  return created.map((record) => {
+    const resolution = rex.resolveAnchor(index, record.anchor);
+    const gap = resolution && resolution.kind === "gap" ? resolution : null;
+    return {
+      id: record.id,
+      state: rex.anchorStateFor(resolution, false) as AnchorState,
+      landedAfter: gap?.after ? norm(gap.after.textContent ?? "").slice(0, 60) : null,
+      landedBefore: gap?.before ? norm(gap.before.textContent ?? "").slice(0, 60) : null,
+    };
+  });
+}
+
+async function runGapGate(
+  bundle: string,
+  name: string,
+  markers: GapMarker[],
+  original: string,
+  edited: string,
+  sourceFile: string | null,
+): Promise<number> {
+  const created = await withPage(bundle, original, (page) =>
+    page.evaluate(createGapsInPage, { markers, sourceFile }),
+  );
+  const results = await withPage(bundle, edited, (page) =>
+    page.evaluate(resolveGapsInPage, created),
+  );
+
+  const byId = new Map(markers.map((m) => [m.id, m]));
+  const madeFrom = new Map(created.map((c) => [c.id, c]));
+  let failures = 0;
+
+  console.log(`\n── Gaps · ${name} ${"─".repeat(Math.max(0, 48 - name.length))}`);
+  for (const row of results) {
+    const marker = byId.get(row.id);
+    const made = madeFrom.get(row.id);
+    const ok = row.state === (marker?.expect ?? "ok");
+
+    // The failure this case exists for: a neighbour that resolved onto a block
+    // it was never created from. A gap three paragraphs late is invisible to
+    // the eye, so it has to be caught here or nowhere.
+    const wrongPlace =
+      (row.landedAfter !== null && row.landedAfter !== made?.afterSignature) ||
+      (row.landedBefore !== null && row.landedBefore !== made?.beforeSignature);
+
+    if (!ok || wrongPlace) failures++;
+    const verdict = wrongPlace ? "WRONG PLACE" : ok ? "pass" : "FAIL";
+    console.log(
+      `  ${verdict.padEnd(11)} ${row.id.padEnd(24)} state=${row.state.padEnd(9)} sides=${
+        [row.landedAfter ? "after" : null, row.landedBefore ? "before" : null]
+          .filter(Boolean)
+          .join("+") || "none"
+      }  expected=${marker?.expect}`,
+    );
+    if (marker) console.log(`              ${marker.why}`);
+    console.log(`              after:  ${row.landedAfter ?? "(gone)"}`);
+    console.log(`              before: ${row.landedBefore ?? "(gone)"}`);
+  }
+  return failures;
+}
+
+const MD_GAPS: GapMarker[] = [
+  {
+    id: "md-gap/untouched",
+    after: "One adapter implementation is active per project.",
+    expect: "ok",
+    why: "both neighbours survive every edit — the only case that may report ok",
+  },
+  {
+    id: "md-gap/after-only",
+    after: "The WMS backend holds the state, so this should work",
+    expect: "moved",
+    why: "the block BELOW was deleted with its section — one side is not ok",
+  },
+  {
+    id: "md-gap/before-only",
+    after: "The agent should not need to manipulate spec files",
+    expect: "moved",
+    why: "the block ABOVE went with the deleted section; it resolves via `before`",
+  },
+  {
+    id: "md-gap/orphaned",
+    after: "The Specification Toolkit is the portable domain logic",
+    expect: "orphaned",
+    why: "both neighbours were deleted — never 'somewhere near where it used to be'",
+  },
+];
+
+const HTML_GAPS: GapMarker[] = [
+  {
+    id: "html-gap/untouched",
+    after: "The room where a person and an agent sit together.",
+    expect: "ok",
+    why: "below both the insertion and the deletion; both neighbours survive",
+  },
+  {
+    id: "html-gap/orphaned",
+    after: "Keep them apart, and their agreement becomes real evidence",
+    expect: "orphaned",
+    why: "both neighbours are inside the deleted section 02",
+  },
+  {
+    id: "html-gap/before-only",
+    after: "The odd rule: after a failed cycle the sub-branches are not re-cut.",
+    expect: "moved",
+    why: "the last block of the deleted section — only what follows it is left",
+  },
+];
+
 async function main(): Promise<void> {
   mkdirSync(WORK, { recursive: true });
 
@@ -803,6 +1029,18 @@ async function main(): Promise<void> {
     bundle,
     "architecture-explained.html",
     HTML_SECTIONS,
+    htmlOriginal,
+    htmlEdited,
+    null,
+  );
+
+  // Spec 16 §6.3 — the new kind, against both hostile documents. It is the one
+  // most able to fail silently, so it is the one that has to fail loudly.
+  failures += await runGapGate(bundle, "components.md", MD_GAPS, mdOriginal, mdEdited, MD_DOC);
+  failures += await runGapGate(
+    bundle,
+    "architecture-explained.html",
+    HTML_GAPS,
     htmlOriginal,
     htmlEdited,
     null,

@@ -27,6 +27,7 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
     seq: seq++,
     role,
     kind,
+    mode: null,
     content: null,
     toolName: null,
     toolInput: null,

@@ -88,6 +88,53 @@ export interface SourceRef {
  */
 export type AnchorExtent = "section" | "document";
 
+/**
+ * Spec 16 §6.2 — one side of a gap: the block above it, or the block below.
+ *
+ * The same quote-and-element pair every other anchor already carries, so a
+ * neighbour resolves through the layers `resolve.ts` already has rather than
+ * through a mechanism of its own.
+ */
+export interface GapNeighbour {
+  quote: TextQuote | null;
+  element: ElementRef | null;
+}
+
+/**
+ * Spec 16 §6.2 — a place BETWEEN two blocks, rather than one of them.
+ *
+ * A gap has no text, so it cannot be a quote, and no element, so it cannot be
+ * an element ref. It is defined by **both** its neighbours, never one: a gap
+ * identified only by "after paragraph 4" moves the moment paragraph 4 is
+ * edited, and one identified only by a line number moves the moment anything
+ * above it changes.
+ */
+export interface GapRef {
+  /** The block above. Null at the top of the document. */
+  after: GapNeighbour | null;
+  /** The block below. Null at the end of the document. */
+  before: GapNeighbour | null;
+  /** Where the gap was in the source, when REX rendered the document (§5.3). */
+  line: number | null;
+}
+
+/**
+ * How much of a block's text an element anchor quotes.
+ *
+ * An element anchor quotes its opening text and not all of it — a long table
+ * would otherwise store a copy of itself in the database on every comment. The
+ * quote is a **key that finds the block**, never a statement of how much of it
+ * the comment is about.
+ *
+ * It lives here rather than beside the creator because both sides of the anchor
+ * contract need it: the renderer writes the cap, and main has to know that a
+ * quote of exactly this length is an opening rather than a whole passage. It
+ * told the agent otherwise until 2026-08-26 — a comment on an eight-paragraph
+ * block arrived as 320 characters cut mid-word, with nothing saying more
+ * existed.
+ */
+export const ELEMENT_QUOTE_MAX = 320;
+
 export interface Anchor {
   quote: TextQuote | null; // null for pure element/region anchors
   position: TextPosition | null;
@@ -102,6 +149,12 @@ export interface Anchor {
    * column and no change to any query: an old row simply reads as `undefined`.
    */
   extent?: AnchorExtent;
+  /**
+   * Spec 16 §6.2 — set only by Add, and read before the four layers exactly as
+   * `region` and `extent` are. It rides in the same JSON blob for the same
+   * reason: an anchor written before today reads as `undefined`.
+   */
+  gap?: GapRef;
 }
 
 export type AnchorState = "ok" | "moved" | "orphaned";
@@ -111,30 +164,6 @@ export type AnchorState = "ok" | "moved" | "orphaned";
 export type ThreadKind = "anchored" | "synthesis";
 export type ThreadStatus = "open" | "resolved";
 export type Profile = "read" | "write";
-
-/**
- * Spec 06 §5.4 — the reviewer's own ink, kept so the comment still shows it.
- *
- * It is a record of a gesture, not a measurement. The *targets* are what carry
- * the comment's meaning; this is what makes the gesture recognisable a month
- * later.
- */
-export interface StrokeRef {
-  /**
-   * One entry per stroke; each is an ordered list of points.
-   *
-   * Fractions of the **union box of the comment's targets**, not pixels and not
-   * fractions of any one element. Pixels fail on the first window resize.
-   * Fractions of one element fail as soon as the drawing spans more than that
-   * element. Fractions of the union box are self-correcting: resolve the
-   * targets, take the union of their boxes now, and map these onto it — if the
-   * paragraphs reflow, the ink reflows with them, because the ink is defined in
-   * terms of them.
-   */
-  paths: Array<Array<{ x: number; y: number }>>;
-  /** Pen width in CSS pixels. Ink does not get thicker when a table does. */
-  width: number;
-}
 
 /**
  * One place a comment is about. Spec 05 §5.1.
@@ -234,21 +263,28 @@ export interface Thread {
   profile: Profile;
   model: string | null;
   refThreadIds: string[]; // synthesis threads only
-  /**
-   * Spec 06 §5.4 — absent for every comment that was not drawn.
-   *
-   * Its own column rather than a field inside `anchor_json`, because a stroke is
-   * not a property of any one anchor: it is drawn across all of them. Storing it
-   * on target 0 would make the ink a possession of whichever block happened to
-   * sort first, and deleting that one target would take the drawing with it.
-   */
-  stroke?: StrokeRef;
   createdAt: string;
   updatedAt: string;
   resolvedAt: string | null;
 }
 
 export type MessageRole = "user" | "assistant" | "system";
+
+/**
+ * Which mode the reviewer was in when they sent a message.
+ *
+ * Spec 12 §3.3 keeps the *current* mode in the renderer and refuses to persist
+ * it, and that is still right: the mode a thread will send its NEXT message in
+ * should reset to the safe one after a restart. This is a different fact. It is
+ * what a message that has already been sent WAS, and it never changes again —
+ * so a card reading its own transcript back can say `YOU NOTED` about a note
+ * and `YOU ASKED TO ACT` about a change, instead of calling all three "asked".
+ *
+ * Null for every message that is not a reviewer send: an answer, a tool call, a
+ * notice from REX — and for every user message written before this existed,
+ * which is the honest value for "nobody recorded it".
+ */
+export type SendMode = "ask" | "act" | "note";
 
 export type MessageKind =
   | "text"
@@ -257,6 +293,15 @@ export type MessageKind =
   | "tool_result"
   | "diff"
   | "error"
+  /**
+   * Spec 17 §3.2 — the reviewer ended this run.
+   *
+   * A lifecycle marker like `completed`, and emphatically not an `error`: a
+   * stop is something a person did on purpose. It answers the one question a
+   * thread that ends mid-tool-call cannot otherwise answer a week later — did
+   * this break, or did I stop it?
+   */
+  | "stopped"
   | "completed";
 
 export interface Message {
@@ -265,6 +310,8 @@ export interface Message {
   seq: number;
   role: MessageRole;
   kind: MessageKind;
+  /** Which mode the reviewer sent this in. Null unless they sent it. */
+  mode: SendMode | null;
   content: string | null;
   toolName: string | null;
   toolInput: unknown | null;

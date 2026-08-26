@@ -1,14 +1,25 @@
 // Spec 15 §8 — how a commented passage is marked.
 //
-// A coloured vertical bar in the margin beside the block, with the comment's
-// number on it. Nothing on the text itself until that comment is opened or
-// pointed at (§8.4), which is what makes a document with six comments in it
-// readable again.
+// A coloured vertical bar in one fixed lane down the left of the pane, level
+// with the passage, with the comment's number inside it. Nothing on the text
+// itself until that comment is opened or pointed at (§8.4), which is what makes
+// a document with six comments in it readable again.
 //
 // It replaces `Gutter.tsx` — a 32px rail of numbered discs beside the page. The
 // rail was a second place to look for what the passage already implies, it could
 // not say which of two adjacent paragraphs a disc belonged to, and §6 needs its
 // column for the second pane.
+//
+// **The lane is fixed, and the height is not.** Version 2.0 put each bar at its
+// own block's left edge, so a list item's bar sat 40px right of a paragraph's
+// and the marks formed a ragged staircase. A block's indent is information
+// about the prose, not about the comments. Only the x is fixed; the height
+// still comes from the block, so a bar still says *which* paragraph.
+//
+// Spec 16 §7.2 — each pane draws the bars for the targets that resolved in IT,
+// under the same number, so the two lanes read as a diff of the review as well
+// as of the text. Nothing here computes that: it is what the two sweeps found,
+// drawn.
 //
 // Drawn in the overlay over the pane, exactly as `.rex-block-outline` is, so
 // invariant I1 and spec 01 §6.7 hold: no `<mark>`, no wrapper, no mutation of
@@ -30,24 +41,29 @@ interface Props {
   onHover: (threadId: string | null) => void;
 }
 
-/** §8.2 — 3px of bar, 2px of gap. */
-const LANE = 5;
+/** §8.2 — where the lane starts, measured from the pane's own left edge. */
+const LANE_X = 4;
 
-/** How far left of the block the first bar stands. */
-const OFFSET = 14;
+/** §8.3 — wide enough to carry a number inside it. */
+const BAR_W = 18;
 
-/** §8.3 — the numbered chip's own width, which is what makes two collide. */
-const CHIP = 16;
+/** A second lane, for a bar that would sit on top of one already placed. */
+const LANE_STEP = 20;
 
-/** §8.3 — chips that would collide step down by this much. */
-const CHIP_STEP = 18;
+/** How much clear paper is left between the last lane and the prose. */
+const LANE_MARGIN = 4;
+
+/** §8.3 — two bars that end up in one lane step their numbers down by this. */
+const NUMBER_STEP = 18;
 
 interface Bar {
   threadId: string;
   number: number;
-  /** Which lane out of the block's left edge, 0 being nearest the text. */
+  /** Which lane out of the pane's left edge, 0 being furthest from the text. */
   lane: number;
   box: ScopeRect;
+  /** Spec 16 §7.3 — the rule across the text column, for a gap. Null otherwise. */
+  rule: ScopeRect | null;
   className: string;
   title: string;
 }
@@ -69,6 +85,23 @@ function laneFor(placed: Bar[], box: ScopeRect): number {
     if (!clash) return lane;
     lane++;
   }
+}
+
+/**
+ * How many lanes fit between the pane's edge and the prose.
+ *
+ * §9.1 — the lane must not overlap the paper's text at any window width down to
+ * 1200px with both panes open, and at that width each half has about 24px of
+ * paper margin to work with. So the count is measured rather than assumed: the
+ * leftmost block on screen is the closest the text ever comes, and lanes stop
+ * before it. Beyond the last one, bars share a lane and their numbers step down
+ * instead — a hidden bar is worse than a crowded one.
+ */
+function laneCount(bars: Bar[]): number {
+  const textLeft = Math.min(...bars.map((bar) => bar.box.x));
+  if (!Number.isFinite(textLeft)) return 1;
+  const room = textLeft - LANE_MARGIN - LANE_X;
+  return Math.max(1, Math.floor((room - BAR_W) / LANE_STEP) + 1);
 }
 
 export function MarginBars(props: Props): React.JSX.Element {
@@ -96,6 +129,7 @@ export function MarginBars(props: Props): React.JSX.Element {
         number: numbers.get(thread.id) ?? 0,
         lane: laneFor(bars, check.bar),
         box: check.bar,
+        rule: check.rule,
         className: [
           "rex-margin",
           markerClass(thread.status, check.state, thread.isNote),
@@ -109,30 +143,46 @@ export function MarginBars(props: Props): React.JSX.Element {
     }
   }
 
-  // §8.3 — a chip pushed down by every chip already at this height. Walked in
-  // draw order, so the number nearest the text is the one on top.
-  //
-  // Height alone decides, never height AND lane. A chip is 16px across and a
-  // lane is 5px, so two chips in adjacent lanes overlap almost completely —
-  // measured on 2026-08-26, where two comments on one paragraph drew one
-  // readable number and one hidden behind it. What the reviewer asked for is
-  // numbers descending the left edge, and this is that rule.
-  const chipTops = new Map<string, number>();
+  const lanes = bars.length > 0 ? laneCount(bars) : 1;
+  const leftOf = (bar: Bar): number => LANE_X + Math.min(bar.lane, lanes - 1) * LANE_STEP;
+
+  // §8.3 — a number pushed down by every number already at this height in this
+  // lane. Only reached once the lanes run out, which is what the clamp above
+  // makes possible; with room to spare each bar has a lane of its own and the
+  // numbers all sit at the top.
+  const numberTops = new Map<string, number>();
   const taken: Array<{ x: number; y: number }> = [];
   for (const bar of bars) {
-    const x = bar.box.x - OFFSET - bar.lane * LANE;
+    const x = leftOf(bar);
     let y = bar.box.y;
-    while (taken.some((spot) => Math.abs(spot.x - x) < CHIP && Math.abs(spot.y - y) < CHIP_STEP)) {
-      y += CHIP_STEP;
+    while (taken.some((spot) => spot.x === x && Math.abs(spot.y - y) < NUMBER_STEP)) {
+      y += NUMBER_STEP;
     }
     taken.push({ x, y });
-    chipTops.set(`${bar.threadId}-${bar.box.y}-${bar.lane}`, y);
+    numberTops.set(`${bar.threadId}-${bar.box.y}-${bar.lane}`, y);
   }
 
   return (
     <>
+      {/*
+        Spec 16 §7.3 — a gap has no height, so its bar can only say THAT there
+        is a comment here. The rule across the text column is what says where.
+      */}
+      {bars.map((bar) =>
+        bar.rule ? (
+          <div
+            key={`rule-${bar.threadId}-${bar.rule.y}`}
+            className={`rex-gap-rule${props.activeId === bar.threadId ? " rex-gap-rule-active" : ""}`}
+            style={{
+              left: bar.rule.x - props.scrollX,
+              top: bar.rule.y - props.scrollY,
+              width: bar.rule.w,
+            }}
+          />
+        ) : null,
+      )}
+
       {bars.map((bar) => {
-        const left = bar.box.x - OFFSET - bar.lane * LANE - props.scrollX;
         const key = `${bar.threadId}-${bar.box.y}-${bar.lane}`;
         return (
           <button
@@ -140,14 +190,14 @@ export function MarginBars(props: Props): React.JSX.Element {
             key={key}
             className={bar.className}
             title={bar.title}
-            style={{ left, top: bar.box.y - props.scrollY, height: bar.box.h }}
+            style={{ left: leftOf(bar), top: bar.box.y - props.scrollY, height: bar.box.h }}
             onClick={() => props.onSelect(bar.threadId)}
             onMouseEnter={() => props.onHover(bar.threadId)}
             onMouseLeave={() => props.onHover(null)}
           >
             <span
               className="rex-margin-number"
-              style={{ top: (chipTops.get(key) ?? bar.box.y) - bar.box.y }}
+              style={{ top: (numberTops.get(key) ?? bar.box.y) - bar.box.y }}
             >
               {bar.number}
             </span>

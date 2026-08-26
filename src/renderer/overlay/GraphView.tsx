@@ -67,7 +67,9 @@ function radiusOf(node: GraphNode): number {
 function fillOf(node: GraphNode): string {
   if (node.kind === "missing") return "none";
   if (node.kind === "external") return "var(--panel)";
-  if ((node.comments?.orphaned ?? 0) > 0) return "var(--lost)";
+  // Spec 18 §3 — grey, not red. A comment whose text is gone is not an alarm,
+  // and red now belongs to the diff alone.
+  if ((node.comments?.orphaned ?? 0) > 0) return "var(--gone)";
   if ((node.comments?.open ?? 0) > 0) return "var(--action)";
   return "var(--sunk)";
 }
