@@ -17,7 +17,7 @@ import type {
   MessageKind,
   MessageRole,
   Profile,
-  StrokeRef,
+  SendMode,
   Thread,
   ThreadKind,
 } from "../../shared/types.ts";
@@ -58,7 +58,6 @@ interface ThreadRow {
   /** 1 for a comment saved and never sent. Cleared when it IS sent. */
   is_note: number;
   /** Spec 06 §5.4. NULL for every comment that was not drawn. */
-  stroke_json: string | null;
   session_id: string | null;
   profile: Profile;
   model: string | null;
@@ -79,6 +78,7 @@ interface MessageRow {
   seq: number;
   role: MessageRole;
   kind: MessageKind;
+  mode: SendMode | null;
   content: string | null;
   tool_name: string | null;
   tool_input_json: string | null;
@@ -130,26 +130,7 @@ function toThread(row: ThreadRow, refThreadIds: string[], targets: AnchorTarget[
     updatedAt: row.updated_at,
     resolvedAt: row.resolved_at,
   };
-  // Spec 06 §5.4 — absent, not null, for a comment that was not drawn: the
-  // field is optional and every consumer tests it for presence.
-  const stroke = parseStroke(row.stroke_json);
-  if (stroke) thread.stroke = stroke;
   return thread;
-}
-
-/**
- * A stroke that will not parse is a row this must not throw on — the
- * alternative is an app that refuses to open a comment because its ink is
- * malformed. The comment and its targets are what carry the meaning; the ink is
- * a record of a gesture, and losing it is survivable.
- */
-function parseStroke(json: string | null): StrokeRef | null {
-  if (!json) return null;
-  try {
-    return JSON.parse(json) as StrokeRef;
-  } catch {
-    return null;
-  }
 }
 
 function toMessage(row: MessageRow): Message {
@@ -159,6 +140,7 @@ function toMessage(row: MessageRow): Message {
     seq: row.seq,
     role: row.role,
     kind: row.kind,
+    mode: row.mode,
     content: row.content,
     toolName: row.tool_name,
     toolInput: row.tool_input_json ? JSON.parse(row.tool_input_json) : null,
@@ -271,8 +253,6 @@ export function createThread(
     note: string;
     profile: Profile;
     refThreadIds?: string[];
-    /** Spec 06 §5.4 — the ink, when the places were circled rather than clicked. */
-    stroke?: StrokeRef;
     /** True for NOTE mode: save it, send it to nobody. */
     isNote?: boolean;
   },
@@ -292,8 +272,8 @@ export function createThread(
   const insert = db.transaction(() => {
     db.prepare(
       `INSERT INTO thread (id, document_id, kind, status, note, title, group_id, position, is_note,
-                           stroke_json, session_id, profile, model, created_at, updated_at, resolved_at)
-       VALUES (?, ?, ?, 'open', ?, NULL, NULL, ?, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
+                           session_id, profile, model, created_at, updated_at, resolved_at)
+       VALUES (?, ?, ?, 'open', ?, NULL, NULL, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
     ).run(
       id,
       documentId,
@@ -301,7 +281,6 @@ export function createThread(
       input.note,
       position,
       input.isNote ? 1 : 0,
-      input.stroke ? JSON.stringify(input.stroke) : null,
       input.profile,
       timestamp,
       timestamp,
@@ -340,7 +319,6 @@ export function createThread(
     profile: input.profile,
     model: null,
     refThreadIds: input.refThreadIds ?? [],
-    ...(input.stroke ? { stroke: input.stroke } : {}),
     createdAt: timestamp,
     updatedAt: timestamp,
     resolvedAt: null,
@@ -531,7 +509,17 @@ export function setTargetState(
 
 // ── Messages ────────────────────────────────────────────────────
 
-export type MessageDraft = Omit<Message, "id" | "threadId" | "seq" | "createdAt">;
+/**
+ * `mode` is optional here and required on `Message`, which is deliberate.
+ *
+ * Only a reviewer's own send has one, and almost every draft in the codebase is
+ * an answer, a tool call or a notice from REX. Making it optional keeps those
+ * sites saying nothing rather than each writing `mode: null` to mean "not
+ * mine".
+ */
+export type MessageDraft = Omit<Message, "id" | "threadId" | "seq" | "createdAt" | "mode"> & {
+  mode?: SendMode | null;
+};
 
 /**
  * Appends one row. §9: one row per message, never a JSON blob per thread —
@@ -549,15 +537,16 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
   const seq = seqRow?.next ?? 0;
 
   db.prepare(
-    `INSERT INTO message (id, thread_id, seq, role, kind, content, tool_name, tool_input_json,
+    `INSERT INTO message (id, thread_id, seq, role, kind, mode, content, tool_name, tool_input_json,
                           is_error, cost_usd, duration_ms, input_tokens, output_tokens, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     threadId,
     seq,
     draft.role,
     draft.kind,
+    draft.mode ?? null,
     draft.content,
     draft.toolName,
     draft.toolInput === null || draft.toolInput === undefined
@@ -571,7 +560,9 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     createdAt,
   );
 
-  return { ...draft, id, threadId, seq, createdAt };
+  // `mode` is normalised rather than spread: the draft may leave it out, and
+  // what went into the row was null, so what comes back has to say null too.
+  return { ...draft, mode: draft.mode ?? null, id, threadId, seq, createdAt };
 }
 
 export function listMessages(db: Db, threadId: string): Message[] {
@@ -603,10 +594,14 @@ export function commentCountsByDocument(db: Db): Map<string, CommentCounts> {
       // CASE on purpose: MAX ignores it, so "nobody looked" never becomes
       // orphaned — written as `!= 'ok'` it would have, which is the mistake §5.7
       // names.
+      // Spec 18 §2 — the three are disjoint, and `resolved` is terminal. Written
+      // as a bare `worst = 2` the orphaned count also caught resolved comments,
+      // so one comment was counted twice here and put in the `orphaned` lane by
+      // the sidebar — the two surfaces disagreed about the same comment.
       `SELECT value,
               SUM(CASE WHEN status = 'open' AND COALESCE(worst, 0) < 2 THEN 1 ELSE 0 END) AS open,
               SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS resolved,
-              SUM(CASE WHEN worst = 2 THEN 1 ELSE 0 END) AS orphaned
+              SUM(CASE WHEN status = 'open' AND worst = 2 THEN 1 ELSE 0 END) AS orphaned
          FROM (
            SELECT d.value AS value, t.id AS id, t.status AS status,
                   MAX(CASE tt.anchor_state

@@ -17,7 +17,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import Database from "better-sqlite3";
 import { migrateThreadTargets } from "../src/main/db/migrate.ts";
-import { createThread, getThread } from "../src/main/db/queries.ts";
+import { commentCountsByDocument, createThread, getThread } from "../src/main/db/queries.ts";
 import { applyPlan, withDetail } from "../src/main/threads.ts";
 import { worstState } from "../src/shared/targets.ts";
 import type { Anchor } from "../src/shared/types.ts";
@@ -251,4 +251,83 @@ test("null never counts as orphaned", () => {
   assert.equal(worstState([null, null]), null);
   assert.equal(worstState([]), null);
   assert.notEqual(worstState([null]), "orphaned");
+});
+
+/** Spec 18 §4.2 — one document, one comment of every shape the counts see. */
+function countingDatabase(): Database.Database {
+  const db = new Database(":memory:");
+  db.exec(SCHEMA);
+  const at = "2026-08-26T00:00:00.000Z";
+
+  db.prepare(
+    "INSERT INTO document (id, kind, value, title, content_hash, last_seen_at) VALUES ('d1', 'file', ?, NULL, NULL, ?)",
+  ).run(DOCUMENT, at);
+
+  const thread = db.prepare(
+    `INSERT INTO thread (id, document_id, kind, status, note, session_id, profile, model,
+                         created_at, updated_at, resolved_at)
+     VALUES (?, 'd1', ?, ?, ?, NULL, 'read', NULL, ?, ?, NULL)`,
+  );
+  const target = db.prepare(
+    `INSERT INTO thread_target (thread_id, position, document_id, anchor_json, anchor_state)
+     VALUES (?, 0, 'd1', ?, ?)`,
+  );
+
+  const comment = (id: string, status: string, state: string | null): void => {
+    thread.run(id, "anchored", status, `Comment ${id}`, at, at);
+    target.run(id, JSON.stringify(anchorQuoting(`Passage ${id}.`)), state);
+  };
+
+  comment("t1", "open", "ok");
+  comment("t2", "open", "moved");
+  comment("t3", "open", "orphaned");
+  // The one the two surfaces used to disagree about.
+  comment("t4", "resolved", "orphaned");
+  comment("t5", "resolved", "ok");
+  // A synthesis has no target, so its worst state is NULL rather than orphaned.
+  thread.run("t6", "synthesis", "open", "About t1 and t2", at, at);
+
+  return db;
+}
+
+const DOCUMENT = "/tmp/rex-targets-spec/overview.md";
+
+test("the three comment counts are disjoint", () => {
+  // Spec 18 §4.2 — open + gone + resolved is every comment on the file, counted
+  // once. Anything else and the tree's numbers cannot be added up by eye.
+  const db = countingDatabase();
+  try {
+    const counts = commentCountsByDocument(db).get(DOCUMENT);
+    assert.ok(counts, "the document has comments and must appear in the map");
+    assert.deepEqual(counts, { open: 3, resolved: 2, orphaned: 1 });
+    assert.equal(counts.open + counts.resolved + counts.orphaned, 6);
+  } finally {
+    db.close();
+  }
+});
+
+test("a resolved comment whose text is gone is counted once, as resolved", () => {
+  // Spec 18 §2 — `resolved` is terminal. Counted as orphaned as well, t4 was
+  // added to both totals here and pulled out of the resolved lane by the
+  // sidebar, so the same comment was in two places at once.
+  const db = countingDatabase();
+  try {
+    const counts = commentCountsByDocument(db).get(DOCUMENT);
+    assert.equal(counts?.orphaned, 1, "only the open orphan counts");
+    assert.equal(counts?.resolved, 2, "and the resolved one stays resolved");
+  } finally {
+    db.close();
+  }
+});
+
+test("a comment whose text moved is open, not a lane of its own", () => {
+  // Spec 18 §2.1 — nothing is wrong with it: it was re-found, it is one click
+  // away, and the card says where it went.
+  const db = countingDatabase();
+  try {
+    // t1 (ok), t2 (moved) and t6 (no target) are the three.
+    assert.equal(commentCountsByDocument(db).get(DOCUMENT)?.open, 3);
+  } finally {
+    db.close();
+  }
 });

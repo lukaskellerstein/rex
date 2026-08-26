@@ -80,7 +80,7 @@ export function GroupRow(props: Props): React.JSX.Element {
             type="button"
             className="rex-row-pen"
             aria-label={`Rename ${props.name}`}
-            title="Rename this group"
+            title="Rename this folder"
             onClick={props.onRename}
           >
             <Pencil size={12} />
@@ -94,8 +94,8 @@ export function GroupRow(props: Props): React.JSX.Element {
           <button
             type="button"
             className="rex-row-pen"
-            aria-label={`New group inside ${props.name}`}
-            title="Make a group inside this one"
+            aria-label={`New folder inside ${props.name}`}
+            title="Make a folder inside this one"
             onClick={props.onAddChild}
           >
             <Plus size={12} />
@@ -103,8 +103,8 @@ export function GroupRow(props: Props): React.JSX.Element {
           <button
             type="button"
             className="rex-row-bin"
-            aria-label={`Delete the group ${props.name}`}
-            title="Delete this group — its comments move up, and none is deleted"
+            aria-label={`Delete the folder ${props.name}`}
+            title="Delete this folder — its comments move up, and none is deleted"
             onClick={props.onDelete}
           >
             <Trash size={12} />

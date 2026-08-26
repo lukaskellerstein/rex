@@ -95,6 +95,12 @@ export function renderTranscript(messages: Message[]): string {
       case "error":
         lines.push(`Error: ${message.content ?? ""}`);
         break;
+      // Spec 17 §3.2 — a replayed conversation that omits the stop is a
+      // conversation with an unexplained gap in it: the agent would read a turn
+      // that trails off mid-tool-call and try to account for it.
+      case "stopped":
+        lines.push("The user stopped the run here.");
+        break;
       default:
         // thinking, tool_result and completed are noise in a replay — the
         // conversation is what has to survive, not the machinery.

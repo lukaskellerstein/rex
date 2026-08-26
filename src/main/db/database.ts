@@ -9,6 +9,7 @@ import Database from "better-sqlite3";
 import { DB_PATH } from "./location.ts";
 import {
   migrateCommentOrder,
+  migrateMessageMode,
   migrateNoteFlag,
   migrateThreadStroke,
   migrateThreadTargets,
@@ -41,6 +42,10 @@ export function openDatabase(): Db {
   migrateCommentOrder(db);
   // A comment saved and never sent. 0 is right for every row that predates it.
   migrateNoteFlag(db);
+  // Spec 12 §3.3 — which mode each of the reviewer's own messages was sent in.
+  // NULL for every row written before it, which the card reads as "not
+  // recorded" rather than inventing one.
+  migrateMessageMode(db);
 
   handle = db;
   return db;

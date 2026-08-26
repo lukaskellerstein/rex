@@ -53,11 +53,39 @@ function proportional(from: Window, to: Window): number {
   return (from.scrollY / fromMax) * toMax;
 }
 
+/**
+ * How far off a written position a scroll may land and still be recognised as
+ * the one we wrote. Chromium rounds sub-pixel scroll offsets.
+ */
+const SAME_PLACE = 2;
+
+/**
+ * Where each pane was last scrolled to BY THIS FILE, so its own handler can
+ * tell the echo apart from the reader.
+ *
+ * A position and not a flag, and that is the whole fix for a scroll that
+ * fought back. The flag was cleared on the next animation frame, on the
+ * assumption that the scroll it caused would have been dispatched by then —
+ * and scroll events are dispatched asynchronously, so whether the flag was
+ * still up when the echo arrived came down to the order of two callbacks in
+ * different documents. A position needs no timing at all: an event that lands
+ * exactly where we put it is ours, whenever it turns up.
+ */
+const written = new WeakMap<Window, number>();
+
+function scrollTogether(to: Window, top: number): void {
+  // Already there: writing it again produces another scroll event to reason
+  // about and moves nothing.
+  if (Math.abs(to.scrollY - top) < 1) return;
+  written.set(to, top);
+  to.scrollTo({ top });
+}
+
 function align(from: Window, to: Window, map: (line: number) => number): void {
   const here = stampsOf(from.document);
   const there = stampsOf(to.document);
   if (here.length === 0 || there.length === 0) {
-    to.scrollTo({ top: proportional(from, to) });
+    scrollTogether(to, proportional(from, to));
     return;
   }
 
@@ -68,16 +96,26 @@ function align(from: Window, to: Window, map: (line: number) => number): void {
   // The offset INTO the block is carried across, so scrolling through a long
   // paragraph moves the other side by the same amount rather than sticking at
   // its top and then jumping a whole block.
-  to.scrollTo({ top: Math.max(0, twin.top + (from.scrollY - at.top)) });
+  scrollTogether(to, Math.max(0, twin.top + (from.scrollY - at.top)));
 }
 
 /**
  * Keeps `original` level with `current`, and the other way round.
  *
- * Returns the cleanup. The re-entry guard is a flag rather than a comparison of
- * positions: scrolling one pane scrolls the other, whose own handler would then
- * scroll the first back, and two frames disagreeing by one pixel would jitter
- * between them for as long as the reviewer watched.
+ * Returns the cleanup.
+ *
+ * **The two panes must never both drive at once**, and near an added block that
+ * is not a matter of taste. `toOriginalLine` maps every line inside an added
+ * hunk onto the one original line the hunk starts at, and `toCurrentLine` maps
+ * that original line back to the START of the hunk — so a reader scrolling down
+ * through a newly added block moved the original, the original's echo mapped
+ * back to the top of that block, and the reader was pulled back up to where
+ * they had started. Reported on 2026-08-26: *"it just blocks me and it always
+ * returns me back to this element"*.
+ *
+ * The mapping is not invertible there and cannot be made so — one side has
+ * text the other does not, which is the whole point of the two panes. What is
+ * fixable is the echo, and `written` is what fixes it.
  */
 export function syncPanes(
   current: HTMLIFrameElement,
@@ -89,21 +127,16 @@ export function syncPanes(
   if (!currentView || !originalView) return () => undefined;
 
   const hunks = hunksOf(patch);
-  let echo = false;
 
   const follow = (from: Window, to: Window, map: (line: number) => number) => (): void => {
-    if (echo) return;
-    echo = true;
-    try {
-      align(from, to, map);
-    } finally {
-      // One frame, not a timer: the scroll this just caused fires its own
-      // handler synchronously in the same task, and the flag has to still be up
-      // when it does.
-      from.requestAnimationFrame(() => {
-        echo = false;
-      });
+    // This pane landing exactly where we put it is our own scroll coming back,
+    // not the reader moving. Answering it is what closes the loop.
+    const ours = written.get(from);
+    if (ours !== undefined && Math.abs(from.scrollY - ours) <= SAME_PLACE) {
+      written.delete(from);
+      return;
     }
+    align(from, to, map);
   };
 
   const fromCurrent = follow(currentView, originalView, (line) => toOriginalLine(hunks, line));

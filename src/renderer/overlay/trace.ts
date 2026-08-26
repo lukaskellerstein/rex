@@ -19,7 +19,9 @@ export type TraceKind =
   | "answer"
   | "note"
   | "diff"
-  | "error";
+  | "error"
+  /** Spec 17 §3.2 — the reviewer ended the run here. */
+  | "stopped";
 
 export interface TraceEntry {
   id: string;
@@ -153,6 +155,13 @@ export function traceOf(thread: ThreadWithMessages): TraceEntry[] {
 
       case "error":
         if (message.content) entries.push(entry(message, "error", "ERROR", message.content));
+        break;
+
+      // Spec 17 §3.2 — in `seq` order, so the sheet shows exactly where the
+      // run was when it ended. A trace that stops after a tool call with no
+      // block saying why reads as a crash.
+      case "stopped":
+        if (message.content) entries.push(entry(message, "stopped", "STOPPED", message.content));
         break;
 
       // A lifecycle marker carrying a word, not a step. Its totals are already

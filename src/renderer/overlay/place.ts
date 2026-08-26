@@ -20,6 +20,7 @@
 // document is not the one on screen.
 
 import type { Anchor } from "../../shared/types.ts";
+import { storedGapLabel } from "../anchor/gap.ts";
 
 /**
  * Blocks whose text is not prose. `img`, `svg` and `canvas` have none at all;
@@ -63,6 +64,9 @@ function tagOfPath(css: string | undefined): string | null {
  * hide the one line that tells the reviewer which comment they are looking at.
  */
 export function storedPlaceLabel(anchor: Anchor): string | null {
+  // Spec 16 §6.7 — a gap is always named. There is nothing at it to quote,
+  // which is exactly what the comment is about.
+  if (anchor.gap) return storedGapLabel(anchor.gap);
   if (anchor.extent === "document") return "The whole document";
   if (anchor.extent === "section") {
     // Spec 06 §4.3 — a section anchor stores its HEADING's text, so the quote

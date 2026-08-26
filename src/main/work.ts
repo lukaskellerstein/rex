@@ -15,6 +15,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -70,17 +71,39 @@ function suffix(meta: WorkingMeta): string {
   return extname(meta.path);
 }
 
+/**
+ * The document's own name, without its extension — `user-interaction-flow`.
+ *
+ * Every file in the directory is built from it, and that is the point. The
+ * first version named them `base.md`, `current.md` and `rev-1.md`: the agent
+ * reads the working copy (§5), so it answered *"the joke at `current.md:31`"*,
+ * and the reviewer read that as some **other file entirely**. A name that says
+ * which document it belongs to costs nothing and removes the question.
+ * Reported on 2026-08-26.
+ */
+function stem(meta: WorkingMeta): string {
+  return basename(meta.path, suffix(meta));
+}
+
+/** The version on disk — the left-hand pane's `ORIGINAL`. */
 export function basePath(meta: WorkingMeta): string {
-  return join(workDir(meta.documentId), `base${suffix(meta)}`);
+  return join(workDir(meta.documentId), `${stem(meta)}.original${suffix(meta)}`);
 }
 
-/** What the right-hand pane shows, and the one file the agent may edit. */
+/**
+ * What the right-hand pane shows, and the one file the agent may edit.
+ *
+ * `.new`, in the words the pane above it already uses: the reviewer is looking
+ * at `ORIGINAL` beside `NEW VERSION`, and the two files are named after the two
+ * things they are.
+ */
 export function currentPath(meta: WorkingMeta): string {
-  return join(workDir(meta.documentId), `current${suffix(meta)}`);
+  return join(workDir(meta.documentId), `${stem(meta)}.new${suffix(meta)}`);
 }
 
+/** One ACT run's output, kept so §3.3's undo is a step back and not a loss. */
 function revisionPath(meta: WorkingMeta, n: number): string {
-  return join(workDir(meta.documentId), `rev-${n}${suffix(meta)}`);
+  return join(workDir(meta.documentId), `${stem(meta)}.v${n}${suffix(meta)}`);
 }
 
 export function readMeta(documentId: string): WorkingMeta | null {
@@ -121,6 +144,46 @@ export function listWorkingCopies(): WorkingMeta[] {
     if (meta) metas.push(meta);
   }
   return metas.sort((a, b) => b.forkedAt.localeCompare(a.forkedAt));
+}
+
+/**
+ * §3.1 — the file names, brought up to date.
+ *
+ * A working copy outlives the app that made it, so a reviewer with a change
+ * still open when this shipped would otherwise find an empty right-hand pane
+ * and a discarded change. This renames what is already there instead: the
+ * bytes, the revisions and the review all survive.
+ *
+ * Safe at every start. A directory that already carries the new names has
+ * nothing to move, and a rename that cannot be made is left alone — the old
+ * file is still the reviewer's only copy of work they have not approved, so
+ * this never removes one.
+ */
+export function migrateWorkingCopyNames(): void {
+  for (const meta of listWorkingCopies()) {
+    const dir = workDir(meta.documentId);
+    const ext = suffix(meta);
+    const moves: Array<[string, string]> = [
+      [join(dir, `base${ext}`), basePath(meta)],
+      [join(dir, `current${ext}`), currentPath(meta)],
+      ...meta.revisions.map((revision): [string, string] => [
+        join(dir, `rev-${revision.n}${ext}`),
+        revisionPath(meta, revision.n),
+      ]),
+    ];
+
+    for (const [from, to] of moves) {
+      // A document actually named `base.md` would move a file onto itself.
+      if (from === to || !existsSync(from) || existsSync(to)) continue;
+      try {
+        renameSync(from, to);
+      } catch {
+        // Locked, or on a filesystem that refuses the move. The old name stays
+        // and the pane comes up empty, which is visible — losing the bytes
+        // would not be.
+      }
+    }
+  }
 }
 
 /**

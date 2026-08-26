@@ -30,8 +30,9 @@ import type {
   WorkingCopyView,
 } from "../shared/types.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
-import { passageSection, writeInstructions } from "./agent/prompts.ts";
+import { type PassagePlace, passageSection, writeInstructions } from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
+import { beginRun, endRun } from "./agent/runs.ts";
 import { renderTranscript } from "./agent/transcript.ts";
 import type { Db } from "./db/database.ts";
 import {
@@ -96,30 +97,32 @@ export interface ApplyContext {
     working: WorkingCopyView[];
     /** Spec 15 §4.3 — files the agent wrote that were not its to write. */
     restored: string[];
+    /** Spec 17 §3.4 — the reviewer ended this run, so it reports no verdict. */
+    stopped: boolean;
     /** Spec 11 §7.7 — the before-and-after slides that replace the diff. */
     decks?: DeckPreview[];
   }) => void;
 }
 
 /**
- * The line the quote is actually on now.
+ * The line a quote is actually on in one file, or null when it is not in it.
  *
  * `Anchor.source.line` is stamped when the anchor is created and never moves
  * again, so any edit above it — including REX's own previous Apply — leaves it
  * pointing at the wrong line. Handing a stale line to a write agent is worse
- * than handing it none, so the quote is looked up in the file and the stored
- * line is used only as a fallback when the quote cannot be found.
+ * than handing it none, so the quote is looked up in the file instead.
+ *
+ * Null is an answer here, not a failure: spec 16 §5.1 asks each of the two
+ * versions in turn, and "not in this one" is exactly what tells the two apart.
  */
-function currentSourceLine(documentPath: string, anchor: Anchor): number | null {
-  const quote = anchor.quote?.exact ?? null;
-  const stored = anchor.source?.line ?? null;
-  if (!quote) return stored;
+function quoteLine(documentPath: string, quote: string | null): number | null {
+  if (!quote) return null;
 
   let source: string;
   try {
     source = readFileSync(documentPath, "utf8");
   } catch {
-    return stored;
+    return null;
   }
 
   // The quote comes from normalised text, so its words may be split across
@@ -128,11 +131,48 @@ function currentSourceLine(documentPath: string, anchor: Anchor): number | null 
     .split(/\s+/)
     .slice(0, 8)
     .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
-  if (words.length === 0) return stored;
+  if (words.length === 0) return null;
 
   const at = source.search(new RegExp(words.join("\\s+")));
-  if (at === -1) return stored;
+  if (at === -1) return null;
   return source.slice(0, at).split("\n").length;
+}
+
+/**
+ * Spec 16 §5.1 — which version this passage's text lives in, and where.
+ *
+ * **Nothing stores the answer.** A comment is about the version its text is in,
+ * and the only way to know is to look — which is what the renderer does with two
+ * live DOMs and what this does with the two files. That also removes a class of
+ * bug a stored field would have created: an anchor whose recorded version
+ * disagreed with where its text actually turned out to be.
+ *
+ * The fallback when neither copy has it is the stored line, exactly as before.
+ * A passage the agent cannot find anywhere is not evidence about which version
+ * it belonged to.
+ */
+export function locatePassage(copy: string, base: string | null, anchor: Anchor): PassagePlace {
+  // §6.7 — a gap has no text of its own. Its two neighbours are what say where
+  // it is, and both are looked up in the version the agent will edit.
+  if (anchor.gap) {
+    return {
+      version: "current",
+      line: quoteLine(copy, anchor.gap.before?.quote?.exact ?? null),
+      between: {
+        after: quoteLine(copy, anchor.gap.after?.quote?.exact ?? null),
+        before: quoteLine(copy, anchor.gap.before?.quote?.exact ?? null),
+      },
+    };
+  }
+
+  const quote = anchor.quote?.exact ?? null;
+  const here = quoteLine(copy, quote);
+  if (here !== null) return { version: "current", line: here };
+
+  const there = base ? quoteLine(base, quote) : null;
+  if (there !== null) return { version: "original", line: there };
+
+  return { version: "current", line: anchor.source?.line ?? null };
 }
 
 /** Absolute path per documentId, for every document the thread targets. */
@@ -149,7 +189,7 @@ interface Editable {
   documentId: string;
   /** The reviewer's file. Never written by the agent (spec 15 §2). */
   original: string;
-  /** `~/.rex/work/<documentId>/current<ext>` — the one file the agent may edit. */
+  /** `~/.rex/work/<documentId>/<name>.new<ext>` — the one file the agent may edit. */
   copy: string;
   meta: WorkingMeta;
 }
@@ -160,7 +200,7 @@ interface Editable {
  *
  * The passages keep naming the **document**, because that is what the reviewer
  * commented on and what the agent should reason about. Only the line numbers
- * come from the copy, through `lineOf` — they have to, since the copy is what
+ * come from the copy, through `locate` — they have to, since the copy is what
  * the agent will open and a line number from the original is wrong the moment
  * the first revision lands.
  */
@@ -172,6 +212,25 @@ function writePrompt(input: {
   instruction: string;
   transcript: string;
 }): string {
+  const copies = new Map(input.files.map((file) => [file.original, file.copy]));
+  const bases = new Map(input.files.map((file) => [file.original, basePath(file.meta)]));
+  const locate = (documentPath: string, anchor: Anchor): PassagePlace =>
+    locatePassage(
+      copies.get(documentPath) ?? documentPath,
+      bases.get(documentPath) ?? null,
+      anchor,
+    );
+
+  // Spec 16 §5.4 — a comment can be about a passage only the ORIGINAL has, and
+  // then the agent needs to be able to read the original. It is handed as a
+  // readable path and is deliberately NOT on the editable list: spec 15 §4.3
+  // puts back anything written outside that list, and `base` is the only copy
+  // of the reviewer's own bytes in this whole design.
+  const fromOriginal = input.thread.targets.some((target) => {
+    const path = pathsOf(input.db, input.thread).get(target.documentId);
+    return path !== undefined && locate(path, target.anchor).version === "original";
+  });
+
   const parts = ["Files you may edit:"];
   for (const file of input.files) {
     parts.push(`- ${file.copy}`);
@@ -187,15 +246,25 @@ function writePrompt(input: {
     "",
   );
 
-  const copies = new Map(input.files.map((file) => [file.original, file.copy]));
+  if (fromOriginal) {
+    parts.push("Files you may READ but never write:");
+    for (const file of input.files) {
+      parts.push(`- ${bases.get(file.original)}`);
+      parts.push(
+        `  — the ORIGINAL version of ${relative(input.root, file.original) || file.original},`,
+        "    as it was before any of these changes. Read it to see what a passage said.",
+      );
+    }
+    parts.push("");
+  }
+
   parts.push(
     ...passageSection({
       thread: input.thread,
       documentPaths: pathsOf(input.db, input.thread),
       repositoryRoot: input.root,
       heading: "## The passages under discussion",
-      lineOf: (documentPath, anchor) =>
-        currentSourceLine(copies.get(documentPath) ?? documentPath, anchor),
+      locate,
     }),
   );
 
@@ -307,8 +376,10 @@ async function startDeckApply(
   const previews: DeckPreview[] = [];
 
   for (const [position, deckPath] of decks.entries()) {
+    const controller = beginRun(thread.id);
+    let result: Awaited<ReturnType<typeof runDeckApply>>;
     try {
-      const result = await runDeckApply({
+      result = await runDeckApply({
         runKey: deckRunKey(run.id, position),
         deckPath,
         instruction,
@@ -321,15 +392,26 @@ async function startDeckApply(
         }),
         model: thread.model,
         resolver: context.resolver,
+        signal: controller.signal,
         onMessage: (message) => context.record(thread.id, message),
       });
-      previews.push(result.preview);
     } catch (error) {
       // Nothing was written, so there is nothing to undo — the whole point of
       // §7.1's ordering. The run is failed and the reason is the reviewer's.
       completeApplyRun(db, run.id, "failed");
       throw error;
+    } finally {
+      endRun(thread.id, controller);
     }
+
+    // Spec 17 §2.6 — stopped, with the same untouched deck a throw leaves. No
+    // preview, because there is no edit, and no `apply:ready`, because there is
+    // nothing to decide about. The conversation's STOPPED block says why.
+    if (!result) {
+      completeApplyRun(db, run.id, "failed");
+      return run.id;
+    }
+    previews.push(result.preview);
   }
 
   setApplyRunDiff(db, run.id, "", decks);
@@ -345,6 +427,9 @@ async function startDeckApply(
     // `apply:confirm` rather than through a working copy.
     working: [],
     restored: [],
+    // A stopped deck run returned above, so reaching here means every deck was
+    // planned and performed.
+    stopped: false,
     decks: previews,
   });
   return run.id;
@@ -401,6 +486,8 @@ export async function startApply(
   const restored: string[] = [];
   const regions: ChangedRegion[] = [];
   const diffs: string[] = [];
+  /** Spec 17 §3.4 — the reviewer ended it, so it has no verdict to report. */
+  let stopped = false;
 
   for (const [root, files] of groups) {
     // §3 — fork before anything runs. `base` is the reviewer's bytes, and it is
@@ -418,18 +505,27 @@ export async function startApply(
     // no git: every write tool call carries the path it is about to write.
     const wrote = new Set<string>();
 
-    const result = await runAgent({
-      cwd: root,
-      profile: "write",
-      prompt: writePrompt({ db, thread, root, files: editable, instruction, transcript }),
-      // One session per repository: two turns sharing a session id would resume
-      // the first one's transcript in the second one's working directory.
-      sessionId: sessionIdFor(`${run.id}:${root}`),
-      resume: false,
-      model: thread.model,
-      onMessage: (message) => context.record(threadId, message),
-      onWrote: (path) => wrote.add(path),
-    });
+    // Spec 17 §2.5 — a write run is the one a reviewer most wants to be able to
+    // end, and the one whose book-keeping must survive being ended.
+    const controller = beginRun(threadId);
+    let result: Awaited<ReturnType<typeof runAgent>>;
+    try {
+      result = await runAgent({
+        cwd: root,
+        profile: "write",
+        prompt: writePrompt({ db, thread, root, files: editable, instruction, transcript }),
+        // One session per repository: two turns sharing a session id would resume
+        // the first one's transcript in the second one's working directory.
+        sessionId: sessionIdFor(`${run.id}:${root}`),
+        resume: false,
+        model: thread.model,
+        signal: controller.signal,
+        onMessage: (message) => context.record(threadId, message),
+        onWrote: (path) => wrote.add(path),
+      });
+    } finally {
+      endRun(threadId, controller);
+    }
 
     // §4.3 — put back anything written outside the working copies, whichever
     // source found it. Done before the error check, because a failed run can
@@ -457,6 +553,14 @@ export async function startApply(
       regions.push(...view.added);
       diffs.push(view.patch);
     }
+
+    // Spec 17 §2.5 — stop means stop. This repository's partial change is
+    // recorded above, so it is visible and undoable; the next repository is
+    // simply not started.
+    if (result.stopped) {
+      stopped = true;
+      break;
+    }
   }
 
   const unified = diffs.join("\n");
@@ -473,6 +577,7 @@ export async function startApply(
     skipped,
     working,
     restored,
+    stopped,
   });
   return run.id;
 }

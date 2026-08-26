@@ -11,6 +11,7 @@
 
 import type { Anchor, AnchorExtent, LineRange } from "../../shared/types.ts";
 import { generateCssPath, isStableId } from "./create.ts";
+import { gapLabel } from "./gap.ts";
 import { resolveAnchor } from "./resolve.ts";
 import {
   documentRunFor,
@@ -134,6 +135,9 @@ const PDF_PAGE_CLASS = "rex-pdf-page";
 
 /** How far up to offer. Beyond this the scopes stop being distinguishable. */
 const MAX_SCOPES = 6;
+
+/** The stamp the Markdown renderer puts on every block-level element (§5.3). */
+const SRC_LINE = "[data-src-line]";
 
 /** An element quote is its opening text, not all of it (§6.4 / create.ts). */
 const QUOTE_PREVIEW_MAX = 90;
@@ -352,6 +356,16 @@ function rectOf(el: Element): ScopeRect {
   return toDocumentRect(el.ownerDocument?.defaultView ?? null, el.getBoundingClientRect());
 }
 
+/**
+ * A box measured at one zoom, drawn at another.
+ *
+ * Spec 05 §6 — a selection outlives a zoom change, and reading a table closely
+ * before deciding whether the fourth row belongs is exactly when someone zooms.
+ */
+export function rescaleRect(rect: ScopeRect, by: number): ScopeRect {
+  return by === 1 ? rect : { x: rect.x * by, y: rect.y * by, w: rect.w * by, h: rect.h * by };
+}
+
 /** The smallest box holding both. Spec 06 §4.4 — the box for a run. */
 export function unionRect(a: ScopeRect, b: ScopeRect): ScopeRect {
   const x = Math.min(a.x, b.x);
@@ -439,6 +453,125 @@ function describeSection(heading: Element, run: ElementRun, position: number): P
       ? "hand-written id, survives a rebuild"
       : "no id, but its heading carries it if it moves",
     rect: rectOfRun(run),
+    regionCapable: false,
+  };
+}
+
+/**
+ * Spec 16 §6.6 — the blocks the rest of REX already agrees on.
+ *
+ * The elements carrying `data-src-line`, in document order, keeping only the
+ * outermost — the same set `changedBlocks` below builds, and for the same
+ * reason. Keeping the outermost is also what makes §6.4 true by construction:
+ * a `<table>` and a `<pre>` are each one stamped block with nothing stamped
+ * inside them, so there is no gap to offer in the middle of one.
+ *
+ * A document with no stamps — a plain HTML file (spec 01 §5.4 point 3) — has no
+ * blocks here and therefore no gaps at all.
+ */
+export function stampedBlocks(doc: Document): Element[] {
+  const all = [...doc.querySelectorAll(SRC_LINE)];
+  return all.filter((el) => !all.some((other) => other !== el && other.contains(el)));
+}
+
+/**
+ * Spec 16 §6.6 — the text column a gap's rule is drawn across.
+ *
+ * Measured from the blocks themselves rather than read off a stylesheet: the
+ * paper's width is the renderer's business, and a PDF or a DOCX has no such
+ * rule to read. Null when the document has no stamped blocks, which is the
+ * same condition that means it has no gaps either.
+ */
+export function contentColumn(doc: Document): { x: number; w: number } | null {
+  const view = doc.defaultView;
+  let left = Number.POSITIVE_INFINITY;
+  let right = Number.NEGATIVE_INFINITY;
+  for (const block of stampedBlocks(doc)) {
+    const box = toDocumentRect(view, block.getBoundingClientRect());
+    if (box.w <= 0) continue;
+    left = Math.min(left, box.x);
+    right = Math.max(right, box.x + box.w);
+  }
+  return right > left ? { x: left, w: right - left } : null;
+}
+
+/** How tall a gap's mark is — one line-height at the paper's base size (§7.4). */
+export const GAP_MARK_HEIGHT = 20;
+
+/**
+ * Spec 16 §7.3 — whether the gap's two neighbours are still next to each other.
+ *
+ * They are not once something has been put between them, which is what an ACT
+ * run on a gap comment does: the comment asked for a passage there, the agent
+ * wrote one, and now the two blocks that named the place have a block in
+ * between. The place still resolves — both sides are found — but its midpoint
+ * is now inside the new text.
+ *
+ * §7.3's rule is drawn across the text column, so drawn there it lands over
+ * prose and reads as a strike-through: the mark for "put something here" ends
+ * up looking like "delete this". Reported on 2026-08-26 against a gap whose
+ * insertion had already happened.
+ */
+export function gapNeighboursAdjacent(
+  doc: Document,
+  after: Element | null,
+  before: Element | null,
+): boolean {
+  if (!after || !before) return false;
+  const blocks = stampedBlocks(doc);
+  const above = blocks.indexOf(after);
+  return above >= 0 && blocks[above + 1] === before;
+}
+
+/**
+ * Spec 16 §7.3 — where a gap is, as a box: the text column at the insertion
+ * point, one line-height tall and centred on it.
+ *
+ * The insertion point is the space between the two neighbours while they are
+ * still next to each other. Once they are not — something was written into the
+ * gap — the mark moves to the **foot of the block above**, which is where the
+ * reviewer asked for it and where the new text now begins. The midpoint would
+ * be halfway down whatever was inserted, which is a place nobody named.
+ */
+export function gapRect(
+  index: TextIndex,
+  after: Element | null,
+  before: Element | null,
+): ScopeRect {
+  const column = contentColumn(index.doc) ?? { x: 0, w: 0 };
+  const above = after ? rectOf(after) : null;
+  const below = before ? rectOf(before) : null;
+  const between = gapNeighboursAdjacent(index.doc, after, before);
+
+  const y =
+    above && below && between
+      ? (above.y + above.h + below.y) / 2
+      : above
+        ? above.y + above.h
+        : (below?.y ?? 0);
+
+  return { x: column.x, y: y - GAP_MARK_HEIGHT / 2, w: column.w, h: GAP_MARK_HEIGHT };
+}
+
+/** Spec 16 §6.2 — the one chip a gap offers: itself. There is nothing to widen to. */
+export function describeGap(
+  rect: ScopeRect,
+  after: Element | null,
+  before: Element | null,
+): PickScope {
+  const both = after !== null && before !== null;
+  return {
+    index: 0,
+    kind: "element",
+    label: "gap",
+    title: gapLabel(after, before),
+    detail: "a place between two blocks — the neighbours either side name it",
+    quote: null,
+    strength: both ? "fair" : "weak",
+    strengthNote: both
+      ? "named by the block above and the block below"
+      : "only one neighbour is still here — §6.3 reports this as moved",
+    rect,
     regionCapable: false,
   };
 }
@@ -678,6 +811,16 @@ export function scopeChainForAnchor(
     return chain.scopes.length > 0 ? { chain, active: 0 } : null;
   }
 
+  // Spec 16 §6.2 — a gap has nothing to widen to and nothing to narrow back to.
+  // Its chain is the one chip that says what it is, exactly as a document
+  // target's is: widening a place that is between two blocks would have to
+  // choose one of them, and that is a different comment.
+  if (resolution.kind === "gap") {
+    const box = gapRect(index, resolution.after, resolution.before);
+    const scope = describeGap(box, resolution.after, resolution.before);
+    return { chain: { scopes: [scope], elements: [null], range: null }, active: 0 };
+  }
+
   // Spec 06 §6.2 — a document target has nothing to widen to and nothing to
   // narrow back to, so its chain is the one chip that says what it is.
   if (resolution.extent === "document") {
@@ -709,7 +852,7 @@ export function scopeChainForAnchor(
 export function changedBlocks(doc: Document, ranges: ReadonlyArray<LineRange>): Element[] {
   if (ranges.length === 0) return [];
 
-  const stamped = [...doc.querySelectorAll("[data-src-line]")]
+  const stamped = [...doc.querySelectorAll(SRC_LINE)]
     .map((el) => ({ el, line: Number(el.getAttribute("data-src-line")) }))
     .filter((entry) => Number.isInteger(entry.line) && entry.line > 0);
   if (stamped.length === 0) return [];

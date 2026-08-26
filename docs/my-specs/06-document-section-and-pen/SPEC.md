@@ -277,6 +277,43 @@ The box for a run is the union of `first` and `last`'s rects. Because both are
 measured live, a run resizes and re-flows exactly like every other box, which is
 what spec 05 §6's re-measure already guarantees.
 
+### 4.4.1 A quote that covers a whole block answers `element`
+
+The quote layer answers **where** a comment is. It does not answer **how much**,
+and until 2026-08-26 the resolver treated the two as one question.
+
+An element anchor — a paragraph, a table, a card — records the block's opening
+text as its key, truncated at `ELEMENT_QUOTE_MAX` (320) so a long table does not
+write a copy of itself into the database on every comment. That key resolved to
+a `range`, and the range was painted. A comment on an eight-paragraph card
+therefore wore a violet wash over its first 320 characters and stopped mid-word,
+which reads as *"the comment is about this much"* — a claim that was not true.
+It was also the wash spec 15 §8.4 had already ruled out for long passages.
+
+So after the quote finds its range, one more question is asked: **does the match
+start where its block starts, and then either cover the block or stop exactly at
+the cap?** If it does, the answer is `element` — the block — rather than the
+range inside it.
+
+- **Exactly at the cap, not past it.** `>=` would be wrong: a dragged selection
+  that begins at a block's first character and runs past 320 of them is a
+  passage whose end the reviewer chose.
+- **However it was created.** A selection that happens to cover a whole
+  paragraph resolves to that paragraph, and that is not a compromise: the rule
+  is about what a comment *covers*, not about which gesture made it. The two say
+  the same thing about the same words.
+- **The paint follows for free.** An element resolution is outlined and never
+  filled, and the bar in the margin already spans exactly the block. A whole
+  block therefore says what it covers without a word of it being washed — which
+  is what the reviewer asked for: *"isn't the vertical line next to it enough?"*
+  It is. The wash is kept for a passage inside a block, where it is the only
+  thing that can say **which words**.
+
+The same truncation reached the agent. `describeTarget` printed the key as if it
+were the passage, so a comment on a long block arrived as 320 characters cut
+mid-word with nothing saying more existed. A quote at the cap is now labelled as
+an opening, and the agent is told to read past it.
+
 ### 4.5 State
 
 | Target | `ok` | `moved` | `orphaned` |

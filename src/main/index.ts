@@ -12,6 +12,7 @@ import { openLogFile, record } from "./log.ts";
 import { generationAvailable } from "./pptx/media.ts";
 import { setGenerationEnabled } from "./pptx/plan.ts";
 import { registerDocProtocol, registerDocSchemePrivileges } from "./protocol.ts";
+import { migrateWorkingCopyNames } from "./work.ts";
 
 let window: BrowserWindow | null = null;
 
@@ -102,6 +103,11 @@ void app.whenReady().then(() => {
     allowGenerationServer();
   }
   setGenerationEnabled(generation);
+  // Spec 15 §3.1 — beside the database migration and for the same reason: a
+  // working copy on disk was written by an older REX, and it has to keep
+  // opening. Before the first window, because the first thing a window does is
+  // render one.
+  migrateWorkingCopyNames();
   const db = openDatabase();
   registerIpc(
     db,

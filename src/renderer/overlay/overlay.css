@@ -49,6 +49,31 @@
   --ok: #66ad93;
   --paper: #fbfaf8;
 
+  /*
+    Spec 18 §3 — the two families, one meaning per colour.
+
+    THE DOCUMENT — what the change did to the text. `--removed` carries the same
+    value as `--lost` and is deliberately a second name for it: `--lost` is the
+    general red of deletes, denies, errors and stops, and the diff needs a name
+    of its own so the two can move apart without a rename.
+
+    THE COMMENT — what happened to one comment. `--gone` is grey because a
+    comment whose text is gone is NOT an alarm: REX's own ACT run creates them
+    as normal operation, and nothing is lost — the comment keeps its quote. Grey
+    is what this design already uses for absence. Red was the collision spec 18
+    §1 measured: a removed block and a comment with no text sat in one tree row,
+    both red, and the row could not be read.
+
+    `--done` is the resolved dot in the tree. White, so it never joins the green
+    family now that green means "a block the change added".
+  */
+  --added: #6fbf73;
+  --removed: #d05744;
+  --removed-text: #eda393;
+  --gone: #8b9298;
+  --gone-text: #b8bfc5;
+  --done: #e6eaed;
+
   /* Card washes — resting, then selected. §"CARD WASHES" on the System page. */
   --wash-ok: #22262a;
   --wash-ok-edge: #3b4249;
@@ -62,6 +87,18 @@
   --wash-lost-edge: #4a3229;
   --wash-lost-on: #3a2721;
   --wash-lost-edge-on: #a04b39;
+  /*
+    The gone family — a comment whose text no longer exists (spec 18 §2).
+
+    Colourless on purpose, and separated from the neutral `--wash-ok` card by
+    its EDGE rather than by its ground: the edge is a step lighter than the
+    ordinary one, so the card reads as outlined and inert rather than as
+    something that went wrong.
+  */
+  --wash-gone: #202226;
+  --wash-gone-edge: #454b52;
+  --wash-gone-on: #292d32;
+  --wash-gone-edge-on: #8b9298;
   /*
     The note family — a comment saved and sent to nobody.
 
@@ -286,19 +323,45 @@
   color: var(--ok);
 }
 
-.rex-pill-lost,
-.rex-pill-write {
-  background: #3a2721;
-  color: var(--lost-text);
+/*
+  Spec 01 §5.2 — READ ONLY, beside the file name.
+
+  Grey and not amber. A PDF Apply cannot write to is the format being a PDF; it
+  is not a thing that went wrong, and it never becomes one. Amber is reserved
+  for `FILE CHANGED`, which is an event and which the reviewer must act on.
+*/
+.rex-pill-quiet {
+  background: var(--sunk);
+  color: var(--muted);
 }
 
-.rex-pill-lost::before,
-.rex-pill-write::before {
-  background: var(--lost);
+.rex-pill-quiet::before {
+  background: var(--faint);
+}
+
+/*
+  Spec 18 §3 — the two used to share this rule, and they mean opposite things.
+
+  `rex-pill-write` is the write-capable agent, which is the one place red is
+  meant to stop a reviewer. `rex-pill-lost` is a comment whose text is gone,
+  which is normal operation.
+*/
+.rex-pill-lost {
+  background: var(--wash-gone-on);
+  color: var(--gone-text);
+}
+
+.rex-pill-lost::before {
+  background: var(--gone);
 }
 
 .rex-pill-write {
   background: var(--write-bg);
+  color: var(--lost-text);
+}
+
+.rex-pill-write::before {
+  background: var(--lost);
 }
 
 /* ── Segmented control ───────────────────────────────────── */
@@ -828,11 +891,17 @@
 }
 
 .rex-dot-resolved {
-  background: #3f7a65;
+  background: var(--done);
 }
 
-.rex-dot-orphaned {
-  background: var(--lost);
+/* Spec 18 §4.1 — the document's own two, and the only red in a tree row. */
+.rex-dot-added {
+  background: var(--added);
+  margin-left: 3px;
+}
+
+.rex-dot-removed {
+  background: var(--removed);
   margin-left: 3px;
 }
 
@@ -842,8 +911,49 @@
   font-variant-numeric: tabular-nums;
 }
 
-.rex-count-orphaned {
-  color: var(--lost);
+/*
+  Spec 18 §4.1 — the number carries its dot's colour, like every other count.
+
+  `--link` and not `--action`: `--action` is a border and fill colour in this
+  design and is never text. At 11px on `--panel` it reads 3.6:1, below the 4.5:1
+  a number this small needs. `--link` is the same blue made legible, and is
+  already how every other piece of blue text in REX is drawn.
+*/
+.rex-count-open {
+  color: var(--link);
+}
+
+/*
+  Spec 18 §3 — a glyph, not a dot.
+
+  The one comment state that has to stay legible beside two diff colours, so it
+  is taken off the colour axis entirely. `?` also says what the state is: the
+  text this comment was written on is a question nobody can answer any more.
+
+  Sized and centred on the 5px dot's footprint so the markers stay in one
+  column down the tree — a row whose numbers do not line up is a row nobody
+  scans.
+*/
+.rex-gone-mark {
+  width: 5px;
+  color: var(--gone);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  text-align: center;
+  margin-left: 3px;
+}
+
+.rex-count-gone {
+  color: var(--gone);
+}
+
+.rex-count-added {
+  color: var(--added);
+}
+
+.rex-count-removed {
+  color: var(--removed);
 }
 
 /* ── Document pane ───────────────────────────────────────── */
@@ -862,13 +972,29 @@
   are NOT: they float on the page itself, where the chrome palette has no ground
   to sit on, and they keep spec 08 §4.1's paper colours.
 */
+/*
+  A column: the change's bar, then the row of panes.
+
+  Spec 15 put the bar inside the new version's head, and spec 16 took it out
+  again — `Original` hides that half, and with it went the only way back to
+  `Both`. A control that governs both panes cannot live inside one of them.
+*/
 .rex-doc {
   position: relative;
   display: flex;
   flex: 1;
+  flex-direction: column;
   min-width: 0;
   background: var(--bg);
   overflow: hidden;
+}
+
+/* The two halves, side by side, under whatever the column put above them. */
+.rex-doc-panes {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 
 .rex-frame {
@@ -924,11 +1050,19 @@
 }
 
 /* The frame fills what the head leaves, and the marks are drawn over it. */
+/*
+  Every mark REX draws is an absolutely-positioned child of this box, placed at
+  `box.y - scroll.y` — which goes NEGATIVE for a block scrolled off the top of
+  the frame. Without the clip those marks paint over the head above them: a
+  changed block scrolled halfway out drew its green outline across the bar.
+  Reported on 2026-08-26.
+*/
 .rex-half-body {
   position: relative;
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 /*
@@ -951,6 +1085,26 @@
   font-size: 11px;
 }
 
+/*
+  The change's own bar, across both panes.
+
+  The same register as a pane's head — it is the same kind of thing, a strip of
+  facts and controls above a document — but it spans the pair, because
+  everything on it is about the pair: which of the two is on screen, and what
+  becomes of the proposal.
+*/
+.rex-workbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+  font-size: 11px;
+}
+
 .rex-half-title {
   color: var(--fg);
   font-weight: 600;
@@ -968,11 +1122,11 @@
 }
 
 .rex-added {
-  color: #6fbf73;
+  color: var(--added);
 }
 
 .rex-removed {
-  color: var(--lost-text);
+  color: var(--removed-text);
 }
 
 /* The three positions push to the right, beside the answers they belong with. */
@@ -1038,7 +1192,7 @@
 */
 .rex-removed-outline {
   position: absolute;
-  border: 2px solid var(--lost);
+  border: 2px solid var(--removed);
   border-radius: 2px;
   background: rgb(208 87 68 / 12%);
   pointer-events: none;
@@ -1047,19 +1201,25 @@
 /* ── The marks in the margin (spec 15 §8) ────────────────── */
 
 /*
-  §8.2 — a bar beside the block, and nothing on the text.
+  §8.2 — a bar in one fixed lane down the left of the pane, and nothing on the
+  text.
 
   It replaces a wash plus a 1.5px underline on every commented passage, which
   made a document with six comments in it unreadable (§8.1). The state
   vocabulary is unchanged — steel, amber, drained, red — it just costs the
   reader nothing now that it lives in the margin.
+
+  18px wide because that is what it takes to hold a number inside it (§8.3). A
+  3px bar with a 16px chip overlapping it was the earlier shape, and two stacked
+  chips then covered each other: a lane 5px wide cannot separate marks 16px
+  across.
 */
 .rex-margin {
   position: absolute;
-  width: 3px;
+  width: 18px;
   padding: 0;
   border: none;
-  border-radius: 2px;
+  border-radius: 3px;
   background: var(--action);
   cursor: pointer;
 }
@@ -1073,7 +1233,7 @@
 }
 
 .rex-margin-lost {
-  background: var(--lost);
+  background: var(--gone);
 }
 
 /* §8.4 — the comment being read outranks its state, exactly as it always has. */
@@ -1083,26 +1243,27 @@
 }
 
 /*
-  §8.3 — the number, on the bar it belongs to.
+  §8.3 — the number INSIDE the bar it belongs to.
 
-  This is the rail's disc, moved to the thing it names. `top` is set inline so
-  two bars that start at the same height do not stack their numbers on top of
-  each other.
+  This is the rail's disc, moved into the thing it names. The bar carries its
+  own width for it, so there is no chip to overlap a neighbour and no stagger to
+  read as a stack of discs beside a hairline. `top` is still set inline, for the
+  one case the lanes cannot separate: a pane too narrow to give every
+  overlapping bar a lane of its own.
 */
 .rex-margin-number {
   position: absolute;
-  right: 5px;
+  left: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
+  width: 18px;
   height: 16px;
-  border-radius: 50%;
-  background: inherit;
   color: #fff;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .rex-margin-done .rex-margin-number {
@@ -1111,6 +1272,78 @@
 
 .rex-margin-moved .rex-margin-number {
   color: #2b2000;
+}
+
+/* ── Add: a place between two blocks (spec 16 §6) ────────── */
+
+/*
+  §6.6 — the layer takes the pointer ONLY inside the band it is offering.
+
+  It is drawn at the band's own height, which is at most 16px, so selecting text
+  across a gap still works: everywhere else there is no element here at all.
+*/
+.rex-gap {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  /* The pill is taller than the band and is allowed to spill out of it. */
+  overflow: visible;
+}
+
+/* §6.1 — a 1px rule across the text column, where the insertion would go. */
+.rex-gap-line {
+  flex: 1;
+  height: 1px;
+  background: var(--action);
+}
+
+/*
+  At the start of the rule and ON it, not beside it.
+
+  Measured on 2026-08-26: the paper leaves about 20px of margin at the width
+  both panes are read at, and the bar lane already stands in it. A pill hung to
+  the LEFT of the column therefore ran off the edge of the pane and was clipped.
+  Sitting on the rule costs the first few pixels of a line that is decoration
+  anyway, and it never leaves the pane.
+*/
+.rex-gap-pill {
+  position: absolute;
+  left: 0;
+  display: flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--action);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/*
+  §7.3 — a saved gap's own rule.
+
+  A gap has no height, so its bar can only say THAT there is a comment here.
+  This is what says where. Drawn in the overlay over the pane; spec 01 §6.7 is
+  not bent for a horizontal line any more than for a `<mark>`.
+*/
+.rex-gap-rule {
+  position: absolute;
+  height: 1px;
+  background: var(--action);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.rex-gap-rule-active {
+  background: #7a4fa3;
+  opacity: 1;
 }
 
 /* ── Block anchors ───────────────────────────────────────── */
@@ -1772,6 +2005,38 @@
 }
 
 /*
+  A word-shaped control in the card's header row — Resolve, and its other face,
+  Reopen.
+
+  It sits here rather than at the foot of the card because it acts on the whole
+  comment, like the name and the delete beside it, while the foot is the
+  composer. It is quieter than `.rex-button`: the header is chrome, and a
+  primary-weight button up here would outrank the answer it is about.
+*/
+.rex-head-button {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rex-head-button:hover:not(:disabled) {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+
+.rex-head-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/*
   Spec 08 §3.1 — the tab bar.
 
   The same segmented control the top bar uses for Document / Graph, stretched
@@ -1832,28 +2097,61 @@
 
 /* ── Filter chips ────────────────────────────────────────── */
 
+/*
+  The sidebar is draggable, so the row has no width it can rely on. When the
+  chips no longer fit, whole chips move to a second line — `wrap` here, `nowrap`
+  and `flex: none` on the chip below, and `height` traded for `min-height` so
+  the head grows with them. Without those the chip kept its 24px height and
+  wrapped its own text inside it, which is what `this file` was doing on
+  2026-08-26: two lines of 12px text in a 24px pill.
+
+  This is the net, not the plan. §4 shortens the two widest labels so the four
+  chips fit one line at the sidebar's resting width.
+*/
 .rex-filters {
-  display: flex;
-  gap: 6px;
+  box-sizing: border-box;
+  flex-wrap: wrap;
+  height: auto;
+  min-height: 40px;
+  padding-top: 7px;
+  padding-bottom: 7px;
 }
 
 .rex-chip {
   display: flex;
   align-items: center;
   gap: 6px;
+  flex: none;
   height: 24px;
-  padding: 0 11px;
+  padding: 0 9px;
   border: 1px solid var(--rule);
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
   font: inherit;
   font-size: 12px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
 .rex-chip:hover {
   border-color: var(--faint);
+}
+
+/*
+  The file filter is a second question, not a fourth answer.
+
+  `open`, `resolved` and `orphaned` are one state each and only ever one at a
+  time; this one asks what the comment is ABOUT, and narrows whichever of the
+  three is on. A fourth identical pill in the same row would read as a fourth
+  state, so a hairline splits the row into its two halves.
+*/
+.rex-filter-split {
+  flex: none;
+  align-self: stretch;
+  width: 1px;
+  margin: 3px 2px;
+  background: var(--rule);
 }
 
 .rex-chip-on {
@@ -1902,7 +2200,7 @@
 }
 
 .rex-chip-on .rex-chip-count-orphaned {
-  background: var(--lost);
+  background: var(--gone);
 }
 
 /* ── Thread cards — treatment C, the wash ────────────────── */
@@ -1982,8 +2280,8 @@
 }
 
 .rex-thread-orphaned {
-  border-color: var(--wash-lost-edge);
-  background: var(--wash-lost);
+  border-color: var(--wash-gone-edge);
+  background: var(--wash-gone);
 }
 
 .rex-thread-done {
@@ -2001,7 +2299,7 @@
 }
 
 .rex-thread-orphaned:hover {
-  border-color: var(--wash-lost-edge-on);
+  border-color: var(--wash-gone-edge-on);
 }
 
 .rex-thread-done:hover {
@@ -2021,8 +2319,8 @@
 }
 
 .rex-thread-on.rex-thread-orphaned {
-  border-color: var(--wash-lost-edge-on);
-  background: var(--wash-lost-on);
+  border-color: var(--wash-gone-edge-on);
+  background: var(--wash-gone-on);
 }
 
 .rex-thread-on.rex-thread-done {
@@ -2088,13 +2386,46 @@
 }
 
 .rex-state-orphaned {
-  color: var(--lost-text);
+  color: var(--gone-text);
   font-weight: 500;
 }
 
 .rex-state-resolved {
   color: var(--ok);
   font-weight: 500;
+}
+
+/* Spec 17 §3.2 — the run this comment's reviewer ended. Red, so a list of
+   fourteen can be scanned for the one that did not finish. */
+.rex-state-stopped {
+  color: var(--lost-text);
+  font-weight: 500;
+}
+
+/*
+  Spec 17 §3.1 — the run, and the one control that ends it, on one line.
+
+  The row exists so the button sits at the far end of the column rather than
+  against the spinner. A Stop pressed by accident is a paid run thrown away, so
+  it is kept away from the text a reviewer's eye is already on.
+*/
+.rex-running {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+/*
+  Smaller than a send, and it carries no colour of its own. Red would say
+  irreversible, which is what REX spends red on — the delete — and a stop
+  destroys nothing: the conversation, the session and the working copy all
+  survive it.
+*/
+.rex-button-stop {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11px;
 }
 
 .rex-working {
@@ -2151,8 +2482,8 @@
 }
 
 .rex-token-orphaned {
-  background: var(--lost);
-  color: #fff;
+  background: var(--gone);
+  color: var(--bg);
   font-weight: 700;
 }
 
@@ -2171,46 +2502,14 @@
   outline-offset: 2px;
 }
 
-/* ── Orphan strip ────────────────────────────────────────── */
-
-.rex-tray {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  margin-top: 4px;
-  padding: 9px 12px;
-  border: 1px dashed var(--wash-lost-edge);
-  border-radius: 2px;
-  background: var(--wash-lost);
-  color: var(--lost-text);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rex-tray::before {
-  content: "";
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--lost);
-}
-
-.rex-tray-more {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 11px;
-}
+/* ── The gone lane's own note ─────────────────────────────── */
 
 .rex-orphan-note {
   padding: 10px 12px;
-  border: 1px solid var(--wash-lost-edge);
+  border: 1px solid var(--wash-gone-edge);
   border-radius: 2px;
-  background: var(--wash-lost);
-  color: var(--lost-text);
+  background: var(--wash-gone);
+  color: var(--gone-text);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -2297,8 +2596,8 @@
 }
 
 .rex-card-anchor.rex-thread-orphaned {
-  border-color: var(--wash-lost-edge);
-  background: var(--wash-lost);
+  border-color: var(--wash-gone-edge);
+  background: var(--wash-gone);
 }
 
 .rex-card-anchor.rex-thread-done {
@@ -2370,6 +2669,42 @@
   color: var(--fg-dim);
 }
 
+/*
+  Spec 12 §3.3 — the mode a message was sent in, beside `YOU`.
+
+  A filled pill in the mode's own colour, and deliberately the SAME three
+  values the switch beside Send uses rather than near ones: the switch is where
+  the reviewer chose the mode, and the transcript is where they read back what
+  they chose. Two blues that are almost the same read as a mistake, not a pair.
+
+  Filled rather than outlined, because that is how the switch draws the segment
+  that is on — the pill is the chosen segment, kept.
+
+  A message with no recorded mode gets no pill at all, which is the honest look
+  for "nobody wrote it down".
+*/
+.rex-sent {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--bg);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.rex-sent-ask {
+  background: #4d84e8;
+}
+
+.rex-sent-act {
+  background: #d9b23a;
+}
+
+.rex-sent-note {
+  background: var(--note);
+}
+
 .rex-turn-agent {
   gap: 8px;
   padding: 11px 12px;
@@ -2436,6 +2771,34 @@
 
 .rex-turn-note .rex-turn-text {
   color: var(--muted);
+  font-size: 12.5px;
+}
+
+/*
+  Spec 17 §3.2 — the reviewer ended the run here.
+
+  RED, and version 1.0 of this spec had it grey. The argument for grey was that
+  nothing went wrong, which is true and is not the point: this block is the one
+  thing in a stopped thread that explains why the transcript ends mid-sentence,
+  and a reviewer scrolling a long conversation has to be able to FIND it. Grey
+  is the colour REX uses for things that may be skipped.
+
+  So it takes the red vocabulary — the text colour an error uses — and keeps the
+  rule an error does not have, at full strength. What separates it from a
+  failure is the word `STOPPED` and the sentence under it, both of which name a
+  person as the cause.
+*/
+.rex-turn-stopped {
+  padding-left: 10px;
+  border-left: 2px solid var(--lost);
+}
+
+.rex-turn-stopped .rex-label,
+.rex-turn-stopped .rex-turn-text {
+  color: var(--lost-text);
+}
+
+.rex-turn-stopped .rex-turn-text {
   font-size: 12.5px;
 }
 
@@ -3022,6 +3385,15 @@
 
 .rex-trace-note .rex-trace-text {
   color: var(--muted);
+}
+
+/* Spec 17 §3.2 — red, so the row where the run ended is findable in a long
+   trace. The same reasoning as the card's block; the argument is written out
+   in full there. */
+.rex-trace-stopped .rex-label,
+.rex-trace-stopped .rex-trace-icon,
+.rex-trace-stopped .rex-trace-text {
+  color: var(--lost-text);
 }
 
 /* ── Reply box ───────────────────────────────────────────── */
@@ -3777,9 +4149,9 @@
   align-items: flex-start;
   gap: 9px;
   padding: 10px 12px;
-  border: 1px dashed var(--wash-lost-edge);
+  border: 1px dashed var(--wash-gone-edge);
   border-radius: 2px;
-  background: var(--wash-lost);
+  background: var(--wash-gone);
 }
 
 .rex-result-orphan-text {
@@ -3789,7 +4161,7 @@
 }
 
 .rex-result-orphan-text span:first-child {
-  color: var(--lost-text);
+  color: var(--gone-text);
   font-size: 12px;
   line-height: 1.45;
 }
@@ -3934,15 +4306,6 @@
 }
 
 /*
-  A saved comment's ink, and the selection's, are drawn over the pane by
-  DocumentView rather than by the layer — the layer is mounted only while the
-  pen is on, and the ink outlives it.
-*/
-.rex-ink-shown path {
-  opacity: 0.85;
-}
-
-/*
   On the paper, like the path bar, and for the same reason: it belongs to the
   document pane and has to read against it.
 */
@@ -4022,12 +4385,20 @@
   clearance. Overlay-scrollbar systems get a slightly wider margin than they
   need, which is the harmless direction to be wrong in.
 */
+/*
+  `center`, because the row does not hold one height. The `changed blocks only`
+  tray adds its own padding and dashed edge, so it stands 8px taller than the
+  chips beside it — and a stretch row put `add` at the TOP of that line rather
+  than on the same centre line as `pick element` and `pen`. Reported on
+  2026-08-26.
+*/
 .rex-modes {
   position: absolute;
   right: 72px;
   bottom: 14px;
   z-index: 6;
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
@@ -4049,6 +4420,40 @@
 .rex-mode:hover {
   border-color: #d6d1c8;
   color: #4a453e;
+}
+
+/*
+  Spec 16 §4.1 — what pick and pen answer on in the new-version pane, drawn as
+  a box AROUND the two of them.
+
+  A trailing caption was tried first and it failed twice over: it sat beside
+  `add`, which the rule does not limit, and it floated free of everything. A
+  constraint on two of three controls has to enclose those two. So the label
+  leads them inside a dashed edge, and `add` sits outside it — which is exactly
+  what it means.
+
+  Dashed rather than solid: a solid hairline here reads as another button.
+*/
+.rex-mode-scope {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px 3px 8px;
+  border: 1px dashed #b9b0a4;
+  border-radius: 4px;
+  /* A tray under the two chips, so the edge is not the only thing binding
+     them. Warmer than the chips it holds, so the two layers stay legible. */
+  background: #e6e2db;
+}
+
+.rex-mode-scope-label {
+  color: #6f6961;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
 }
 
 /* ── The path bar ────────────────────────────────────────── */

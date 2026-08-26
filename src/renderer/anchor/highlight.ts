@@ -18,7 +18,7 @@
 // moved to the bar in the margin, which is where they no longer cost the
 // reader anything.
 
-import { HIGHLIGHT } from "../../shared/tokens.ts";
+import { HIGHLIGHT, PAPER } from "../../shared/tokens.ts";
 import type { AnchorState, ThreadStatus } from "../../shared/types.ts";
 
 /**
@@ -45,15 +45,31 @@ const ACTIVE_HIGHLIGHT = "rex-active";
  * pseudo-element cannot take box-shadow — the property set is colour,
  * background-color, text-decoration, text-shadow and -webkit-text-stroke — so
  * it is written as the text-decoration that paints the same rule.
+ *
+ * **`color` is set with every background, and that is the whole dark-document
+ * fix.** Both washes are near-white by design: they were drawn against `PAPER`,
+ * which is the ground for the Markdown REX renders itself. A local HTML file is
+ * rendered untouched (spec 01 §5.4 point 3), so one that themes itself dark
+ * keeps its own near-white body text — and near-white text on a near-white wash
+ * is a passage nobody can read. Measured on 2026-08-26 on the three ProtoBot
+ * review documents, which theme themselves with `prefers-color-scheme` alone.
+ *
+ * Stating the ink is the fix that needs nothing else. The alternative was to
+ * measure the document's ground and swap in a dark wash, which means measuring
+ * again every time the reader's OS preference flips, and `DocumentView` already
+ * carries the note about what measuring this frame's ground cost last time.
+ * A highlight owns both halves of its own contrast, at any hour, on any page.
  */
 const HIGHLIGHT_CSS = `
 ::highlight(${ACTIVE_HIGHLIGHT}) {
   background-color: ${HIGHLIGHT.activeBg};
+  color: ${PAPER.ink};
   text-decoration: underline 2px ${HIGHLIGHT.activeRule};
   text-underline-offset: 3px;
 }
 ::highlight(${HOVER_HIGHLIGHT}) {
   background-color: ${HIGHLIGHT.hoverBg};
+  color: ${PAPER.ink};
 }
 `;
 

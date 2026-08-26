@@ -11,9 +11,9 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { after, before, describe, test } from "node:test";
 
 const WORK = mkdtempSync(join(tmpdir(), "rex-work-"));
@@ -33,6 +33,7 @@ const {
   discardWorkingCopy,
   forkWorkingCopy,
   listWorkingCopies,
+  migrateWorkingCopyNames,
   movedSince,
   readMeta,
   readMetaByPath,
@@ -40,6 +41,7 @@ const {
   saveRevision,
   takeBeforeSet,
   undoLastRevision,
+  workDir,
 } = await import("../src/main/work.ts");
 const { workingDiff } = await import("../src/main/workDiff.ts");
 const { changedFiles } = await import("../src/main/git.ts");
@@ -124,6 +126,60 @@ describe("§3 — the working copy", () => {
     assert.equal(readMetaByPath(doc)?.documentId, "doc-1");
     assert.equal(readMetaByPath(join(repo, "README.md")), null);
     assert.equal(listWorkingCopies().length, 1);
+  });
+});
+
+// The agent reads the working copy and quotes the path it read back to the
+// reviewer, so these names end up in the conversation. `current.md:31` read as
+// a different file entirely — reported on 2026-08-26.
+describe("§3.1 — the files are named after the document", () => {
+  test("base, current and every revision carry the document's own name", () => {
+    const meta = forkWorkingCopy("doc-named", doc);
+    assert.equal(basename(basePath(meta)), "components.original.md");
+    assert.equal(basename(currentPath(meta)), "components.new.md");
+
+    writeFileSync(currentPath(meta), "a revision\n");
+    const next = saveRevision(meta, { applyRunId: "r-n", threadId: "t", before: "before" });
+    assert.ok(next);
+    assert.ok(existsSync(join(workDir("doc-named"), "components.v1.md")));
+    discardWorkingCopy("doc-named");
+  });
+
+  test("a copy written by the old REX is renamed, not lost", () => {
+    // The old layout, by hand: this is what is already on disk for a reviewer
+    // who has a change open across the change.
+    const dir = workDir("doc-old");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "base.md"), ORIGINAL);
+    writeFileSync(join(dir, "current.md"), "the new version\n");
+    writeFileSync(join(dir, "rev-1.md"), "the new version\n");
+    writeFileSync(
+      join(dir, "meta.json"),
+      JSON.stringify({
+        documentId: "doc-old",
+        path: doc,
+        baseSha256: "whatever",
+        forkedAt: "2026-08-01T00:00:00.000Z",
+        revisions: [{ n: 1, applyRunId: "r-old", threadId: "t", at: "x", sha256: "y" }],
+        current: 1,
+      }),
+    );
+
+    migrateWorkingCopyNames();
+
+    const meta = readMeta("doc-old") as NonNullable<ReturnType<typeof readMeta>>;
+    assert.equal(readFileSync(currentPath(meta), "utf8"), "the new version\n");
+    assert.equal(readFileSync(basePath(meta), "utf8"), ORIGINAL);
+    assert.ok(existsSync(join(dir, "components.v1.md")), "the revision moved too");
+    assert.ok(!existsSync(join(dir, "current.md")), "and the old name is gone");
+    discardWorkingCopy("doc-old");
+  });
+
+  test("running it again does nothing at all", () => {
+    const meta = forkWorkingCopy("doc-twice", doc);
+    migrateWorkingCopyNames();
+    assert.equal(readFileSync(currentPath(meta), "utf8"), ORIGINAL);
+    discardWorkingCopy("doc-twice");
   });
 });
 

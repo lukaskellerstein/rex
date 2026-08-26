@@ -36,14 +36,23 @@ interface Props {
   threads: ThreadWithMessages[];
   /** Spec 14 §5 — every group in this workspace, at every depth. */
   groups: CommentGroup[];
-  /** Null when no workspace is open: there is no root to hang a group on. */
+  /** Null when no workspace is open: there is no root to hang a folder on. */
   root: string | null;
+  /**
+   * The document on the paper right now, so the panel can be narrowed to it.
+   *
+   * A workspace's comments are one list, which is what makes *"where else did I
+   * say this?"* answerable — but most of the time the question is the other one:
+   * *"what have I said about the thing I am reading?"* Null when nothing is
+   * open, and then the chip is not offered rather than offered and meaningless.
+   */
+  openDocument: { id: string; name: string } | null;
   /** Null means no target of this thread has been checked yet — §5.4. */
   stateById: Map<string, AnchorState | null>;
   labelById: Map<string, string | null>;
   busyThreads: string[];
   onSelect: (threadId: string) => void;
-  /** Spec 06 §6.4 — hovering a row shows that comment's ink, if it was drawn. */
+  /** Hovering a row lights that comment's passages on the paper. */
   onHover: (threadId: string | null) => void;
   onSynthesise: (refThreadIds: string[], note: string) => void;
   /** Removes a comment for good. The row confirms first. */
@@ -60,6 +69,23 @@ interface Props {
 
 const FILTERS: Filter[] = ["open", "resolved", "orphaned"];
 
+/**
+ * Spec 18 §3 — the lane is called **gone** everywhere a person reads it.
+ *
+ * `orphaned` stays the key, because it is the anchor state's own name and it
+ * reaches the database, the types and the IPC payloads. It was also the chip's
+ * label, and that was two mistakes in one word: the tree's tooltip already said
+ * "comments whose text is gone", so the two surfaces named one lane twice; and
+ * `orphaned` is the widest word in the row, which is what pushed `this file`
+ * onto a second line at the default sidebar width. Measured 2026-08-26 — the
+ * four chips needed 389px of a 384px row, and `gone` gives back 26px.
+ */
+const LABEL: Record<Filter, string> = {
+  open: "open",
+  resolved: "resolved",
+  orphaned: "gone",
+};
+
 /** Which row a drag is over, and what dropping there would mean. */
 interface Hover {
   rowId: string;
@@ -68,6 +94,8 @@ interface Hover {
 
 export function Sidebar(props: Props): React.JSX.Element {
   const [filter, setFilter] = useState<Filter>("open");
+  /** Narrowed to the open document. Off by default: the list is the workspace's. */
+  const [onlyThisFile, setOnlyThisFile] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [chosen, setChosen] = useState<string[]>([]);
   const [note, setNote] = useState("");
@@ -84,22 +112,52 @@ export function Sidebar(props: Props): React.JSX.Element {
     setNote("");
   };
 
-  /** One rule, used for both the chip counts and the list. */
+  /**
+   * One rule, used for both the chip counts and the list.
+   *
+   * Spec 18 §2 — the orphaned lane is **open-only**, because `resolved` is
+   * terminal. A comment that was dealt with and whose text was later removed
+   * stays resolved: the orphan lane exists so a reviewer does not lose a
+   * question they asked, and an answered question cannot be lost. Without the
+   * status test it was pulled out of `resolved` and flagged all over again.
+   */
   const belongsTo = useMemo(() => {
     const state = props.stateById;
     return (thread: ThreadWithMessages, which: Filter): boolean => {
-      const orphaned = state.get(thread.id) === "orphaned";
+      const orphaned = state.get(thread.id) === "orphaned" && thread.status === "open";
       if (which === "orphaned") return orphaned;
       return !orphaned && thread.status === which;
     };
   }, [props.stateById]);
 
   const numbers = new Map(props.threads.map((thread, position) => [thread.id, position + 1]));
-  const counts = Object.fromEntries(
-    FILTERS.map((which) => [which, props.threads.filter((t) => belongsTo(t, which)).length]),
-  ) as Record<Filter, number>;
 
-  const visible = props.threads.filter((thread) => belongsTo(thread, filter));
+  /**
+   * Whether this comment is about the document on the paper.
+   *
+   * Any target counts, not just the first: one comment can be about a table
+   * here and a paragraph in another file, and it is about **both** of them.
+   * Asking only `thread.documentId` would drop it from the file whose paragraph
+   * it is half about.
+   */
+  const aboutOpenDocument = (thread: ThreadWithMessages): boolean => {
+    const id = props.openDocument?.id;
+    if (!id) return true;
+    return thread.documentId === id || thread.targets.some((target) => target.documentId === id);
+  };
+
+  // The two filters are different questions — *what state is it in* and *what
+  // is it about* — so they narrow one after the other rather than replacing
+  // each other. Every count below is what pressing that chip would leave.
+  const listed = onlyThisFile ? props.threads.filter(aboutOpenDocument) : props.threads;
+  const counts = Object.fromEntries(
+    FILTERS.map((which) => [which, listed.filter((t) => belongsTo(t, which)).length]),
+  ) as Record<Filter, number>;
+  const fileCount = props.threads.filter(
+    (thread) => aboutOpenDocument(thread) && belongsTo(thread, filter),
+  ).length;
+
+  const visible = listed.filter((thread) => belongsTo(thread, filter));
 
   /**
    * Two trees, and both are needed.
@@ -142,12 +200,12 @@ export function Sidebar(props: Props): React.JSX.Element {
   /**
    * Spec 14 §7.4 — a new group arrives with its name box already open.
    *
-   * Naming it is the point, and a group called "New group" that nobody renamed
-   * is worse than no group. The placeholder name exists only because main
-   * refuses a nameless one.
+   * Naming it is the point, and a folder called "New folder" that nobody
+   * renamed is worse than no folder. The placeholder name exists only because
+   * main refuses a nameless one.
    */
   const addGroup = async (parentId: string | null): Promise<void> => {
-    const id = await props.onGroupCreate(parentId, "New group");
+    const id = await props.onGroupCreate(parentId, "New folder");
     if (id) setRenaming(id);
   };
 
@@ -291,10 +349,38 @@ export function Sidebar(props: Props): React.JSX.Element {
             className={`rex-chip ${filter === option ? "rex-chip-on" : ""}`}
             onClick={() => setFilter(option)}
           >
-            {option}
+            {LABEL[option]}
             <span className={`rex-chip-count rex-chip-count-${option}`}>{counts[option]}</span>
           </button>
         ))}
+
+        {/*
+          A second question, and drawn as one.
+
+          The three chips beside it are one state each and only ever one at a
+          time. This one is not a fourth state — it is *what the comment is
+          about* — so it toggles on its own and narrows whichever of the three
+          is on. The rule down its left edge is what says the row has two halves
+          rather than four choices. Reported on 2026-08-26.
+
+          One word, and the rule and the tooltip carry the rest. `this file` was
+          the widest label in the row after `orphaned`, and the two together put
+          it 54px over a 356px row — so it wrapped its own text inside its pill.
+        */}
+        {props.openDocument ? (
+          <>
+            <span className="rex-filter-split" aria-hidden="true" />
+            <button
+              type="button"
+              className={`rex-chip ${onlyThisFile ? "rex-chip-on" : ""}`}
+              title={`Show only the comments about ${props.openDocument.name}`}
+              onClick={() => setOnlyThisFile(!onlyThisFile)}
+            >
+              file
+              <span className="rex-chip-count">{fileCount}</span>
+            </button>
+          </>
+        ) : null}
       </nav>
 
       {/*
@@ -320,7 +406,11 @@ export function Sidebar(props: Props): React.JSX.Element {
         ) : null}
 
         {rows.length === 0 ? (
-          <p className="rex-meta">No {filter} comments.</p>
+          // Which of the two filters emptied it, so the way back is obvious.
+          <p className="rex-meta">
+            No {filter} comments
+            {onlyThisFile && props.openDocument ? ` about ${props.openDocument.name}` : ""}.
+          </p>
         ) : (
           rows.map((row) =>
             row.kind === "group" ? (
@@ -386,14 +476,6 @@ export function Sidebar(props: Props): React.JSX.Element {
             ),
           )
         )}
-
-        {filter !== "orphaned" && counts.orphaned > 0 ? (
-          <button type="button" className="rex-tray" onClick={() => setFilter("orphaned")}>
-            {counts.orphaned} comment{counts.orphaned === 1 ? "" : "s"} lost{" "}
-            {counts.orphaned === 1 ? "its" : "their"} anchor
-            <span className="rex-tray-more">show</span>
-          </button>
-        ) : null}
       </div>
 
       <div className="rex-side-foot">
@@ -446,17 +528,17 @@ export function Sidebar(props: Props): React.JSX.Element {
                 <button
                   type="button"
                   className="rex-button"
-                  title="Make a group at the top level"
+                  title="Make a folder at the top level"
                   onClick={() => void addGroup(null)}
                 >
                   <FolderClosed />
-                  New group
+                  New folder
                 </button>
               ) : null}
             </div>
             <span className="rex-meta">
               {props.root
-                ? "drag a row to reorder it, or onto a group to file it"
+                ? "drag a row to reorder it, or onto a folder to file it"
                 : "discuss several comments together"}
             </span>
           </>

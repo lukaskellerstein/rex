@@ -19,6 +19,7 @@ import {
   createSectionAnchor,
   createTextAnchor,
 } from "../anchor/create.ts";
+import { createGapAnchor, gapLabel, stampedLineOf } from "../anchor/gap.ts";
 import { type HighlightHit, paintHighlights } from "../anchor/highlight.ts";
 import {
   blocksInDrawing,
@@ -29,7 +30,12 @@ import {
 } from "../anchor/lasso.ts";
 import {
   changedBlocks,
+  contentColumn,
   describeElement,
+  describeGap,
+  GAP_MARK_HEIGHT,
+  gapNeighboursAdjacent,
+  gapRect,
   type PickScope,
   rectOfRun,
   type ScopeChain,
@@ -38,6 +44,7 @@ import {
   scopeChainForAnchor,
   scopeChainForElement,
   scopeChainForRange,
+  stampedBlocks,
   toDocumentRect,
   unionRect,
 } from "../anchor/pick.ts";
@@ -76,6 +83,15 @@ export interface CheckedTarget {
    * item or the table cell that contains it, and a block target reports itself.
    */
   bar: ScopeRect | null;
+  /**
+   * Spec 16 §7.3 — the 1px line across the text column at a gap's insertion
+   * point, and null for every other kind.
+   *
+   * A gap has no height, so its bar can only say *that* there is a comment
+   * here; the rule is what says *where*. Drawn in the overlay over the pane —
+   * spec 01 §6.7 is not bent for a horizontal line any more than for a `<mark>`.
+   */
+  rule: ScopeRect | null;
   /**
    * What this place turned out to BE — `Code block`, `Table · 3 rows × 4
    * columns`, `Section · “…”`. Null when the place holds a passage, which is
@@ -180,6 +196,32 @@ export interface AnchorToMeasure {
   kind: SelectedKind;
 }
 
+/**
+ * Spec 16 §6.6 — one place the `+ Add` affordance can appear, as the overlay
+ * needs it: a band to hover, a rule to draw, and an index to commit.
+ *
+ * Serialisable on purpose. The two blocks it sits between stay inside the
+ * surface, because a live `Element` held in React state outlives the document
+ * it came from and then resolves to *somewhere*.
+ */
+export interface GapSpot {
+  /** What `anchorFromGap` takes back. Its position in this sweep's list. */
+  index: number;
+  /** The text column, in document coordinates. */
+  x: number;
+  w: number;
+  /** The insertion point — where the rule is drawn. */
+  y: number;
+  /** The band that answers a hover, clamped so two can never overlap (§6.6). */
+  top: number;
+  bottom: number;
+  /** §6.7 — what the place will be called once it is picked. */
+  label: string;
+}
+
+/** §6.6 — the pointer must be within this of the midpoint for a gap to answer. */
+const GAP_BAND = 8;
+
 /** What the overlay needs from whichever surface is showing the document. */
 export interface DocumentSurface {
   /**
@@ -280,6 +322,38 @@ export interface DocumentSurface {
 
   /** §5.6.1 — the boxes to outline after an Apply, from `data-src-line`. */
   boxesForLines(ranges: LineRange[]): Promise<ScopeRect[]>;
+
+  /**
+   * Spec 16 §4.1 and §5.5 — the blocks a gesture may land on here.
+   *
+   * `null` means "all of them", which is the original pane and every document
+   * nobody has changed. A **non-null empty** list is not the same thing: it
+   * means this pane has a change to show and no way to say which blocks it
+   * touched — a plain HTML file with no `data-src-line` — so nothing is live.
+   *
+   * Line ranges rather than elements, because the surface owns the DOM and the
+   * caller owns the working copy. Called again whenever that list moves: a new
+   * revision, an undo, an approve, a discard.
+   */
+  setLiveBlocks(ranges: LineRange[] | null): void;
+
+  /** Spec 16 §6.6 — every gap the `+ Add` affordance can appear in. */
+  gaps(): GapSpot[];
+
+  /**
+   * §6.1 — the gap nearest the middle of what is on screen, for the `A` key.
+   *
+   * A keyboard gesture has no pointer, so "here" has to mean something. The
+   * middle of the visible text is what a reader is looking at, and the place
+   * that appears in the panel names its neighbour — so a wrong guess is
+   * visible before anything is sent, and one `esc` undoes it.
+   *
+   * Null when this document offers no gaps at all.
+   */
+  nearestGap(): number | null;
+
+  /** §6.1 — one of them, committed as a place. */
+  anchorFromGap(index: number): Promise<Selected | null>;
 }
 
 /**
@@ -405,6 +479,7 @@ function resolveAgainst(
           box: null,
           mark: where,
           bar: blockRectOf(view, resolution.range) ?? where,
+          rule: null,
           label: words,
           line,
         });
@@ -416,10 +491,37 @@ function resolveAgainst(
       } else if (resolution?.kind === "element") {
         const outline = toDocumentRect(view, resolution.element.getBoundingClientRect());
         const box = anchor.region ? regionWithin(outline, anchor) : outline;
-        checked.push({ position, state, box, mark: box, bar: box, label: words, line });
+        checked.push({ position, state, box, mark: box, bar: box, rule: null, label: words, line });
         widen(box);
         if (first) {
           top = box.y;
+          label = words;
+        }
+      } else if (resolution?.kind === "gap") {
+        // Spec 16 §7.4 — a gap has no block, so it gets one built: a
+        // zero-width, one-line-high bar in the lane, and the rule that says
+        // where. No `HighlightHit` either — there is no range to paint.
+        const where = gapRect(index, resolution.after, resolution.before);
+        const mark = { x: where.x, y: where.y, w: 0, h: where.h };
+        // §7.3 — the rule only where there is still a gap to point at. Once
+        // something has been written into it the two neighbours are no longer
+        // next to each other, and a line across the column would be drawn over
+        // that new text: the mark for "put something here" would read as
+        // "delete this". The bar still says which comment, and where.
+        const empty = gapNeighboursAdjacent(doc, resolution.after, resolution.before);
+        checked.push({
+          position,
+          state,
+          box: null,
+          mark,
+          bar: mark,
+          rule: empty ? { x: where.x, y: where.y + where.h / 2, w: where.w, h: 0 } : null,
+          label: words,
+          line,
+        });
+        widen(where);
+        if (first) {
+          top = where.y;
           label = words;
         }
       } else if (resolution?.kind === "run") {
@@ -438,6 +540,7 @@ function resolveAgainst(
           box: whole ? null : box,
           mark: whole ? null : box,
           bar: whole ? null : box,
+          rule: null,
           label: words,
           line,
         });
@@ -457,6 +560,7 @@ function resolveAgainst(
           box: null,
           mark: null,
           bar: null,
+          rule: null,
           label: null,
           line: null,
         });
@@ -498,6 +602,11 @@ function rectForAnchorIn(
   if (!resolution) return null;
   if (resolution.kind === "range") {
     return toDocumentRect(view, resolution.range.getBoundingClientRect());
+  }
+  // Spec 16 §7.3 — a gap's box is the text column at the insertion point, so
+  // the panel's outline shows *where* rather than a zero-width sliver.
+  if (resolution.kind === "gap") {
+    return gapRect(index, resolution.after, resolution.before);
   }
   if (resolution.kind === "run") {
     // §6.4 again — the whole file has no box a reviewer could read.
@@ -544,6 +653,12 @@ function elementOf(node: Node): Element | null {
  * the comment is about eight words when it is about everything under them.
  */
 function describeResolved(index: TextIndex, resolution: Resolution, anchor: Anchor): string | null {
+  // Spec 16 §6.7 — a gap is always named, never quoted: there is nothing there
+  // to quote, which is the whole point of it.
+  if (resolution.kind === "gap") {
+    return gapLabel(resolution.after, resolution.before);
+  }
+
   if (resolution.kind === "run") {
     return resolution.extent === "document"
       ? "The whole document"
@@ -572,6 +687,16 @@ function describeResolved(index: TextIndex, resolution: Resolution, anchor: Anch
  * is what it showed before this existed.
  */
 function sourceLineOf(resolution: Resolution): number | null {
+  // Spec 16 §6.5 — a gap is on the line its lower neighbour starts on, because
+  // that is where an insertion goes. With only the block above still here, it
+  // is that block's line plus however many lines the block itself spans.
+  if (resolution.kind === "gap") {
+    const below = stampedLineOf(resolution.before);
+    if (below !== null) return below;
+    const above = stampedLineOf(resolution.after);
+    return above === null ? null : above + blockLineCount(resolution.after);
+  }
+
   const node =
     resolution.kind === "range"
       ? elementOf(resolution.range.commonAncestorContainer)
@@ -582,6 +707,22 @@ function sourceLineOf(resolution: Resolution): number | null {
   if (!stamped) return null;
   const line = Number.parseInt(stamped.getAttribute("data-src-line") ?? "", 10);
   return Number.isFinite(line) ? line : null;
+}
+
+/**
+ * How many source lines a block spans, read off the block that follows it.
+ *
+ * `data-src-line` marks where a block *starts*, so the only thing in the DOM
+ * that knows where it ends is the next stamped block. One line is the honest
+ * fallback for the last block in the file.
+ */
+function blockLineCount(block: Element | null): number {
+  const line = stampedLineOf(block);
+  if (block === null || line === null) return 1;
+  const blocks = stampedBlocks(block.ownerDocument);
+  const next = blocks[blocks.indexOf(block) + 1] ?? null;
+  const after = stampedLineOf(next);
+  return after !== null && after > line ? after - line : 1;
 }
 
 // ── PDF: a comment is a place on a page, never a quote ──────────
@@ -790,6 +931,7 @@ function targetsFromDrawingIn(
   strokes: ReadonlyArray<Stroke>,
   zoom: number,
   sourceFile: string | null,
+  liveBlocks: Element[] | null,
 ): Drawn {
   if (!index || !doc.body) return { targets: [], strokes: [] };
 
@@ -813,7 +955,10 @@ function targetsFromDrawingIn(
     };
   };
 
-  const blocks = blocksInDrawing(view, doc, scaled);
+  // Spec 16 §5.5 — the lasso FILTERS rather than refusing outright, so a
+  // drawing that crosses one live block and two unchanged ones still makes a
+  // comment about the one it was allowed to take.
+  const blocks = blocksInDrawing(view, doc, scaled).flatMap((el) => liveWithin(liveBlocks, el));
   if (blocks.length > 0) {
     return {
       targets: blocks.map((element) =>
@@ -833,6 +978,9 @@ function targetsFromDrawingIn(
   const container = containerOfDrawing(view, doc, scaled);
   const bounds = boundsOf(polygonOf(scaled));
   if (!container || !bounds) return { targets: [], strokes: scaled };
+  // The floor is still bounded by §4.1: a circle drawn over unchanged prose
+  // must not fall back to a region of the whole content root.
+  if (!isLive(liveBlocks, container)) return { targets: [], strokes: scaled };
 
   const box = toDocumentRect(view, container.getBoundingClientRect());
   const anchor = createRegionAnchor(
@@ -842,6 +990,148 @@ function targetsFromDrawingIn(
     sourceFile,
   );
   return { targets: [made(container, anchor, bounds, true)], strokes: scaled };
+}
+
+// ── Spec 16 §5.2 — two sweeps, merged ───────────────────────────
+
+/** `ok` beats `moved` beats `orphaned` — the order "best" means here. */
+const BETTER: Record<AnchorState, number> = { ok: 0, moved: 1, orphaned: 2 };
+
+/**
+ * Spec 16 §5.2 — **per target, the best of the two panes.**
+ *
+ * This is the trap in the whole spec. A target that resolved on the left and
+ * not on the right is *found*, not lost, and applying `worstState` across the
+ * two panes would report every comment on unchanged text as orphaned the moment
+ * a working copy existed — which is §1.2 rebuilt with more machinery.
+ *
+ * Per **thread** the rule is the opposite and unchanged: the worst of its
+ * targets, which is what `worstState` already does.
+ *
+ * Which version a comment is about is not stored anywhere. It is wherever the
+ * anchor resolves, and this is the only place that reads the answer.
+ */
+export function mergeResolved(panes: ReadonlyArray<ResolvedThread[]>): ResolvedThread[] {
+  const order: string[] = [];
+  const byThread = new Map<string, ResolvedThread[]>();
+  for (const pane of panes) {
+    for (const entry of pane) {
+      const found = byThread.get(entry.threadId);
+      if (found) found.push(entry);
+      else {
+        order.push(entry.threadId);
+        byThread.set(entry.threadId, [entry]);
+      }
+    }
+  }
+
+  return order.map((threadId) => {
+    const entries = byThread.get(threadId) as ResolvedThread[];
+    const best = new Map<number, CheckedTarget>();
+    for (const entry of entries) {
+      for (const check of entry.checked) {
+        const held = best.get(check.position);
+        if (!held || BETTER[check.state] < BETTER[held.state]) best.set(check.position, check);
+      }
+    }
+    const checked = [...best.values()].sort((a, b) => a.position - b.position);
+    // The geometry comes from the first pane that found anything, which is the
+    // new version whenever it did — the pane a card's "go to this place" jumps
+    // into unless the passage only exists on the left.
+    const anchored = entries.find((entry) => entry.top !== null) ?? entries[0];
+    return {
+      threadId,
+      state: worstState(checked.map((entry) => entry.state)),
+      checked,
+      top: anchored.top,
+      label: anchored.label,
+      union: anchored.union,
+    };
+  });
+}
+
+// ── Spec 16 §4.1 — what a gesture is allowed to land on ─────────
+
+/**
+ * Whether a node is inside one of the live blocks.
+ *
+ * `live.contains(el)` and never the other way round. A selection dragged across
+ * a changed block and two unchanged ones has the content root as its common
+ * ancestor, and answering "yes, that root contains a live block" would let
+ * every gesture through — which is exactly the ambiguity §4 removes.
+ */
+function isLive(live: Element[] | null, node: Node | null): boolean {
+  if (live === null) return true;
+  if (!node) return false;
+  const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+  if (!el) return false;
+  return live.some((block) => block === el || block.contains(el));
+}
+
+/**
+ * Spec 16 §5.5 — the live part of a block the lasso took, in document order.
+ *
+ * `isLive` alone is not enough here, and a list is why. The Markdown renderer
+ * stamps `data-src-line` on a `<li>` but not on the `<ul>` around it, so a
+ * changed list item makes the ITEM live while its list is not. The lasso
+ * collapses a circle to the outermost block it encloses — the `<ul>` — and
+ * `live.contains(el)` is then false in the only direction `isLive` asks about.
+ * Every target was dropped and a circle round a changed list selected nothing,
+ * which is the same silent failure as the pen bug beside it. Measured on
+ * 2026-08-26.
+ *
+ * So a block that is not itself live hands back the live blocks INSIDE it. The
+ * rule §4.1 states is unchanged — what is outlined in green is what responds —
+ * and the reviewer gets exactly the outlined items their circle went round.
+ */
+function liveWithin(live: Element[] | null, el: Element): Element[] {
+  if (live === null || isLive(live, el)) return [el];
+  return live.filter((block) => el.contains(block));
+}
+
+/**
+ * Spec 16 §6.6 — every gap in the document, as bands the overlay can hover.
+ *
+ * The blocks are the ones the rest of REX already agrees on (`stampedBlocks`),
+ * so a document with no `data-src-line` has no gaps at all and the affordance
+ * simply never appears — §6.4's third case, by construction.
+ *
+ * The band is clamped to half the room between the two blocks, so two gaps can
+ * never be hit at once and blocks less than 16px apart get whatever room there
+ * is.
+ */
+function gapsIn(view: Window, doc: Document): Array<GapSpot & { after: Element; before: Element }> {
+  const column = contentColumn(doc);
+  if (!column) return [];
+
+  const blocks = stampedBlocks(doc);
+  const spots: Array<GapSpot & { after: Element; before: Element }> = [];
+
+  for (let i = 0; i + 1 < blocks.length; i++) {
+    const after = blocks[i];
+    const before = blocks[i + 1];
+    const above = toDocumentRect(view, after.getBoundingClientRect());
+    const below = toDocumentRect(view, before.getBoundingClientRect());
+    const room = below.y - (above.y + above.h);
+    // Overlapping or touching blocks — a float, a negative margin — have no gap
+    // between them to point at.
+    if (room <= 0) continue;
+
+    const y = above.y + above.h + room / 2;
+    const half = Math.min(GAP_BAND, room / 2);
+    spots.push({
+      index: spots.length,
+      x: column.x,
+      w: column.w,
+      y,
+      top: y - half,
+      bottom: y + half,
+      label: gapLabel(after, before),
+      after,
+      before,
+    });
+  }
+  return spots;
 }
 
 /**
@@ -871,6 +1161,18 @@ export class FrameSurface implements DocumentSurface {
   private hits: HighlightHit[] = [];
   private readonly frame: HTMLIFrameElement;
   private readonly sourceFile: string | null;
+  /**
+   * Spec 16 §4.1 — the blocks a gesture may land on, or null for all of them.
+   *
+   * Not readonly, because the set moves whenever the working copy does — a new
+   * revision, an undo, an approve, a discard — and the surface outlives all
+   * four. `setLiveBlocks` is the one way in.
+   */
+  private liveBlocks: Element[] | null = null;
+  /** The line ranges `liveBlocks` was built from, so a re-measure can repeat it. */
+  private liveRanges: LineRange[] | null = null;
+  /** §6.6 — this sweep's gaps, and the blocks each sits between. */
+  private gapSpots: Array<GapSpot & { after: Element; before: Element }> = [];
 
   constructor(frame: HTMLIFrameElement, sourceFile: string | null) {
     this.frame = frame;
@@ -896,7 +1198,50 @@ export class FrameSurface implements DocumentSurface {
     );
     this.index = outcome.index;
     this.hits = outcome.hits;
+    // Both are geometry, and every reason to sweep is a reason to re-measure
+    // them: a reflow, a resize, a zoom and a re-render all move them.
+    this.gapSpots = gapsIn(view, doc);
+    this.setLiveBlocks(this.liveRanges);
     return outcome.resolved;
+  }
+
+  setLiveBlocks(ranges: LineRange[] | null): void {
+    this.liveRanges = ranges;
+    const doc = this.frame.contentDocument;
+    this.liveBlocks = ranges === null || !doc ? null : changedBlocks(doc, ranges);
+  }
+
+  gaps(): GapSpot[] {
+    return this.gapSpots.map(({ after: _after, before: _before, ...spot }) => spot);
+  }
+
+  nearestGap(): number | null {
+    const view = this.frame.contentWindow;
+    if (!view || this.gapSpots.length === 0) return null;
+    const middle = view.scrollY + view.innerHeight / 2;
+    let best: number | null = null;
+    let closest = Number.POSITIVE_INFINITY;
+    for (const spot of this.gapSpots) {
+      const distance = Math.abs(spot.y - middle);
+      if (distance < closest) {
+        closest = distance;
+        best = spot.index;
+      }
+    }
+    return best;
+  }
+
+  async anchorFromGap(index: number): Promise<Selected | null> {
+    const spot = this.gapSpots[index];
+    if (!spot || !this.index) return null;
+    const rect = { x: spot.x, y: spot.y - GAP_MARK_HEIGHT / 2, w: spot.w, h: GAP_MARK_HEIGHT };
+    return {
+      anchor: createGapAnchor(this.index, spot.after, spot.before, this.sourceFile),
+      label: spot.label,
+      rect,
+      scopes: [describeGap(rect, spot.after, spot.before)],
+      active: 0,
+    };
   }
 
   async rectsForAnchors(items: AnchorToMeasure[]): Promise<Array<ScopeRect | null>> {
@@ -918,6 +1263,14 @@ export class FrameSurface implements DocumentSurface {
   async selectionMade(): Promise<Selected | null> {
     const view = this.frame.contentWindow;
     if (!view) return null;
+    // Spec 16 §4.1 — a selection outside every live block produces nothing,
+    // silently, exactly as the many mouse-ups that select nothing already do.
+    // No panel, no notice, no refusal to dismiss: what is outlined is what
+    // responds, and the reviewer is looking at a pane where the live blocks are
+    // already drawn in a different colour.
+    const selection = view.getSelection();
+    const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+    if (range && !isLive(this.liveBlocks, range.commonAncestorContainer)) return null;
     const outcome = anchorFromSelectionIn(view, this.index, this.sourceFile);
     // Only a real selection replaces the chain. This fires on EVERY mouse-up in
     // the document, and most of those select nothing — a click to dismiss a
@@ -930,6 +1283,9 @@ export class FrameSurface implements DocumentSurface {
 
   async probeAt(x: number, y: number, keep: number): Promise<Probe | null> {
     if (!this.index) return null;
+    // §4.1 — the pick probe answers nothing outside the live blocks, so the
+    // path bar never offers a scope a click cannot take.
+    if (!isLive(this.liveBlocks, this.index.doc.elementFromPoint(x, y))) return null;
     const chain = scopeChainAt(this.index, x, y);
     // A probe that finds nothing does NOT throw the chain away. The overlay
     // keeps drawing the last outline in this case (see `probe` in App.tsx), so
@@ -955,6 +1311,8 @@ export class FrameSurface implements DocumentSurface {
   async anchorFromRegion(index: number, box: ScopeRect): Promise<Selected | null> {
     const view = this.frame.contentWindow;
     if (!view) return null;
+    // §4.1 — a box dragged out of an element that is not live is not a place.
+    if (!isLive(this.liveBlocks, this.chain?.elements[index] ?? null)) return null;
     return anchorFromScopeIn(view, this.index, this.chain, index, this.sourceFile, box);
   }
 
@@ -962,7 +1320,15 @@ export class FrameSurface implements DocumentSurface {
     const view = this.frame.contentWindow;
     const doc = this.frame.contentDocument;
     if (!view || !doc) return { targets: [], strokes: [] };
-    return targetsFromDrawingIn(view, doc, this.index, strokes, zoom, this.sourceFile);
+    return targetsFromDrawingIn(
+      view,
+      doc,
+      this.index,
+      strokes,
+      zoom,
+      this.sourceFile,
+      this.liveBlocks,
+    );
   }
 
   async scopesForAnchor(anchor: Anchor, kind: SelectedKind): Promise<Probe | null> {
@@ -1012,13 +1378,24 @@ export class FrameSurface implements DocumentSurface {
 function scrollToAnchorIn(view: Window, index: TextIndex, anchor: Anchor): void {
   const resolution = resolveAnchor(index, anchor);
   if (!resolution) return;
+  // Spec 16 §6.5 — a gap is brought into view by whichever neighbour it found,
+  // preferring the block above so the reviewer sees what it comes after.
+  const target =
+    resolution.kind === "gap"
+      ? (resolution.after ?? resolution.before)
+      : resolution.kind === "run"
+        ? // A run is brought into view by its *start*: scrolling to the middle
+          // of a four-thousand-character section shows the reviewer neither end
+          // of what their comment is about.
+          resolution.first
+        : resolution.kind === "element"
+          ? resolution.element
+          : null;
+  if (resolution.kind !== "range" && !target) return;
   const rect =
     resolution.kind === "range"
       ? resolution.range.getBoundingClientRect()
-      : // A run is brought into view by its *start*: scrolling to the middle of
-        // a four-thousand-character section shows the reviewer neither end of
-        // what their comment is about.
-        (resolution.kind === "run" ? resolution.first : resolution.element).getBoundingClientRect();
+      : (target as Element).getBoundingClientRect();
   // A third of the way down rather than at the very top: a passage pinned to
   // the top edge reads as if its context has been cut off.
   view.scrollTo({ top: rect.top + view.scrollY - view.innerHeight / 3, behavior: "smooth" });

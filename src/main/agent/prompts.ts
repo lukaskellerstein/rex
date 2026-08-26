@@ -3,7 +3,13 @@
 
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
-import type { Anchor, LineRange, Message, Thread } from "../../shared/types.ts";
+import {
+  type Anchor,
+  ELEMENT_QUOTE_MAX,
+  type LineRange,
+  type Message,
+  type Thread,
+} from "../../shared/types.ts";
 
 export const READ_SYSTEM_PROMPT = `You answer questions about a document. The user has highlighted a passage and
 written a comment about it. Answer that comment.
@@ -236,7 +242,19 @@ function describeTarget(anchor: Anchor, documentPath: string | null): string {
     const range = documentPath ? sectionLineRange(documentPath, anchor) : null;
     return range ? `${named} — lines ${range.from}–${range.to}` : named;
   }
-  if (quote) return quote;
+  // Spec 06 §4.4 — a quote at the cap is an OPENING, not a passage.
+  //
+  // `createElementAnchor` truncates at `ELEMENT_QUOTE_MAX` so a long table does
+  // not store a copy of itself. Printed bare, a comment on an eight-paragraph
+  // block reached the agent as 320 characters cut mid-word, with nothing to say
+  // the block went on — so the agent answered about the opening and left the
+  // rest of what the reviewer pointed at unread. The clause costs one line and
+  // is the difference between a truncated quote and a truncated question.
+  if (quote) {
+    return quote.length >= ELEMENT_QUOTE_MAX
+      ? `${quote}… — the OPENING of the block this comment is on, not all of it. The comment is about the whole block; read on past this quote.`
+      : quote;
+  }
 
   const named = anchor.element?.id ? `#${anchor.element.id}` : anchor.element?.css;
   const region = anchor.region ? ", a region of it" : "";
@@ -252,8 +270,53 @@ function describeTarget(anchor: Anchor, documentPath: string | null): string {
 const READ_IN_FULL = `Read the document in full before answering. This comment is about all of it,
 not about a passage.`;
 
-/** §7.1 — a drawn comment gains one line, and the agent never hears "pen". */
-const DREW_A_CIRCLE = "The reviewer drew a circle around these, in this order.";
+/**
+ * Spec 16 §5.4 — the sentence a comment on removed text needs.
+ *
+ * Without it the agent is handed a quote it cannot find in the file it may
+ * edit, which reads as a mistake rather than as the point. It is the point: the
+ * reviewer is looking at what the change took away and asking for it back, or
+ * for something else in its place.
+ */
+const LOOKING_AT_THE_ORIGINAL = `The reviewer is looking at that passage in the original and asking for a change
+to the current version. The current version is the file you may edit.`;
+
+/** How much of a gap's neighbour is quoted back, so the agent can find it. */
+const NEIGHBOUR_MAX = 160;
+
+function neighbourQuote(side: { quote: { exact: string } | null } | null): string | null {
+  const text = side?.quote?.exact?.replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return text.length > NEIGHBOUR_MAX ? `${text.slice(0, NEIGHBOUR_MAX)}…` : text;
+}
+
+/**
+ * Spec 16 §6.7 — a gap, named by both its sides and the lines between them.
+ *
+ * "Insert here" is the one instruction where the agent cannot see what the
+ * reviewer pointed at, so both neighbours are quoted: a gap that named only the
+ * block above would let an edit to that block move the insertion point, and a
+ * bare line number moves the moment anything above it changes.
+ */
+function describeGapTarget(anchor: Anchor, name: string, place: PassagePlace | null): string[] {
+  const gap = anchor.gap;
+  const above = neighbourQuote(gap?.after ?? null);
+  const below = neighbourQuote(gap?.before ?? null);
+  const between = place?.between ?? null;
+
+  const where =
+    between && between.after !== null && between.before !== null
+      ? ` between line ${between.after} and line ${between.before}`
+      : "";
+  const sides = [above ? `after “${above}”` : null, below ? `before “${below}”` : null].filter(
+    (part): part is string => part !== null,
+  );
+
+  return [
+    `A NEW passage, to be inserted in ${name}${where}${sides.length > 0 ? ` — ${sides.join(" and ")}` : ""}`,
+    "   Nothing is there now. The reviewer is asking you to write it.",
+  ];
+}
 
 /**
  * Spec 06 §7.1 — where a section starts and ends in the source, when that can
@@ -323,30 +386,74 @@ export function writeInstructions(transcript: string, instruction: string): stri
   return ["## The discussion", transcript, "", "## What to do", instruction.trim()];
 }
 
+/**
+ * Spec 16 §5.1 — where a passage's text actually lives, and on which line.
+ *
+ * Nothing stores this. A comment is about the version its text is in, and the
+ * only way to know which is to look — which is what the renderer does with two
+ * live DOMs (§5.2) and what `apply.ts` does with the two files.
+ */
+export interface PassagePlace {
+  version: "current" | "original";
+  /** Its line in the version named above, when it can be found. */
+  line: number | null;
+  /** §6.7 — a gap's two neighbours, as lines in the version that will exist. */
+  between?: { after: number | null; before: number | null };
+}
+
 export function passageSection(input: {
   thread: Thread;
   documentPaths: ReadonlyMap<string, string>;
   repositoryRoot: string;
   heading: string;
   /**
-   * Where this passage sits in the file *now*, when the caller can work it out.
-   * Apply passes one; Ask does not, because a read agent does not need a line
-   * and a wrong one would send it to the wrong paragraph.
+   * Where this passage sits *now*, when the caller can work it out. Apply
+   * passes one; Ask passes one only while a working copy exists, because a read
+   * agent does not need a line and a wrong one would send it to the wrong
+   * paragraph.
    */
-  lineOf?: (documentPath: string, anchor: Anchor) => number | null;
+  locate?: (documentPath: string, anchor: Anchor) => PassagePlace;
 }): string[] {
   const { thread, documentPaths, repositoryRoot } = input;
   if (thread.targets.length === 0) return [];
 
   const groups = new Map<string, string[]>();
+  let anyOriginal = false;
+
   thread.targets.forEach((target, position) => {
     const path = documentPaths.get(target.documentId) ?? target.documentId;
     const name = displayPath(repositoryRoot, path);
     const lines = groups.get(name) ?? [];
+    const place = input.locate?.(path, target.anchor) ?? null;
+
+    // Spec 16 §6.7 — a gap is named by both its sides. It has no text of its
+    // own, so nothing below applies to it.
+    if (target.anchor.gap) {
+      const [head, tail] = describeGapTarget(target.anchor, name, place);
+      lines.push(`${position + 1}. ${head}`, tail);
+      groups.set(name, lines);
+      return;
+    }
+
     // Spec 06 §7.1 — an extent target carries its own range, or deliberately
     // none. A single line for a section would name where it *starts* as though
     // that were the passage.
-    const line = target.anchor.extent ? null : (input.lineOf?.(path, target.anchor) ?? null);
+    const line = target.anchor.extent ? null : (place?.line ?? null);
+
+    // Spec 16 §5.4 — a passage that only the original has is said to be one,
+    // plainly. The agent would otherwise be handed a quote it cannot find in
+    // the file it may edit, which reads as a mistake rather than as the point.
+    if (place?.version === "original") {
+      anyOriginal = true;
+      lines.push(
+        `${position + 1}. In the ORIGINAL version of ${name} — the version on disk, which`,
+        "   the change you have already made removes:",
+        `   ${describeTarget(target.anchor, path)}${line === null ? "" : ` — line ${line} of the original`}`,
+      );
+      groups.set(name, lines);
+      return;
+    }
+
     const where = line === null ? "" : ` — line ${line}`;
     lines.push(`${position + 1}. ${describeTarget(target.anchor, path)}${where}`);
     groups.set(name, lines);
@@ -360,9 +467,7 @@ export function passageSection(input: {
     if (!single) parts.push("", `### ${name}`);
     parts.push(...lines);
   }
-  // §7.1 — one line, and the agent still never hears the word "pen". The order
-  // is the panel's, which is the order the reviewer left them in.
-  if (thread.stroke) parts.push("", DREW_A_CIRCLE);
+  if (anyOriginal) parts.push("", LOOKING_AT_THE_ORIGINAL);
   parts.push("");
   return parts;
 }
@@ -374,6 +479,12 @@ export function askPrompt(input: {
   documentPaths: ReadonlyMap<string, string>;
   /** The repository root of `targets[0]`'s document. */
   repositoryRoot: string;
+  /**
+   * Spec 16 §5.4 — supplied only while a working copy exists, and only then.
+   * A passage the change removed has to be named as the original's or the read
+   * agent goes looking for it in a file that no longer has it.
+   */
+  locate?: (documentPath: string, anchor: Anchor) => PassagePlace;
 }): string {
   const { thread, documentPaths, repositoryRoot } = input;
   const primary = thread.targets[0] ?? null;
@@ -396,6 +507,7 @@ export function askPrompt(input: {
       documentPaths,
       repositoryRoot,
       heading: "## Highlighted passages",
+      ...(input.locate ? { locate: input.locate } : {}),
     }),
   );
 
@@ -429,8 +541,11 @@ export function synthesisPrompt(input: {
 
   input.referenced.forEach(({ thread, messages }, position) => {
     parts.push(`## Comment ${position + 1}`);
-    const quote = thread.targets[0]?.anchor.quote;
-    if (quote) parts.push(`Highlighted passage: ${quote.exact}`);
+    // `describeTarget` and not the raw quote: a block pick's quote is an
+    // opening truncated at `ELEMENT_QUOTE_MAX`, and synthesis was printing it
+    // as the whole passage exactly as the single-comment prompt used to.
+    const primary = thread.targets[0]?.anchor;
+    if (primary) parts.push(`Highlighted passage: ${describeTarget(primary, null)}`);
     parts.push(`The user wrote: ${thread.note}`);
     const answers = messages.filter((m) => m.role === "assistant" && m.kind === "text");
     if (answers.length > 0) {

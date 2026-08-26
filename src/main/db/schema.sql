@@ -64,12 +64,6 @@ CREATE TABLE IF NOT EXISTS thread (
   -- inside one transaction on every drop; never a fractional key, which has a
   -- precision cliff and buys nothing at this size.
   position      INTEGER NOT NULL DEFAULT 0,
-  -- Spec 06 §5.4 — the reviewer's ink, as fractions of the union box of this
-  -- comment's targets. A column and not a field inside anchor_json, because a
-  -- stroke is not a property of any one anchor: it is drawn across all of them,
-  -- and storing it on target 0 would make the ink a possession of whichever
-  -- block happened to sort first. NULL for every comment that was not drawn.
-  stroke_json   TEXT,
   session_id    TEXT,
   profile       TEXT NOT NULL DEFAULT 'read'
                   CHECK (profile IN ('read','write')),
@@ -113,6 +107,11 @@ CREATE TABLE IF NOT EXISTS message (
   seq             INTEGER NOT NULL,
   role            TEXT NOT NULL CHECK (role IN ('user','assistant','system')),
   kind            TEXT NOT NULL,
+  -- Spec 12 §3.3 — which mode the REVIEWER was in when they sent this, and
+  -- NULL for everything they did not send. It is what a message WAS, which
+  -- never changes; the mode a thread will send its next message in stays in the
+  -- renderer and is deliberately not stored.
+  mode            TEXT CHECK (mode IN ('ask','act','note')),
   content         TEXT,
   tool_name       TEXT,
   tool_input_json TEXT,

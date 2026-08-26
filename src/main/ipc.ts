@@ -29,6 +29,7 @@ import {
   type WorkspaceExcludeRequest,
 } from "../shared/channels.ts";
 import type {
+  Anchor,
   AnchorSummary,
   CommentGroup,
   CommentMove,
@@ -37,6 +38,7 @@ import type {
   Message,
   OpenedDocument,
   ReferenceGraph,
+  SendMode,
   Thread,
   ThreadWithMessages,
   ViewState,
@@ -47,8 +49,9 @@ import type {
 import { sessionIdFor } from "./agent/profiles.ts";
 import { askPrompt, synthesisPrompt } from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
+import { beginRun, endRun, stopRun } from "./agent/runs.ts";
 import { renderTranscript, replayPrompt, sessionExists } from "./agent/transcript.ts";
-import { type ApplyContext, confirmApply, startApply, viewOf } from "./apply.ts";
+import { type ApplyContext, confirmApply, locatePassage, startApply, viewOf } from "./apply.ts";
 import type { CdpStatus } from "./cdp.ts";
 import type { Db } from "./db/database.ts";
 import { createGroup, deleteGroup, listGroups, moveItem, updateGroup } from "./db/groups.ts";
@@ -84,6 +87,7 @@ import { ensureSidecar } from "./render/pptx.ts";
 import { agentCwd, documentsOf, SCRATCH_DIR, withDetail } from "./threads.ts";
 import {
   approveWorkingCopy,
+  basePath,
   currentPath,
   discardWorkingCopy,
   listWorkingCopies,
@@ -229,18 +233,27 @@ export function registerIpc(
     const document = getDocument(db, thread.documentId);
     const documentPath = document?.ref.value ?? null;
 
-    const result = await agents.run(() =>
-      runAgent({
-        cwd,
-        profile: "read",
-        prompt,
-        sessionId,
-        resume,
-        model: thread.model,
-        documentPath,
-        onMessage: (draft) => record(thread.id, draft),
-      }),
-    );
+    // Spec 17 §2.4 — registered BEFORE the semaphore, so a comment still queued
+    // behind the five-agent cap can be stopped before it costs anything.
+    const controller = beginRun(thread.id);
+    let result: Awaited<ReturnType<typeof runAgent>>;
+    try {
+      result = await agents.run(() =>
+        runAgent({
+          cwd,
+          profile: "read",
+          prompt,
+          sessionId,
+          resume,
+          model: thread.model,
+          documentPath,
+          signal: controller.signal,
+          onMessage: (draft) => record(thread.id, draft),
+        }),
+      );
+    } finally {
+      endRun(thread.id, controller);
+    }
 
     setThreadSession(db, thread.id, result.sessionId);
     backstop(thread.id, cwd, before);
@@ -259,10 +272,19 @@ export function registerIpc(
     });
   };
 
-  const recordUserText = (threadId: string, text: string): void => {
+  /**
+   * Spec 12 §3.3 — the reviewer's own message, and the mode they sent it in.
+   *
+   * The mode is passed rather than looked up because only the caller knows it:
+   * it lives in the renderer and each of the four send paths below IS one mode.
+   * Recording it is what lets a card say `YOU NOTED` about a note instead of
+   * calling every message "asked".
+   */
+  const recordUserText = (threadId: string, text: string, mode: SendMode): void => {
     record(threadId, {
       role: "user",
       kind: "text",
+      mode,
       content: text,
       toolName: null,
       toolInput: null,
@@ -439,9 +461,6 @@ export function registerIpc(
       targets: request.targets,
       note: request.note,
       profile: "read",
-      // Spec 06 §5.4 — the ink, when the places were circled rather than
-      // clicked. Absent for every other comment, which is most of them.
-      stroke: request.stroke,
       // NOTE mode. The renderer simply does not follow this call with a send,
       // and the flag is what lets the panel and "Ask all" tell that apart from
       // a comment whose send failed.
@@ -465,9 +484,14 @@ export function registerIpc(
     // document, so ASK reads it. Asking "is this better?" about a version the
     // agent cannot see would be worse than useless.
     const documentPaths = new Map<string, string>();
+    // Spec 16 §5.4 — and the original beside it, so a comment about a passage
+    // the change REMOVED can be named as the original's rather than handed to
+    // the agent as a quote it cannot find.
+    const originals = new Map<string, string>();
     for (const record of documentsOf(db, thread)) {
       const meta = readMeta(record.id);
       documentPaths.set(record.id, meta ? currentPath(meta) : await readablePath(record.ref));
+      if (meta) originals.set(currentPath(meta), basePath(meta));
     }
 
     const prompt =
@@ -479,11 +503,33 @@ export function registerIpc(
               .filter((t): t is Thread => t !== null)
               .map((t) => ({ thread: t, messages: listMessages(db, t.id) })),
           })
-        : askPrompt({ thread, documentPaths, repositoryRoot: root });
+        : askPrompt({
+            thread,
+            documentPaths,
+            repositoryRoot: root,
+            // Only where a working copy exists. Without one there is one
+            // version, every passage is in it, and there is nothing to say.
+            ...(originals.size > 0
+              ? {
+                  locate: (documentPath: string, anchor: Anchor) =>
+                    locatePassage(documentPath, originals.get(documentPath) ?? null, anchor),
+                }
+              : {}),
+          });
 
-    recordUserText(threadId, thread.note);
+    recordUserText(threadId, thread.note, "ask");
     await runTurn(thread, prompt, sessionIdFor(threadId), false);
   });
+
+  /**
+   * Spec 17 §2.1 — stop this comment's work, all of it.
+   *
+   * It deliberately does NOT check that the thread exists. A stop is the one
+   * command a reviewer presses when something has gone wrong, and refusing it
+   * because a row has been deleted underneath would leave an agent running with
+   * nothing left to stop it.
+   */
+  handle(COMMAND.threadStop, (_event, threadId: string): number => stopRun(threadId));
 
   /**
    * NOTE mode, in an open comment: record what was typed and run nothing.
@@ -497,7 +543,7 @@ export function registerIpc(
     if (!getThread(db, request.threadId)) {
       throw new Error(`No such thread: ${request.threadId}`);
     }
-    recordUserText(request.threadId, request.text);
+    recordUserText(request.threadId, request.text, "note");
   });
 
   handle(COMMAND.threadReply, async (_event, request: ThreadReplyRequest): Promise<void> => {
@@ -507,7 +553,7 @@ export function registerIpc(
 
     const cwd = workingDirectory(thread);
     const existing = thread.sessionId ?? sessionIdFor(thread.id);
-    recordUserText(thread.id, request.text);
+    recordUserText(thread.id, request.text, "ask");
 
     // SPEC.md §8.5 — the SDK's transcript cache can be cleaned at any time.
     // REX keeps the thread; only the SDK's own record was lost.
@@ -695,7 +741,7 @@ export function registerIpc(
    */
   handle(COMMAND.threadApply, (_event, request: ThreadApplyRequest) => {
     clearNoteFlag(db, request.threadId);
-    recordUserText(request.threadId, request.note);
+    recordUserText(request.threadId, request.note, "act");
     return startApply(applyContext, request.threadId, request.note);
   });
 

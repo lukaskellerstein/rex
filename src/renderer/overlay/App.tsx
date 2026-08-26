@@ -12,11 +12,12 @@ import type {
   CommentGroup,
   CommentMove,
   DocumentRef,
+  DocumentVersion,
+  LineRange,
   Message,
   OpenedDocument,
   PaneMode,
   ReferenceGraph,
-  StrokeRef,
   ThreadWithMessages,
   ViewState,
   WorkingCopyView,
@@ -29,6 +30,8 @@ import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import { ApplyResult } from "./ApplyResult.tsx";
 import {
   type DocumentSurface,
+  type GapSpot,
+  mergeResolved,
   NO_KEPT_SCOPE,
   type ResolvedThread,
   type Selected,
@@ -36,13 +39,11 @@ import {
 import { CommentCard } from "./CommentCard.tsx";
 import { DiffDialog } from "./DiffDialog.tsx";
 import { DocumentView } from "./DocumentView.tsx";
-import { Explorer } from "./Explorer.tsx";
+import { type ChangeCounts, Explorer } from "./Explorer.tsx";
 import { GraphView } from "./GraphView.tsx";
-import { rescaleRect, strokeRefFrom, unionOfRects } from "./ink.ts";
 import { Lightbox } from "./Lightbox.tsx";
 import { drawDiagramPng, posterFramePng } from "./mermaid.ts";
 import type { Mode } from "./mode.ts";
-import { PEN_WIDTH } from "./PenLayer.tsx";
 import type { PreviewFigure } from "./preview.ts";
 import { SelectionPanel } from "./SelectionPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
@@ -95,6 +96,27 @@ function nameOf(ref: DocumentRef): string {
   return ref.value.split("/").pop() ?? ref.value;
 }
 
+/**
+ * Spec 16 §4.1 — the lines this document's working copy added or altered, which
+ * is the set the new-version pane will answer a gesture on.
+ *
+ * `null` — no working copy — means everything is live, which is Reading mode
+ * and every document nobody has changed. A non-null EMPTY list is a different
+ * thing and is left empty deliberately: this pane has a change to show and no
+ * way to say which blocks it touched (a plain HTML file has no `data-src-line`
+ * to go on), so nothing is live and every comment goes on the left.
+ *
+ * It is the same list spec 15 §6.2 already outlines in green, so the affordance
+ * needs no new furniture: what is outlined is what responds.
+ */
+function liveRangesOf(doc: OpenedDocument | null): LineRange[] | null {
+  if (!doc?.working) return null;
+  const path = doc.ref.value;
+  return doc.working.added
+    .filter((region) => region.file === path)
+    .map((region) => ({ from: region.from, to: region.to }));
+}
+
 interface ApplyOutcome {
   summary: AnchorSummary;
   files: string[];
@@ -114,7 +136,32 @@ export function App(): React.JSX.Element {
    * implementations of one order is the bug §4.4 exists to prevent.
    */
   const [groups, setGroups] = useState<CommentGroup[]>([]);
+  /**
+   * Spec 16 §5.2 — the MERGED answer: per target the best of the two panes.
+   *
+   * Everything that asks "what state is this comment in?" reads this, and
+   * nothing else may: taking the worst across the two panes would report every
+   * comment on unchanged text as orphaned the moment a working copy existed.
+   */
   const [resolved, setResolved] = useState<ResolvedThread[]>([]);
+  /**
+   * §5.2 — and each pane's own sweep, because each pane's lane draws from its
+   * own. Where a bar appears is not computed; it is what that sweep found.
+   */
+  const [paneResolved, setPaneResolved] = useState<{
+    original: ResolvedThread[];
+    current: ResolvedThread[];
+  }>({ original: [], current: [] });
+  /** Spec 16 §6.6 — the gaps the `+ Add` affordance can appear in. */
+  const [gaps, setGaps] = useState<GapSpot[]>([]);
+  /**
+   * §6.1 — the gap the pointer is over, if any.
+   *
+   * A ref rather than state: it is read by a key binding and never drawn, and
+   * making it state would re-render the whole shell on every pointer move
+   * across a band.
+   */
+  const offeredGap = useRef<number | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cost, setCost] = useState(0);
   const [pendingApply, setPendingApply] = useState<ApplyReadyEvent | null>(null);
@@ -131,7 +178,33 @@ export function App(): React.JSX.Element {
   const [paneMode, setPaneMode] = useState<PaneMode>("both");
   /** §7.1 — every document with a change waiting, for `Approve all`. */
   const [working, setWorking] = useState<WorkingCopyView[]>([]);
+  /**
+   * Spec 18 §4.3 — the tree's green and red counts, keyed by absolute path.
+   *
+   * Derived from the working-copy list rather than carried on `TreeEntry`: a
+   * block count moves when a run finishes, and the tree is rescanned far less
+   * often than that. This way the row is right the moment the change lands.
+   */
+  const changeCounts = useMemo<ChangeCounts>(
+    () =>
+      new Map(
+        working.map((view) => [
+          view.path,
+          { added: view.added.length, removed: view.removed.length },
+        ]),
+      ),
+    [working],
+  );
   const [busyThreads, setBusyThreads] = useState<string[]>([]);
+  /**
+   * Spec 17 §3.3 — the threads whose Stop has been pressed and not yet landed.
+   *
+   * A separate list from `busyThreads` rather than a third state on it, because
+   * a stopping thread is still busy: the run has not ended, and everything that
+   * is disabled during a run stays disabled. This only changes the word on the
+   * spinner and stops the button being pressed twice.
+   */
+  const [stoppingThreads, setStoppingThreads] = useState<string[]>([]);
   /**
    * Spec 12 §3.3 — the mode each thread's next send will run in.
    *
@@ -186,9 +259,28 @@ export function App(): React.JSX.Element {
   const [picking, setPicking] = useState(false);
   const [pickScopes, setPickScopes] = useState<PickScope[] | null>(null);
   const [pickActive, setPickActive] = useState(0);
+  /**
+   * Spec 16 §4 — which pane the chain above was probed in.
+   *
+   * A chain holds live elements of one document, and both panes now offer pick
+   * mode. Without this the left pane's chain would be drawn over the right
+   * pane's prose, at coordinates that mean nothing there.
+   */
+  const [pickPane, setPickPane] = useState<DocumentVersion>("current");
   const [arming, setArming] = useState(false);
   /** Spec 06 §5.1 — the pen, a mode like pick and off by default. */
   const [penning, setPenning] = useState(false);
+  /**
+   * Spec 16 §6.6 — Add, a mode like the other two and off by default.
+   *
+   * It was on whenever the pointer was in a gap, and that is wrong for the same
+   * reason pick mode is not: a reviewer moving down a page they are only
+   * READING got a rule and a pill thrown across the prose every few lines. An
+   * affordance that appears without being asked for is furniture in the way.
+   *
+   * Held ⇧ arms it, exactly as held ⌥ arms pick.
+   */
+  const [adding, setAdding] = useState(false);
   /** The document's own zoom. 1 is 100%. */
   const [zoom, setZoom] = useState(1);
 
@@ -206,16 +298,8 @@ export function App(): React.JSX.Element {
   const [traceId, setTraceId] = useState<string | null>(null);
   /** Spec 08 §7.2 — which of the open comment's places is being pointed at. */
   const [hoveredPlace, setHoveredPlace] = useState<number | null>(null);
-  /**
-   * Spec 06 §5.4 — the ink for the comment being built, already in the form it
-   * will be stored in: fractions of the union box of the panel's places.
-   *
-   * It belongs to the panel, not to any one row, which is the whole reason it
-   * is not a field on `SelectionItem`.
-   */
-  const [selectionStroke, setSelectionStroke] = useState<StrokeRef | null>(null);
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
-  /** §6.4 — a saved comment shows its ink when its row is hovered, too. */
+  /** Hovering a row in the panel lights that comment's passages on the paper. */
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
   /** The chain rebuilt from the expanded row's anchor — §4.1. */
@@ -258,6 +342,14 @@ export function App(): React.JSX.Element {
   }, [picking, penning]);
 
   const surfaceRef = useRef<DocumentSurface | null>(null);
+  /**
+   * Spec 16 §4.2 — the original pane's surface.
+   *
+   * Two live DOMs are resolved against now, both in the renderer, so invariant
+   * I1 holds and is exercised harder. Null whenever there is no proposal to
+   * compare against, which is every document nobody has changed.
+   */
+  const originalSurfaceRef = useRef<DocumentSurface | null>(null);
   const docRef = useRef<OpenedDocument | null>(null);
   const threadsRef = useRef<ThreadWithMessages[]>([]);
   const groupsRef = useRef<CommentGroup[]>([]);
@@ -319,6 +411,11 @@ export function App(): React.JSX.Element {
    * old rule.
    */
   const pickChosenByHand = useRef(false);
+  /** Which pane the chain on screen belongs to, for the callbacks that commit it. */
+  const pickPaneRef = useRef<DocumentVersion>("current");
+  /** §4.1 — what the new-version pane answers a gesture on. See `liveRangesOf`. */
+  const liveRangesRef = useRef<LineRange[] | null>(null);
+  liveRangesRef.current = liveRangesOf(doc);
 
   /**
    * Spec 13 §4.2 — the four view fields the debug report needs, and the shell
@@ -342,6 +439,7 @@ export function App(): React.JSX.Element {
   activeIdRef.current = activeId;
   pickActiveRef.current = pickActive;
   pickScopesRef.current = pickScopes;
+  pickPaneRef.current = pickPane;
   zoomRef.current = zoom;
   centreRef.current = centre;
   sidebarTabRef.current = sidebarTab;
@@ -427,24 +525,45 @@ export function App(): React.JSX.Element {
    * their box is still true of the document they belong to.
    */
   const remeasureSelection = useCallback(async (openDocumentId: string): Promise<void> => {
-    const surface = surfaceRef.current;
     const items = selectionRef.current;
     const here = items.filter((item) => item.documentId === openDocumentId);
-    if (!surface || here.length === 0) return;
+    if (here.length === 0) return;
 
-    const rects = await surface.rectsForAnchors(
-      here.map((item) => ({ anchor: item.anchor, kind: item.kind })),
-    );
-    const measured = new Map(here.map((item, position) => [item.id, rects[position] ?? null]));
+    // Spec 16 §4 — each row is measured in the pane it was taken from, and only
+    // falls to the other one when its own no longer has it. That is what makes
+    // a place survive an approve: the original pane goes, and the row's box is
+    // re-found in the one version that is left.
+    const measured = new Map<string, { rect: ScopeRect | null; pane: DocumentVersion }>();
+    for (const pane of ["current", "original"] as const) {
+      const surface = pane === "original" ? originalSurfaceRef.current : surfaceRef.current;
+      const wanted = here.filter(
+        (item) => !measured.has(item.id) || measured.get(item.id)?.rect === null,
+      );
+      if (!surface || wanted.length === 0) continue;
+      const rects = await surface.rectsForAnchors(
+        wanted.map((item) => ({ anchor: item.anchor, kind: item.kind })),
+      );
+      wanted.forEach((item, position) => {
+        const rect = rects[position] ?? null;
+        // Its own pane's answer stands even when it is null, unless the other
+        // pane can do better — a row that resolves nowhere keeps no box at all.
+        if (rect !== null || !measured.has(item.id)) measured.set(item.id, { rect, pane });
+      });
+    }
 
     setSelection((current) => {
       let moved = false;
       const next = current.map((item) => {
-        if (!measured.has(item.id)) return item;
-        const rect = measured.get(item.id) ?? null;
-        if (same(item.rect, rect) && item.zoom === zoomRef.current) return item;
+        const found = measured.get(item.id);
+        if (!found) return item;
+        if (
+          same(item.rect, found.rect) &&
+          item.zoom === zoomRef.current &&
+          item.pane === found.pane
+        )
+          return item;
         moved = true;
-        return { ...item, rect, zoom: zoomRef.current };
+        return { ...item, rect: found.rect, pane: found.pane, zoom: zoomRef.current };
       });
       // The same list back when nothing moved: this runs on every sweep, and a
       // fresh array each time would re-render the panel and the outlines for
@@ -455,18 +574,39 @@ export function App(): React.JSX.Element {
 
   const sweep = useCallback(async (): Promise<AnchorSummary> => {
     const surface = surfaceRef.current;
+    const originalSurface = originalSurfaceRef.current;
     const current = docRef.current;
     const summary: AnchorSummary = { ok: 0, moved: 0, orphaned: 0, total: 0 };
-    if (!surface || !current) return summary;
+    if (!current || (!surface && !originalSurface)) return summary;
 
-    const entries = await surface.resolve(
-      threadsRef.current,
-      current.contentChanged,
-      current.documentId,
-      activeIdRef.current,
-    );
+    const inCurrent = surface
+      ? await surface.resolve(
+          threadsRef.current,
+          current.contentChanged,
+          current.documentId,
+          activeIdRef.current,
+        )
+      : [];
+
+    // Spec 16 §5.2 — `documentChanged` is ALWAYS false in the original pane.
+    // It shows `base`, the file exactly as it was when the working copy was
+    // forked, so nothing in it can have moved under an anchor written against
+    // it. Passing the document's own `contentChanged` here would report every
+    // comment on unchanged text as `moved` the moment any working copy existed.
+    const inOriginal = originalSurface
+      ? await originalSurface.resolve(
+          threadsRef.current,
+          false,
+          current.documentId,
+          activeIdRef.current,
+        )
+      : [];
+
+    const entries = mergeResolved([inCurrent, inOriginal]);
     resolvedRef.current = entries;
     setResolved(entries);
+    setPaneResolved({ current: inCurrent, original: inOriginal });
+    setGaps(surface?.gaps() ?? []);
     await remeasureSelection(current.documentId);
 
     // Invariant I1 — main stores anchor states but cannot compute them. One call
@@ -508,10 +648,15 @@ export function App(): React.JSX.Element {
     // Spec 15 §6.2 — the working copy's own added blocks when there is one. It
     // outlives the run that made it, so `pendingApply` is the wrong source the
     // moment a second run lands or the reviewer reopens the document.
-    const regions = current.working ? current.working.added : (pending?.regions ?? []);
-    const ranges = regions
-      .filter((region) => region.file === path)
-      .map((region) => ({ from: region.from, to: region.to }));
+    //
+    // Spec 16 §4.1 — with a working copy these are also exactly the blocks that
+    // answer a gesture here, which is why the outline needs no companion: what
+    // is outlined is what responds.
+    const ranges =
+      liveRangesOf(current) ??
+      (pending?.regions ?? [])
+        .filter((region) => region.file === path)
+        .map((region) => ({ from: region.from, to: region.to }));
     setChangeBoxes(ranges.length > 0 ? await surface.boxesForLines(ranges) : []);
   }, []);
 
@@ -557,7 +702,25 @@ export function App(): React.JSX.Element {
    */
   useEffect(() => {
     surfaceRef.current?.repaintActive(activeId);
+    // Spec 16 §5.1 — a comment can be about text that only the original has, so
+    // opening it has to recolour that pane's passages too.
+    originalSurfaceRef.current?.repaintActive(activeId);
   }, [activeId]);
+
+  /**
+   * Spec 16 §4.1 — the live set is recomputed whenever the working copy moves:
+   * a new revision, an undo, an approve, a discard.
+   *
+   * A document whose proposal has just been approved or discarded has no
+   * working copy any more, so this hands back `null` and the whole pane answers
+   * again — which is what Reading mode is.
+   *
+   * `doc` is the dependency because `doc` is what says the working copy moved;
+   * the ranges themselves are read through a ref at call time.
+   */
+  useEffect(() => {
+    surfaceRef.current?.setLiveBlocks(liveRangesRef.current);
+  }, [doc]);
 
   /**
    * Leaving pick mode forgets a deliberate widening.
@@ -572,8 +735,20 @@ export function App(): React.JSX.Element {
   }, [picking]);
 
   const onSurfaceReady = useCallback(
-    async (surface: DocumentSurface): Promise<void> => {
+    async (pane: DocumentVersion, surface: DocumentSurface | null): Promise<void> => {
+      if (pane === "original") {
+        originalSurfaceRef.current = surface;
+        // The left lane has nothing in it until this sweep runs, and a comment
+        // on removed text has nowhere at all until then.
+        await sweep();
+        return;
+      }
+
       surfaceRef.current = surface;
+      if (!surface) return;
+      // §4.1 — before the first sweep and long before the first gesture: a pane
+      // that has not been told what is live would take a comment on anything.
+      surface.setLiveBlocks(liveRangesRef.current);
       const summary = await sweep();
       await refreshChangeBoxes();
 
@@ -656,8 +831,11 @@ export function App(): React.JSX.Element {
       await refreshGroups();
       const list = await window.rex.threadList(listRequest(opened.documentId));
       surfaceRef.current = null;
+      originalSurfaceRef.current = null;
       setActiveId(null);
       setResolved([]);
+      setPaneResolved({ original: [], current: [] });
+      setGaps([]);
       resolvedRef.current = [];
       // §3.3 — the panel survives. Only the chain belongs to the old DOM, and a
       // chain holds live elements that are about to stop existing.
@@ -1110,7 +1288,12 @@ export function App(): React.JSX.Element {
       //
       // A deck run still has it, because spec 11 §7.7's pipeline is untouched
       // and is still accepted through `apply:confirm`.
-      const notice = event.working.length === 0 ? event : null;
+      //
+      // Spec 17 §3.4 — and a stopped run has said everything too, in the
+      // STOPPED block the reviewer's own press produced. "This document was not
+      // changed" under it is REX reporting the absence of a result nobody was
+      // waiting for any more.
+      const notice = event.working.length === 0 && !event.stopped ? event : null;
       setPendingApply(notice);
       pendingApplyRef.current = notice;
       // Before anything is re-rendered or re-swept — see the ref's own note.
@@ -1166,25 +1349,31 @@ export function App(): React.JSX.Element {
   armingRef.current = arming;
 
   /** One `Selected` as the panel stores it. */
-  const itemFor = useCallback((next: Selected, current: OpenedDocument): SelectionItem => {
-    return newSelectionItem({
-      kind: next.scopes[next.active]?.kind ?? "text",
-      documentId: current.documentId,
-      documentRef: current.ref,
-      documentName: nameOf(current.ref),
-      anchor: next.anchor,
-      label: next.label,
-      rect: next.rect,
-      zoom: zoomRef.current,
-    });
-  }, []);
+  const itemFor = useCallback(
+    (next: Selected, current: OpenedDocument, pane: DocumentVersion): SelectionItem => {
+      return newSelectionItem({
+        kind: next.scopes[next.active]?.kind ?? "text",
+        documentId: current.documentId,
+        // Spec 16 §4 — which pane it was taken from, so its outline is drawn
+        // where it was measured and its box is re-found there on every sweep.
+        pane,
+        documentRef: current.ref,
+        documentName: nameOf(current.ref),
+        anchor: next.anchor,
+        label: next.label,
+        rect: next.rect,
+        zoom: zoomRef.current,
+      });
+    },
+    [],
+  );
 
   /** §3.1 — everything selected is added. The three rules live in selection.ts. */
   const addSelected = useCallback(
-    (next: Selected): void => {
+    (next: Selected, pane: DocumentVersion): void => {
       const current = docRef.current;
       if (!current) return;
-      setSelection((items) => addSelectionItem(items, itemFor(next, current)));
+      setSelection((items) => addSelectionItem(items, itemFor(next, current, pane)));
     },
     [itemFor],
   );
@@ -1212,6 +1401,10 @@ export function App(): React.JSX.Element {
             newSelectionItem({
               kind: "element",
               documentId: opened.documentId,
+              // The file itself, not a version of it — §4.5 of spec 06 calls
+              // this the one anchor that cannot move, and it resolves in
+              // whichever pane is on screen.
+              pane: "current",
               documentRef: ref,
               documentName: nameOf(ref),
               anchor: createDocumentAnchor(),
@@ -1236,47 +1429,56 @@ export function App(): React.JSX.Element {
    * was caught by accident, widen one with the chips, add a sixth by clicking.
    * A drawing is a fast way to fill the panel, not a second way to make a
    * comment.
+   *
+   * **The drawing itself is not kept.** It is a gesture, not a record: once it
+   * has named the places, the places are the comment and the ink has nothing
+   * left to say. Leaving it on the paper covered the prose it was drawn around,
+   * and a comment carrying *how* it was selected told the agent nothing the
+   * targets did not already say. Reported on 2026-08-26.
    */
   const finishDrawing = useCallback(
-    (strokes: Stroke[]): void => {
+    (pane: DocumentVersion, strokes: Stroke[]): void => {
       void guard(async () => {
-        const surface = surfaceRef.current;
+        const surface = pane === "original" ? originalSurfaceRef.current : surfaceRef.current;
         const current = docRef.current;
         setPenning(false);
         if (!surface || !current) return;
 
+        // Spec 16 §5.5 — in the new version a drawing that crosses one changed
+        // block and two unchanged ones makes a comment about the changed one
+        // only. The surface filters; nothing here knows the rule.
         const found = await surface.targetsFromDrawing(strokes, zoomRef.current);
         if (found.targets.length === 0) return;
 
-        let next = selectionRef.current;
-        for (const one of found.targets) next = addSelectionItem(next, itemFor(one, current));
-        setSelection(next);
-        selectionRef.current = next;
+        const added = found.targets.map((one) => itemFor(one, current, pane));
 
-        // §5.4 — fractions of the union box of the comment's targets, taken
-        // *after* the drawn places have joined it. Anything else and the ink
-        // would be stretched the moment it was first drawn.
-        const union = unionOfRects(
-          next
-            .filter((item) => item.documentId === current.documentId)
-            .map((item) =>
-              item.rect ? rescaleRect(item.rect, zoomRef.current / item.zoom) : null,
-            ),
-        );
-        setSelectionStroke(union ? strokeRefFrom(found.strokes, union, PEN_WIDTH) : null);
+        // Spec 16 §4 — BOTH panes can finish on one keypress: a drawing in each,
+        // and `enter` commits both. The two calls land here in the same tick, so
+        // a list built from `selectionRef` — which only catches up on the next
+        // render — drops whichever pane got here first. Measured on 2026-08-26:
+        // the left pane's circle silently ate the right pane's. The updater is
+        // the only thing that sees the list as it really is, and the ref is left
+        // to the render that follows.
+        setSelection((items) => added.reduce(addSelectionItem, items));
       });
     },
     [guard, itemFor],
   );
 
-  const onSelectionChanged = useCallback(async () => {
-    const surface = surfaceRef.current;
-    if (!surface || armingRef.current) return;
-    const next = await surface.selectionMade();
-    // A click with nothing selected adds nothing — and, unlike the composer it
-    // replaces, takes nothing away either (§4, fault 3).
-    if (next) addSelected(next);
-  }, [addSelected]);
+  const onSelectionChanged = useCallback(
+    async (pane: DocumentVersion) => {
+      const surface = pane === "original" ? originalSurfaceRef.current : surfaceRef.current;
+      if (!surface || armingRef.current) return;
+      // Spec 16 §4.1 — in the new version a selection outside every live block
+      // returns null and nothing happens: no panel, no notice, no refusal to
+      // dismiss. The surface is where that rule lives.
+      const next = await surface.selectionMade();
+      // A click with nothing selected adds nothing — and, unlike the composer it
+      // replaces, takes nothing away either (§4, fault 3).
+      if (next) addSelected(next, pane);
+    },
+    [addSelected],
+  );
 
   /**
    * Remove a comment for good. Shared by the card's header and the list's rows,
@@ -1311,11 +1513,36 @@ export function App(): React.JSX.Element {
         setNotice(error instanceof Error ? error.message : String(error));
       } finally {
         setBusyThreads((current) => current.filter((id) => id !== threadId));
+        // Spec 17 §3.3 — the run is over however it ended, so the stopping
+        // state goes with the busy one. Leaving it behind would grey out the
+        // button on the comment's NEXT run.
+        setStoppingThreads((current) => current.filter((id) => id !== threadId));
         await refreshThreads();
         await refreshTree();
       }
     },
     [refreshThreads, refreshTree],
+  );
+
+  /**
+   * Spec 17 §2.1 — end this comment's running work.
+   *
+   * `busy` is deliberately not cleared here. The run has not stopped yet — the
+   * SDK closes the agent's stdin and gives it about two seconds — and the
+   * invoke that started it is still open. It clears where it always did, in
+   * `withBusy`'s `finally`, when the run actually ends.
+   */
+  const stopThread = useCallback(
+    (threadId: string): void => {
+      setStoppingThreads((current) => [...current, threadId]);
+      void guard(async () => {
+        const stopped = await window.rex.threadStop(threadId);
+        // §3.1 — zero means it finished between the paint and the click. Said
+        // out loud, because a button that appears to do nothing reads as broken.
+        if (stopped === 0) setNotice("That run had already finished.");
+      });
+    },
+    [guard],
   );
 
   /** §3.4 — one thread, every item as a target, in panel order. */
@@ -1329,9 +1556,6 @@ export function App(): React.JSX.Element {
       const thread = await window.rex.threadCreate({
         targets: items.map((item) => ({ documentId: item.documentId, anchor: item.anchor })),
         note,
-        // §5.4 — the ink rides inside the payload that already exists; §10's
-        // IPC contract is unchanged.
-        stroke: selectionStroke ?? undefined,
         // NOTE mode. The flag is stored so the panel and "Ask all" can tell a
         // comment the reviewer chose not to send from one whose send failed.
         isNote: mode === "note",
@@ -1339,7 +1563,6 @@ export function App(): React.JSX.Element {
 
       setSelection([]);
       setSelectionNote("");
-      setSelectionStroke(null);
       setExpandedItemId(null);
       setRowScopes(null);
       // §3.4 — the panel is empty, so nothing in REX is about that passage any
@@ -1347,6 +1570,7 @@ export function App(): React.JSX.Element {
       // with it, so it is dropped by hand or the text stays blue in the
       // document with nothing left pointing at it.
       surfaceRef.current?.clearTextSelection();
+      originalSurfaceRef.current?.clearTextSelection();
       leavePick();
       leavePen();
 
@@ -1378,7 +1602,6 @@ export function App(): React.JSX.Element {
     selection,
     selectionMode,
     selectionNote,
-    selectionStroke,
     sweep,
     withBusy,
   ]);
@@ -1388,11 +1611,7 @@ export function App(): React.JSX.Element {
       const next = items.filter((item) => item.id !== id);
       // §3.4 — a note with nothing to attach it to is not a thing REX has a
       // place for, and keeping it invisibly to reappear later is worse.
-      if (next.length === 0) {
-        setSelectionNote("");
-        // Nor is ink with nothing left to be drawn around.
-        setSelectionStroke(null);
-      }
+      if (next.length === 0) setSelectionNote("");
       return next;
     });
     setExpandedItemId((current) => (current === id ? null : current));
@@ -1401,11 +1620,12 @@ export function App(): React.JSX.Element {
   const clearSelection = useCallback((): void => {
     setSelection([]);
     setSelectionNote("");
-    setSelectionStroke(null);
     setExpandedItemId(null);
     setRowScopes(null);
-    // The same reason as Ask's — see the note there.
+    // The same reason as Ask's — see the note there. Both panes: the browser's
+    // selection belongs to whichever frame it was dragged in.
     surfaceRef.current?.clearTextSelection();
+    originalSurfaceRef.current?.clearTextSelection();
   }, []);
 
   /**
@@ -1461,17 +1681,33 @@ export function App(): React.JSX.Element {
 
   // ── Picking (design/selection) ──────────────────────────────
 
-  const probe = useCallback((x: number, y: number) => {
-    void (async () => {
-      const keep = pickChosenByHand.current ? pickActiveRef.current : NO_KEPT_SCOPE;
-      const found = (await surfaceRef.current?.probeAt(x, y, keep)) ?? null;
-      if (!found) return;
-      setPickScopes(found.scopes);
-      // Usually the smallest anchorable element; the surface says otherwise when
-      // the reviewer had already widened and that element is still in the chain.
-      setPickActive(found.active);
-    })();
-  }, []);
+  /** The surface for one pane. Spec 16 §4.2 — there are two of them now. */
+  const surfaceFor = useCallback(
+    (pane: DocumentVersion): DocumentSurface | null =>
+      pane === "original" ? originalSurfaceRef.current : surfaceRef.current,
+    [],
+  );
+
+  const probe = useCallback(
+    (pane: DocumentVersion, x: number, y: number) => {
+      void (async () => {
+        const keep =
+          pickChosenByHand.current && pickPaneRef.current === pane
+            ? pickActiveRef.current
+            : NO_KEPT_SCOPE;
+        // §4.1 — in the new version the probe answers nothing outside the live
+        // blocks, so the path bar never offers a scope a click cannot take.
+        const found = (await surfaceFor(pane)?.probeAt(x, y, keep)) ?? null;
+        if (!found) return;
+        setPickPane(pane);
+        setPickScopes(found.scopes);
+        // Usually the smallest anchorable element; the surface says otherwise when
+        // the reviewer had already widened and that element is still in the chain.
+        setPickActive(found.active);
+      })();
+    },
+    [surfaceFor],
+  );
 
   /** ↑ ↓ or a crumb. This, and only this, is a deliberate widening. */
   const choosePickScope = useCallback((index: number): void => {
@@ -1479,9 +1715,12 @@ export function App(): React.JSX.Element {
     setPickActive(index);
   }, []);
 
-  const scrollDocument = useCallback((dx: number, dy: number) => {
-    surfaceRef.current?.scrollBy(dx, dy);
-  }, []);
+  const scrollDocument = useCallback(
+    (pane: DocumentVersion, dx: number, dy: number) => {
+      surfaceFor(pane)?.scrollBy(dx, dy);
+    },
+    [surfaceFor],
+  );
 
   /**
    * A click in pick mode adds a place and stays in pick mode.
@@ -1492,12 +1731,50 @@ export function App(): React.JSX.Element {
   const commitScope = useCallback(
     (index: number) => {
       void (async () => {
-        const next = await surfaceRef.current?.anchorFromScope(index);
-        if (next) addSelected(next);
+        const pane = pickPaneRef.current;
+        const next = await surfaceFor(pane)?.anchorFromScope(index);
+        if (next) addSelected(next, pane);
+      })();
+    },
+    [addSelected, surfaceFor],
+  );
+
+  /**
+   * Spec 16 §6.1 — the gap the reviewer clicked becomes a place in the panel.
+   *
+   * From there it behaves exactly as any other place: type the note, pick the
+   * mode, send. Add names a place; it does not decide what happens there.
+   */
+  const commitGap = useCallback(
+    (index: number) => {
+      void (async () => {
+        const next = await surfaceRef.current?.anchorFromGap(index);
+        if (next) addSelected(next, "current");
       })();
     },
     [addSelected],
   );
+
+  /**
+   * Spec 16 §6.1 — `A` adds a place without reaching for the mouse.
+   *
+   * The gap under the pointer when there is one, because that is what the rule
+   * and the pill are already promising; otherwise the gap nearest the middle of
+   * what is on screen, which is the honest reading of "here" for a keyboard.
+   * The row that appears names its neighbour either way, so a wrong guess is
+   * visible before anything is sent.
+   */
+  const addAtNearestGap = useCallback((): void => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const index = offeredGap.current ?? surface.nearestGap();
+    if (index === null) return;
+    commitGap(index);
+  }, [commitGap]);
+
+  const rememberOfferedGap = useCallback((index: number | null): void => {
+    offeredGap.current = index;
+  }, []);
 
   /**
    * A click in pick mode: probe where it landed, then commit that.
@@ -1517,11 +1794,14 @@ export function App(): React.JSX.Element {
    * uses: `keptIndex` carries the chosen ELEMENT into the new chain.
    */
   const commitAt = useCallback(
-    (x: number, y: number) => {
+    (pane: DocumentVersion, x: number, y: number) => {
       void (async () => {
-        const surface = surfaceRef.current;
+        const surface = surfaceFor(pane);
         if (!surface) return;
-        const keep = pickChosenByHand.current ? pickActiveRef.current : NO_KEPT_SCOPE;
+        const keep =
+          pickChosenByHand.current && pickPaneRef.current === pane
+            ? pickActiveRef.current
+            : NO_KEPT_SCOPE;
         const found = await surface.probeAt(x, y, keep);
         if (!found) {
           // Nothing anchorable under the point: a margin, or the gap between
@@ -1536,18 +1816,19 @@ export function App(): React.JSX.Element {
           // Where the probe DOES find something the outline is already showing
           // that same thing, so this branch changes nothing about a normal
           // click — it only stops the promise being broken.
-          if (!pickScopesRef.current?.length) return;
+          if (!pickScopesRef.current?.length || pickPaneRef.current !== pane) return;
           const shown = await surface.anchorFromScope(pickActiveRef.current);
-          if (shown) addSelected(shown);
+          if (shown) addSelected(shown, pane);
           return;
         }
+        setPickPane(pane);
         setPickScopes(found.scopes);
         setPickActive(found.active);
         const next = await surface.anchorFromScope(found.active);
-        if (next) addSelected(next);
+        if (next) addSelected(next, pane);
       })();
     },
-    [addSelected],
+    [addSelected, surfaceFor],
   );
 
   // ── The selection panel ─────────────────────────────────────
@@ -1568,7 +1849,12 @@ export function App(): React.JSX.Element {
 
       void guard(async () => {
         if (docRef.current?.documentId === target.documentId) {
+          // Spec 16 §5.1 — a place that only the original has is scrolled to
+          // there. Both panes are asked; the one that cannot find it does
+          // nothing, which is what `scrollToAnchor` already does for an anchor
+          // it cannot resolve.
           surfaceRef.current?.scrollToAnchor(target.anchor);
+          originalSurfaceRef.current?.scrollToAnchor(target.anchor);
           return;
         }
         // Nothing to open with — the document record is gone. Saying so beats
@@ -1602,7 +1888,10 @@ export function App(): React.JSX.Element {
           return;
         }
 
-        surfaceRef.current?.scrollToAnchor(item.anchor);
+        // The row belongs to one pane, and widening it has to act on that
+        // pane's DOM — see `SelectionItem.pane`.
+        const surface = surfaceFor(item.pane);
+        surface?.scrollToAnchor(item.anchor);
 
         if (expandedItemId === item.id) {
           setExpandedItemId(null);
@@ -1613,12 +1902,12 @@ export function App(): React.JSX.Element {
 
         setExpandedItemId(item.id);
         expandedBase.current = item;
-        const probed = await surfaceRef.current?.scopesForAnchor(item.anchor, item.kind);
+        const probed = await surface?.scopesForAnchor(item.anchor, item.kind);
         setRowScopes(probed?.scopes ?? null);
         setRowActive(probed?.active ?? 0);
       });
     },
-    [expandedItemId, guard, openDocument],
+    [expandedItemId, guard, openDocument, surfaceFor],
   );
 
   /**
@@ -1633,7 +1922,7 @@ export function App(): React.JSX.Element {
     (index: number) => {
       void guard(async () => {
         const base = expandedBase.current;
-        const surface = surfaceRef.current;
+        const surface = base ? surfaceFor(base.pane) : null;
         if (!base || !surface) return;
 
         const next = await surface.anchorFromAnchorScope(base.anchor, base.kind, index);
@@ -1658,13 +1947,15 @@ export function App(): React.JSX.Element {
         setArming(false);
       });
     },
-    [guard],
+    [guard, surfaceFor],
   );
 
   const armRegion = useCallback(() => {
     if (!rowScopes) return;
     // The layer has to be up to catch the drag, and it needs the expanded row's
-    // own chain so the box is cut from the element the chips point at.
+    // own chain so the box is cut from the element the chips point at — in the
+    // pane that chain came from.
+    setPickPane(expandedBase.current?.pane ?? "current");
     setPickScopes(rowScopes);
     setPickActive(rowActive);
     setPicking(true);
@@ -1676,7 +1967,7 @@ export function App(): React.JSX.Element {
     (index: number, box: ScopeRect) => {
       void guard(async () => {
         const base = expandedBase.current;
-        const next = await surfaceRef.current?.anchorFromRegion(index, box);
+        const next = await surfaceFor(pickPaneRef.current)?.anchorFromRegion(index, box);
         setArming(false);
         setPicking(false);
         if (!next || !base) return;
@@ -1698,7 +1989,7 @@ export function App(): React.JSX.Element {
         );
       });
     },
-    [guard],
+    [guard, surfaceFor],
   );
 
   // ── Keyboard (design/screens/Main) ──────────────────────────
@@ -1710,8 +2001,16 @@ export function App(): React.JSX.Element {
   //
   // ⌥ held for a moment is pick mode too: hover never outlines things while you
   // are only reading, and it never competes with dragging a text selection.
+  //
+  // The boolean and not the list: the sweep hands back a new `gaps` array on
+  // every scroll, and depending on the array itself would tear both listeners
+  // down and put them back each time. What the keyboard needs to know is only
+  // whether there is one.
+  const hasGaps = gaps.length > 0;
   useEffect(() => {
     let altTimer: number | null = null;
+    /** §6.6 — the ⇧ hold that arms Add. Its own timer, its own mode. */
+    let shiftTimer: number | null = null;
 
     /**
      * `composedPath()[0]`, not `event.target`.
@@ -1733,6 +2032,21 @@ export function App(): React.JSX.Element {
     };
 
     const canPick = doc !== null && centre === "document";
+
+    /*
+      Spec 16 §6.4 — Add exists where there is a gap to add at, and nowhere else.
+
+      A gap is measured between two blocks carrying `data-src-line`, which only
+      the Markdown renderer stamps. A PDF, a DOCX, a PPTX and a hand-written HTML
+      file carry none, so their gap list is empty and every part of Add is dead:
+      the strip drew a button that did nothing, ⇧ armed a mode with nothing in it
+      and `A` fell through `addAtNearestGap`'s null. Measured on 2026-08-26 on a
+      27-slide deck — `[data-src-line]` count 0, `⇧ add` on the strip.
+
+      The gap list is the test rather than the file extension, so nothing here
+      has to be kept in step with what each format stamps.
+    */
+    const canAdd = canPick && hasGaps;
 
     const onKeyDown = (event: KeyboardEvent): void => {
       /*
@@ -1757,6 +2071,28 @@ export function App(): React.JSX.Element {
         !typing(event)
       ) {
         altTimer = window.setTimeout(() => setPicking(true), ALT_PICK_DELAY);
+        return;
+      }
+
+      /*
+        Spec 16 §6.6 — held ⇧ arms Add, exactly as held ⌥ arms pick.
+
+        The same delay, and for a weaker version of the same reason: ⇧A is a
+        binding, so a shifted letter must not flash the rule across the page on
+        its way to being typed. `event.key === "Shift"` fires on the modifier
+        ALONE, so ⇧A never reaches here — this is the guard for the gap between
+        pressing ⇧ and pressing the letter.
+      */
+      if (
+        event.key === "Shift" &&
+        shiftTimer === null &&
+        !picking &&
+        !penning &&
+        canAdd &&
+        !inCommentList &&
+        !typing(event)
+      ) {
+        shiftTimer = window.setTimeout(() => setAdding(true), ALT_PICK_DELAY);
         return;
       }
       // Zoom the document, the way every reader expects: ⌘/ctrl with + − 0.
@@ -1801,10 +2137,32 @@ export function App(): React.JSX.Element {
           if (!workspace) return;
           void showCentre("graph");
           break;
+        case "a":
+          // Spec 16 §6.1 — Add, from the keyboard. Bare `a`, because it costs
+          // nothing: it puts a row in the panel and runs no agent. Its shifted
+          // twin below is the one that spends money, which is why that one
+          // needs the modifier and this one does not.
+          if (!canAdd) return;
+          addAtNearestGap();
+          break;
         case "A":
           // Shift+A only. A bare `a` would fire a fan-out of paid sessions on a
           // keystroke, which §8.8 point 4 already treats as worth confirming.
           if (!event.shiftKey) return;
+          /*
+            Spec 16 §6.6 — while Add is armed, ⇧A is Add.
+
+            Holding ⇧ is what arms Add, so ⇧A is the combination a reviewer's
+            hand arrives at the moment they can see the rules on the page: hold
+            to look, press A to take one. The other meaning of ⇧A opens a paid
+            session for every unanswered comment in the workspace, and reaching
+            it by accident from inside a mode that costs nothing is the one
+            collision on this keyboard worth spending a branch on.
+          */
+          if (adding) {
+            if (canAdd) addAtNearestGap();
+            break;
+          }
           void askAll();
           break;
         case "b":
@@ -1820,6 +2178,14 @@ export function App(): React.JSX.Element {
     };
 
     const onKeyUp = (event: KeyboardEvent): void => {
+      if (event.key === "Shift") {
+        if (shiftTimer !== null) {
+          window.clearTimeout(shiftTimer);
+          shiftTimer = null;
+        }
+        setAdding(false);
+        return;
+      }
       if (event.key !== "Alt") return;
       if (altTimer !== null) {
         window.clearTimeout(altTimer);
@@ -1834,8 +2200,22 @@ export function App(): React.JSX.Element {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
       if (altTimer !== null) window.clearTimeout(altTimer);
+      if (shiftTimer !== null) window.clearTimeout(shiftTimer);
     };
-  }, [arming, askAll, centre, copyDebug, doc, penning, showCentre, workspace, zoomBy]);
+  }, [
+    addAtNearestGap,
+    adding,
+    arming,
+    askAll,
+    centre,
+    copyDebug,
+    doc,
+    hasGaps,
+    penning,
+    showCentre,
+    workspace,
+    zoomBy,
+  ]);
 
   // ── Apply (§8.7, spec 05 §5.6.1) ────────────────────────────
 
@@ -1961,6 +2341,7 @@ export function App(): React.JSX.Element {
               tree={tree}
               width={explorerWidth}
               activePath={selectedPath}
+              changes={changeCounts}
               showSkipped={showSkipped}
               onOpen={(path) => void guard(() => openDocument({ kind: "file", value: path }))}
               onReload={refreshTree}
@@ -2013,7 +2394,8 @@ export function App(): React.JSX.Element {
               }
               paneMode={paneMode}
               onPaneMode={setPaneMode}
-              resolved={resolved}
+              resolved={paneResolved.current}
+              originalResolved={paneResolved.original}
               threads={threads}
               activeId={activeId}
               selection={selection}
@@ -2021,12 +2403,18 @@ export function App(): React.JSX.Element {
               onHoverItem={setHoveredItemId}
               onRemoveItem={removeItem}
               changeBoxes={changeBoxes}
+              adding={adding}
+              onToggleAdd={() => {
+                setPicking(false);
+                setPenning(false);
+                setAdding((on) => !on);
+              }}
               picking={picking}
               pickScopes={pickScopes}
               pickActive={pickActive}
+              pickPane={pickPane}
               arming={arming}
               penning={penning}
-              selectionStroke={selectionStroke}
               hoveredThreadId={hoveredThreadId}
               onHoverThread={setHoveredThreadId}
               hoveredPlace={hoveredPlace}
@@ -2056,6 +2444,9 @@ export function App(): React.JSX.Element {
               onPickCommitAt={commitAt}
               onPickCancel={leavePick}
               onRegion={takeRegion}
+              gaps={gaps}
+              onGapOffer={rememberOfferedGap}
+              onGapPick={commitGap}
             />
           </div>
 
@@ -2169,6 +2560,8 @@ export function App(): React.JSX.Element {
               targetStates={targetStatesById.get(active.id) ?? []}
               targetPlaces={targetPlacesById.get(active.id) ?? []}
               busy={busyThreads.includes(active.id)}
+              stopping={stoppingThreads.includes(active.id)}
+              onStop={() => stopThread(active.id)}
               mode={modeOf(active.id)}
               onMode={(mode) => setMode(active.id, mode)}
               tracing={traceId === active.id}
@@ -2194,6 +2587,7 @@ export function App(): React.JSX.Element {
           ) : (
             <Sidebar
               threads={threads}
+              openDocument={doc ? { id: doc.documentId, name: nameOf(doc.ref) } : null}
               stateById={stateById}
               labelById={labelById}
               busyThreads={busyThreads}

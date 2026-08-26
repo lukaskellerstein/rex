@@ -81,6 +81,8 @@ export interface DeckApplyInput {
   model: string | null;
   /** §7.4.2 — the renderer's diagram drawer, passed down from the IPC layer. */
   resolver: MediaResolver;
+  /** Spec 17 §2.6 — the reviewer's Stop, handed on to the agent. */
+  signal?: AbortSignal;
   onMessage: (draft: MessageDraft) => void;
 }
 
@@ -116,8 +118,13 @@ function buildPrompt(input: {
  * Every refusal below throws, and a throw means nothing was written anywhere
  * near the reviewer's deck. There is no partial application (§7.2.2 rule 5), so
  * the reviewer never has to reason about a deck that is half edited.
+ *
+ * Spec 17 §2.6 — `null` is the reviewer stopping it. That ordering is why a
+ * stopped deck run is the clean case: the agent writes a plan and REX performs
+ * it afterwards, so a run stopped before the plan is complete has touched
+ * nothing. It is not an error and does not throw.
  */
-export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResult> {
+export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResult | null> {
   const source = readFileSync(input.deckPath);
   const contentHash = hashOf(source);
 
@@ -158,8 +165,12 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
     model: input.model,
     // §6.4.2 — a `.pptx` is a marker: the two design plugins load only here.
     documentPath: input.deckPath,
+    signal: input.signal,
     onMessage: input.onMessage,
   });
+  // Spec 17 §2.6 — checked before the error, because a stop is not one, and
+  // before the plan check, because a stopped run has no plan to be missing.
+  if (result.stopped) return null;
   if (result.error) throw new Error(result.error);
 
   if (!existsSync(plans)) {

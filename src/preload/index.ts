@@ -23,6 +23,7 @@ const api: RexApi = {
   threadList: (request) => ipcRenderer.invoke(COMMAND.threadList, request),
   threadCreate: (request) => ipcRenderer.invoke(COMMAND.threadCreate, request),
   threadAsk: (threadId) => ipcRenderer.invoke(COMMAND.threadAsk, threadId),
+  threadStop: (threadId) => ipcRenderer.invoke(COMMAND.threadStop, threadId),
   threadReply: (request) => ipcRenderer.invoke(COMMAND.threadReply, request),
   threadResolve: (request) => ipcRenderer.invoke(COMMAND.threadResolve, request),
   threadDelete: (threadId) => ipcRenderer.invoke(COMMAND.threadDelete, threadId),

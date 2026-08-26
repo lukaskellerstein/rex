@@ -57,6 +57,95 @@ const MIN_STEP = 2;
 /** A press with no drag is not a stroke. */
 const MIN_POINTS = 2;
 
+/**
+ * One layer, as the keys below reach it. Everything is read live through a ref,
+ * so a handle registered at mount never goes stale.
+ */
+interface PenHandle {
+  strokes: () => Stroke[];
+  done: (strokes: Stroke[]) => void;
+  cancel: () => void;
+  undo: () => void;
+  redo: () => void;
+}
+
+/**
+ * Every mounted layer, and ONE `keydown` listener between them.
+ *
+ * Spec 16 puts a pen layer in BOTH panes — pen mode is a single flag and the
+ * reviewer may draw in either version. Each layer used to listen for `enter`
+ * itself, and two listeners on one document cannot survive what `enter` does:
+ * whichever runs first ends pen mode, React unmounts both layers at the
+ * microtask checkpoint between the two listeners, and **the DOM skips a
+ * listener that was removed mid-dispatch**. The second layer was never called.
+ *
+ * That lost the drawing outright when it was in the second pane — `enter` in the
+ * new-version pane selected nothing while the `done` button worked, which is
+ * what made it look like a lasso bug — and lost one pane's places when both had
+ * been drawn in. Measured on 2026-08-26.
+ *
+ * So the keys belong to the MODE and not to a layer: one listener, added when
+ * the first layer mounts and removed when the last one goes. Nothing can be
+ * unmounted out from under it, because it does not belong to what it unmounts.
+ *
+ * A module-level set rather than state lifted into `App`: it is read once per
+ * keypress, and stroke counts in React state would re-render the whole shell on
+ * every point of every stroke.
+ */
+const LAYERS = new Set<PenHandle>();
+
+/** The one listener above, while any layer is mounted. */
+let listening = false;
+
+function onModeKey(event: KeyboardEvent): void {
+  // The selection panel is open beside the pen and its note has a caret;
+  // `composedPath()[0]` because the shadow boundary retargets `event.target`
+  // to the host — see App.tsx.
+  const focused = event.composedPath()[0];
+  if (
+    focused instanceof HTMLElement &&
+    (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT" || focused.isContentEditable)
+  ) {
+    return;
+  }
+
+  const layers = [...LAYERS];
+
+  // §5.1 — undo and redo act on whole strokes, never on points. Every layer
+  // takes the key, exactly as every layer used to hear it: each one steps back
+  // through its own drawing, and one with nothing drawn does nothing.
+  if ((event.metaKey || event.ctrlKey) && (event.key === "z" || event.key === "Z")) {
+    event.preventDefault();
+    for (const layer of layers) {
+      if (event.shiftKey) layer.redo();
+      else layer.undo();
+    }
+    return;
+  }
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    layers[0]?.cancel();
+    return;
+  }
+  if (event.key !== "Enter") return;
+
+  event.preventDefault();
+  const inked = layers.filter((layer) => layer.strokes().length > 0);
+  // Nothing drawn anywhere is nothing to select; leaving is the honest outcome.
+  if (inked.length === 0) {
+    layers[0]?.cancel();
+    return;
+  }
+  finish(inked);
+}
+
+/** §5.2 — every drawing on screen becomes places, in one act. */
+function finish(inked: ReadonlyArray<PenHandle>): void {
+  for (const layer of inked) layer.done(layer.strokes());
+}
+
 /** One stroke as an SVG path, in the coordinates it will be drawn at. */
 export function pathData(stroke: ReadonlyArray<Point>, project: (p: Point) => Point): string {
   if (stroke.length === 0) return "";
@@ -109,49 +198,51 @@ export function PenLayer(props: Props): React.JSX.Element {
     setUndone(stack.slice(0, -1));
   };
 
+  /**
+   * Everything the keys reach, through a ref — the two props are new functions
+   * on some renders and `undo`/`redo` are new on every one. The handle below is
+   * registered once per mount and reads them here, so it never re-subscribes:
+   * a dependency on any of the four would re-run once per point of a stroke.
+   */
+  const calls = useRef({ onDone, onCancel, undo, redo });
+  calls.current = { onDone, onCancel, undo, redo };
+
+  useEffect(() => {
+    const handle: PenHandle = {
+      strokes: () => live.current.strokes,
+      done: (all) => calls.current.onDone(all),
+      cancel: () => calls.current.onCancel(),
+      undo: () => calls.current.undo(),
+      redo: () => calls.current.redo(),
+    };
+    LAYERS.add(handle);
+    if (!listening) {
+      document.addEventListener("keydown", onModeKey);
+      listening = true;
+    }
+    return () => {
+      LAYERS.delete(handle);
+      if (LAYERS.size === 0) {
+        document.removeEventListener("keydown", onModeKey);
+        listening = false;
+      }
+    };
+  }, []);
+
+  /**
+   * The toolbar's `done`, which finishes the whole session and not just this
+   * pane — the same act as `enter`, so it cannot mean something narrower. It is
+   * disabled while THIS layer is empty, because a button with nothing under it
+   * should not look pressable.
+   */
   const done = (): void => {
-    const all = live.current.strokes;
-    if (all.length === 0) {
-      // Nothing drawn is nothing to select; leaving is the honest outcome.
+    const inked = [...LAYERS].filter((layer) => layer.strokes().length > 0);
+    if (inked.length === 0) {
       onCancel();
       return;
     }
-    onDone(all);
+    finish(inked);
   };
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      // The selection panel is open beside the pen and its note has a caret;
-      // `composedPath()[0]` because the shadow boundary retargets `event.target`
-      // to the host — see App.tsx.
-      const focused = event.composedPath()[0];
-      if (
-        focused instanceof HTMLElement &&
-        (focused.tagName === "TEXTAREA" || focused.tagName === "INPUT" || focused.isContentEditable)
-      ) {
-        return;
-      }
-
-      if ((event.metaKey || event.ctrlKey) && (event.key === "z" || event.key === "Z")) {
-        event.preventDefault();
-        if (event.shiftKey) redo();
-        else undo();
-        return;
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
-
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onCancel();
-      } else if (event.key === "Enter") {
-        event.preventDefault();
-        done();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-    // `undo`, `redo` and `done` all read through `live`, so they need no deps.
-  }, [onCancel, onDone]);
 
   // Measured once per render and reused for every point of every stroke: it is
   // one layout read, and reading it per point would be thousands.

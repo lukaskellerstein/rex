@@ -45,6 +45,14 @@ export interface AgentRunInput {
   documentPath?: string | null;
   onMessage: (draft: MessageDraft) => void;
   /**
+   * Spec 17 §2.2 — the reviewer's Stop, as the SDK understands it.
+   *
+   * It becomes `Options.abortController`, which is the SDK's own way to cancel
+   * a query and the only one reachable from here: `Query.interrupt()` needs the
+   * streaming input mode, and every run REX makes passes a string prompt.
+   */
+  signal?: AbortSignal;
+  /**
    * Spec 15 §4.3 — every path a write tool named, as it is called.
    *
    * The primary source for "what did this run touch", and better than git in
@@ -61,6 +69,15 @@ export interface AgentRunResult {
   durationMs: number | null;
   denials: Denial[];
   error: string | null;
+  /**
+   * Spec 17 §2.3 — the reviewer stopped this run, and `error` is therefore null.
+   *
+   * Every caller branches on `error`, so a stop reported as one would be shown
+   * as a failure, counted as a failure in the debug report, and — in
+   * `startApply` — thrown out of the IPC handler as a red notice. Nothing about
+   * a stop is a fault.
+   */
+  stopped: boolean;
 }
 
 function draft(
@@ -245,12 +262,23 @@ function handleUser(
   }
 }
 
+/** Spec 17 §2.3 — the one message a stop writes, and the only one. */
+const STOPPED = "You stopped this run.";
+
 export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   const config = PROFILES[input.profile];
   const denials: Denial[] = [];
   const toolNames = new Map<string, string>();
 
+  // Spec 17 §2.2 — the SDK cancels on a controller, and REX is given a signal,
+  // so the two are bridged here. Aborting the SDK's controller must never be
+  // reachable from anywhere but the reviewer's own Stop.
+  const controller = new AbortController();
+  const stopped = (): boolean => input.signal?.aborted === true;
+  input.signal?.addEventListener("abort", () => controller.abort(), { once: true });
+
   const options: Options = {
+    abortController: controller,
     cwd: input.cwd,
     systemPrompt: {
       type: "preset",
@@ -273,8 +301,21 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
   let costUsd: number | null = null;
   let durationMs: number | null = null;
   let error: string | null = null;
+  /** The turn ran to its own end and said so — the SDK's `result: success`. */
+  let answered = false;
 
   const emit = (message: MessageDraft): void => input.onMessage(message);
+
+  /** Spec 17 §2.3 — the run ended because a person ended it. Never an error. */
+  const reportStopped = (): AgentRunResult => {
+    emit(draft("system", "stopped", STOPPED, { costUsd, durationMs }));
+    return { sessionId, costUsd, durationMs, denials, error: null, stopped: true };
+  };
+
+  // §2.4 — an "Ask all" leaves runs queued behind the five-agent cap, and those
+  // are the ones a reviewer most wants back. Stopped here, nothing is spawned
+  // and the run costs nothing.
+  if (stopped()) return reportStopped();
 
   try {
     for await (const message of query({
@@ -308,6 +349,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
           costUsd = event.total_cost_usd ?? null;
           durationMs = event.duration_ms ?? null;
           if (event.subtype === "success") {
+            answered = true;
             emit(
               draft("system", "completed", `Completed in ${durationMs ?? "?"}ms`, {
                 costUsd,
@@ -316,10 +358,16 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
                 outputTokens: event.usage?.output_tokens ?? null,
               }),
             );
-          } else {
-            error = (event.errors ?? []).join("; ") || `Agent stopped: ${event.subtype}`;
+          } else if (!stopped()) {
+            // The word is "ended" and not "stopped" on purpose: since spec 17
+            // "stopped" means the reviewer pressed Stop, and this line is the
+            // one case that is genuinely a failure.
+            error = (event.errors ?? []).join("; ") || `Agent ended: ${event.subtype}`;
             emit(draft("system", "error", error, { isError: true, costUsd, durationMs }));
           }
+          // §2.3 — an abort also arrives as an unsuccessful turn. Its cost and
+          // duration are kept; nothing else is recorded here, because
+          // `reportStopped` below writes the one message a stop gets.
           break;
         }
 
@@ -328,6 +376,10 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       }
     }
   } catch (thrown) {
+    // §2.3 — the abort surfaces as a thrown `AbortError`, and REX asks its own
+    // signal rather than matching that class: both are true, and the signal is
+    // the one REX owns, so it cannot change under a dependency bump.
+    if (stopped()) return reportStopped();
     // The stack is what a maintainer needs and the one thing the reviewer's
     // screen has no room for, so it goes to the console rather than nowhere.
     console.error("[rex] agent run failed", thrown);
@@ -335,5 +387,10 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     emit(draft("system", "error", error, { isError: true }));
   }
 
-  return { sessionId, costUsd, durationMs, denials, error };
+  // A late abort can end the stream cleanly, with nothing thrown. `answered`
+  // is what keeps a stop pressed on the last millisecond of a run that DID
+  // answer from printing "you stopped this run" under a finished answer.
+  if (!answered && stopped()) return reportStopped();
+
+  return { sessionId, costUsd, durationMs, denials, error, stopped: false };
 }
