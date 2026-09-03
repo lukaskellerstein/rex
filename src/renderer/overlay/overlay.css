@@ -806,7 +806,32 @@
 .rex-tree {
   display: flex;
   flex-direction: column;
+  /* Spec 40 §5.1 — it fills the column so the empty space under the last row
+     belongs to the tree, and can be the workspace root's drop target. */
+  flex: 1;
   padding: 8px 0;
+}
+
+/*
+  Spec 40 §5.2 — where a drop would land.
+
+  The wash a comment group already wears when a drag would go inside it
+  (`.rex-group-into`, spec 14 §7.3), so "this is where it goes" looks the same
+  everywhere in REX. On the receiving FOLDER's row, never on the row under the
+  pointer: dropping on `guide.md` lights `docs/`.
+*/
+.rex-tree-into {
+  background: var(--wash-ok-on);
+  box-shadow: inset 0 0 0 1px var(--wash-ok-edge-on);
+}
+
+/*
+  The same answer for the workspace root, which has no row to light. An outline
+  on the tree itself — a drop with no feedback at all is the one thing §5.2
+  exists to prevent.
+*/
+.rex-tree-into-root {
+  box-shadow: inset 0 0 0 1px var(--wash-ok-edge-on);
 }
 
 .rex-tree-row {
@@ -814,6 +839,16 @@
   align-items: center;
   gap: 6px;
   flex: none;
+  /*
+    A `button` is `border-box` by the UA sheet and a `div` is not, and this rule
+    dresses both: the tree draws a button for a document and a folder, and a div
+    for an excluded row, an unopenable one and the new-name box. Without this the
+    div rows are `width: 100%` PLUS 12px of padding, so each one is 24px wider
+    than the column and the whole explorer scrolls sideways — the header's label
+    cut off at the left, every row indented wrong. Measured on 2026-09-03 with
+    one unopenable file in the tree.
+  */
+  box-sizing: border-box;
   width: 100%;
   height: 24px;
   padding: 0 12px 0 0;
@@ -6572,6 +6607,61 @@
 .rex-row-bin:hover {
   background: var(--wash-lost);
   color: var(--lost-text);
+}
+
+/*
+  Spec 41 §2.1 — copy this block's text, in the head of every block the chat and
+  the trace draw. The pen's reveal rule, for the pen's reason: down thirty
+  blocks of a trace, thirty glyphs is a column of noise.
+
+  The cell is in the layout at all times and only its opacity moves, so the
+  clock beside it keeps the one aligned column spec 38 §3.1 gave it. A button
+  that appeared on hover would shift every clock in the sheet as the pointer
+  crossed a block.
+
+  `--raised` for the hover ground and not `--sunk`, which the answer block is
+  already painted with (`.rex-turn-agent`) — a hover that matches the surface
+  under it is a hover nobody sees.
+*/
+.rex-copy {
+  /* Positioning context for its `data-tip` label. */
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--faint);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.rex-turn:hover .rex-copy,
+.rex-trace-entry:hover .rex-copy,
+.rex-copy:focus-visible {
+  opacity: 1;
+}
+
+.rex-copy:hover {
+  background: var(--raised);
+  color: var(--fg-dim);
+}
+
+/*
+  The tick stays up for a moment after the press, and the pointer is often gone
+  by then — moved to whatever the reviewer is pasting into. A confirmation that
+  needs a hover to be seen confirms nothing, so this state ignores the reveal.
+*/
+.rex-copy-done,
+.rex-copy-done:hover {
+  background: none;
+  color: var(--ok);
+  opacity: 1;
 }
 
 /* ── Which rows are inside a folder ──────────────────────────── */

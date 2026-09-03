@@ -21,7 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import Database from "better-sqlite3";
-import { listCapabilities } from "../src/main/agent/capabilities.ts";
+import { listCapabilities, nameModels } from "../src/main/agent/capabilities.ts";
 import {
   migrateMessageModel,
   migrateMessageStyle,
@@ -247,4 +247,117 @@ test("§2.1 — migrateThreadStyle adds the column the chat is remembered in", (
     "NULL is the CLI's own default — what every comment made before spec 31 was answered under",
   );
   db.close();
+});
+
+// ── Spec 25 §6.4 — naming a model row ───────────────────────────
+//
+// The rows below are the CLI's real answer on 2026-09-03, copied from the
+// probe. Two of them are called `Fable` and BOTH describe themselves as
+// "Fable 5"; only the id differs. That is the case this whole section exists
+// for, and a fixture invented by hand would not have contained it.
+
+const REAL_ROWS = [
+  {
+    value: "default",
+    resolvedModel: "claude-opus-5[1m]",
+    displayName: "Default (recommended)",
+    description: "Opus 5 with 1M context",
+  },
+  {
+    value: "opus[1m]",
+    resolvedModel: "claude-opus-5[1m]",
+    displayName: "Opus (1M context)",
+    description: "Opus 5 with 1M context",
+  },
+  {
+    value: "claude-fable-5[1m]",
+    resolvedModel: "claude-fable-5",
+    displayName: "Fable",
+    description: "Fable 5 · Most capable",
+  },
+  {
+    value: "claude-fable-5-1[1m]",
+    resolvedModel: "claude-fable-5-1",
+    displayName: "Fable",
+    description: "Fable 5 · Most capable",
+  },
+  {
+    value: "sonnet",
+    resolvedModel: "claude-sonnet-5",
+    displayName: "Sonnet",
+    description: "Sonnet 5",
+  },
+  {
+    value: "haiku",
+    resolvedModel: "claude-haiku-4-5-20251001",
+    displayName: "Haiku",
+    description: "Haiku 4.5",
+  },
+];
+
+const nameOf = (value: string): string =>
+  nameModels(REAL_ROWS).find((row) => row.value === value)?.displayName ?? "(missing)";
+
+test("§6.4 — the two Fable rows are told apart, by version", () => {
+  assert.equal(nameOf("claude-fable-5[1m]"), "Fable 5 (1M)");
+  assert.equal(nameOf("claude-fable-5-1[1m]"), "Fable 5.1 (1M)");
+});
+
+test("§6.4 — the version comes from the id, and the context from either id", () => {
+  // `sonnet` carries no version; `claude-sonnet-5` does.
+  assert.equal(nameOf("sonnet"), "Sonnet 5");
+  // `[1m]` is on `value` here and not on `resolvedModel`, and vice versa above.
+  assert.equal(nameOf("opus[1m]"), "Opus 5 (1M)");
+});
+
+test("§6.4 — a dated snapshot is a snapshot, not a version", () => {
+  assert.equal(nameOf("haiku"), "Haiku 4.5", "the 8-digit date is not part of the name");
+});
+
+test("§6.4 — `default` keeps the CLI's own name", () => {
+  // What it resolves to today is not what it MEANS, so naming it by today's
+  // answer would be wrong the day the CLI's default moves.
+  assert.equal(nameOf("default"), "Default (recommended)");
+});
+
+test("§6.4 — an id REX cannot parse keeps the CLI's name", () => {
+  const rows = [
+    { value: "something-new", displayName: "Something", description: "d" },
+    { value: "claude-x", resolvedModel: "claude-x", displayName: "X", description: "d" },
+  ];
+  assert.deepEqual(
+    nameModels(rows).map((row) => row.displayName),
+    ["Something", "X"],
+    "nothing is invented for a naming scheme REX has not seen",
+  );
+});
+
+test("§6.4 — two rows that would still read the same are named apart by id", () => {
+  // An alias and the explicit id it points at. Both parse to the same name, so
+  // the parser alone cannot separate them — which is the case this guarantee
+  // exists for, and one the CLI is a single release away from listing: it
+  // already offers `opus[1m]`, and `claude-opus-5[1m]` beside it would collide.
+  const rows = [
+    { value: "thing[1m]", resolvedModel: "claude-thing-9", displayName: "Thing", description: "d" },
+    {
+      value: "claude-thing-9[1m]",
+      resolvedModel: "claude-thing-9",
+      displayName: "Thing",
+      description: "d",
+    },
+  ];
+  const names = nameModels(rows).map((row) => row.displayName);
+  assert.deepEqual(names, ["Thing 9 (1M) · thing[1m]", "Thing 9 (1M) · claude-thing-9[1m]"]);
+  // The guarantee that does not depend on the parser being right about the
+  // future: `value` is the CLI's own key, so it is unique by construction.
+  assert.equal(new Set(names).size, 2, "no two rows in the menu may read the same");
+});
+
+test("§6.4 — the wire id is always in the description", () => {
+  const row = nameModels(REAL_ROWS).find((one) => one.value === "claude-fable-5-1[1m]");
+  assert.match(
+    row?.description ?? "",
+    /claude-fable-5-1$/,
+    "the CLI's own sentence said 'Fable 5' for both Fable rows, so the tooltip needs something that cannot be stale",
+  );
 });

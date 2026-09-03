@@ -213,6 +213,51 @@ export function changeCounts(change: string): { removed: number; added: number }
   return { removed, added };
 }
 
+/**
+ * The blocks that are a call, and so are drawn as a head and folded rows.
+ *
+ * `TraceSheet` reads this to decide whether to draw rows at all, and `textOf`
+ * reads it to decide which of the two copy rules a block follows. It is not
+ * `CALL_KINDS` below: that one is about pairing a diff with the change it
+ * describes, and a lone `diff` block has no call to pair with.
+ */
+export const HAS_ROWS: ReadonlySet<TraceKind> = new Set(["tool", "denied", "failed", "diff"]);
+
+/**
+ * Spec 41 §3 — what this block puts on the clipboard.
+ *
+ * Here rather than in `TraceSheet` because it is the same split spec 38 §3
+ * made for what a row shows: the sheet draws, this file decides, and
+ * `node --test` can check the decision without a DOM.
+ */
+export function textOf(entry: TraceEntry): string {
+  // §3.1 — a spoken block is its words and nothing else: no label, no clock,
+  // no mode pill, no place list. A question pasted into an issue should read
+  // as the question.
+  if (!HAS_ROWS.has(entry.kind)) return entry.body;
+
+  // §3.2 — a call's parts are folded separately and are meaningless run
+  // together: a command with its output stuck to it, and no word saying which
+  // is which. So each part is copied under the word the row draws.
+  const head = entry.status ? `${entry.label} · ${entry.status.toUpperCase()}` : entry.label;
+  // The agent's own account of the call — and, for a lone diff, the path,
+  // which is the only line that says what the change is to. Both answer the
+  // same question, so both sit in the same place.
+  const about = entry.what ?? (entry.kind === "diff" ? entry.body : null);
+  const sections = [about ? `${head}\n${about}` : head];
+  // The gate's sentence, above the rows as the sheet draws it. It is the whole
+  // block on a refusal, so it is never folded into `INPUT`.
+  if (entry.reason) sections.push(entry.reason);
+  // `body` is deliberately not copied for a tool: it is the one argument the
+  // INPUT row previews, and INPUT lists it in full a few lines down.
+  if (entry.fields.length > 0) {
+    sections.push(`INPUT\n${entry.fields.map(([key, value]) => `${key}: ${value}`).join("\n")}`);
+  }
+  if (entry.change) sections.push(`CHANGE\n${entry.change}`);
+  if (entry.result) sections.push(`OUTPUT\n${entry.result}`);
+  return sections.join("\n\n");
+}
+
 /** The four voices a `text` row can carry. */
 type TextKind = Extract<TraceKind, "you" | "note" | "aside" | "answer">;
 

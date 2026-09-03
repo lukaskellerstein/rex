@@ -29,6 +29,11 @@
       default-src 'self' — the document iframe runs no script either way, and
       the renderer's own bundle is same-origin. worker-src needs nothing:
       PDF.js's worker is a bundled same-origin asset.
+
+      In DEV only, `electron.vite.config.ts` adds `worker-src 'self' blob:` to
+      this attribute. Vite's HMR client pings the dev server from a blob
+      SharedWorker, which this policy blocks. That client is not in the built
+      bundle, so the shipped page keeps worker-src unset.
     -->
     <meta
       http-equiv="Content-Security-Policy"

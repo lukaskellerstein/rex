@@ -100,6 +100,14 @@ npx electron . doc.md      # one document
 npx electron . docs/       # a folder, as a workspace
 ```
 
+> **Every `npm install` undoes `npm run rebuild`** — including one that installs
+> a single unrelated package. npm reinstalls `better-sqlite3` against Node's
+> ABI, and the tests keep passing (they run under `node`) while the app dies the
+> moment it touches the database. It does not die loudly: the window opens, the
+> debugger port answers, and the process disappears on the first query, which
+> looks like a crash on whatever you clicked. Measured 2026-09-03, updating the
+> Agent SDK. **Run `npm run rebuild` after any install.**
+
 ### Developing
 
 `npm run dev` runs the same app through electron-vite, watching all three
@@ -128,7 +136,7 @@ the Agent SDK, and there is no way to patch a running one.
 | `npm run dev` | electron-vite dev server, watching main and preload too |
 | `npm run build` | build main, preload and renderer into `out/` |
 | `npm start` | preview the built app through electron-vite |
-| `npm run rebuild` | rebuild `better-sqlite3` for the current Electron |
+| `npm run rebuild` | rebuild `better-sqlite3` for the current Electron — **after every `npm install`**, see below |
 | `npm run typecheck` | `tsc --noEmit` over everything |
 | `npm run test:anchor` | the anchor gate, against two real documents |
 | `npm run test:comments` | comment names, the tree, the drop rules and the group store |
@@ -540,6 +548,7 @@ predecessors rather than restating them:
 | 31 | [how the agent writes](docs/my-specs/31-how-the-agent-writes/SPEC.md) | an output style beside the model, remembered for the whole chat and used by every mode |
 | 34 | [the copy is permanent](docs/my-specs/34-the-permanent-copy/SPEC.md) | REX's copy of a document lives at one path from the first agent on and is never deleted; approve and discard move content, a running agent holds its documents, and a reviewer's approve or discard is a message in the thread |
 | 38 | [the trace block](docs/my-specs/38-the-trace-block/SPEC.md) | a tool call in the trace is a head and stacked `INPUT` / `CHANGE` / `OUTPUT` rows; `YOU` wears its mode and lists its places, the answer's foot names the model and the style, the head is the comment's name and the card's run line, and the foot is the card's composer |
+| 41 | [copying a block](docs/my-specs/41-copying-a-block/SPEC.md) | every block in the chat and the trace grows a copy button in its head, hidden until the pointer is over it; a spoken block copies its words alone, a tool call copies its head, `INPUT`, `CHANGE` and `OUTPUT` even while they are folded |
 
 ## Contributing
 

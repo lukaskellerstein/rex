@@ -55,6 +55,7 @@ let cdpStatus: CdpStatus = {
   listening: false,
   browser: null,
   detail: "not probed yet",
+  owner: null,
 };
 
 function createWindow(): BrowserWindow {
@@ -156,14 +157,21 @@ void app.whenReady().then(() => {
         : `http://localhost:${status.port} · ${status.listening ? `listening · ${status.browser}` : `NOT listening — ${status.detail}`}`,
     );
   });
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) window = createWindow();
-  });
 });
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+/**
+ * The last window closing quits REX — on macOS too, against the convention.
+ *
+ * Mail and Safari stay in the Dock with no window because a new window is a
+ * new thing to do. REX has exactly one window and one document in it, so the
+ * windowless state offers nothing and costs something real: it keeps holding
+ * the debugger port. A REX left that way survives the terminal it was started
+ * from, and every later `npm run dev` then meets `bind() failed: Address
+ * already in use` from a process with no window to close.
+ *
+ * Measured on 2026-09-03: one such REX from 2026-09-01 had held 9334 for two
+ * days. Ctrl+C never leaked one — closing the window did.
+ */
+app.on("window-all-closed", () => app.quit());
 
 app.on("will-quit", closeDatabase);

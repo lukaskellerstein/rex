@@ -1789,6 +1789,77 @@ export function App(): React.JSX.Element {
     [afterFileAct, guard],
   );
 
+  /**
+   * Spec 40 §2 — one row, into one folder.
+   *
+   * The notice is set BEFORE `afterFileAct`, deliberately. That call has two
+   * branches with something more urgent to say — the open document went, or it
+   * cannot be opened under its new path — and whichever speaks last is what the
+   * reviewer reads.
+   */
+  const moveEntry = useCallback(
+    (path: string, parent: string): void => {
+      void guard(async () => {
+        const current = workspaceRef.current;
+        if (!current) return;
+        const answer = await window.rex.workspaceMove({ root: current.root, path, parent });
+        if (!answer.ok) {
+          setNotice(answer.reason);
+          return;
+        }
+        // §3.1 — a drop into the folder it is already in answers ok and moved
+        // nothing. Nothing has to catch up, and "Moved" would be a lie.
+        if (answer.path === path) return;
+
+        // §3.3 — no confirm, so the notice is what makes an unmeant drag
+        // legible: it names both ends, at the moment it happens.
+        const what = path.split("/").pop() ?? path;
+        const where =
+          parent === current.root ? "the workspace root" : `"${parent.split("/").pop() ?? parent}"`;
+        setNotice(`Moved "${what}" into ${where}.`);
+        await afterFileAct(path, answer.path);
+      });
+    },
+    [afterFileAct, guard],
+  );
+
+  /**
+   * Spec 39 §5.3 — the empty path, and what follows it landing.
+   *
+   * Not `afterFileAct`: nothing moved and nothing went, so the open document,
+   * the threads and the pending copies are all exactly as they were. The tree
+   * is re-scanned and the graph dropped, and that is the whole catch-up.
+   */
+  const createEntry = useCallback(
+    (parent: string, name: string, kind: "file" | "directory"): void => {
+      void guard(async () => {
+        const current = workspaceRef.current;
+        if (!current) return;
+        const answer = await window.rex.workspaceCreate({ root: current.root, parent, name, kind });
+        if (!answer.ok) {
+          setNotice(answer.reason);
+          return;
+        }
+
+        await refreshTree();
+        // A view of the same scan, so it is now stale — `setExcluded`'s reason.
+        setGraph(null);
+
+        // §5.3 — a new empty document nobody opens is a create the reviewer has
+        // to follow with a click. A folder, and a file REX cannot render, are
+        // both left where they are, and the second says so.
+        if (answer.opens) await openDocument({ kind: "file", value: answer.path });
+        const created = answer.opens
+          ? "Created."
+          : kind === "directory"
+            ? "Folder created."
+            : "Created. REX cannot open that kind of file, so it is only listed.";
+        setNotice(answer.note === null ? created : `${created} ${answer.note}`);
+      });
+    },
+    [guard, openDocument, refreshTree],
+  );
+
   const approveWorking = useCallback(
     (documentId: string) =>
       guard(async () => {
@@ -3994,6 +4065,8 @@ export function App(): React.JSX.Element {
               onExclude={(path, exclude) => void setExcluded(path, exclude)}
               onRename={renameEntry}
               onDelete={deleteEntry}
+              onCreate={createEntry}
+              onMove={moveEntry}
               onToggleSkipped={() => void toggleShowSkipped()}
               tab={find.tab}
               onTab={find.setTab}

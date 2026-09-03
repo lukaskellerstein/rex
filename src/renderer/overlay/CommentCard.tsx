@@ -19,6 +19,7 @@ import type {
 } from "../../shared/types.ts";
 import { agentText } from "./aside.ts";
 import { Composer } from "./Composer.tsx";
+import { CopyText } from "./CopyText.tsx";
 import { DebugCopy } from "./DebugCopy.tsx";
 import { Bubble, ChevronLeft, ChevronRight, Pencil, Sparkle, StopSquare, Trash } from "./Icons.tsx";
 import { modelLabel } from "./ModelPick.tsx";
@@ -303,6 +304,20 @@ const VOICE_LABEL: Record<Voice, string> = {
 };
 
 /**
+ * Spec 41 §2 — what the copy button calls this block, in its own tooltip.
+ *
+ * The label above it is already on the screen, so the word here is the one a
+ * sentence needs — "Copy this question", not "Copy this YOU".
+ */
+const VOICE_THING: Record<Voice, string> = {
+  you: "question",
+  agent: "answer",
+  aside: "remark",
+  note: "notice",
+  stopped: "stop",
+};
+
+/**
  * Spec 12 §3.3 — the reviewer's own turn is `YOU`, and a pill says which mode
  * they were in.
  *
@@ -347,6 +362,11 @@ function TurnBlock({
   // §3.3 — the reviewer's own turn wears its mode's colour, the same three the
   // switch beside Send uses. Anything else keeps the tone it had.
   const sent = turn.voice === "you" && !turn.failed ? turn.mode : null;
+  // Joined once, drawn once and copied once. The SDK splits one answer across
+  // several `text` messages at arbitrary points, and a fenced code block opened
+  // in one part and closed in the next only parses if the parser sees both —
+  // which is spec 41 §3.3's reason for the card copying a whole TURN.
+  const text = turn.parts.join("\n\n");
 
   return (
     <div className={`rex-turn rex-turn-${tone}`}>
@@ -362,14 +382,16 @@ function TurnBlock({
         {sent ? <span className={`rex-sent rex-sent-${sent}`}>{MODE_LABEL[sent]}</span> : null}
         <span className="rex-spacer" />
         <span className="rex-turn-spent">{clock(turn.at)}</span>
+        {/*
+          Spec 41 §2.1 — outside the clock, which keeps the column it has. The
+          cell is always here and the glyph is not: it comes up when the pointer
+          is over the block, so a column of turns is not a column of glyphs.
+        */}
+        <CopyText text={text} what={turn.failed ? "error" : VOICE_THING[turn.voice]} />
       </div>
 
       {markdown ? (
-        // Joined before rendering, not rendered part by part. The SDK splits
-        // one answer across several `text` messages at arbitrary points, and a
-        // fenced code block opened in one part and closed in the next only
-        // parses if the parser sees both.
-        <Prose text={turn.parts.join("\n\n")} />
+        <Prose text={text} />
       ) : (
         turn.parts.map((part, position) => (
           // The reviewer's own words, REX's notices and errors stay verbatim.

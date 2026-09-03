@@ -28,9 +28,12 @@ import {
   type ThreadSynthesiseRequest,
   type WorkActResponse,
   type WorkApproveResponse,
+  type WorkspaceCreateRequest,
+  type WorkspaceCreateResult,
   type WorkspaceDeleteRequest,
   type WorkspaceExcludeRequest,
   type WorkspaceFileResult,
+  type WorkspaceMoveRequest,
   type WorkspaceRenameRequest,
   type WorkspaceSearchRequest,
 } from "../shared/channels.ts";
@@ -137,7 +140,13 @@ import {
   undoLastRevision,
   type WorkingMeta,
 } from "./work.ts";
-import { deleteEntry, noteWorkspaceRoot, renameEntry } from "./workspace/files.ts";
+import {
+  createEntry,
+  deleteEntry,
+  moveEntry,
+  noteWorkspaceRoot,
+  renameEntry,
+} from "./workspace/files.ts";
 import { buildReferenceGraph } from "./workspace/graph.ts";
 import { scanWorkspace } from "./workspace/tree.ts";
 
@@ -482,8 +491,8 @@ export function registerIpc(
       buildReferenceGraph(db, scanWorkspace(db, ref.root)),
   );
 
-  // Spec 23 §2 — the reviewer's own file acts. Every guard is in
-  // `workspace/files.ts`; these two lines are the door and nothing else.
+  // Spec 23 §2 and spec 39 §4 — the reviewer's own file acts. Every guard is in
+  // `workspace/files.ts`; these three lines are the door and nothing else.
   handle(
     COMMAND.workspaceRename,
     (_event, request: WorkspaceRenameRequest): WorkspaceFileResult => renameEntry(db, request),
@@ -494,6 +503,19 @@ export function registerIpc(
     (_event, request: WorkspaceDeleteRequest): Promise<WorkspaceFileResult> =>
       // §3 — the system Bin, so the reviewer's own `Put Back` is the undo.
       deleteEntry(request, (path) => shell.trashItem(path)),
+  );
+
+  // Spec 39 §4 — the third act at the same door, behind the same checks.
+  handle(
+    COMMAND.workspaceCreate,
+    (_event, request: WorkspaceCreateRequest): WorkspaceCreateResult => createEntry(db, request),
+  );
+
+  // Spec 40 §4 — the fourth. Every check the tree made is made again in main,
+  // per invariant I2 and because the tree can be stale (§2).
+  handle(
+    COMMAND.workspaceMove,
+    (_event, request: WorkspaceMoveRequest): WorkspaceFileResult => moveEntry(db, request),
   );
 
   // Spec 28 §4.2 — the renderer names a root and a query; main decides which

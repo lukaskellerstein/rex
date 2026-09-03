@@ -1,12 +1,16 @@
 # REX 25 — choosing the model
 
-**Version:** 1.2 · 2026-09-01 — §7.3 moved the model name from the answer's
-head to its foot, where the turns, the time and the cost already are, on the
-reviewer's ask. §13.5 records the top bar's picker being lost to a concurrent
-redesign and put back.
+**Version:** 1.3 · 2026-09-03
+**Changed since 1.0:**
+· **1.3** — §6.4 is new: REX names the model rows itself, because the CLI's own
+names stopped telling two of them apart.
+· **1.2** — §7.3 moved the model name from the answer's head to its foot, where
+the turns, the time and the cost already are, on the reviewer's ask. §13.5
+records the top bar's picker being lost to a concurrent redesign and put back.
+· **1.1** — built and driven; §11's risk resolved.
 
 **Status:** **built, and driven in a live window.** All four milestones are done
-(§10), `npm run test:models` is 7 tests green, and §11's one risk is **resolved**
+(§10), `npm run test:models` is 16 tests green, and §11's one risk is **resolved**
 — a resumed SDK session does accept a different model on a later turn, proven
 against the CLI's own transcript. §13 records the two places the build departed
 from version 1.0.
@@ -143,6 +147,25 @@ about tidiness:
   no change to REX, and a retired one disappears before it can be sent.
 - A hardcoded `claude-opus-5` would be a string REX asserts and cannot check. A
   wrong one fails **inside a run the reviewer has already paid to start.**
+
+> [!warning]
+> **The second bullet is not quite true, and 2026-09-03 is how that was found.**
+> The list is the account's. It is *not* a promise that the bundled binary can
+> run every row: picking **Fable 5.1** failed with *"400 Claude Code 2.1.237
+> does not support this model; version 2.1.251 or newer is required"*, from a
+> row the CLI itself had just offered.
+>
+> Two facts sit behind it. The SDK **ships and resolves its own Claude Code**,
+> so this machine's own 2.1.259 was irrelevant — and so is the API's advice to
+> run `claude update`. And a model's floor is known only to the API, which
+> reports it as a 400 at run time; nothing in the list carries it.
+>
+> So REX cannot filter the list, and must not try — a table of floors would be
+> the hardcoding this section exists to refuse, and it would rot the same way.
+> What it can do is **name the failure properly when it arrives**, which is
+> `MODEL_NEEDS_NEWER_CLI` in `runner.ts`: it says which version is running,
+> which is needed, that `claude update` will not help, and that the thing to
+> update is REX's own `@anthropic-ai/claude-agent-sdk`.
 
 ### 3.2 How to hold a `Query` without sending a prompt
 
@@ -308,6 +331,69 @@ not the SDK's `ModelInfo`. `src/shared/` may not import from `main/` (spec 01
 §3.1), and the SDK is main's dependency; restating three fields is the price of
 that boundary, and it means the effort levels and fast-mode flags in `ModelInfo`
 never reach a renderer that has no use for them.
+
+### 6.4 REX names the rows, because the CLI's names collided
+
+Spec 1.0 said `displayName` is the button's label and REX writes none of it.
+That held for a week. On **2026-09-03** the reviewer's list came back with two
+rows both called `Fable`:
+
+| `value` | `resolvedModel` | `displayName` | `description` |
+|:--|:--|:--|:--|
+| `claude-fable-5[1m]` | `claude-fable-5` | Fable | Fable 5 · Most capable… |
+| `claude-fable-5-1[1m]` | `claude-fable-5-1` | **Fable** | **Fable 5** · Most capable… |
+
+Both prose fields are identical, and the second one's is wrong — it says
+"Fable 5" about Fable 5.1. **Only the id differs.** His words: *"I suppose one
+is Fable 5 and the second one is Fable 5.1 but the naming in the dropdown should
+clearly show me this. Can we fix this naming and include the version perhaps and
+the context length if the name of the model provides this?"*
+
+This is not a bug in the CLI. `displayName` is a **family** name, and it is
+right for a menu showing one row per family. It becomes REX's problem the moment
+two rows of one family are offered at once — and REX holds the field that
+settles it, so REX builds the name.
+
+**The rule, and its limits.** The id is parsed and only what it actually carries
+is shown:
+
+| Row | Reads |
+|:--|:--|
+| `claude-fable-5[1m]` | `Fable 5 (1M)` |
+| `claude-fable-5-1[1m]` | `Fable 5.1 (1M)` |
+| `opus[1m]` → `claude-opus-5[1m]` | `Opus 5 (1M)` |
+| `sonnet` → `claude-sonnet-5` | `Sonnet 5` |
+| `haiku` → `claude-haiku-4-5-20251001` | `Haiku 4.5` |
+| `default` → `claude-opus-5[1m]` | `Default (recommended)` — unchanged |
+
+Four decisions inside that:
+
+- **An id that does not parse keeps the CLI's name.** Nothing is invented for a
+  naming scheme REX has not seen. §3.1's argument, applied to labels.
+- **A dated snapshot is not a version.** Only one- and two-digit segments are
+  taken, so `claude-haiku-4-5-20251001` is `Haiku 4.5` and not
+  `Haiku 4.5.20251001`, which names nothing a person would recognise.
+- **`default` keeps its own name, and this is the subtle one.** It resolves to
+  `claude-opus-5[1m]`, which parses — so the first draft named it `Opus 5 (1M)`
+  and produced *two* rows reading exactly that. Its own test caught it. An alias
+  may borrow its resolution's name (`sonnet` is the family word of
+  `claude-sonnet-5`); a **choice** may not, because what `default` resolves to
+  today is not what it means, and the label would be wrong the day the CLI's
+  default moves.
+- **The wire id is appended to every tooltip.** The CLI's sentence said
+  "Fable 5" for both Fable rows, so the tooltip needs a field that cannot be
+  stale.
+
+#### The guarantee, which does not depend on the parser
+
+After naming, any two rows that still read the same **both get their id
+appended** — `Thing 9 (1M) · thing[1m]`. A parser cannot promise to tell every
+future pair apart; a uniqueness pass can, because `value` is the key the CLI
+itself keys on and is unique by construction.
+
+That is the property worth stating plainly: **no two rows in the menu can ever
+read the same.** The parser makes the names good; the second pass makes them
+distinct.
 
 ---
 

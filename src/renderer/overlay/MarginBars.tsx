@@ -49,6 +49,20 @@ const NUMBER_STEP = 18;
 
 interface Bar {
   threadId: string;
+  /**
+   * Identity, not geometry: `<threadId>-<target position>`, the same string
+   * `PaneMarks` keys this place's block outline by.
+   *
+   * The key used to be `<threadId>-<box.y>-<lane>`, and geometry does not
+   * identify a place. A sweep that runs before the pane has laid out measures
+   * every box as (0,0,0,0); two empty boxes never overlap, so `laneFor` gives
+   * them both lane 0 and every place of one comment shared the key
+   * `<threadId>-0-0`. React drew one bar for twelve places and logged the
+   * rest away — hundreds of "two children with the same key" a run.
+   * `numberTops` was keyed the same way, so a place also took another place's
+   * number offset.
+   */
+  id: string;
   number: number;
   /** Which lane out of the pane's left edge, 0 being furthest from the text. */
   lane: number;
@@ -100,6 +114,7 @@ export function MarginBars(props: Props): React.JSX.Element {
             : "";
       bars.push({
         threadId: thread.id,
+        id: `${thread.id}-${check.position}`,
         number: numbers.get(thread.id) ?? 0,
         lane: laneFor(bars, check.bar),
         box: check.bar,
@@ -137,7 +152,7 @@ export function MarginBars(props: Props): React.JSX.Element {
       y += NUMBER_STEP;
     }
     taken.push({ x, y });
-    numberTops.set(`${bar.threadId}-${bar.box.y}-${bar.lane}`, y);
+    numberTops.set(bar.id, y);
   }
 
   return (
@@ -149,7 +164,7 @@ export function MarginBars(props: Props): React.JSX.Element {
       {bars.map((bar) =>
         bar.rule ? (
           <div
-            key={`rule-${bar.threadId}-${bar.rule.y}`}
+            key={`rule-${bar.id}`}
             className={`rex-gap-rule${props.activeId === bar.threadId ? " rex-gap-rule-active" : ""}`}
             style={{
               left: bar.rule.x - props.scrollX,
@@ -160,28 +175,25 @@ export function MarginBars(props: Props): React.JSX.Element {
         ) : null,
       )}
 
-      {bars.map((bar) => {
-        const key = `${bar.threadId}-${bar.box.y}-${bar.lane}`;
-        return (
-          <button
-            type="button"
-            key={key}
-            className={bar.className}
-            title={bar.title}
-            style={{ left: leftOf(bar), top: bar.box.y - props.scrollY, height: bar.box.h }}
-            onClick={() => props.onSelect(bar.threadId)}
-            onMouseEnter={() => props.onHover(bar.threadId)}
-            onMouseLeave={() => props.onHover(null)}
+      {bars.map((bar) => (
+        <button
+          type="button"
+          key={bar.id}
+          className={bar.className}
+          title={bar.title}
+          style={{ left: leftOf(bar), top: bar.box.y - props.scrollY, height: bar.box.h }}
+          onClick={() => props.onSelect(bar.threadId)}
+          onMouseEnter={() => props.onHover(bar.threadId)}
+          onMouseLeave={() => props.onHover(null)}
+        >
+          <span
+            className="rex-margin-number"
+            style={{ top: (numberTops.get(bar.id) ?? bar.box.y) - bar.box.y }}
           >
-            <span
-              className="rex-margin-number"
-              style={{ top: (numberTops.get(key) ?? bar.box.y) - bar.box.y }}
-            >
-              {bar.number}
-            </span>
-          </button>
-        );
-      })}
+            {bar.number}
+          </span>
+        </button>
+      ))}
     </>
   );
 }

@@ -22,3 +22,17 @@ export function movedPath(value: string, from: string, to: string): string | nul
   if (value.startsWith(`${from}/`)) return to + value.slice(from.length);
   return null;
 }
+
+/**
+ * Spec 39 §5.1 — the folder a path is in.
+ *
+ * The tree's menu needs it: `New file…` on a FILE row puts the new file beside
+ * that file, which is a question about the file's parent rather than about the
+ * file. Every row in a scanned tree is absolute, so the two fallbacks are for
+ * completeness and not for a case the explorer can reach.
+ */
+export function parentPath(path: string): string {
+  const slash = path.lastIndexOf("/");
+  if (slash > 0) return path.slice(0, slash);
+  return slash === 0 ? "/" : path;
+}
