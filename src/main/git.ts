@@ -85,6 +85,36 @@ export function diffFiles(before: string, after: string): string {
   }
 }
 
+/**
+ * Spec 21 §2.3 — does git have this path, and therefore did it exist?
+ *
+ * The before-set (spec 15 §3.4) holds only what `git status` reported plus the
+ * run's targets, so a **tracked, clean** file is absent from it. Without this
+ * question, "not in the before-set" reads as "the agent created it" — and that
+ * is wrong for every committed file in the repository, which is the whole of
+ * them. Getting it wrong in one direction deletes a reviewer's file; in the
+ * other it keeps a change they never agreed to.
+ *
+ * `--error-unmatch` is what makes it a question rather than a listing: git
+ * exits non-zero for an untracked path, so the catch is the answer.
+ */
+export function isTracked(root: string, path: string): boolean {
+  try {
+    // stderr is discarded, not inherited: git prints "did not match any file(s)"
+    // for the untracked case, and that case is an ANSWER here rather than a
+    // fault. Inheriting it puts an error line in the log for every ordinary
+    // stray-file check, which is how a log stops being worth reading.
+    execFileSync("git", ["ls-files", "--error-unmatch", "--", path], {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["ignore", "ignore", "ignore"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** SPEC.md §8.7 step 5 — rejecting an Apply reverts exactly what it touched. */
 export function revert(root: string, paths: string[]): void {
   if (paths.length === 0) return;

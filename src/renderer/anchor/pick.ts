@@ -9,8 +9,24 @@
 // Pure DOM on purpose. It runs unchanged inside the document frame, and it
 // holds nothing React, IPC or database shaped.
 
-import type { Anchor, AnchorExtent, LineRange } from "../../shared/types.ts";
+import {
+  diagramTitle,
+  fingerprintSource,
+  linesOf,
+  partWords,
+  subgraphsEnclosing,
+} from "../../shared/diagram.ts";
+import type { Anchor, AnchorExtent, DiagramPart, LineRange } from "../../shared/types.ts";
 import { generateCssPath, isStableId } from "./create.ts";
+import {
+  diagramOf,
+  elementForPart,
+  fenceLineOf,
+  partAt,
+  partFromElement,
+  partsOf,
+  sourceOf,
+} from "./diagram.ts";
 import { gapLabel } from "./gap.ts";
 import { resolveAnchor } from "./resolve.ts";
 import {
@@ -66,6 +82,12 @@ export interface PickScope {
   rect: ScopeRect;
   /** True for a figure, image or drawing — the kinds a region can be cut from. */
   regionCapable: boolean;
+  /**
+   * Spec 29 §4.1 — set on a scope that is a part of a drawn Mermaid diagram.
+   * `anchorFromScope` writes a diagram anchor for it rather than an element
+   * anchor on the `<g>` it is drawn as. Absent everywhere else.
+   */
+  part?: DiagramPart;
 }
 
 /** The serialisable half crosses the process boundary; the elements stay put. */
@@ -141,6 +163,63 @@ const SRC_LINE = "[data-src-line]";
 
 /** An element quote is its opening text, not all of it (§6.4 / create.ts). */
 const QUOTE_PREVIEW_MAX = 90;
+
+/**
+ * Spec 26 §4.6 — the words a scope is offered in, wherever it is offered.
+ *
+ * The design's words rather than tag names. `td` is what gets stored; a reviewer
+ * choosing between scopes is choosing between a cell and a row. It is the same
+ * argument `labelOf` already makes for calling a PDF page `page 2` and not
+ * `div` — spec 26 only extends it to the rest of the chain.
+ */
+const SCOPE_WORDS: Record<string, string> = {
+  td: "cell",
+  th: "cell",
+  tr: "row",
+  table: "table",
+  thead: "header",
+  tbody: "table",
+  p: "paragraph",
+  li: "item",
+  ul: "list",
+  ol: "list",
+  pre: "code",
+  blockquote: "quote",
+  figure: "figure",
+  figcaption: "caption",
+  img: "image",
+  svg: "drawing",
+  canvas: "drawing",
+  section: "section",
+  article: "article",
+  div: "block",
+  h1: "heading",
+  h2: "heading",
+  h3: "heading",
+  h4: "heading",
+  h5: "heading",
+  h6: "heading",
+  // Spec 29 §4.1 — the parts of a drawn Mermaid diagram, and the diagram.
+  node: "node",
+  edge: "edge",
+  subgraph: "subgraph",
+  lines: "lines",
+  diagram: "diagram",
+};
+
+/**
+ * How much of a scope's identifying detail is shown — a heading's name, an id.
+ *
+ * Short, because the same string is drawn twice: as a crumb on a 34px bar that
+ * holds a whole chain, and as a chip in a sidebar that can be 320px wide. A
+ * heading long enough to wrap the chip is a heading whose first few words
+ * already identify it.
+ */
+const SCOPE_DETAIL_MAX = 24;
+
+function clip(text: string): string {
+  return text.length > SCOPE_DETAIL_MAX ? `${text.slice(0, SCOPE_DETAIL_MAX)}…` : text;
+}
 
 /** SVG elements report a lowercase `tagName`; normalise before comparing. */
 function tagOf(el: Element): string {
@@ -366,6 +445,11 @@ export function rescaleRect(rect: ScopeRect, by: number): ScopeRect {
   return by === 1 ? rect : { x: rect.x * by, y: rect.y * by, w: rect.w * by, h: rect.h * by };
 }
 
+/** The same box, grown by `by` on every side. What a ring drawn round it needs. */
+export function inflateRect(rect: ScopeRect, by: number): ScopeRect {
+  return { x: rect.x - by, y: rect.y - by, w: rect.w + by * 2, h: rect.h + by * 2 };
+}
+
 /** The smallest box holding both. Spec 06 §4.4 — the box for a run. */
 export function unionRect(a: ScopeRect, b: ScopeRect): ScopeRect {
   const x = Math.min(a.x, b.x);
@@ -384,6 +468,47 @@ export function rectOfRun(run: ElementRun): ScopeRect {
 }
 
 /**
+ * Two boxes on the same line of text.
+ *
+ * Overlap rather than an equal `top`, because one line can hold two sizes — a
+ * `code` span inside a sentence measures shorter than the prose around it and
+ * sits a pixel lower. Half the shorter box is the threshold: two stacked lines
+ * of the same paragraph never overlap that far, and two fragments of one line
+ * always do.
+ */
+function sameLine(a: ScopeRect, b: ScopeRect): boolean {
+  const overlap = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return overlap > Math.min(a.h, b.h) / 2;
+}
+
+/**
+ * One box per LINE of a passage, in document coordinates.
+ *
+ * `getBoundingClientRect()` on a Range is the smallest box holding all of it,
+ * so a selection that starts halfway along one line and ends on the next
+ * measures as the full width of both — and a box drawn from it claims text
+ * nobody selected. Reported 2026-09-02 with a screenshot of exactly that.
+ *
+ * `getClientRects()` gives the fragments instead. One line arrives as several
+ * whenever it is broken by a `strong`, a link or a `code` span, so the
+ * fragments of a line are merged: the caller wants the shape of the passage,
+ * not the shape of its markup.
+ */
+export function lineRectsOf(view: Window | null, range: Range): ScopeRect[] {
+  const lines: ScopeRect[] = [];
+  for (const rect of Array.from(range.getClientRects())) {
+    // Chromium reports a zero-width rect at a line break and a zero-height one
+    // for a collapsed inline; neither is a piece of the passage.
+    if (rect.width <= 0 || rect.height <= 0) continue;
+    const box = toDocumentRect(view, rect);
+    const last = lines.at(-1);
+    if (last && sameLine(last, box)) lines[lines.length - 1] = unionRect(last, box);
+    else lines.push(box);
+  }
+  return lines;
+}
+
+/**
  * The crumb and chip word. A tag name everywhere except in a PDF, where "div"
  * and "span" say nothing at all: there they are the page and a line on it.
  */
@@ -395,6 +520,50 @@ function labelOf(el: Element): string {
   if (pdfTextItem(el) === el) return "line";
   const tag = el.tagName.toLowerCase();
   return isStableId(el.id) ? `${tag}#${el.id}` : tag;
+}
+
+/**
+ * Spec 26 §4.6 — one scope, in the words the reviewer chooses between.
+ *
+ * The bar's crumbs and the panel's chips used to compute this separately, and
+ * they disagreed: the bar said `td` where the chip said `cell`. That was
+ * survivable while the two were never on screen together, and spec 26 puts them
+ * within two hundred pixels of each other.
+ *
+ * The rule is **the word, plus what identifies this one** — a section's heading,
+ * an element's hand-written id, a page's number. The identifying half is what
+ * makes an anchor durable rather than positional, so it is the half a reviewer
+ * can act on; it is clipped rather than dropped, because a chip that wraps is
+ * worse than a heading you read the start of.
+ *
+ * `PickScope.label` is left alone. The panel row and the hover badge still draw
+ * it, and it is what `describeSection` and `labelOf` already agree on.
+ */
+export function scopeWord(scope: PickScope): string {
+  if (scope.kind === "text") return "text";
+  // Spec 29 §4.1 — a part's label is already the words, from `partWords`;
+  // only its quote needs clipping, as a section's heading does.
+  if (scope.part) {
+    const open = scope.label.indexOf("“");
+    if (open === -1) return scope.label;
+    const quote = scope.label.slice(open + 1, scope.label.lastIndexOf("”"));
+    return `${scope.label.slice(0, open)}“${clip(quote)}”`;
+  }
+  // The file itself. `describeDocument` already labels it `document`, and it
+  // has nothing to identify it by — that is what §4.3 of spec 06 means when it
+  // calls this the one anchor that cannot move.
+  if (scope.extent === "document") return "document";
+  // `section “3. Findings”` — already the word and its detail, from
+  // `describeSection`. Only the heading needs clipping.
+  if (scope.extent === "section") {
+    const name = scope.quote;
+    return name ? `section “${clip(name)}”` : "section";
+  }
+  // A PDF's `page 2` and `line` carry no tag and no id, so they fall through
+  // both lookups unchanged — which is the answer `labelOf` already chose.
+  const [tag, id] = scope.label.split("#");
+  const word = SCOPE_WORDS[tag] ?? tag;
+  return id ? `${word} #${clip(id)}` : word;
 }
 
 /** One element, described. Exported for the card line a quoteless anchor needs. */
@@ -576,6 +745,108 @@ export function describeGap(
   };
 }
 
+/**
+ * Spec 29 §4.1 — one part of a drawn diagram, in the words the reviewer
+ * chooses between: `node “Has comment?”`, `edge B → C “yes”`, `lines 157–159`.
+ *
+ * Every named part is `durable`, and that is a stronger claim than a
+ * hand-written id earns for the same reason a heading's slug is: a Mermaid id
+ * is the author's, and the anchor also carries the line's text and a
+ * fingerprint of the fence to catch the id being reused. A `lines` part has no
+ * id, so it is `fair` — its text carries it and a rewrite orphans it.
+ */
+function describePart(
+  block: HTMLElement,
+  part: DiagramPart,
+  element: Element | null,
+  position: number,
+): PickScope {
+  const parts = partsOf(block);
+  const fenceLine = fenceLineOf(block);
+  const words = partWords(parts, part, fenceLine);
+  const lines = linesOf(parts, part);
+  const fileLine = lines && fenceLine !== null ? fenceLine + lines.from : null;
+  const fingerprint = fingerprintSource(sourceOf(block)).slice(0, 4);
+  const named = part.kind !== "lines";
+  const quote = words.chip.includes("“")
+    ? words.chip.slice(words.chip.indexOf("“") + 1, words.chip.lastIndexOf("”"))
+    : null;
+
+  return {
+    index: position,
+    kind: "element",
+    label: words.chip,
+    title: words.title,
+    detail: `diagram.part = ${words.identity}${fileLine === null ? "" : ` · line ${fileLine}`} · fingerprint ${fingerprint}…`,
+    quote,
+    strength: named ? "durable" : "fair",
+    strengthNote: named
+      ? "named in the source — survives a redraw, a move, and an edit elsewhere in the diagram"
+      : "the lines' own text carries it; a rewrite of those lines orphans it",
+    rect: rectOf(element ?? block),
+    regionCapable: false,
+    part,
+  };
+}
+
+/**
+ * Spec 29 §4.1 — the diagram itself: the `<pre>` REX drew the fence into.
+ *
+ * An ordinary element scope with the diagram's own words on it, so the anchor
+ * a click on the drawing's ground makes is the one it made before this spec —
+ * `createElementAnchor` on the `<pre>` — and a region can still be cut from
+ * it, as it could from the `<svg>` the walk used to offer.
+ */
+function describeDiagram(index: TextIndex, block: HTMLElement, position: number): PickScope {
+  const base = describeElement(index, block, position);
+  return {
+    ...base,
+    label: "diagram",
+    title: diagramTitle(partsOf(block)),
+    detail: `${base.detail.split(" · ")[0]} · the whole diagram`,
+    regionCapable: true,
+  };
+}
+
+/**
+ * Spec 29 §5.6 — the scopes inside a drawn diagram: the part, then every
+ * subgraph it sits in, innermost first, then the diagram. The plumbing Mermaid
+ * draws a label with — `p`, `span`, `div`, `foreignObject`, `g` — is never
+ * offered (§1.1).
+ */
+function diagramScopes(
+  index: TextIndex,
+  block: HTMLElement,
+  hit: { part: DiagramPart; element: Element | null } | null,
+  offset: number,
+): { scopes: PickScope[]; elements: Array<Element | null> } {
+  const scopes: PickScope[] = [];
+  const elements: Array<Element | null> = [];
+  const at = (): number => scopes.length + offset;
+
+  if (hit) {
+    scopes.push(describePart(block, hit.part, hit.element, at()));
+    // The part's own element carries the choice across probes (`keptIndex`
+    // compares by identity); a part the map cannot draw stands on the block.
+    elements.push(hit.element ?? block);
+
+    const parts = partsOf(block);
+    const lines = linesOf(parts, hit.part);
+    const within = lines ? subgraphsEnclosing(parts, lines.from) : [];
+    for (const subgraph of within) {
+      if (hit.part.kind === "subgraph" && subgraph.id === hit.part.id) continue;
+      const part: DiagramPart = { kind: "subgraph", id: subgraph.id };
+      const element = elementForPart(block, part);
+      scopes.push(describePart(block, part, element, at()));
+      elements.push(element ?? block);
+    }
+  }
+
+  scopes.push(describeDiagram(index, block, at()));
+  elements.push(block);
+  return { scopes, elements };
+}
+
 /** Spec 06 §4.3 — the file itself, named by nothing inside it. */
 function describeDocument(run: ElementRun, position: number): PickScope {
   return {
@@ -640,12 +911,43 @@ function appendWideScopes(
   }
 }
 
-/** The ancestor chain from `el` outward, narrow first, capped and stopped. */
-function chainFrom(index: TextIndex, el: Element | null, offset: number): ScopeChain {
+/**
+ * The ancestor chain from `el` outward, narrow first, capped and stopped.
+ *
+ * `hit` is the diagram part under the pointer when the caller had a pointer
+ * (`scopeChainAt`); from an element alone the part is read off the element it
+ * is drawn in, which finds a node, a cluster or an edge label but never a bare
+ * stroke — that needs the pointer's distance from it.
+ */
+function chainFrom(
+  index: TextIndex,
+  el: Element | null,
+  offset: number,
+  hit?: { part: DiagramPart; element: Element | null } | null,
+): ScopeChain {
   const scopes: PickScope[] = [];
   const elements: Array<Element | null> = [];
 
   let current: Element | null = el;
+
+  // Spec 29 §5.6 — inside a drawn diagram the walk does not climb the SVG. It
+  // offers the parts, then continues from the `<pre>`'s parent as any chain
+  // would.
+  const block = diagramOf(el);
+  if (block) {
+    const found =
+      hit === undefined
+        ? (() => {
+            const part = partFromElement(block, el);
+            return part ? { part, element: elementForPart(block, part) } : null;
+          })()
+        : hit;
+    const inside = diagramScopes(index, block, found, offset);
+    scopes.push(...inside.scopes);
+    elements.push(...inside.elements);
+    current = block.parentElement;
+  }
+
   while (current && !CHAIN_STOP.has(tagOf(current)) && scopes.length + offset < MAX_SCOPES) {
     if (!transparent(current)) {
       scopes.push(describeElement(index, current, scopes.length + offset));
@@ -718,10 +1020,30 @@ function nearestTextItem(target: Element | null, x: number, y: number): Element 
 /** design/selection/Hover — what the cursor is over, and what encloses it. */
 export function scopeChainAt(index: TextIndex, x: number, y: number): ScopeChain | null {
   const target = index.doc.elementFromPoint(x, y);
+  // Spec 29 §4.1 — over a drawn diagram the pointer decides: a label or a box
+  // by what it is drawn in, a bare stroke by how near the pointer is to it.
+  const block = diagramOf(target);
+  if (block) {
+    const chain = chainFrom(index, target, 0, partAt(block, x, y));
+    return chain.scopes.length > 0 ? chain : null;
+  }
   const anchorable = nearestTextItem(target, x, y) ?? smallestAnchorable(target);
   if (!anchorable || CHAIN_STOP.has(tagOf(anchorable))) return null;
   const chain = chainFrom(index, anchorable, 0);
   return chain.scopes.length > 0 ? chain : null;
+}
+
+/**
+ * Spec 29 §4.2 — the chain for a part chosen in the source pane, where there
+ * is no pointer over the drawing to probe. The part is scope 0 whether or not
+ * the drawing has an element for it — a `lines` part never does.
+ */
+export function scopeChainForPart(
+  index: TextIndex,
+  block: HTMLElement,
+  part: DiagramPart,
+): ScopeChain {
+  return chainFrom(index, block, 0, { part, element: elementForPart(block, part) });
 }
 
 /**
@@ -800,6 +1122,17 @@ export function scopeChainForAnchor(
   const probe = kind === "element" && !anchor.extent ? { ...anchor, quote: null } : anchor;
   const resolution = resolveAnchor(index, probe);
   if (!resolution) return null;
+
+  // Spec 29 §5.6 — a diagram part's chain is built from the part it resolved
+  // to, so a place taken from the lightbox widens through the same crumbs as
+  // one taken in the page. The part is the anchor's own, not read off the
+  // element: a `lines` part resolves to the `<pre>` and has no element to read.
+  if (anchor.diagram && resolution.kind === "element") {
+    const block = diagramOf(resolution.element);
+    if (!block) return null;
+    const chain = scopeChainForPart(index, block, anchor.diagram.part);
+    return chain.scopes.length > 0 ? { chain, active: 0 } : null;
+  }
 
   if (resolution.kind === "range") {
     const chain = scopeChainForRange(index, resolution.range);

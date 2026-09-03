@@ -8,6 +8,10 @@
 //
 // It is a scratch repository and never a real one. A test that edits somebody's
 // working tree is its own bug.
+//
+// Spec 34 §2 — the copy is permanent. The §3 and §7 cases below check the
+// thing that spec reverses: approve and discard move bytes, and the directory
+// an agent was pointed at is still there afterwards.
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -31,10 +35,14 @@ const {
   currentHash,
   currentPath,
   discardWorkingCopy,
-  forkWorkingCopy,
+  ensureWorkingCopy,
+  isPending,
   listWorkingCopies,
+  matchesBase,
   migrateWorkingCopyNames,
   movedSince,
+  pendingCopies,
+  pendingCopy,
   readMeta,
   readMetaByPath,
   restoreFromBeforeSet,
@@ -85,17 +93,19 @@ describe("§1.2 — the cause", () => {
 });
 
 describe("§3 — the working copy", () => {
-  test("forking writes base and current before anything else happens", () => {
-    const meta = forkWorkingCopy("doc-1", doc);
+  test("the copy writes base and current before anything else happens", () => {
+    const meta = ensureWorkingCopy("doc-1", doc);
     assert.equal(readFileSync(basePath(meta), "utf8"), ORIGINAL);
     assert.equal(readFileSync(currentPath(meta), "utf8"), ORIGINAL);
     assert.equal(meta.revisions.length, 0);
+    assert.equal(isPending(meta), false, "a fresh copy is the file");
   });
 
-  test("forking twice keeps the first fork", () => {
-    writeFileSync(currentPath(forkWorkingCopy("doc-1", doc)), "edited\n");
-    const again = forkWorkingCopy("doc-1", doc);
+  test("ensuring it again keeps a pending change", () => {
+    writeFileSync(currentPath(ensureWorkingCopy("doc-1", doc)), "edited\n");
+    const again = ensureWorkingCopy("doc-1", doc);
     assert.equal(readFileSync(currentPath(again), "utf8"), "edited\n");
+    assert.equal(isPending(again), true);
   });
 
   test("a revision is saved only when the content moved", () => {
@@ -134,9 +144,11 @@ describe("§3 — the working copy", () => {
 // a different file entirely — reported on 2026-08-26.
 describe("§3.1 — the files are named after the document", () => {
   test("base, current and every revision carry the document's own name", () => {
-    const meta = forkWorkingCopy("doc-named", doc);
+    const meta = ensureWorkingCopy("doc-named", doc);
     assert.equal(basename(basePath(meta)), "components.original.md");
-    assert.equal(basename(currentPath(meta)), "components.new.md");
+    // Spec 34 §3.1 — the copy IS the document, so it carries the document's
+    // name and no infix.
+    assert.equal(basename(currentPath(meta)), "components.md");
 
     writeFileSync(currentPath(meta), "a revision\n");
     const next = saveRevision(meta, { applyRunId: "r-n", threadId: "t", before: "before" });
@@ -145,9 +157,35 @@ describe("§3.1 — the files are named after the document", () => {
     discardWorkingCopy("doc-named");
   });
 
-  test("a copy written by the old REX is renamed, not lost", () => {
-    // The old layout, by hand: this is what is already on disk for a reviewer
-    // who has a change open across the change.
+  test("a copy written by the spec 15 REX is renamed, not lost", () => {
+    // Spec 34 §3.4 — the `.new` generation, by hand: what is on disk for a
+    // reviewer who has a change open across the change.
+    const dir = workDir("doc-new");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "components.original.md"), ORIGINAL);
+    writeFileSync(join(dir, "components.new.md"), "the new version\n");
+    writeFileSync(
+      join(dir, "meta.json"),
+      JSON.stringify({
+        documentId: "doc-new",
+        path: doc,
+        baseSha256: "whatever",
+        forkedAt: "2026-08-20T00:00:00.000Z",
+        revisions: [],
+        current: 0,
+      }),
+    );
+
+    migrateWorkingCopyNames();
+
+    const meta = readMeta("doc-new") as NonNullable<ReturnType<typeof readMeta>>;
+    assert.equal(readFileSync(currentPath(meta), "utf8"), "the new version\n");
+    assert.ok(!existsSync(join(dir, "components.new.md")), "and the old name is gone");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test("a copy written by the first REX is renamed, not lost", () => {
+    // The oldest layout, by hand.
     const dir = workDir("doc-old");
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, "base.md"), ORIGINAL);
@@ -172,14 +210,14 @@ describe("§3.1 — the files are named after the document", () => {
     assert.equal(readFileSync(basePath(meta), "utf8"), ORIGINAL);
     assert.ok(existsSync(join(dir, "components.v1.md")), "the revision moved too");
     assert.ok(!existsSync(join(dir, "current.md")), "and the old name is gone");
-    discardWorkingCopy("doc-old");
+    rmSync(dir, { recursive: true, force: true });
   });
 
   test("running it again does nothing at all", () => {
-    const meta = forkWorkingCopy("doc-twice", doc);
+    const meta = ensureWorkingCopy("doc-twice", doc);
     migrateWorkingCopyNames();
     assert.equal(readFileSync(currentPath(meta), "utf8"), ORIGINAL);
-    discardWorkingCopy("doc-twice");
+    rmSync(workDir("doc-twice"), { recursive: true, force: true });
   });
 });
 
@@ -219,21 +257,29 @@ describe("§6.3 — the patch", () => {
 });
 
 describe("§7 — approve and discard", () => {
-  test("approving writes the new version over the file", () => {
-    const meta = forkWorkingCopy("doc-2", doc);
+  test("approving writes the new version over the file, and the copy stays", () => {
+    const meta = ensureWorkingCopy("doc-2", doc);
     writeFileSync(currentPath(meta), "approved\n");
     saveRevision(meta, { applyRunId: "r3", threadId: "t", before: "before" });
 
     assert.equal(readFileSync(doc, "utf8"), ORIGINAL, "untouched until approval");
     assert.deepEqual(approveWorkingCopy("doc-2"), { ok: true });
     assert.equal(readFileSync(doc, "utf8"), "approved\n");
-    assert.equal(readMeta("doc-2"), null, "the directory is gone");
+
+    // Spec 34 §3.2 — the directory an agent was pointed at is still there,
+    // holding what the file now holds, with nothing left to undo.
+    const after = readMeta("doc-2") as NonNullable<ReturnType<typeof readMeta>>;
+    assert.equal(readFileSync(currentPath(after), "utf8"), "approved\n", "the copy is the file");
+    assert.equal(readFileSync(basePath(after), "utf8"), "approved\n", "and so is base");
+    assert.equal(isPending(after), false);
+    assert.equal(after.revisions.length, 0);
+    assert.ok(!existsSync(join(workDir("doc-2"), "components.v1.md")), "the revision file went");
 
     writeFileSync(doc, ORIGINAL);
   });
 
   test("§7.3 — it refuses when the file moved under the copy, and writes nothing", () => {
-    const meta = forkWorkingCopy("doc-3", doc);
+    const meta = ensureWorkingCopy("doc-3", doc);
     writeFileSync(currentPath(meta), "proposed\n");
     // The reviewer edited the document in their own editor meanwhile.
     writeFileSync(doc, "their own edit\n");
@@ -247,12 +293,146 @@ describe("§7 — approve and discard", () => {
     writeFileSync(doc, ORIGINAL);
   });
 
-  test("discarding leaves the file exactly as it was", () => {
-    const meta = forkWorkingCopy("doc-4", doc);
+  test("discarding leaves the file exactly as it was, and the copy follows it", () => {
+    const meta = ensureWorkingCopy("doc-4", doc);
     writeFileSync(currentPath(meta), "never wanted\n");
+    saveRevision(meta, { applyRunId: "r4", threadId: "t", before: "before" });
     discardWorkingCopy("doc-4");
     assert.equal(readFileSync(doc, "utf8"), ORIGINAL);
-    assert.equal(readMeta("doc-4"), null);
+
+    const after = readMeta("doc-4") as NonNullable<ReturnType<typeof readMeta>>;
+    assert.ok(after, "the directory stays");
+    assert.equal(readFileSync(currentPath(after), "utf8"), ORIGINAL);
+    assert.equal(isPending(after), false);
+    assert.equal(after.revisions.length, 0);
+  });
+
+  test("discarding a copy whose file is gone falls back to base", () => {
+    const orphan = join(repo, "docs", "gone.md");
+    writeFileSync(orphan, "was here\n");
+    const meta = ensureWorkingCopy("doc-gone", orphan);
+    writeFileSync(currentPath(meta), "changed\n");
+    rmSync(orphan);
+
+    discardWorkingCopy("doc-gone");
+    const after = readMeta("doc-gone") as NonNullable<ReturnType<typeof readMeta>>;
+    assert.equal(readFileSync(currentPath(after), "utf8"), "was here\n");
+    assert.equal(isPending(after), false);
+  });
+});
+
+// Spec 34 §2 — "is a change waiting?" is the bytes, never the directory. Under
+// spec 15 §4.2 the two were one question, because a copy that matched its base
+// was swept away; a run that changed nothing, or a second run that took back
+// what the first wrote, both left a fork behind until the sweep ran. Now the
+// directory stays and only `isPending` says.
+describe("spec 34 §2 — pending is the bytes, not the directory", () => {
+  test("matchesBase reads the bytes, not the revision list", () => {
+    const meta = ensureWorkingCopy("doc-same", doc);
+    assert.equal(matchesBase(meta), true, "a fresh copy is the file");
+
+    writeFileSync(currentPath(meta), "edited\n");
+    assert.equal(matchesBase(meta), false);
+
+    // A second run that puts every line back: one more revision, no difference.
+    const once = saveRevision(meta, { applyRunId: "r1", threadId: "t", before: "x" });
+    assert.ok(once);
+    writeFileSync(currentPath(once), ORIGINAL);
+    const twice = saveRevision(once, { applyRunId: "r2", threadId: "t", before: "y" });
+    assert.ok(twice);
+    assert.equal(twice.revisions.length, 2);
+    assert.equal(matchesBase(twice), true);
+  });
+
+  test("the pending list is what differs, and every directory is still there", () => {
+    // `doc-same` is the copy above: two revisions and the original's bytes.
+    const kept = ensureWorkingCopy("doc-diff", doc);
+    writeFileSync(currentPath(kept), "a real change\n");
+    ensureWorkingCopy("doc-fresh", doc);
+
+    const pending = pendingCopies().map((meta) => meta.documentId);
+    assert.ok(
+      pending.includes("doc-diff"),
+      "a difference is pending whatever the book-keeping says",
+    );
+    assert.ok(!pending.includes("doc-same"), "two revisions, no difference — not pending");
+    assert.ok(!pending.includes("doc-fresh"), "never written to — not pending");
+    assert.ok(readMeta("doc-same"), "and nothing was removed");
+    assert.ok(readMeta("doc-fresh"));
+    assert.equal(readFileSync(doc, "utf8"), ORIGINAL, "the reviewer's file is untouched");
+
+    // By path — what `doc:open` asks. Several copies share this document in the
+    // fixture; the one it finds is pending, which is the property that matters.
+    const found = pendingCopy(doc);
+    assert.ok(found);
+    assert.equal(isPending(found), true);
+
+    discardWorkingCopy("doc-diff");
+    assert.equal(
+      pendingCopies().some((meta) => meta.documentId === "doc-diff"),
+      false,
+    );
+  });
+});
+
+// Spec 34 §3.3 — the copy can be stale in exactly one way: nothing is pending
+// and the reviewer edited the file in their own editor. The one entry point
+// that hands a copy to an agent fixes that on the way, and touches nothing when
+// a change is pending.
+describe("spec 34 §3.3 — the copy follows the file when nothing is pending", () => {
+  test("a stale copy takes the file's bytes", () => {
+    const meta = ensureWorkingCopy("doc-stale", doc);
+    assert.equal(isPending(meta), false);
+    writeFileSync(doc, "the reviewer typed this\n");
+
+    const fresh = ensureWorkingCopy("doc-stale", doc);
+    assert.equal(readFileSync(currentPath(fresh), "utf8"), "the reviewer typed this\n");
+    assert.equal(readFileSync(basePath(fresh), "utf8"), "the reviewer typed this\n");
+    assert.equal(isPending(fresh), false);
+
+    writeFileSync(doc, ORIGINAL);
+  });
+
+  test("§5.5 — two runs ending on one copy leave two revisions, not one", () => {
+    // Both runs read the meta when they started, before either had written.
+    const first = ensureWorkingCopy("doc-two-runs", doc);
+    const second = ensureWorkingCopy("doc-two-runs", doc);
+    const before = currentHash(first);
+
+    writeFileSync(currentPath(first), "run A's edit\n");
+    const afterA = saveRevision(first, { applyRunId: "ra", threadId: "ta", before });
+    assert.ok(afterA);
+    writeFileSync(currentPath(second), "run A's edit\nand run B's\n");
+    const afterB = saveRevision(second, { applyRunId: "rb", threadId: "tb", before });
+    assert.ok(afterB);
+
+    assert.equal(afterB.revisions.length, 2, "the second run appended to the list on disk");
+    assert.equal(afterB.revisions[0].applyRunId, "ra");
+    assert.equal(afterB.revisions[1].applyRunId, "rb");
+    // Undo steps back to what the copy held when the first run ended.
+    const back = undoLastRevision("doc-two-runs");
+    assert.ok(back);
+    assert.equal(readFileSync(currentPath(back), "utf8"), "run A's edit\n");
+    discardWorkingCopy("doc-two-runs");
+  });
+
+  test("a pending change is never overwritten by the file", () => {
+    const meta = ensureWorkingCopy("doc-held", doc);
+    writeFileSync(currentPath(meta), "the agent's change\n");
+    writeFileSync(doc, "the reviewer's edit\n");
+
+    const kept = ensureWorkingCopy("doc-held", doc);
+    assert.equal(readFileSync(currentPath(kept), "utf8"), "the agent's change\n");
+    assert.equal(
+      readFileSync(basePath(kept), "utf8"),
+      ORIGINAL,
+      "base is what the change was made against",
+    );
+    // And that is §7.3's conflict, which approve still refuses.
+    assert.equal(approveWorkingCopy("doc-held").ok, false);
+
+    discardWorkingCopy("doc-held");
+    writeFileSync(doc, ORIGINAL);
   });
 });
 

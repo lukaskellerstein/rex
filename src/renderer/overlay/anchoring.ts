@@ -10,17 +10,30 @@
 // Not in §3.1's tree — the files it lists are the resolver itself, which stays
 // free of anything React or IPC shaped.
 
-import { worstState } from "../../shared/targets.ts";
-import type { Anchor, AnchorState, LineRange, Thread } from "../../shared/types.ts";
+import { partWords } from "../../shared/diagram.ts";
+import { contextOf, findMatches, MAX_PAGE_MATCHES } from "../../shared/find.ts";
+import { tallyPlaces, threadState } from "../../shared/targets.ts";
+import type {
+  Anchor,
+  AnchorState,
+  DiagramPart,
+  FindMark,
+  LineRange,
+  SearchContext,
+  TextPosition,
+  Thread,
+} from "../../shared/types.ts";
 import {
+  createDiagramAnchor,
   createDocumentAnchor,
   createElementAnchor,
   createRegionAnchor,
   createSectionAnchor,
   createTextAnchor,
 } from "../anchor/create.ts";
+import { diagramOf, fenceLineOf, partsOf } from "../anchor/diagram.ts";
 import { createGapAnchor, gapLabel, stampedLineOf } from "../anchor/gap.ts";
-import { type HighlightHit, paintHighlights } from "../anchor/highlight.ts";
+import { clearFind, type HighlightHit, paintFind, paintHighlights } from "../anchor/highlight.ts";
 import {
   blocksInDrawing,
   boundsOf,
@@ -36,6 +49,7 @@ import {
   GAP_MARK_HEIGHT,
   gapNeighboursAdjacent,
   gapRect,
+  lineRectsOf,
   type PickScope,
   rectOfRun,
   type ScopeChain,
@@ -43,6 +57,7 @@ import {
   scopeChainAt,
   scopeChainForAnchor,
   scopeChainForElement,
+  scopeChainForPart,
   scopeChainForRange,
   stampedBlocks,
   toDocumentRect,
@@ -50,7 +65,12 @@ import {
 } from "../anchor/pick.ts";
 import { anchorStateFor, type Resolution, resolveAnchor } from "../anchor/resolve.ts";
 import { headingTextOf } from "../anchor/section.ts";
-import { buildTextIndex, rangeToOffsets, type TextIndex } from "../anchor/textIndex.ts";
+import {
+  buildTextIndex,
+  offsetsToRange,
+  rangeToOffsets,
+  type TextIndex,
+} from "../anchor/textIndex.ts";
 
 /** One target the sweep could actually check — spec 05 §5.4. */
 export interface CheckedTarget {
@@ -106,6 +126,13 @@ export interface CheckedTarget {
    * reviewer with nowhere to look.
    */
   line: number | null;
+  /**
+   * Spec 35 §3 — and the line it ends on, read the way a gap's line already
+   * is: the next stamped block's start, or the file's own length for the last
+   * block. Null where the format stamps nothing, and for a gap, which has no
+   * extent.
+   */
+  lineEnd: number | null;
 }
 
 export interface ResolvedThread {
@@ -164,6 +191,15 @@ export interface Selected {
    * defines that state and `DocumentView` already skips it.
    */
   rect: ScopeRect | null;
+  /**
+   * One box per line of the passage, for a place that IS text — so the outline
+   * can follow the words instead of boxing the lines they sit on.
+   *
+   * Null for every place that is already a rectangle: a table, a figure, a
+   * region cut out of an image, a gap, a run, the whole document. There the
+   * box is the thing itself, and `rect` says it exactly.
+   */
+  lines: ScopeRect[] | null;
   /** The chain to widen through, and which of it produced `anchor`. */
   scopes: PickScope[];
   active: number;
@@ -194,6 +230,18 @@ export interface Drawn {
 export interface AnchorToMeasure {
   anchor: Anchor;
   kind: SelectedKind;
+}
+
+/**
+ * Where a place is now: the box it spans, and — for a passage — the line boxes
+ * its outline follows. The pair travels together because both are measured
+ * from the same resolution, and a `rect` without its `lines` is what draws the
+ * outline back over text nobody selected.
+ */
+export interface MeasuredPlace {
+  rect: ScopeRect;
+  /** Null for a place that is a rectangle rather than a run of text. */
+  lines: ScopeRect[] | null;
 }
 
 /**
@@ -251,7 +299,7 @@ export interface DocumentSurface {
    * Null for a place whose anchor no longer resolves here: no box is honest,
    * and a box in the old spot is not.
    */
-  rectsForAnchors(items: AnchorToMeasure[]): Promise<Array<ScopeRect | null>>;
+  rectsForAnchors(items: AnchorToMeasure[]): Promise<Array<MeasuredPlace | null>>;
 
   /**
    * §3.4 — the document's own text selection, dropped.
@@ -354,6 +402,50 @@ export interface DocumentSurface {
 
   /** §6.1 — one of them, committed as a place. */
   anchorFromGap(index: number): Promise<Selected | null>;
+
+  /**
+   * Spec 29 §4.2 — a part of a drawn diagram, chosen in the lightbox, as a
+   * place. The lightbox holds a copy of the drawing and never touches the
+   * document; it names the block by its id and the part by what the source
+   * calls it, and the surface — which owns the DOM — makes the anchor.
+   */
+  anchorFromDiagramPart(blockId: string, part: DiagramPart): Promise<Selected | null>;
+
+  /**
+   * Spec 28 §5.2 — every match of `query` on this page, painted and measured.
+   *
+   * The surface owns the index, so it owns the find: matching runs over the
+   * same normalised text the anchors resolve against (§2 point 1), and the
+   * ranges are kept here for `findShow` and `findContext`.
+   */
+  find(query: string): FindOutcome;
+  /**
+   * Paints one match as current. With `reveal`, scrolls to it — but only if
+   * it is not already on screen, which is the difference between a page that
+   * keeps still while the reviewer types and one that jumps on every letter.
+   */
+  findShow(ordinal: number, reveal: boolean): void;
+  /** §5.5 — the words around one match, for telling a hit from main which it is. */
+  findContext(ordinal: number): SearchContext | null;
+  /** §4.1 — `esc`: no yellow remains. */
+  findClear(): void;
+  /** §4.1 — the page's own text selection, as a string, for seeding the bar. */
+  selectedText(): string;
+}
+
+/** Spec 28 §5.2 — what `find` hands back. */
+export interface FindOutcome {
+  count: number;
+  /** §4.3 — more than `MAX_PAGE_MATCHES` exist; `count` is the first thousand. */
+  capped: boolean;
+  /**
+   * §4.1 — the first match at or below the top of the viewport, or 0. What
+   * becomes current when the query changes, so a reviewer who scrolled to §6
+   * and typed finds §6's match current rather than page one's.
+   */
+  nearest: number;
+  /** §4.1.1 — one per match, for the overview ruler. */
+  marks: FindMark[];
 }
 
 /**
@@ -468,6 +560,7 @@ function resolveAgainst(
       // this place, and where in the file is it now — so they are asked once.
       const words = resolution ? describeResolved(index, resolution, anchor) : null;
       const line = resolution ? sourceLineOf(resolution) : null;
+      const lineEnd = resolution ? sourceLineEndOf(resolution) : null;
 
       if (resolution?.kind === "range") {
         hits.push({ threadId: thread.id, range: resolution.range, status: thread.status, state });
@@ -482,6 +575,7 @@ function resolveAgainst(
           rule: null,
           label: words,
           line,
+          lineEnd,
         });
         widen(where);
         if (first) {
@@ -491,7 +585,17 @@ function resolveAgainst(
       } else if (resolution?.kind === "element") {
         const outline = toDocumentRect(view, resolution.element.getBoundingClientRect());
         const box = anchor.region ? regionWithin(outline, anchor) : outline;
-        checked.push({ position, state, box, mark: box, bar: box, rule: null, label: words, line });
+        checked.push({
+          position,
+          state,
+          box,
+          mark: box,
+          bar: box,
+          rule: null,
+          label: words,
+          line,
+          lineEnd,
+        });
         widen(box);
         if (first) {
           top = box.y;
@@ -518,6 +622,7 @@ function resolveAgainst(
           rule: empty ? { x: where.x, y: where.y + where.h / 2, w: where.w, h: 0 } : null,
           label: words,
           line,
+          lineEnd,
         });
         widen(where);
         if (first) {
@@ -543,6 +648,7 @@ function resolveAgainst(
           rule: null,
           label: words,
           line,
+          lineEnd,
         });
         // A document target is left out of the union for the same reason it
         // draws no box: it would stretch the ink over the whole file.
@@ -563,6 +669,7 @@ function resolveAgainst(
           rule: null,
           label: null,
           line: null,
+          lineEnd: null,
         });
       }
     }
@@ -571,7 +678,7 @@ function resolveAgainst(
     // it would cost it the state an earlier visit found (§5.4).
     resolved.push({
       threadId: thread.id,
-      state: worstState(checked.map((entry) => entry.state)),
+      state: threadState(tallyPlaces(checked.map((entry) => entry.state))),
       checked,
       top,
       label,
@@ -596,24 +703,29 @@ function rectForAnchorIn(
   index: TextIndex,
   anchor: Anchor,
   kind: SelectedKind,
-): ScopeRect | null {
+): MeasuredPlace | null {
   const probe = kind === "element" && !anchor.extent ? { ...anchor, quote: null } : anchor;
   const resolution = resolveAnchor(index, probe);
   if (!resolution) return null;
   if (resolution.kind === "range") {
-    return toDocumentRect(view, resolution.range.getBoundingClientRect());
+    // The union AND the lines: the outline follows the words, and everything
+    // else — the path bar, the ink's frame, the scroll — still wants one box.
+    return {
+      rect: toDocumentRect(view, resolution.range.getBoundingClientRect()),
+      lines: lineRectsOf(view, resolution.range),
+    };
   }
   // Spec 16 §7.3 — a gap's box is the text column at the insertion point, so
   // the panel's outline shows *where* rather than a zero-width sliver.
   if (resolution.kind === "gap") {
-    return gapRect(index, resolution.after, resolution.before);
+    return { rect: gapRect(index, resolution.after, resolution.before), lines: null };
   }
   if (resolution.kind === "run") {
     // §6.4 again — the whole file has no box a reviewer could read.
-    return resolution.extent === "document" ? null : rectOfRun(resolution);
+    return resolution.extent === "document" ? null : { rect: rectOfRun(resolution), lines: null };
   }
   const outline = toDocumentRect(view, resolution.element.getBoundingClientRect());
-  return anchor.region ? regionWithin(outline, anchor) : outline;
+  return { rect: anchor.region ? regionWithin(outline, anchor) : outline, lines: null };
 }
 
 /** The stored fractions, back into a box on the element as it is drawn now. */
@@ -666,6 +778,12 @@ function describeResolved(index: TextIndex, resolution: Resolution, anchor: Anch
   }
 
   if (resolution.kind === "element") {
+    // Spec 29 §4.1 — a diagram part is named by the source, in the words the
+    // chip used. `describeElement` on the `<g>` it is drawn as would say `g`.
+    if (anchor.diagram) {
+      const block = diagramOf(resolution.element);
+      if (block) return partWords(partsOf(block), anchor.diagram.part, fenceLineOf(block)).title;
+    }
     const { title } = describeElement(index, resolution.element);
     const region = anchor.region;
     if (!region) return title;
@@ -697,24 +815,86 @@ function sourceLineOf(resolution: Resolution): number | null {
     return above === null ? null : above + blockLineCount(resolution.after);
   }
 
+  // Spec 29 §5.4 — a diagram part knows its own line: the fence's stamp plus
+  // where in the fence the part is stated.
+  if (resolution.kind === "element" && resolution.line !== undefined) return resolution.line;
+
   const node =
     resolution.kind === "range"
       ? elementOf(resolution.range.commonAncestorContainer)
       : resolution.kind === "element"
         ? resolution.element
         : resolution.first;
-  const stamped = node?.closest("[data-src-line]");
-  if (!stamped) return null;
-  const line = Number.parseInt(stamped.getAttribute("data-src-line") ?? "", 10);
-  return Number.isFinite(line) ? line : null;
+  return stampedLineOf(stampedBlockAt(node, "start"));
+}
+
+/**
+ * The stamped block a node's line is read from, when the node itself carries
+ * no stamp.
+ *
+ * `data-src-line` goes on paragraphs, headings, list ITEMS, tables and fences
+ * — not on the `<ul>` around the items, not on an `<hr>`, not on a raw HTML
+ * block. A whole-document run therefore ends on a bare `<ul>` whenever a file
+ * ends with a list, and `closest` finds nothing above it. Measured 2026-09-02
+ * on a 1130-line file whose last element was that `<ul>`: the head showed
+ * `whole file` with no length.
+ *
+ * So: the node's own stamp; else the first or last stamped block INSIDE it,
+ * which is the `<ul>` case; else the nearest stamped block before or after it
+ * in document order, which is the `<hr>` case. `end` and `start` read the
+ * same shape from opposite ends.
+ */
+function stampedBlockAt(node: Element | null, edge: "start" | "end"): Element | null {
+  if (!node) return null;
+  const own = node.closest("[data-src-line]");
+  if (own) return own;
+  const inside = node.querySelectorAll("[data-src-line]");
+  if (inside.length > 0) return inside[edge === "start" ? 0 : inside.length - 1];
+  const blocks = stampedBlocks(node.ownerDocument);
+  if (edge === "start") {
+    return (
+      blocks.find(
+        (block) => node.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ) ?? null
+    );
+  }
+  return (
+    blocks.findLast(
+      (block) => node.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_PRECEDING,
+    ) ?? null
+  );
+}
+
+/**
+ * Spec 35 §3 — which line of the source file a resolved place ENDS on.
+ *
+ * The same lookup as `sourceLineOf`, from the other end: the block the place's
+ * last node sits in, and where that block ends. A gap has no extent, so it has
+ * no last line; a diagram part is one line, its own.
+ */
+function sourceLineEndOf(resolution: Resolution): number | null {
+  if (resolution.kind === "gap") return null;
+  if (resolution.kind === "element" && resolution.line !== undefined) return resolution.line;
+
+  const node =
+    resolution.kind === "range"
+      ? elementOf(resolution.range.endContainer)
+      : resolution.kind === "element"
+        ? resolution.element
+        : resolution.last;
+  const block = stampedBlockAt(node, "end");
+  const line = stampedLineOf(block);
+  if (block === null || line === null) return null;
+  return line + blockLineCount(block) - 1;
 }
 
 /**
  * How many source lines a block spans, read off the block that follows it.
  *
  * `data-src-line` marks where a block *starts*, so the only thing in the DOM
- * that knows where it ends is the next stamped block. One line is the honest
- * fallback for the last block in the file.
+ * that knows where it ends is the next stamped block — and for the last block
+ * in the file, the file's own length, which the renderer writes on `<body>`
+ * (spec 35 §3). One line is the fallback where neither is known.
  */
 function blockLineCount(block: Element | null): number {
   const line = stampedLineOf(block);
@@ -722,7 +902,15 @@ function blockLineCount(block: Element | null): number {
   const blocks = stampedBlocks(block.ownerDocument);
   const next = blocks[blocks.indexOf(block) + 1] ?? null;
   const after = stampedLineOf(next);
-  return after !== null && after > line ? after - line : 1;
+  if (after !== null && after > line) return after - line;
+  const total = documentLineCount(block.ownerDocument);
+  return total !== null && total >= line ? total - line + 1 : 1;
+}
+
+/** The file's line count, from the `data-src-lines` the renderer stamps on `<body>`. */
+function documentLineCount(doc: Document): number | null {
+  const total = Number.parseInt(doc.body?.getAttribute("data-src-lines") ?? "", 10);
+  return Number.isFinite(total) ? total : null;
 }
 
 // ── PDF: a comment is a place on a page, never a quote ──────────
@@ -824,6 +1012,10 @@ function anchorFromSelectionIn(
       anchor,
       label: labelFor(chain.scopes[0], false),
       rect: toDocumentRect(view, range.getBoundingClientRect()),
+      // §7.3 again — inside a PDF what was stored is a REGION of the page, so
+      // the outline has to be the rectangle that was stored. Everywhere else
+      // the place is the words, and the outline follows them.
+      lines: page ? null : lineRectsOf(view, range),
       scopes: chain.scopes,
       active: 0,
     },
@@ -849,10 +1041,16 @@ function anchorFromScopeIn(
   const scope = chain.scopes[scopeIndex];
   if (!scope) return null;
 
-  const made = (anchor: Anchor, rect: ScopeRect | null, cut: boolean): Selected => ({
+  const made = (
+    anchor: Anchor,
+    rect: ScopeRect | null,
+    cut: boolean,
+    lines: ScopeRect[] | null = null,
+  ): Selected => ({
     anchor,
     label: labelFor(scope, cut),
     rect,
+    lines,
     scopes: chain.scopes,
     active: scopeIndex,
   });
@@ -864,6 +1062,17 @@ function anchorFromScopeIn(
     const heading = chain.elements[scopeIndex];
     if (!heading) return null;
     return made(createSectionAnchor(index, heading, sourceFile), scope.rect, false);
+  }
+
+  // Spec 29 §5.6 — a part of a drawn diagram is named in the fence's source,
+  // never as the `<g>` it is drawn as. The chain's element is the part's
+  // drawing, or the `<pre>` when the map had none for it; either way the block
+  // is the diagram it sits in.
+  if (scope.part) {
+    const block = diagramOf(chain.elements[scopeIndex]);
+    if (!block) return null;
+    const anchor = createDiagramAnchor(block, scope.part, sourceFile);
+    return anchor ? made(anchor, scope.rect, false) : null;
   }
 
   if (scope.kind === "text") {
@@ -881,7 +1090,10 @@ function anchorFromScopeIn(
           sourceFile,
         )
       : text;
-    return made(anchor, scope.rect, false);
+    // Widening to `text` keeps the passage a passage, so its outline still
+    // follows the words — measured off the chain's own range, not the scope's
+    // box, which is that range flattened into one rectangle.
+    return made(anchor, scope.rect, false, page ? null : lineRectsOf(view, chain.range));
   }
 
   const element = chain.elements[scopeIndex];
@@ -950,6 +1162,8 @@ function targetsFromDrawingIn(
       anchor,
       label: labelFor(chain.scopes[0], cut),
       rect,
+      // A lasso takes whole blocks and regions of them. Both are rectangles.
+      lines: null,
       scopes: chain.scopes,
       active: 0,
     };
@@ -1001,12 +1215,14 @@ const BETTER: Record<AnchorState, number> = { ok: 0, moved: 1, orphaned: 2 };
  * Spec 16 §5.2 — **per target, the best of the two panes.**
  *
  * This is the trap in the whole spec. A target that resolved on the left and
- * not on the right is *found*, not lost, and applying `worstState` across the
- * two panes would report every comment on unchanged text as orphaned the moment
- * a working copy existed — which is §1.2 rebuilt with more machinery.
+ * not on the right is *found*, not lost, and taking the worse of the two panes
+ * would report every comment on unchanged text as orphaned the moment a working
+ * copy existed — which is §1.2 rebuilt with more machinery.
  *
- * Per **thread** the rule is the opposite and unchanged: the worst of its
- * targets, which is what `worstState` already does.
+ * Spec 32 §6 made the per-**thread** rule agree with this one instead of
+ * contradicting it: a comment is lost only when every place is, which is what
+ * `threadState` does. The two questions are still different — one place seen
+ * twice, against several places seen once — and both now answer "best".
  *
  * Which version a comment is about is not stored anywhere. It is wherever the
  * anchor resolves, and this is the only place that reads the answer.
@@ -1041,7 +1257,7 @@ export function mergeResolved(panes: ReadonlyArray<ResolvedThread[]>): ResolvedT
     const anchored = entries.find((entry) => entry.top !== null) ?? entries[0];
     return {
       threadId,
-      state: worstState(checked.map((entry) => entry.state)),
+      state: threadState(tallyPlaces(checked.map((entry) => entry.state))),
       checked,
       top: anchored.top,
       label: anchored.label,
@@ -1239,12 +1455,30 @@ export class FrameSurface implements DocumentSurface {
       anchor: createGapAnchor(this.index, spot.after, spot.before, this.sourceFile),
       label: spot.label,
       rect,
+      // A gap has no text at all — that is what the comment is about.
+      lines: null,
       scopes: [describeGap(rect, spot.after, spot.before)],
       active: 0,
     };
   }
 
-  async rectsForAnchors(items: AnchorToMeasure[]): Promise<Array<ScopeRect | null>> {
+  async anchorFromDiagramPart(blockId: string, part: DiagramPart): Promise<Selected | null> {
+    const view = this.frame.contentWindow;
+    const doc = this.frame.contentDocument;
+    if (!view || !doc || !this.index) return null;
+    // `diagramOf` hands back the typed block, and only a drawn one.
+    const block = diagramOf(doc.getElementById(blockId));
+    if (!block || block.id !== blockId) return null;
+    // §4.1 — a diagram that is not live takes no place, as the page's own pick
+    // would refuse it.
+    if (!isLive(this.liveBlocks, block)) return null;
+    // It becomes the current chain, so widening acts on this place.
+    const chain = scopeChainForPart(this.index, block, part);
+    this.chain = chain;
+    return anchorFromScopeIn(view, this.index, chain, 0, this.sourceFile, null);
+  }
+
+  async rectsForAnchors(items: AnchorToMeasure[]): Promise<Array<MeasuredPlace | null>> {
     const view = this.frame.contentWindow;
     if (!view || !this.index) return items.map(() => null);
     const index = this.index;
@@ -1369,6 +1603,80 @@ export class FrameSurface implements DocumentSurface {
     const doc = this.frame.contentDocument;
     if (!view || !doc) return [];
     return boxesForLinesIn(view, doc, ranges);
+  }
+
+  // ── Spec 28 — find ──────────────────────────────────────────
+
+  /** The matches of the last `find`, as live ranges and as offsets. */
+  private findRanges: Range[] = [];
+  private findPositions: TextPosition[] = [];
+
+  find(query: string): FindOutcome {
+    const view = this.frame.contentWindow;
+    const doc = this.frame.contentDocument;
+    const none: FindOutcome = { count: 0, capped: false, nearest: 0, marks: [] };
+    if (!view || !doc || !this.index) {
+      this.findRanges = [];
+      this.findPositions = [];
+      return none;
+    }
+    const index = this.index;
+    const { matches, capped } = findMatches(index.text, query, MAX_PAGE_MATCHES);
+    const ranges: Range[] = [];
+    const positions: TextPosition[] = [];
+    for (const position of matches) {
+      const range = offsetsToRange(index, position);
+      if (!range) continue;
+      ranges.push(range);
+      positions.push(position);
+    }
+    this.findRanges = ranges;
+    this.findPositions = positions;
+    paintFind(view, ranges, -1);
+
+    // Measured once against the whole document's height, in the same
+    // coordinate space `getBoundingClientRect` reports the ranges in — which
+    // under CSS `zoom` is the scaled one, consistently (see `applyZoom`).
+    const root = doc.documentElement.getBoundingClientRect();
+    const total = Math.max(root.height, view.innerHeight, 1);
+    const marks: FindMark[] = [];
+    let nearest = -1;
+    ranges.forEach((range, at) => {
+      const box = range.getBoundingClientRect();
+      marks.push({ top: (box.top + view.scrollY) / total, height: box.height / total });
+      if (nearest === -1 && box.bottom >= 0) nearest = at;
+    });
+    return { count: ranges.length, capped, nearest: Math.max(nearest, 0), marks };
+  }
+
+  findShow(ordinal: number, reveal: boolean): void {
+    const view = this.frame.contentWindow;
+    const range = this.findRanges[ordinal];
+    if (!view || !range) return;
+    paintFind(view, this.findRanges, ordinal);
+    if (!reveal) return;
+    const box = range.getBoundingClientRect();
+    if (box.top >= 0 && box.bottom <= view.innerHeight) return;
+    // A third of the way down, as `scrollToAnchorIn` does: a match pinned to
+    // the top edge reads as if its context had been cut off.
+    view.scrollTo({ top: box.top + view.scrollY - view.innerHeight / 3, behavior: "smooth" });
+  }
+
+  findContext(ordinal: number): SearchContext | null {
+    const position = this.findPositions[ordinal];
+    if (!position || !this.index) return null;
+    return contextOf(this.index.text, position);
+  }
+
+  findClear(): void {
+    this.findRanges = [];
+    this.findPositions = [];
+    const view = this.frame.contentWindow;
+    if (view) clearFind(view);
+  }
+
+  selectedText(): string {
+    return this.frame.contentWindow?.getSelection()?.toString() ?? "";
   }
 }
 

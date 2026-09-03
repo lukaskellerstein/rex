@@ -196,6 +196,229 @@ export function migrateMessageMode(db: Db): boolean {
 }
 
 /**
+ * Spec 25 §5.2 — `message.model`, the model a row came from.
+ *
+ * Guarded and idempotent like the others. NULL for every existing row is the
+ * value §5 defines: until this spec no send named a model, so nobody recorded
+ * one. It is not "the default" and nothing may draw it as one.
+ */
+export function migrateMessageModel(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(message)")
+    .all()
+    .some((row) => row.name === "model");
+  if (present) return false;
+  db.exec("ALTER TABLE message ADD COLUMN model TEXT");
+  return true;
+}
+
+/**
+ * Spec 31 §5 — `message.style`, the output style a row ran under.
+ *
+ * Guarded and idempotent like the others, and NULL for every existing row for
+ * the same reason `model` was: until spec 31 no send named a style, so nobody
+ * recorded one.
+ */
+export function migrateMessageStyle(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(message)")
+    .all()
+    .some((row) => row.name === "style");
+  if (present) return false;
+  db.exec("ALTER TABLE message ADD COLUMN style TEXT");
+  return true;
+}
+
+/**
+ * Spec 31 §2.1 — `thread.style`, the style this chat is having.
+ *
+ * NULL is the CLI's own default, which is what every comment made before spec
+ * 31 was answered under. Unlike `message.style` this column is *read*: it is
+ * what the composer is painted from when a comment is reopened, which is the
+ * whole of what "remembered for the whole chat" means.
+ */
+export function migrateThreadStyle(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(thread)")
+    .all()
+    .some((row) => row.name === "style");
+  if (present) return false;
+  db.exec("ALTER TABLE thread ADD COLUMN style TEXT");
+  return true;
+}
+
+/**
+ * `message.denied` — the gate refused this call, as opposed to the tool failing.
+ *
+ * The two were one flag until now, and every reader guessed the same wrong way:
+ * a `grep` that exited 1 was drawn as a refusal in the trace, counted as one in
+ * the step strip, and printed under DENIED in the debug report. Measured on
+ * 2026-09-01, thread `f5e79775`: two shell errors, no gate involvement, both
+ * reported as denials.
+ *
+ * **The old rows are backfilled, and that is the point of this migration.** A
+ * refusal also writes a `Denied <tool>: <reason>` note (`ipc.ts`), so the notes
+ * name every denial an old thread contains and the result carries the same
+ * reason verbatim. `instr` rather than LIKE: a reason is REX's own prose and may
+ * hold `%` or `_`, which LIKE would read as wildcards.
+ *
+ * The SDK's own refusal is the second source, and it has no note because REX's
+ * gate never saw it. Measured against the live database on 2026-09-01: 13 rows
+ * from the notes and 1 from the SDK's sentence, out of 24 errored results.
+ *
+ * ALTER and backfill in one transaction, so a crash between them cannot leave a
+ * database that has the column, will never fill it, and reports every historical
+ * refusal as a failure.
+ */
+export function migrateMessageDenied(db: Db): number {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(message)")
+    .all()
+    .some((row) => row.name === "denied");
+  if (present) return 0;
+
+  let marked = 0;
+  db.transaction(() => {
+    db.exec("ALTER TABLE message ADD COLUMN denied INTEGER NOT NULL DEFAULT 0");
+    marked = db
+      .prepare(
+        `UPDATE message SET denied = 1
+          WHERE kind = 'tool_result'
+            AND is_error = 1
+            AND content IS NOT NULL
+            AND content <> ''
+            AND (
+                  EXISTS (
+                    SELECT 1 FROM message note
+                     WHERE note.thread_id = message.thread_id
+                       AND note.role = 'system'
+                       AND note.content LIKE 'Denied %'
+                       AND instr(note.content, message.content) > 0
+                  )
+                  -- The SDK's own refusal, which leaves no note because REX's
+                  -- gate never saw it. SDK_REFUSAL in runner.ts is the same
+                  -- rule on the live path.
+                  OR content LIKE 'Permission to use % has been denied.'
+                )`,
+      )
+      .run().changes;
+  })();
+  return marked;
+}
+
+/**
+ * Spec 24 §5.2 — `thread_target.message_id`, the user message that added a
+ * place to a comment that already existed.
+ *
+ * Guarded and idempotent the same way the others are. **NULL is the honest
+ * value for every row written before it existed**: until spec 24 a comment's
+ * places were all fixed at `thread:create`, so every one of them is a place
+ * "the comment was created with", which is exactly what NULL means.
+ */
+export function migrateTargetMessage(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(thread_target)")
+    .all()
+    .some((row) => row.name === "message_id");
+  if (present) return false;
+  db.exec("ALTER TABLE thread_target ADD COLUMN message_id TEXT");
+  return true;
+}
+
+/**
+ * Spec 30 §7.1 — `thread.status` gains the `draft` and `note` lanes.
+ *
+ * **The first migration here that rebuilds a table**, because SQLite cannot
+ * widen a CHECK any other way: the constraint is part of the table's definition,
+ * and `schema.sql` is `CREATE TABLE IF NOT EXISTS`, so a database that already
+ * exists keeps the two-lane check and refuses every new value. Everything above
+ * adds or drops a column, which `ALTER TABLE` does on its own.
+ *
+ * **The new definition is not written out here.** It is read from
+ * `sqlite_master` and its status CHECK rewritten in place, for two reasons: this
+ * runs after four guarded `ALTER TABLE`s and cannot know which of them a given
+ * database has been through, and a copy of the table written out here would be a
+ * second schema in the tree, free to drift from `schema.sql`.
+ *
+ * Spec 30 §7.2 — the rebuild carries `is_note = 1` into the `note` lane, and
+ * **only from `open`**. A note that was resolved stays resolved: spec 18 §2's
+ * rule that `resolved` is terminal is older than spec 30 and outranks it.
+ *
+ * There is deliberately no `PRAGMA foreign_key_check` at the end. Every row is
+ * copied with its `id` intact, so no reference can be broken by this; a check
+ * here would only surface damage that predates it, and failing the open over
+ * somebody else's stray row is worse than the stray row.
+ *
+ * Idempotent: a definition that already names `draft` is left alone, and so is
+ * one with no status CHECK to widen — the hand-built tables in
+ * `test/migrate.spec.ts` are that shape, and they accept the new values
+ * already. Returns true when it rebuilt the table.
+ */
+export function migrateThreadLanes(db: Db): boolean {
+  const table = db
+    .prepare<[], { sql: string | null }>(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'thread'",
+    )
+    .get();
+  const sql = table?.sql;
+  if (!sql || sql.includes("'draft'")) return false;
+
+  // `status` right after the paren is what keeps this off the other three CHECKs
+  // on this table — kind, anchor_state and profile.
+  const widened = sql.replace(
+    /CHECK\s*\(\s*status\s+IN\s*\([^)]*\)\s*\)/i,
+    "CHECK (status IN ('draft','note','open','resolved'))",
+  );
+  if (widened === sql) return false;
+
+  // sqlite_master drops `IF NOT EXISTS` when it stores a definition, but the
+  // pattern allows for it rather than relying on that.
+  const create = widened.replace(
+    /^CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?"?thread"?/i,
+    "CREATE TABLE thread_rebuilt",
+  );
+
+  const names = db
+    .prepare<[], { name: string }>("PRAGMA table_info(thread)")
+    .all()
+    .map((row) => row.name);
+  const columns = names.map((name) => `"${name}"`).join(", ");
+
+  // Dropping a table drops its indexes with it, so they are remembered before
+  // the drop and replayed after the rename.
+  const indexes = db
+    .prepare<[], { sql: string }>(
+      `SELECT sql FROM sqlite_master
+        WHERE type = 'index' AND tbl_name = 'thread' AND sql IS NOT NULL`,
+    )
+    .all()
+    .map((row) => row.sql);
+
+  // `PRAGMA foreign_keys` cannot change inside a transaction, so it is turned
+  // off around one rather than in it. thread_target, message and thread_ref all
+  // say `REFERENCES thread(id)`; while the constraint is off their rows survive
+  // the drop, and the rename puts the rebuilt table back under the name they
+  // point at.
+  const enforcing = db.pragma("foreign_keys", { simple: true }) === 1;
+  if (enforcing) db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(create);
+      db.exec(`INSERT INTO thread_rebuilt (${columns}) SELECT ${columns} FROM thread`);
+      db.exec("DROP TABLE thread");
+      db.exec("ALTER TABLE thread_rebuilt RENAME TO thread");
+      for (const index of indexes) db.exec(index);
+      if (names.includes("is_note")) {
+        db.exec("UPDATE thread SET status = 'note' WHERE is_note = 1 AND status = 'open'");
+      }
+    })();
+  } finally {
+    if (enforcing) db.pragma("foreign_keys = ON");
+  }
+  return true;
+}
+
+/**
  * The primary anchor, then the extras.
  *
  * Both columns are parsed defensively. They were written by an earlier build and

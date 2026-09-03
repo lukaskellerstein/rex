@@ -5,7 +5,7 @@
 
 import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
-import { app, type BrowserWindow, clipboard, dialog, ipcMain } from "electron";
+import { app, type BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
 import { v4 as uuidv4 } from "uuid";
 import {
   type AnchorRestateRequest,
@@ -20,15 +20,22 @@ import {
   type RenderResultRequest,
   type ThreadApplyRequest,
   type ThreadCreateRequest,
+  type ThreadDraftSaveRequest,
   type ThreadListRequest,
   type ThreadRenameRequest,
   type ThreadReplyRequest,
   type ThreadResolveRequest,
   type ThreadSynthesiseRequest,
+  type WorkActResponse,
   type WorkApproveResponse,
+  type WorkspaceDeleteRequest,
   type WorkspaceExcludeRequest,
+  type WorkspaceFileResult,
+  type WorkspaceRenameRequest,
+  type WorkspaceSearchRequest,
 } from "../shared/channels.ts";
 import type {
+  AgentChoices,
   Anchor,
   AnchorSummary,
   CommentGroup,
@@ -37,64 +44,100 @@ import type {
   DocumentVersion,
   Message,
   OpenedDocument,
+  PaperView,
   ReferenceGraph,
+  SendChoices,
   SendMode,
+  TargetDraft,
   Thread,
   ThreadWithMessages,
   ViewState,
   WorkingCopyView,
   WorkspaceRef,
+  WorkspaceSearchResult,
   WorkspaceTree,
 } from "../shared/types.ts";
+import { listCapabilities } from "./agent/capabilities.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
-import { askPrompt, synthesisPrompt } from "./agent/prompts.ts";
+import {
+  askPrompt,
+  documentHeader,
+  followUpPrompt,
+  type PassagePlace,
+  synthesisPrompt,
+  withEvents,
+} from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
-import { beginRun, endRun, stopRun } from "./agent/runs.ts";
-import { renderTranscript, replayPrompt, sessionExists } from "./agent/transcript.ts";
+import { beginRun, endRun, HELD_REASON, isHeld, stopRun } from "./agent/runs.ts";
+import {
+  eventsSinceLastAnswer,
+  renderTranscript,
+  replayPrompt,
+  sessionExists,
+} from "./agent/transcript.ts";
 import { type ApplyContext, confirmApply, locatePassage, startApply, viewOf } from "./apply.ts";
 import type { CdpStatus } from "./cdp.ts";
 import type { Db } from "./db/database.ts";
 import { createGroup, deleteGroup, listGroups, moveItem, updateGroup } from "./db/groups.ts";
 import {
   appendMessage,
-  clearNoteFlag,
+  appendTargets,
   completeApplyRun,
   createThread,
   deleteThread,
+  deleteThreadsInScope,
   documentCostUsd,
   getDocument,
   getThread,
   listMessages,
   listThreads,
+  listThreadsInDocument,
   type MessageDraft,
+  markThreadDraft,
+  markThreadNoted,
+  markThreadSent,
   renameThread,
+  saveDraft,
   setDocumentHash,
   setTargetState,
   setThreadSession,
   setThreadStatus,
+  setThreadStyle,
   toggleWorkspaceRule,
   upsertDocument,
 } from "./db/queries.ts";
+import {
+  defaultModel,
+  MODEL_DEFAULT_KEY,
+  paperView,
+  setPaperView,
+  setSetting,
+} from "./db/settings.ts";
 import { appReport, debugReport } from "./debug.ts";
 import { porcelainStatus, repositoryRoot } from "./git.ts";
 // Aliased: `registerIpc` has its own `record`, which appends a message row.
 import { entries, lineCount, logFile, record as logLine } from "./log.ts";
 import { allowDirectory, baseHrefFor } from "./protocol.ts";
-import { isPptxPath } from "./render/formats.ts";
+import { isPptxPath, isTextDocumentPath } from "./render/formats.ts";
 import { sha256 } from "./render/html.ts";
 import { renderDocument } from "./render/index.ts";
 import { ensureSidecar } from "./render/pptx.ts";
+import { searchWorkspace } from "./search/index.ts";
 import { agentCwd, documentsOf, SCRATCH_DIR, withDetail } from "./threads.ts";
 import {
   approveWorkingCopy,
   basePath,
   currentPath,
   discardWorkingCopy,
-  listWorkingCopies,
+  ensureWorkingCopy,
+  isPending,
+  pendingCopies,
+  pendingCopy,
   readMeta,
-  readMetaByPath,
   undoLastRevision,
+  type WorkingMeta,
 } from "./work.ts";
+import { deleteEntry, noteWorkspaceRoot, renameEntry } from "./workspace/files.ts";
 import { buildReferenceGraph } from "./workspace/graph.ts";
 import { scanWorkspace } from "./workspace/tree.ts";
 
@@ -167,10 +210,21 @@ export function registerIpc(
     return message;
   };
 
-  const systemNote = (threadId: string, content: string, isError: boolean): void => {
+  const systemNote = (
+    threadId: string,
+    content: string,
+    isError: boolean,
+    /**
+     * Spec 25 §5 and spec 31 §5 — set when the notice belongs to a run, so it
+     * says which model and style produced it. Absent for a notice that is
+     * REX's own and had no run behind it.
+     */
+    choices: SendChoices = { model: null, style: null },
+  ): void => {
     record(threadId, {
       role: "system",
       kind: isError ? "error" : "text",
+      ...choices,
       content,
       toolName: null,
       toolInput: null,
@@ -209,7 +263,12 @@ export function registerIpc(
    * SPEC.md §8.4 backstop — a `read` session that changed a file is a bug in
    * the gate, and has to reach the UI rather than a log line.
    */
-  const backstop = (threadId: string, cwd: string, before: string[]): void => {
+  const backstop = (
+    threadId: string,
+    cwd: string,
+    before: string[],
+    choices: SendChoices,
+  ): void => {
     const after = porcelainStatus(cwd);
     const introduced = after.filter((line) => !before.includes(line));
     if (introduced.length === 0) return;
@@ -217,6 +276,7 @@ export function registerIpc(
       threadId,
       `The read agent changed the repository, which the deny gate should have made impossible (SPEC.md §8.4). Changed: ${introduced.join(", ")}`,
       true,
+      choices,
     );
   };
 
@@ -225,6 +285,17 @@ export function registerIpc(
     prompt: string,
     sessionId: string,
     resume: boolean,
+    /**
+     * Spec 25 §4.1 and spec 31 §4 — the model and the style this ASK runs
+     * under, as the reviewer picked them.
+     *
+     * Arguments, and never `thread.model` or `thread.style`: both are
+     * properties of a SEND, so a field read here would be mutable state no
+     * send owns and two runs on one comment would take each other's. The
+     * `thread.style` column exists (spec 31 §2.1) but it is memory for the
+     * composer, written by the send and never read by it.
+     */
+    choices: SendChoices,
   ): Promise<void> => {
     const cwd = workingDirectory(thread);
     const before = porcelainStatus(cwd);
@@ -235,7 +306,12 @@ export function registerIpc(
 
     // Spec 17 §2.4 — registered BEFORE the semaphore, so a comment still queued
     // behind the five-agent cap can be stopped before it costs anything.
-    const controller = beginRun(thread.id);
+    // Spec 34 §5.1 — and holding the documents the prompt named, so nobody
+    // replaces their copies under it.
+    const controller = beginRun(
+      thread.id,
+      documentsOf(db, thread).map((record) => record.id),
+    );
     let result: Awaited<ReturnType<typeof runAgent>>;
     try {
       result = await agents.run(() =>
@@ -245,10 +321,14 @@ export function registerIpc(
           prompt,
           sessionId,
           resume,
-          model: thread.model,
+          ...choices,
           documentPath,
           signal: controller.signal,
-          onMessage: (draft) => record(thread.id, draft),
+          // Spec 25 §5 and spec 31 §5 — every block this run produces says
+          // which model wrote it and under which style. Stamped here, where
+          // both are known, because the runner emits blocks and has no
+          // business knowing what the reviewer picked.
+          onMessage: (draft) => record(thread.id, { ...draft, ...choices }),
         }),
       );
     } finally {
@@ -256,13 +336,14 @@ export function registerIpc(
     }
 
     setThreadSession(db, thread.id, result.sessionId);
-    backstop(thread.id, cwd, before);
+    backstop(thread.id, cwd, before, choices);
 
     for (const denial of result.denials) {
       systemNote(
         thread.id,
         `Denied ${denial.toolName}${denial.subagentId ? ` (subagent ${denial.subagentId})` : ""}: ${denial.reason}`,
         false,
+        choices,
       );
     }
 
@@ -280,11 +361,21 @@ export function registerIpc(
    * Recording it is what lets a card say `YOU NOTED` about a note instead of
    * calling every message "asked".
    */
-  const recordUserText = (threadId: string, text: string, mode: SendMode): void => {
+  const recordUserText = (
+    threadId: string,
+    text: string,
+    mode: SendMode,
+    /**
+     * Spec 25 §5 and spec 31 §5 — what they picked. Both null for a NOTE,
+     * which runs nothing and so runs under nothing.
+     */
+    choices: SendChoices,
+  ): Message =>
     record(threadId, {
       role: "user",
       kind: "text",
       mode,
+      ...choices,
       content: text,
       toolName: null,
       toolInput: null,
@@ -294,6 +385,37 @@ export function registerIpc(
       inputTokens: null,
       outputTokens: null,
     });
+
+  /**
+   * Spec 24 §4 — the places a send carries, written before any prompt is
+   * built, so `getThread` already returns them to everything downstream.
+   *
+   * Returns the position of the first new place — what `followUpPrompt` lists
+   * from — or the thread's current length when the send carried none, which
+   * makes "nothing new" and "list from here" the same number.
+   */
+  const addPlaces = (
+    thread: Thread,
+    message: Message,
+    targets: TargetDraft[] | undefined,
+  ): number => {
+    const from = thread.targets.length;
+    if (!targets || targets.length === 0) return from;
+    // A synthesis thread has no places and does not take any (§3.6). The
+    // renderer never offers it the strip; this is the backstop.
+    if (thread.kind === "synthesis") {
+      throw new Error("A synthesis comment has no places to add to.");
+    }
+    // §5.3 — a document REX cannot find refuses the whole send, so a comment
+    // never half-grows. The transaction in `appendTargets` would refuse it too,
+    // as a foreign-key error; this says it in the reviewer's words first.
+    for (const target of targets) {
+      if (!getDocument(db, target.documentId)) {
+        throw new Error("One of the places is in a document REX no longer has. Nothing was sent.");
+      }
+    }
+    appendTargets(db, thread.id, message.id, targets);
+    return from;
   };
 
   // ── Documents ─────────────────────────────────────────────────
@@ -341,6 +463,9 @@ export function registerIpc(
     // The whole workspace is served over rex-doc://, so a document's siblings
     // and images resolve however deep in the tree they sit.
     allowDirectory(ref.root);
+    // Spec 23 §2.2 — and it is now also a folder REX will rename inside. The
+    // two facts are the same fact: this is a root the reviewer is looking at.
+    noteWorkspaceRoot(ref.root);
     return scanWorkspace(db, ref.root, { reveal });
   });
 
@@ -357,13 +482,38 @@ export function registerIpc(
       buildReferenceGraph(db, scanWorkspace(db, ref.root)),
   );
 
+  // Spec 23 §2 — the reviewer's own file acts. Every guard is in
+  // `workspace/files.ts`; these two lines are the door and nothing else.
+  handle(
+    COMMAND.workspaceRename,
+    (_event, request: WorkspaceRenameRequest): WorkspaceFileResult => renameEntry(db, request),
+  );
+
+  handle(
+    COMMAND.workspaceDelete,
+    (_event, request: WorkspaceDeleteRequest): Promise<WorkspaceFileResult> =>
+      // §3 — the system Bin, so the reviewer's own `Put Back` is the undo.
+      deleteEntry(request, (path) => shell.trashItem(path)),
+  );
+
+  // Spec 28 §4.2 — the renderer names a root and a query; main decides which
+  // files that means and what each one says.
+  handle(
+    COMMAND.workspaceSearch,
+    (_event, request: WorkspaceSearchRequest): Promise<WorkspaceSearchResult> =>
+      searchWorkspace(db, request.root, request.query),
+  );
+
   handle(
     COMMAND.docOpen,
     async (_event, ref: DocumentRef, version?: DocumentVersion): Promise<OpenedDocument> => {
       // Spec 15 §6.1 — a version, never a path. The renderer displays untrusted
       // content, so it names which of the two it wants and main decides where
       // that is; a path from the renderer would be a file main reads on its say.
-      const meta = readMetaByPath(ref.value);
+      //
+      // Spec 34 §4 — pending, not present. A copy that equals the file is not a
+      // second version to draw; the file is rendered and `working` is null.
+      const meta = pendingCopy(ref.value);
       const wanted: DocumentVersion = meta && version !== "original" ? "current" : "original";
       const rendered = await renderDocument(
         ref,
@@ -398,10 +548,14 @@ export function registerIpc(
   // ── The working copy (spec 15 §7) ─────────────────────────────
 
   handle(COMMAND.workList, (): WorkingCopyView[] =>
-    listWorkingCopies().map((meta) => viewOf(meta, repositoryRoot(meta.path))),
+    // Spec 34 §4 — pending, not present.
+    pendingCopies().map((meta) => viewOf(meta, repositoryRoot(meta.path))),
   );
 
   handle(COMMAND.workApprove, async (_event, documentId: string): Promise<WorkApproveResponse> => {
+    // Spec 34 §5.2 — never under a running agent. Approving now would read a
+    // half-finished edit into the reviewer's file.
+    if (isHeld(documentId)) return { ok: false, reason: HELD_REASON, reanchored: null };
     const meta = readMeta(documentId);
     const result = approveWorkingCopy(documentId);
     if (!result.ok) return { ok: false, reason: result.reason ?? null, reanchored: null };
@@ -412,27 +566,56 @@ export function registerIpc(
       for (const revision of meta.revisions) completeApplyRun(db, revision.applyRunId, "applied");
       setDocumentHash(db, documentId, fileHash(meta.path) ?? "");
     }
+    // Spec 34 §6.1 — said in every open comment on the document.
+    noteEvent(documentId, "The reviewer approved the change. The file now holds it.");
     return { ok: true, reason: null, reanchored: await reanchor([documentId]) };
   });
 
-  handle(COMMAND.workDiscard, async (_event, documentId: string): Promise<void> => {
+  handle(COMMAND.workDiscard, async (_event, documentId: string): Promise<WorkActResponse> => {
+    // Spec 34 §5.2 — never under a running agent: discard writes the reviewer's
+    // bytes over the copy the agent is in the middle of editing.
+    if (isHeld(documentId)) return { ok: false, reason: HELD_REASON };
     const meta = readMeta(documentId);
+    const wasPending = meta !== null && isPending(meta);
     discardWorkingCopy(documentId);
     if (meta) {
       for (const revision of meta.revisions) completeApplyRun(db, revision.applyRunId, "rejected");
+    }
+    // Spec 34 §6.1 — said in every open comment on the document. Only when
+    // there was a change to throw away: a discard of nothing is not an event.
+    if (wasPending) {
+      // "What the file holds", not "the original": an earlier change may have
+      // been approved already, and an agent read "original" as everything
+      // reverted (measured in milestone 4).
+      noteEvent(
+        documentId,
+        "The reviewer discarded the change. The document is back to what the file holds.",
+      );
     }
     // The file was never touched, so nothing on disk moved — but the document on
     // screen goes back to being the file, and its anchors were resolved against
     // the version that has just gone.
     await reanchor([documentId]);
+    return { ok: true, reason: null };
   });
 
-  handle(COMMAND.workUndo, async (_event, documentId: string): Promise<void> => {
+  handle(COMMAND.workUndo, async (_event, documentId: string): Promise<WorkActResponse> => {
+    // Spec 34 §5.2 — never under a running agent: it rewinds what the agent is
+    // in the middle of.
+    if (isHeld(documentId)) return { ok: false, reason: HELD_REASON };
     const before = readMeta(documentId);
     const dropped = before?.revisions.at(-1) ?? null;
     undoLastRevision(documentId);
-    if (dropped) completeApplyRun(db, dropped.applyRunId, "rejected");
+    if (dropped) {
+      completeApplyRun(db, dropped.applyRunId, "rejected");
+      // Spec 34 §6.1 — said in every open comment on the document.
+      noteEvent(documentId, "The reviewer undid the last run.");
+    }
+    // Undone all the way back is the reviewer's own bytes again. Spec 34 §3.2 —
+    // the copy then equals `base`, so nothing is pending and the panes close;
+    // the directory stays, because an agent may hold its path.
     await reanchor([documentId]);
+    return { ok: true, reason: null };
   });
 
   // ── Threads ───────────────────────────────────────────────────
@@ -443,83 +626,204 @@ export function registerIpc(
    * With no workspace the scope is the open document's own directory, so a
    * single file opened by path behaves as it did: its siblings' comments are in
    * reach, and nothing else is.
+   *
+   * `thread:delete-all` resolves the request through this same function, so the
+   * fallback cannot apply to the list and not to the delete.
    */
-  handle(COMMAND.threadList, (_event, request: ThreadListRequest): ThreadWithMessages[] => {
+  const scopeOf = (request: ThreadListRequest): ThreadListRequest => {
     const document = request.documentId ? getDocument(db, request.documentId) : null;
-    const root = request.root ?? (document ? dirname(document.ref.value) : null);
-    return listThreads(db, { root, documentId: request.documentId }).map((thread) =>
-      withDetail(db, thread),
-    );
-  });
+    return {
+      root: request.root ?? (document ? dirname(document.ref.value) : null),
+      documentId: request.documentId,
+    };
+  };
+
+  handle(COMMAND.threadList, (_event, request: ThreadListRequest): ThreadWithMessages[] =>
+    listThreads(db, scopeOf(request)).map((thread) => withDetail(db, thread)),
+  );
 
   handle(COMMAND.threadCreate, (_event, request: ThreadCreateRequest): Thread => {
-    // §7 — a payload with no target has no document either, and a thread with
-    // neither is a comment about nothing.
+    // §7, and spec 30 §2.4 — a payload with no target has no document either,
+    // and a thread with neither is a comment about nothing. It is what makes
+    // "back with no places saves nothing" true without a second rule.
     if (request.targets.length === 0) throw new Error("A comment needs at least one place.");
     return createThread(db, {
       kind: "anchored",
       targets: request.targets,
       note: request.note,
       profile: "read",
-      // NOTE mode. The renderer simply does not follow this call with a send,
-      // and the flag is what lets the panel and "Ask all" tell that apart from
-      // a comment whose send failed.
-      isNote: request.isNote === true,
+      // Spec 30 §2 — the lane it is born in. `open` for the ordinary comment
+      // the renderer sends immediately after this call; `draft` for one the
+      // reviewer walked away from; `note` for one they saved for themselves.
+      status: request.status ?? "open",
+      // Spec 30 §3.6 — the name typed in the composer, before the row exists.
+      title: request.title ?? null,
     });
   });
 
-  handle(COMMAND.threadAsk, async (_event, threadId: string): Promise<void> => {
+  /**
+   * Spec 30 §3.2 — the reviewer pressed back with places in the composer.
+   *
+   * One channel for both halves of that gesture, because they are one write:
+   * the places move and the question moves with them. `queries.saveDraft`
+   * refuses anything that is not a draft, and refuses an empty place list.
+   */
+  handle(COMMAND.threadDraftSave, (_event, request: ThreadDraftSaveRequest): Thread => {
+    saveDraft(
+      db,
+      request.threadId,
+      request.targets,
+      request.note,
+      request.status ?? "draft",
+      request.title ?? null,
+    );
+    const thread = getThread(db, request.threadId);
+    if (!thread) throw new Error(`No such thread: ${request.threadId}`);
+    return thread;
+  });
+
+  /**
+   * Spec 30 §3.5 — **Turn into a comment**: a note becomes a draft.
+   *
+   * It refuses anything that is not a note rather than moving it quietly. The
+   * button is only ever drawn on a note's card, so a call that arrives about
+   * anything else is a bug worth hearing about, not a state to tolerate.
+   */
+  handle(COMMAND.threadPromote, (_event, threadId: string): Thread => {
+    if (!markThreadDraft(db, threadId)) {
+      throw new Error("Only a note can be turned into a comment.");
+    }
     const thread = getThread(db, threadId);
     if (!thread) throw new Error(`No such thread: ${threadId}`);
-    // It is being sent, so it is not a note any more.
-    clearNoteFlag(db, threadId);
+    return thread;
+  });
 
+  /**
+   * What a read prompt needs to name a comment's places: each document's
+   * readable path, the repository root, and — while a working copy exists —
+   * where a passage's text actually is.
+   *
+   * Shared by the opening prompt and by a follow-up that adds places (spec 24
+   * §6.1), so the two cannot disagree about which version of a document the
+   * agent is pointed at.
+   */
+  const readContext = async (
+    thread: Thread,
+  ): Promise<{
+    documentPaths: Map<string, string>;
+    repositoryRoot: string;
+    locate?: (documentPath: string, anchor: Anchor) => PassagePlace;
+    readAt: Map<string, string>;
+  }> => {
     const document = getDocument(db, thread.documentId);
     const documentPath = document?.ref.value ?? "";
     const root = document ? repositoryRoot(documentPath) : dirname(documentPath);
 
     // Spec 05 §5.5 — every target's document, so the prompt can group them.
-    // Spec 11 §6.2 — a deck is named by its text sidecar instead of by the zip.
-    // Spec 15 §5 — while a working copy exists it IS the current version of the
-    // document, so ASK reads it. Asking "is this better?" about a version the
-    // agent cannot see would be worse than useless.
+    // The reviewer's own paths: they are the NAMES the prompt uses, and spec
+    // 34 §7 keeps them that way. Spec 11 §6.2 — a deck is named by its text
+    // sidecar instead of by the zip.
     const documentPaths = new Map<string, string>();
-    // Spec 16 §5.4 — and the original beside it, so a comment about a passage
-    // the change REMOVED can be named as the original's rather than handed to
-    // the agent as a quote it cannot find.
+    // Spec 34 §4 — and where the agent READS each text document: its working
+    // copy, always. ASK is pointed at the copy on its first turn, and that is
+    // where the document stays — approve and discard move bytes, never the
+    // path, so a resumed session's memory of it is right on every turn (§1.3).
+    // `ensureWorkingCopy` makes the copy, or syncs a stale one from the file
+    // when nothing is pending (§3.3). Spec 15 §5's reason stands: the copy IS
+    // the current version, and asking "is this better?" about a version the
+    // agent cannot see would be worse than useless.
+    const readAt = new Map<string, string>();
+    // Spec 16 §5.4 — and the original beside it while a change is pending, so
+    // a comment about a passage the change REMOVED can be named as the
+    // original's rather than handed to the agent as a quote it cannot find.
     const originals = new Map<string, string>();
     for (const record of documentsOf(db, thread)) {
-      const meta = readMeta(record.id);
-      documentPaths.set(record.id, meta ? currentPath(meta) : await readablePath(record.ref));
-      if (meta) originals.set(currentPath(meta), basePath(meta));
+      documentPaths.set(record.id, await readablePath(record.ref));
+      const meta = copyFor(record.id, record.ref);
+      if (!meta) continue;
+      readAt.set(record.id, currentPath(meta));
+      if (isPending(meta)) originals.set(record.ref.value, basePath(meta));
     }
 
-    const prompt =
-      thread.kind === "synthesis"
-        ? synthesisPrompt({
-            note: thread.note,
-            referenced: thread.refThreadIds
-              .map((id) => getThread(db, id))
-              .filter((t): t is Thread => t !== null)
-              .map((t) => ({ thread: t, messages: listMessages(db, t.id) })),
-          })
-        : askPrompt({
-            thread,
-            documentPaths,
-            repositoryRoot: root,
-            // Only where a working copy exists. Without one there is one
-            // version, every passage is in it, and there is nothing to say.
-            ...(originals.size > 0
-              ? {
-                  locate: (documentPath: string, anchor: Anchor) =>
-                    locatePassage(documentPath, originals.get(documentPath) ?? null, anchor),
-                }
-              : {}),
-          });
+    // Spec 16 §5.1 — where a passage is NOW, keyed by the reviewer's path
+    // because that is what `passageSection` hands over. The line is the copy's,
+    // since the copy is what the agent opens (spec 34 §7).
+    const copies = new Map<string, string>();
+    for (const [id, copy] of readAt) copies.set(documentPaths.get(id) ?? id, copy);
 
-    recordUserText(threadId, thread.note, "ask");
-    await runTurn(thread, prompt, sessionIdFor(threadId), false);
-  });
+    return {
+      documentPaths,
+      repositoryRoot: root,
+      readAt,
+      // Only for documents that have a copy. A deck or a Word file has one
+      // version the agent can read, every passage is in it, and there is
+      // nothing to say.
+      ...(copies.size > 0
+        ? {
+            locate: (path: string, anchor: Anchor) =>
+              locatePassage(copies.get(path) ?? path, originals.get(path) ?? null, anchor),
+          }
+        : {}),
+    };
+  };
+
+  /**
+   * Spec 34 §6.1 — the reviewer's approve, discard or undo, as a message in
+   * every open comment on that document.
+   *
+   * `open` and not every comment: a draft or a note never had an agent, and a
+   * resolved comment is finished (spec 18 §2). The sentence is written for
+   * both readers at once — the card, and the agent's transcript — so it names
+   * the reviewer rather than saying "you".
+   */
+  const noteEvent = (documentId: string, content: string): void => {
+    for (const thread of listThreadsInDocument(db, documentId)) {
+      if (thread.status !== "open") continue;
+      record(thread.id, {
+        role: "system",
+        kind: "event",
+        model: null,
+        style: null,
+        content,
+        toolName: null,
+        toolInput: null,
+        isError: false,
+        costUsd: null,
+        durationMs: null,
+        inputTokens: null,
+        outputTokens: null,
+      });
+    }
+  };
+
+  handle(
+    COMMAND.threadAsk,
+    async (_event, threadId: string, model: string | null, style: string | null): Promise<void> => {
+      const thread = getThread(db, threadId);
+      if (!thread) throw new Error(`No such thread: ${threadId}`);
+      // Spec 30 §2.2 — it is being sent, so it leaves `draft` or `note` for
+      // `open`. A no-op for a comment that was already sent, and it never
+      // touches `resolved`.
+      markThreadSent(db, threadId);
+
+      const prompt =
+        thread.kind === "synthesis"
+          ? synthesisPrompt({
+              note: thread.note,
+              referenced: thread.refThreadIds
+                .map((id) => getThread(db, id))
+                .filter((t): t is Thread => t !== null)
+                .map((t) => ({ thread: t, messages: listMessages(db, t.id) })),
+            })
+          : askPrompt({ thread, ...(await readContext(thread)) });
+
+      const choices: SendChoices = { model, style };
+      // Spec 31 §4.1 — the chat remembers the style it was sent under.
+      setThreadStyle(db, threadId, style);
+      recordUserText(threadId, thread.note, "ask", choices);
+      await runTurn(thread, prompt, sessionIdFor(threadId), false, choices);
+    },
+  );
 
   /**
    * Spec 17 §2.1 — stop this comment's work, all of it.
@@ -540,32 +844,66 @@ export function registerIpc(
    * does not turn that comment back into a note either.
    */
   handle(COMMAND.threadNote, (_event, request: ThreadReplyRequest): void => {
-    if (!getThread(db, request.threadId)) {
-      throw new Error(`No such thread: ${request.threadId}`);
-    }
-    recordUserText(request.threadId, request.text, "note");
+    const thread = getThread(db, request.threadId);
+    if (!thread) throw new Error(`No such thread: ${request.threadId}`);
+    // Spec 24 §4.3 — a note can point somewhere too. Nothing runs, nothing is
+    // spent, and the comment is about one more place.
+    //
+    // Spec 25 §2.3 — and so no model, and spec 31 §4 — and no style. Both are
+    // null from the renderer and would be ignored anyway: NULL here is the
+    // honest record of a message that no agent ever saw.
+    const message = recordUserText(request.threadId, request.text, "note", {
+      model: null,
+      style: null,
+    });
+    addPlaces(thread, message, request.targets);
+    // Spec 30 §2.2 — **Save** on a draft is what makes it a note. Only from
+    // `draft`: an `open` comment that gets a NOTE message keeps its lane,
+    // because spec 24 §4.3's note-on-an-answered-comment has still been sent.
+    markThreadNoted(db, request.threadId);
   });
 
   handle(COMMAND.threadReply, async (_event, request: ThreadReplyRequest): Promise<void> => {
     const thread = getThread(db, request.threadId);
     if (!thread) throw new Error(`No such thread: ${request.threadId}`);
-    clearNoteFlag(db, request.threadId);
+    markThreadSent(db, request.threadId);
 
     const cwd = workingDirectory(thread);
     const existing = thread.sessionId ?? sessionIdFor(thread.id);
-    recordUserText(thread.id, request.text, "ask");
+    const choices: SendChoices = { model: request.model, style: request.style };
+    setThreadStyle(db, thread.id, request.style);
+    const message = recordUserText(thread.id, request.text, "ask", choices);
+
+    // Spec 24 §4.1 — the places first, then the prompt that names them. The
+    // thread is re-read so the prompt sees the grown list; with nothing added
+    // the prompt is the bare text, as it always was.
+    const from = addPlaces(thread, message, request.targets);
+    const grown = (request.targets?.length ?? 0) > 0 ? getThread(db, thread.id) : null;
+    const prompt = grown
+      ? followUpPrompt({ thread: grown, from, text: request.text, ...(await readContext(grown)) })
+      : request.text;
 
     // SPEC.md §8.5 — the SDK's transcript cache can be cleaned at any time.
     // REX keeps the thread; only the SDK's own record was lost.
     if (await sessionExists(cwd, existing)) {
-      await runTurn(thread, request.text, existing, true);
+      // Spec 34 §6.2 — a resumed session has its own memory and gets only the
+      // reply, so what the reviewer did to the document since the agent last
+      // spoke goes in front of it: once, and only when there is something.
+      const events = eventsSinceLastAnswer(listMessages(db, thread.id));
+      await runTurn(thread, withEvents(events, prompt), existing, true, choices);
       return;
     }
 
     const transcript = renderTranscript(
       listMessages(db, thread.id).filter((m) => m.content !== request.text),
     );
-    await runTurn(thread, replayPrompt(transcript, request.text), uuidv4(), false);
+    // Spec 34 §7 — a replayed session is a fresh one, and is told where the
+    // document is once, exactly as the opening ASK prompt says it.
+    const header = documentHeader({
+      thread: grown ?? thread,
+      ...(await readContext(grown ?? thread)),
+    });
+    await runTurn(thread, replayPrompt(transcript, prompt, header), uuidv4(), false, choices);
   });
 
   handle(COMMAND.threadResolve, (_event, request: ThreadResolveRequest): Thread => {
@@ -586,6 +924,17 @@ export function registerIpc(
   handle(COMMAND.threadDelete, (_event, threadId: string): void => {
     deleteThread(db, threadId);
   });
+
+  /**
+   * Every comment in the panel, gone, and the count so the renderer can say so.
+   *
+   * The reviewer confirmed this at the control they pressed; by the time it
+   * reaches main the decision is made, exactly as for one comment. A comment
+   * mid-run goes with the rest, for the reason above it.
+   */
+  handle(COMMAND.threadDeleteAll, (_event, request: ThreadListRequest): number =>
+    deleteThreadsInScope(db, scopeOf(request)),
+  );
 
   // ── Spec 14 — the name, the order and the groups ──────────────
 
@@ -739,15 +1088,78 @@ export function registerIpc(
    * run is working, and `startApply` takes it back out of the transcript it
    * builds so the instruction is not printed twice.
    */
-  handle(COMMAND.threadApply, (_event, request: ThreadApplyRequest) => {
-    clearNoteFlag(db, request.threadId);
-    recordUserText(request.threadId, request.note, "act");
-    return startApply(applyContext, request.threadId, request.note);
+  handle(COMMAND.threadApply, async (_event, request: ThreadApplyRequest) => {
+    const thread = getThread(db, request.threadId);
+    if (!thread) throw new Error(`No such thread: ${request.threadId}`);
+    markThreadSent(db, request.threadId);
+    setThreadStyle(db, request.threadId, request.style);
+    const message = recordUserText(request.threadId, request.note, "act", {
+      model: request.model,
+      style: request.style,
+    });
+    // Spec 24 §4.2 — the places are rows before `startApply` reads the thread,
+    // so their documents join the run with no new code in `apply.ts`. The
+    // message id goes along so the passage list can mark them (§6.2).
+    addPlaces(thread, message, request.targets);
+    // Spec 34 §3.2 — nothing is swept afterwards. A run that changed nothing
+    // leaves a copy that equals the file, which is not pending and is drawn
+    // nowhere; the directory stays for the next agent that is pointed at it.
+    return startApply(applyContext, request.threadId, request.note, request.root, {
+      addedWith: message.id,
+      model: request.model,
+      style: request.style,
+    });
   });
 
   handle(COMMAND.applyConfirm, (_event, request: ApplyConfirmRequest) =>
     confirmApply(applyContext, request.applyRunId, request.accept),
   );
+
+  // ── Models ────────────────────────────────────────────────────
+
+  /**
+   * Spec 25 §3 — the models this account can use, and the current default.
+   *
+   * The probe is cached in `models.ts`, so the first call pays about a second
+   * and every later one is free. `SCRATCH_DIR` is the cwd because the list does
+   * not depend on one and there may be no document open when the renderer asks.
+   */
+  handle(COMMAND.modelList, async (): Promise<AgentChoices> => {
+    const probe = await listCapabilities(SCRATCH_DIR);
+    return {
+      models: probe.models,
+      chosen: defaultModel(db, probe.models),
+      // Spec 31 §2.2 — no `chosen` style. A style belongs to the chat, so
+      // there is no app-wide value for the renderer to fall back to.
+      styles: probe.styles,
+      error: probe.error,
+    };
+  });
+
+  /**
+   * Spec 25 §6 — the app-wide default. Every send uses it unless its comment
+   * says otherwise.
+   *
+   * Stored as given, with no check against the list. §6.2 is where a value that
+   * is not offered is handled, and it handles it by falling back on read rather
+   * than by refusing on write — a model can come back.
+   */
+  handle(COMMAND.modelDefault, (_event, value: string): void => {
+    setSetting(db, MODEL_DEFAULT_KEY, value);
+  });
+
+  /**
+   * Spec 27 §4.7 — how the reviewer last had the Markdown page drawn.
+   *
+   * Read once when the overlay mounts and written on every switch. It reaches
+   * no document: both values are how the renderer draws a page it already has,
+   * which is why main only ever remembers them.
+   */
+  handle(COMMAND.paperView, (): PaperView => paperView(db));
+
+  handle(COMMAND.paperViewSet, (_event, view: PaperView): void => {
+    setPaperView(db, view);
+  });
 
   // ── Debug ─────────────────────────────────────────────────────
 
@@ -796,6 +1208,25 @@ export function registerIpc(
 async function readablePath(ref: DocumentRef): Promise<string> {
   if (!isPptxPath(ref.value)) return ref.value;
   return (await ensureSidecar(ref.value)) ?? ref.value;
+}
+
+/**
+ * Spec 34 §4 — the working copy an ASK agent is pointed at, or null for a
+ * document that does not get one.
+ *
+ * Text documents only — Markdown and HTML. A deck is named by its text sidecar
+ * (spec 11 §6.2) and a Word file by itself (spec 19 §4.2); neither is read at
+ * a path this spec owns. A file that cannot be read gets no copy either: the
+ * agent is handed the path as before, and its own `Read` says what is wrong,
+ * where a throw here would fail the whole send with a less useful sentence.
+ */
+function copyFor(documentId: string, ref: DocumentRef): WorkingMeta | null {
+  if (ref.kind !== "file" || !isTextDocumentPath(ref.value)) return null;
+  try {
+    return ensureWorkingCopy(documentId, ref.value);
+  } catch {
+    return null;
+  }
 }
 
 /**

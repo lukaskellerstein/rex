@@ -22,7 +22,6 @@ interface Props {
   /** Comments beneath it, at every depth, of the ones the filter is showing. */
   count: number;
   collapsed: boolean;
-  depth: number;
   /** True while this row is the one a drag would drop *into*. */
   dropInside: boolean;
   renaming: boolean;
@@ -36,11 +35,9 @@ interface Props {
 }
 
 export function GroupRow(props: Props): React.JSX.Element {
+  // The indent is the wrapper's, so the tree beside it can start at zero.
   return (
-    <div
-      className={`rex-group ${props.dropInside ? "rex-group-into" : ""}`}
-      style={{ paddingLeft: `${props.depth * 14}px` }}
-    >
+    <div className={`rex-group ${props.dropInside ? "rex-group-into" : ""}`}>
       <button
         type="button"
         className="rex-group-twisty"
@@ -80,7 +77,7 @@ export function GroupRow(props: Props): React.JSX.Element {
             type="button"
             className="rex-row-pen"
             aria-label={`Rename ${props.name}`}
-            title="Rename this folder"
+            data-tip="Rename"
             onClick={props.onRename}
           >
             <Pencil size={12} />
@@ -95,7 +92,7 @@ export function GroupRow(props: Props): React.JSX.Element {
             type="button"
             className="rex-row-pen"
             aria-label={`New folder inside ${props.name}`}
-            title="Make a folder inside this one"
+            data-tip="New folder"
             onClick={props.onAddChild}
           >
             <Plus size={12} />
@@ -104,7 +101,7 @@ export function GroupRow(props: Props): React.JSX.Element {
             type="button"
             className="rex-row-bin"
             aria-label={`Delete the folder ${props.name}`}
-            title="Delete this folder — its comments move up, and none is deleted"
+            data-tip="Delete"
             onClick={props.onDelete}
           >
             <Trash size={12} />

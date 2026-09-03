@@ -92,10 +92,50 @@ function describeAnchor(anchor: Anchor): string {
   return parts.join(" · ") || "position only";
 }
 
-interface DeniedCall {
+/**
+ * The chat itself, as a command whoever reads this can run.
+ *
+ * The report has always NAMED the thread and the database. It never said how to
+ * get from one to the other, so every paste of it ended the same way: the reader
+ * knows a conversation exists, holds its id, and still has to be told which
+ * table to look in. This is spec 13 §4.2's `ATTACH` block for the comment
+ * report — the part that turns "this answer is wrong" into an instruction a
+ * fresh session can follow without asking anything.
+ *
+ * `.mode line` and not the default list mode: an agent's turn is prose with
+ * newlines in it, and pipe-separated rows of it are unreadable exactly when the
+ * content is the thing being read.
+ *
+ * `PRAGMA query_only = 1` and NOT `sqlite3 -readonly`, which is the obvious
+ * thing to reach for and fails: a WAL database can be opened read-only only
+ * while its `-shm` file exists, so `-readonly` works while REX is running and
+ * dies with `unable to open database file (14)` once it has quit — which is
+ * exactly when somebody is reading a pasted report. The pragma refuses every
+ * write on a connection that opened normally, so the guarantee survives without
+ * the trap. What is being handed over is the reviewer's whole comment database,
+ * and the reader is usually another agent.
+ */
+function readLines(threadId: string): string[] {
+  // Every id REX makes is a uuid, so this can only matter for one hand-written
+  // by somebody debugging — where a silently broken command is the worst answer.
+  const id = threadId.replace(/'/g, "''");
+  const open = `sqlite3 ${tilde(DB_PATH)} "PRAGMA query_only = 1" ".mode line"`;
+  return [
+    "READ",
+    `  chat       ${open} "SELECT seq, role, kind, tool_name, content FROM message WHERE thread_id = '${id}' ORDER BY seq"`,
+    "  words      same query with AND kind = 'text' before ORDER BY — the two sides' turns, no tool traffic",
+    `  comment    ${open} "SELECT * FROM thread WHERE id = '${id}'"`,
+    "  steps      the same run as the SDK recorded it is the `sdk log` file below",
+  ];
+}
+
+/** A call that did not do its job — refused by the gate, or failed on its own. */
+interface BadStep {
   toolName: string;
+  /** The gate's sentence for a refusal; the tool's own output for a failure. */
   reason: string;
   command: string;
+  denied: boolean;
 }
 
 /** The full argument of a denied call — the clipped one is already in the reason. */
@@ -106,17 +146,31 @@ function commandOf(call: Message): string {
 }
 
 /**
- * The gate's refusals, with the command that earned each one.
+ * A tool's own output, on one line — the shape a report of one line per step
+ * needs. The full text is in the database, and READ says how to get it.
+ */
+function oneLine(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Every call that went wrong, with the command that earned it.
  *
  * §4's `Message` has no `tool_use_id`, so a result does not name the call it
  * answers and the pairing has to be rebuilt: the earliest call of the same tool
  * that nothing has answered yet. Order rather than identity, which is the best
- * the stored rows allow — and the reason itself is the gate's own words either
+ * the stored rows allow — and the reason itself is the row's own words either
  * way, so a mispaired command is the worst this can get wrong.
+ *
+ * Refusals and failures are BOTH collected here and told apart by `denied`,
+ * because the walk that pairs them is the same walk. What must never be the same
+ * is what the report calls them: until 2026-09-01 this returned "denials" and
+ * every failed shell line was printed as one, so a report of thread `f5e79775`
+ * announced two gate refusals in a session where the gate never fired.
  */
-export function denialsOf(messages: readonly Message[]): DeniedCall[] {
+export function badStepsOf(messages: readonly Message[]): BadStep[] {
   const pending: Message[] = [];
-  const denials: DeniedCall[] = [];
+  const bad: BadStep[] = [];
 
   for (const message of messages) {
     if (message.kind === "tool_call") {
@@ -129,13 +183,50 @@ export function denialsOf(messages: readonly Message[]): DeniedCall[] {
     const [call] = pending.splice(at === -1 ? 0 : at, 1);
     if (!message.isError) continue;
 
-    denials.push({
+    bad.push({
       toolName: message.toolName ?? call?.toolName ?? "unknown",
-      reason: clip(message.content ?? "", 300),
+      reason: clip(oneLine(message.content ?? ""), 300),
       command: call ? commandOf(call) : "(the call it answered is not in the transcript)",
+      denied: message.denied,
     });
   }
-  return denials;
+  return bad;
+}
+
+/**
+ * Spec 25 §5 and spec 31 §5 — what the most recent send ran under, or null.
+ *
+ * The last row that has one, not the last row: a run's final `completed` block
+ * carries it, but a NOTE saved afterwards does not, and "the reviewer wrote a
+ * note last" is not an answer to "what model is this comment using".
+ *
+ * The two are found independently, because a comment can have run on a model
+ * before spec 31 added the style — and reporting the style as missing because
+ * the model row was older would be a lie about a column that was simply not
+ * there yet.
+ */
+export function lastChoice(messages: readonly Message[], field: "model" | "style"): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const value = messages[index][field];
+    if (value !== null) return value;
+  }
+  return null;
+}
+
+/**
+ * Spec 34 §7.1 — the mode of the last send, which is what the report is about.
+ *
+ * `thread.profile` is a column that never changes, and a report that said
+ * `profile read` about a comment whose last run was ACT sent an analysis down
+ * the wrong path for a turn (§1.1). The mode is a property of a send, so the
+ * honest answer is the last one; null when nothing was ever sent.
+ */
+export function lastMode(messages: readonly Message[]): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "user" && message.mode) return message.mode;
+  }
+  return null;
 }
 
 /** `text 5 · tool_call 4 · …` — what the transcript is made of, before reading it. */
@@ -189,7 +280,7 @@ async function sessionLines(cwd: string, thread: Thread): Promise<string[]> {
 /**
  * `appVersion` is passed in rather than read from `app.getVersion()` here: the
  * `electron` module is the one import that would stop `node --test` loading
- * this file, and the pairing in `denialsOf` is exactly the part worth testing
+ * this file, and the pairing in `badStepsOf` is exactly the part worth testing
  * without an app around it.
  */
 function versionLine(appVersion: string): string {
@@ -216,18 +307,32 @@ export async function debugReport(db: Db, threadId: string, appVersion: string):
 
   const messages = listMessages(db, threadId);
   const totals = totalsOf(messages);
-  const denials = denialsOf(messages);
-  // Only `error` rows: a denied `tool_result` also carries `isError`, and it is
-  // already reported below under its own heading with the command it refused.
+  const bad = badStepsOf(messages);
+  const denials = bad.filter((step) => step.denied);
+  const failures = bad.filter((step) => !step.denied);
+  // Only `error` rows: a refused or failed `tool_result` also carries `isError`,
+  // and both are already reported below under their own headings with the
+  // command that earned them.
   const errors = messages.filter((message) => message.kind === "error");
   const cwd = agentCwd(db, thread);
 
   const lines = [
     `REX debug · ${new Date().toISOString()}`,
     "",
+    ...readLines(thread.id),
+    "",
     "RUN",
-    `  thread     ${thread.id} · ${thread.kind} · ${thread.status} · profile ${thread.profile}`,
-    `  model      ${thread.model ?? "(the SDK's default)"}`,
+    // Spec 34 §7.1 — the last send's mode, not the comment's profile column.
+    `  thread     ${thread.id} · ${thread.kind} · ${thread.status} · ${
+      lastMode(messages) === null ? `profile ${thread.profile}` : `mode ${lastMode(messages)}`
+    }`,
+    // Spec 25 §4.3 — from the messages, not from the comment. The model is a
+    // property of a send now, so the honest answer is what the LAST send used;
+    // a comment whose turns ran on different models has no single one.
+    `  model      ${lastChoice(messages, "model") ?? "(the SDK's default)"}`,
+    // Spec 31 §5 — recorded and not drawn on the card, so this is the one
+    // place it can be read back.
+    `  style      ${lastChoice(messages, "style") ?? "(the SDK's default)"}`,
     ...(await sessionLines(cwd, thread)),
     `  cwd        ${tilde(cwd)}`,
     `  database   ${tilde(DB_PATH)}`,
@@ -244,14 +349,26 @@ export async function debugReport(db: Db, threadId: string, appVersion: string):
   lines.push(
     "",
     "TOTALS",
-    `  ${totals.steps} steps · ${seconds(totals.durationMs)} · $${totals.costUsd.toFixed(4)} · ${totals.denied} denied`,
+    `  ${totals.steps} steps · ${seconds(totals.durationMs)} · $${totals.costUsd.toFixed(4)} · ${totals.denied} denied · ${totals.failed} failed`,
     `  ${messages.length} messages · ${kindCounts(messages) || "none"}`,
   );
 
+  // Two headings, never one. They send the reader to different places: DENIED is
+  // a question about REX's gate, FAILED is a question about the command.
   if (denials.length > 0) {
-    lines.push("", `DENIED (${denials.length})`);
+    lines.push("", `DENIED — the gate refused these (${denials.length})`);
     for (const [index, denial] of denials.entries()) {
       lines.push(`  ${index + 1} ${denial.toolName} · ${denial.reason}`, `      ${denial.command}`);
+    }
+  }
+
+  if (failures.length > 0) {
+    lines.push("", `FAILED — these ran and did not succeed (${failures.length})`);
+    for (const [index, failure] of failures.entries()) {
+      lines.push(
+        `  ${index + 1} ${failure.toolName} · ${failure.reason}`,
+        `      ${failure.command}`,
+      );
     }
   }
 

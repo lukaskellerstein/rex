@@ -20,8 +20,6 @@
 //          one. That is the reviewer's call, and §7.7's pictures are what put
 //          it in front of them.
 
-import type { ShapeSpan } from "./deck.ts";
-import type { StyleSet } from "./plan.ts";
 import {
   attributeOf,
   type ElementSpan,
@@ -30,7 +28,9 @@ import {
   scanElements,
   splice,
   withAttribute,
-} from "./xml.ts";
+} from "../ooxml/xml.ts";
+import type { ShapeSpan } from "./deck.ts";
+import type { StyleSet } from "./plan.ts";
 
 /** §7.5.2 — the six accents a deck's theme names, in the library's order. */
 export function schemeNameFor(colour: string, themeColors: readonly string[]): string | null {

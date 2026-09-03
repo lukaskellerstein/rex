@@ -6,7 +6,8 @@
 // So the srcdoc, the base href and the zoom live here, and `DocumentView` and
 // `OriginalPane` both call them.
 
-import type { OpenedDocument } from "../../shared/types.ts";
+import type { OpenedDocument, PaperView } from "../../shared/types.ts";
+import { LANE_RESERVE } from "./marginLane.ts";
 import { prepareDocumentHtml } from "./sanitise.ts";
 
 export function baseHref(directory: string): string {
@@ -48,6 +49,36 @@ export function srcdocFor(doc: OpenedDocument): string {
 export function applyZoom(inner: Document | null, zoom: number): void {
   if (!inner) return;
   inner.documentElement.style.zoom = String(zoom);
+  // Spec 16 §9.1 — the paper margin the bar lane stands in, counter-scaled so
+  // it stays `LANE_RESERVE` of the PANE's pixels at every zoom. `zoom` scales
+  // everything inside the frame; the lane is drawn outside it and does not
+  // scale, so a fixed 24px margin shrinks under the bar and the reviewer loses
+  // the first letter of every line. Only a page REX typeset reads it — see the
+  // note on `applyPaperView` for why setting it everywhere is still right.
+  inner.documentElement.style.setProperty("--rex-lane", `${LANE_RESERVE / zoom}px`);
+}
+
+/**
+ * Spec 27 §5.2 — the two switches, as two attributes on the page's own root.
+ *
+ * An attribute and not a re-render. The stylesheet REX wrote is already in the
+ * frame and every colour in it is a custom property, so `data-rex-dark`
+ * repaints the document and `data-rex-wide` reflows it without main rendering
+ * anything again and without the frame reloading. A reload would throw away the
+ * scroll position, every resolved anchor and any half-built selection, to
+ * change two things REX could change from outside — which is the same
+ * reaching-in `applyZoom` above does, and the same one the resolver has done
+ * since milestone 0.
+ *
+ * Harmless on a page REX did not typeset: those carry no rule that reads either
+ * attribute. The strip that sets them is not drawn there anyway (§4.2), and
+ * this stays unconditional so that a format gaining the switches later needs no
+ * change here.
+ */
+export function applyPaperView(inner: Document | null, view: PaperView): void {
+  if (!inner) return;
+  inner.documentElement.toggleAttribute("data-rex-wide", view.wide);
+  inner.documentElement.toggleAttribute("data-rex-dark", view.dark);
 }
 
 // ── The listeners that have to live INSIDE the frame ────────────
@@ -151,9 +182,57 @@ export function zoomFromInside(
  * `⌘`/`ctrl` combinations are left where they are: `zoomFromInside` already
  * answers the zoom keys here, and a forwarded copy would zoom a second time.
  */
-export function forwardKeysToParent(inner: Document): void {
+export function forwardKeysToParent(
+  inner: Document,
+  /**
+   * Spec 26 §5.4 — whether the overlay wants the arrow keys right now.
+   *
+   * Forwarding is a *copy*: the original event stays inside the frame, so
+   * `preventDefault` on the parent's copy does nothing about the frame's own
+   * scrolling. Without this, ↑ with the path bar up both widened the place and
+   * scrolled the document a line — the page moving under the outline that had
+   * just grown, which reads as the widening having gone wrong.
+   *
+   * A ref-shaped object rather than a boolean, for the reason `zoomFromInside`
+   * takes one: this listener is attached once per frame load and the answer
+   * changes many times per second.
+   */
+  wantsArrows: { current: boolean },
+): void {
   const forward = (event: KeyboardEvent): void => {
-    if (event.ctrlKey || event.metaKey) return;
+    if (event.ctrlKey || event.metaKey) {
+      /*
+        Spec 28 §5.3 — the F chord is the one ⌘/ctrl combination forwarded.
+
+        Nothing inside the frame answers it, so the copy cannot double an
+        effect the way a forwarded ⌘+ would double the zoom. The modifiers
+        travel with it, because ⌘F and ⌘⇧F are two different things (§4.1,
+        §4.2), and the original is stopped so Chromium does not act on it.
+      */
+      if (event.type !== "keydown" || event.altKey || (event.key !== "f" && event.key !== "F")) {
+        return;
+      }
+      event.preventDefault();
+      document.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: event.key,
+          code: event.code,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
+        }),
+      );
+      return;
+    }
+    // Only the scroll is taken, and only while the bar is asking for it. Every
+    // other key is copied out and left alone, exactly as before.
+    if (
+      wantsArrows.current &&
+      (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+      event.type === "keydown"
+    ) {
+      event.preventDefault();
+    }
     document.dispatchEvent(
       new KeyboardEvent(event.type, {
         key: event.key,

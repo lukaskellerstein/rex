@@ -9,9 +9,15 @@ import Database from "better-sqlite3";
 import { DB_PATH } from "./location.ts";
 import {
   migrateCommentOrder,
+  migrateMessageDenied,
   migrateMessageMode,
+  migrateMessageModel,
+  migrateMessageStyle,
   migrateNoteFlag,
+  migrateTargetMessage,
+  migrateThreadLanes,
   migrateThreadStroke,
+  migrateThreadStyle,
   migrateThreadTargets,
 } from "./migrate.ts";
 import schema from "./schema.sql?raw";
@@ -46,6 +52,25 @@ export function openDatabase(): Db {
   // NULL for every row written before it, which the card reads as "not
   // recorded" rather than inventing one.
   migrateMessageMode(db);
+  // Spec 25 §5.2 — which model each message came from. NULL for every row
+  // written before it: until spec 25 no send named one.
+  migrateMessageModel(db);
+  // Spec 31 §5 and §2.1 — the style a row ran under, and the style a chat is
+  // having. NULL on every existing row: until spec 31 no send named one.
+  migrateMessageStyle(db);
+  migrateThreadStyle(db);
+  // Which tool calls the GATE refused, as opposed to the ones that failed on
+  // their own. Backfilled from the `Denied …` notes, so a refusal recorded
+  // before the column existed keeps its name.
+  migrateMessageDenied(db);
+  // Spec 24 §5.2 — which message added a place. After `migrateThreadTargets`,
+  // because that is what creates the table on a database old enough to lack it.
+  migrateTargetMessage(db);
+  // Spec 30 §7.1 — the `draft` and `note` lanes. LAST, and it must stay last:
+  // it rebuilds `thread` from whatever columns the table has at that moment, so
+  // every `ALTER TABLE` above has to have run first or the rebuilt table loses
+  // the one that had not. It also reads `is_note`, which `migrateNoteFlag` adds.
+  migrateThreadLanes(db);
 
   handle = db;
   return db;

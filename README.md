@@ -138,11 +138,13 @@ the Agent SDK, and there is no way to patch a running one.
 | `npm run test:links` | link extraction and resolution, for the graph |
 | `npm run test:markdown` | the Markdown renderer and its `data-src-line` stamps |
 | `npm run test:migrate` | the schema migrations, run twice |
+| `npm run test:models` | the model list, the default, and the column that records one |
 | `npm run test:prompts` | what a comment's places look like to the agent |
 | `npm run test:targets` | multi-target comments and their worst-state rule |
 | `npm run test:diff` | which lines an Apply changed, from its patch |
 | `npm run test:debug` | the debug report, and what it names |
 | `npm run test:workspace` | the folder scan, exclusions and the tree |
+| `npm run test:workspace-files` | the guards on renaming a file and moving one to the Bin |
 | `npm run test:pptx` | the deck reader, against four real presentations |
 | `npm run test:pptx-anchor` | the deck anchor gate, against decks REX itself edited |
 | `npm run test:pptx-edit` | the twelve edit operations, and what each did *not* change |
@@ -491,6 +493,14 @@ a zip of XML with parts that reference each other by id: an edit that leaves a
 dangling relationship still opens in REX and still fails in PowerPoint, which is
 the definition of a silent failure.
 
+## What REX does with each file format
+
+[`docs/FORMATS.md`](docs/FORMATS.md) is the product decision behind every format
+REX opens: what it will change in a `.docx`, a `.pptx`, Markdown and HTML, why a
+PDF is read-only, and why there is no manual editing anywhere. Read it before
+asking "can REX do X to a Word file" — every answer is in one table, and every
+"no" says why.
+
 ## The specs
 
 The specs are the authority on everything above. Each one extends its
@@ -517,6 +527,19 @@ predecessors rather than restating them:
 | 17 | [stopping a run](docs/my-specs/17-stopping-a-run/SPEC.md) | a running agent can be stopped, and the conversation says who stopped it |
 | 18 | [what the colours mean](docs/my-specs/18-what-the-colours-mean/SPEC.md) | seven facts, seven colours, one vocabulary |
 | 19 | [the Word document, and the notes on a slide](docs/my-specs/19-word-and-notes/SPEC.md) | a comment can change a DOCX, a deck's notes are reachable, and a PDF never will be |
+| 20 | [the agent window](docs/my-specs/20-the-agent-window/SPEC.md) | with `PW_AGENT=1`, REX says who opened it — and is born on the test desktop, out of the reviewer's sight |
+| 21 | [the file the agent creates](docs/my-specs/21-the-file-the-agent-creates/SPEC.md) | a file the agent wrote inside the workspace is kept, and shown in the tree |
+| 22 | [the whole workspace](docs/my-specs/22-the-whole-workspace/SPEC.md) | ACT may edit any text document under the root, and each one gets a working copy |
+| 23 | [renaming and deleting a file](docs/my-specs/23-renaming-and-deleting-a-file/SPEC.md) | the tree's menu can rename a file and move one to the Bin, and the comments follow |
+| 24 | [pointing at a place, mid-conversation](docs/my-specs/24-pointing-mid-conversation/SPEC.md) | a reply can carry new places; the comment grows, and the turn says what it added |
+| 25 | [choosing the model](docs/my-specs/25-choosing-the-model/SPEC.md) | a model per message, a default you set, and the answer says which one wrote it |
+| 26 | [widening a place you already took](docs/my-specs/26-widening-a-place/SPEC.md) | the path bar outlives the click, and ↑ ↓ move the place instead of adding a second |
+| 27 | [the width of the page, and the dark paper](docs/my-specs/27-width-and-dark-paper/SPEC.md) | two switches on the Markdown page REX typeset itself — and nothing else |
+| 28 | [find in the page, and search across the workspace](docs/my-specs/28-find-and-search/SPEC.md) | `⌘F` paints every match on the page and marks them on a ruler at the pane's edge; `⌘⇧F` is a `Search` tab beside the tree that lists the files, and a click opens one painted — as VS Code does |
+| 29 | [the parts of a diagram, and its source](docs/my-specs/29-diagram-parts-and-source/SPEC.md) | a comment on a Mermaid node, edge, subgraph or line names it in the fence's source, not in the SVG; the lightbox shows the drawing beside the source, and a click in either takes a place |
+| 31 | [how the agent writes](docs/my-specs/31-how-the-agent-writes/SPEC.md) | an output style beside the model, remembered for the whole chat and used by every mode |
+| 34 | [the copy is permanent](docs/my-specs/34-the-permanent-copy/SPEC.md) | REX's copy of a document lives at one path from the first agent on and is never deleted; approve and discard move content, a running agent holds its documents, and a reviewer's approve or discard is a message in the thread |
+| 38 | [the trace block](docs/my-specs/38-the-trace-block/SPEC.md) | a tool call in the trace is a head and stacked `INPUT` / `CHANGE` / `OUTPUT` rows; `YOU` wears its mode and lists its places, the answer's foot names the model and the style, the head is the comment's name and the card's run line, and the foot is the card's composer |
 
 ## Contributing
 

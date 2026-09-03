@@ -101,6 +101,12 @@ export function renderTranscript(messages: Message[]): string {
       case "stopped":
         lines.push("The user stopped the run here.");
         break;
+      // Spec 34 §6.2 — the reviewer's approve, discard or undo, in the place it
+      // happened. Without it a transcript says "I changed X" about a document
+      // that no longer holds X, and the agent reads that as its own mistake.
+      case "event":
+        if (message.content) lines.push(message.content);
+        break;
       default:
         // thinking, tool_result and completed are noise in a replay — the
         // conversation is what has to survive, not the machinery.
@@ -110,7 +116,37 @@ export function renderTranscript(messages: Message[]): string {
   return lines.join("\n\n");
 }
 
-/** §8.5 step 3c — the prompt that seeds a fresh session with lost history. */
-export function replayPrompt(transcript: string, message: string): string {
-  return `This conversation continues an earlier discussion. Here is the transcript so far:\n\n${transcript}\n\nThe user now asks: ${message}`;
+/**
+ * Spec 34 §6.2 — the reviewer's acts since the agent last spoke, oldest first.
+ *
+ * "Last spoke" is the last `assistant` row of any kind: a run that ended in a
+ * tool call and was stopped still counts as the agent having been in the room
+ * until then. The reviewer's own text sent since then is not an event and is
+ * not collected — it is the reply being sent.
+ */
+export function eventsSinceLastAnswer(messages: readonly Message[]): string[] {
+  const events: string[] = [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "assistant") break;
+    if (message.kind === "event" && message.content) events.unshift(message.content);
+  }
+  return events;
+}
+
+/**
+ * §8.5 step 3c — the prompt that seeds a fresh session with lost history.
+ *
+ * Spec 34 §7 — `header` is the document's name and where to read it, the
+ * lines the opening ASK prompt began with. A replayed session is a fresh one,
+ * and the transcript it gets holds the reviewer's notes rather than the
+ * prompts, so this is the only place it can learn the location.
+ */
+export function replayPrompt(
+  transcript: string,
+  message: string,
+  header: readonly string[] = [],
+): string {
+  const top = header.length > 0 ? `${header.join("\n")}\n\n` : "";
+  return `${top}This conversation continues an earlier discussion. Here is the transcript so far:\n\n${transcript}\n\nThe user now asks: ${message}`;
 }

@@ -17,7 +17,15 @@ import type { Message } from "./types.ts";
 
 export interface ThreadTotals {
   steps: number;
+  /** Calls the gate refused. */
   denied: number;
+  /**
+   * Calls that ran and failed. Counted apart from `denied`, and the split is
+   * the whole reason this pair exists: both were `denied` until 2026-09-01, so
+   * a run whose only trouble was a `grep` exiting 1 reported "2 denied" and read
+   * as the safety gate firing twice.
+   */
+  failed: number;
   durationMs: number;
   costUsd: number;
 }
@@ -25,7 +33,8 @@ export interface ThreadTotals {
 export function totalsOf(messages: readonly Message[]): ThreadTotals {
   return {
     steps: messages.filter((m) => m.kind === "tool_call").length,
-    denied: messages.filter((m) => m.kind === "tool_result" && m.isError).length,
+    denied: messages.filter((m) => m.kind === "tool_result" && m.denied).length,
+    failed: messages.filter((m) => m.kind === "tool_result" && m.isError && !m.denied).length,
     durationMs: messages.reduce((total, m) => total + (m.durationMs ?? 0), 0),
     costUsd: messages.reduce((total, m) => total + (m.costUsd ?? 0), 0),
   };

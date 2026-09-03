@@ -15,8 +15,15 @@
 //   * `_inject_playwright_auth` → dropped, as §11 instructs.
 
 import { type Options, query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { MessageKind, MessageRole, Profile } from "../../shared/types.ts";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_STYLE,
+  type MessageKind,
+  type MessageRole,
+  type Profile,
+} from "../../shared/types.ts";
 import type { MessageDraft } from "../db/queries.ts";
+import { record as logLine } from "../log.ts";
 import { buildHooks, type Denial } from "./gate.ts";
 import { PROFILES, pluginsForRepository } from "./profiles.ts";
 import { READ_SYSTEM_PROMPT, WRITE_SYSTEM_PROMPT } from "./prompts.ts";
@@ -29,6 +36,11 @@ export interface AgentRunInput {
   /** True to continue an existing SDK session, false to seed a new one. */
   resume: boolean;
   model: string | null;
+  /**
+   * Spec 31 §4 — the output style this run writes in. Null is the CLI's own
+   * default, which is what every run did before spec 31.
+   */
+  style: string | null;
   /**
    * Spec 11 §7.2 — the system prompt, when the caller needs a different one.
    *
@@ -242,10 +254,53 @@ function handleAssistant(
   }
 }
 
+/**
+ * Whether an errored result is the GATE speaking, rather than the tool.
+ *
+ * The SDK marks both with `is_error`, and they are not the same event: a `grep`
+ * that matches nothing and an `ls` of a missing directory both exit non-zero
+ * without anything having been refused. Told apart here and recorded on the row,
+ * because this is the only place that can — the hook runs before the tool, so
+ * every refusal is already in `denials` when its result arrives, and the SDK
+ * hands the reason back verbatim as the result's content. REX wrote that
+ * sentence itself moments earlier, so matching on it is identification and not
+ * a guess about someone else's error text.
+ *
+ * Exported so it can be tested: it decides the flag every view reads, and it is
+ * the one part of this file with no other way to be exercised.
+ */
+export function deniedBy(
+  denials: readonly Denial[],
+  toolName: string | null,
+  text: string,
+): boolean {
+  if (SDK_REFUSAL.test(text.trim())) return true;
+  return denials.some(
+    (denial) => (toolName === null || denial.toolName === toolName) && text.includes(denial.reason),
+  );
+}
+
+/**
+ * The SDK's own refusal, which is not REX's gate and is still not a failure.
+ *
+ * `Permission to use Bash with command find … has been denied.` — the whole
+ * message, with nothing else in it. Found in thread `7e76ed17` on 2026-09-01,
+ * from a build that predates the gate returning an explicit `allow`: the SDK's
+ * default permission mode wanted an approval and a headless session had nobody
+ * to ask. The call never ran, so calling it FAILED would be the same lie in the
+ * other direction.
+ *
+ * Anchored at both ends deliberately. Matched loosely it would catch a `grep`
+ * whose OUTPUT quotes this sentence — a search of REX's own transcripts does
+ * exactly that.
+ */
+const SDK_REFUSAL = /^Permission to use \S+ .*has been denied\.?$/;
+
 /** Tool results arrive as user messages in the SDK's stream. */
 function handleUser(
   message: any,
   toolNames: Map<string, string>,
+  denials: readonly Denial[],
   emit: (d: MessageDraft) => void,
 ): void {
   const content = message.message?.content;
@@ -253,10 +308,14 @@ function handleUser(
 
   for (const block of content) {
     if (block.type !== "tool_result") continue;
+    const text = flattenToolResult(block.content);
+    const toolName = toolNames.get(block.tool_use_id) ?? null;
+    const isError = block.is_error === true;
     emit(
-      draft("user", "tool_result", flattenToolResult(block.content).slice(0, 4000), {
-        toolName: toolNames.get(block.tool_use_id) ?? null,
-        isError: block.is_error === true,
+      draft("user", "tool_result", text.slice(0, 4000), {
+        toolName,
+        isError,
+        denied: isError && deniedBy(denials, toolName, text),
       }),
     );
   }
@@ -291,7 +350,18 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     plugins: pluginsForRepository(input.cwd, input.profile, input.documentPath),
     hooks: buildHooks(input.profile, (denial) => denials.push(denial)),
     ...(config.maxTurns === undefined ? {} : { maxTurns: config.maxTurns }),
-    ...(input.model ? { model: input.model } : {}),
+    // Spec 25 §5.1 — `default` is a value the CLI advertises and REX records,
+    // and it MEANS "REX says nothing". Omitting the option is how that is said
+    // to the SDK, and it is exactly what every run did before spec 25. The
+    // record keeps the reviewer's word; the call does not repeat it.
+    ...(input.model && input.model !== DEFAULT_MODEL ? { model: input.model } : {}),
+    // Spec 31 §6 — the output style, the same way and for the same reason.
+    // `Options.settings` is a whole `Settings` object and `outputStyle` is one
+    // of its fields; `default` is omitted rather than sent, because it MEANS
+    // "REX says nothing" and saying nothing is how that is said to the SDK.
+    ...(input.style && input.style !== DEFAULT_STYLE
+      ? { settings: { outputStyle: input.style } }
+      : {}),
     // Seed a session with the deterministic id, or continue the one that id
     // already names (§8.1). Passing both is a contradiction, so never do.
     ...(input.resume ? { resume: input.sessionId } : { sessionId: input.sessionId }),
@@ -328,8 +398,22 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
       switch (event.type) {
         case "system":
           if (event.subtype === "init") {
-            console.log(
-              `[rex] agent init · model=${event.model} · tools=${event.tools?.length ?? 0} · plugins=${(event.plugins ?? []).map((p: any) => p.name).join(", ") || "none"}`,
+            // Spec 31 §10.1 — `log.ts`, not `console.log`.
+            //
+            // It was a console line until now, so it reached whoever ran
+            // `npm run dev` and never `~/.rex/rex.log` — which meant spec 25
+            // had to prove "the model REX asked for is the model that ran" by
+            // reading the CLI's own transcript instead. The transcript records
+            // the model per turn and does NOT record the output style, so
+            // there was no way at all to check this spec's own claim.
+            //
+            // These are the CLI's RESOLVED values, not what REX asked for, so
+            // a setting the CLI ignored shows up as a disagreement rather than
+            // as a silent pass.
+            logLine(
+              "info",
+              "agent",
+              `init · model=${event.model} · style=${event.output_style ?? "?"} · tools=${event.tools?.length ?? 0} · plugins=${(event.plugins ?? []).map((p: any) => p.name).join(", ") || "none"}`,
             );
           }
           break;
@@ -342,7 +426,7 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
           break;
 
         case "user":
-          handleUser(event, toolNames, emit);
+          handleUser(event, toolNames, denials, emit);
           break;
 
         case "result": {

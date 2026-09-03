@@ -203,6 +203,73 @@ export function flattenRows<T extends Positioned>(
   return rows;
 }
 
+/**
+ * The tree drawn beside a row: one cell per level of nesting, outermost first.
+ *
+ * These are `tree(1)`'s rules and nothing more. The **last** cell is the row's
+ * own connector — `├` when the row has another sibling under the same folder,
+ * `└` when it is that folder's last row. Every cell before it is an ancestor's
+ * trunk, drawn only while THAT ancestor still has a sibling to come. A folder
+ * row adds one cell after those: the stem its own contents hang from.
+ *
+ * The question is always about SIBLINGS and never about depth. A folder whose
+ * last row is itself a folder full of comments closes with `└` on its own line,
+ * and the comments inside draw a blank column to its left — the trunk ended
+ * where the elbow turned.
+ *
+ * One forward walk answers every level at once, because the flattened list
+ * keeps a subtree together: after this row, the first row at a given depth is
+ * that depth's next sibling, and any row shallower than that settles every
+ * deeper level as "no sibling left".
+ *
+ * The empty string is a cell that draws nothing, exactly as `tree` leaves that
+ * column blank.
+ */
+export type TreeCell = "line" | "tee" | "end" | "stem" | "";
+
+export function treeCells<T>(rows: Array<CommentRow<T>>, index: number): TreeCell[] {
+  const row = rows[index];
+  if (!row) return [];
+
+  const later = new Array<boolean>(row.depth + 1).fill(false);
+  let ceiling = row.depth;
+  for (let i = index + 1; i < rows.length && ceiling >= 0; i += 1) {
+    const depth = rows[i]?.depth ?? 0;
+    if (depth > ceiling) continue;
+    later[depth] = true;
+    ceiling = depth - 1;
+  }
+
+  const cells: TreeCell[] = [];
+  for (let level = 0; level < row.depth; level += 1) {
+    if (level === row.depth - 1) cells.push(later[row.depth] ? "tee" : "end");
+    else cells.push(later[level + 1] ? "line" : "");
+  }
+  if (row.kind === "group" && (rows[index + 1]?.depth ?? 0) > row.depth) cells.push("stem");
+  return cells;
+}
+
+/**
+ * Does this row begin the block of comments that are in **no** folder?
+ *
+ * True on the first top-level comment that has anything above it, and on
+ * nothing else: groups come before comments at every level (§4.3), so the first
+ * top-level comment is exactly where the folders stop and the rest begins.
+ *
+ * It asks about the row ABOVE and never about a change of depth. A folder that
+ * is collapsed, or that holds nothing, puts a depth-0 header directly above a
+ * depth-0 comment — nothing steps out, and the first version of this rule drew
+ * nothing at the very moment the boundary was hardest to see. Reported
+ * 2026-09-02, with a collapsed empty folder as the last thing above the line.
+ */
+export function startsLooseBlock<T>(rows: Array<CommentRow<T>>, index: number): boolean {
+  const row = rows[index];
+  const above = rows[index - 1];
+  if (!row || !above) return false;
+  if (row.kind !== "thread" || row.depth !== 0) return false;
+  return above.kind !== "thread" || above.depth !== 0;
+}
+
 /** Where a drop would land, relative to the row under the pointer. */
 export type DropMode = "before" | "after" | "inside";
 

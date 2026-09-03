@@ -10,11 +10,13 @@
 // not say which of two adjacent paragraphs a disc belonged to, and §6 needs its
 // column for the second pane.
 //
-// **The lane is fixed, and the height is not.** Version 2.0 put each bar at its
-// own block's left edge, so a list item's bar sat 40px right of a paragraph's
-// and the marks formed a ragged staircase. A block's indent is information
-// about the prose, not about the comments. Only the x is fixed; the height
-// still comes from the block, so a bar still says *which* paragraph.
+// **The lane is one lane, and the height is not.** Version 2.0 put each bar at
+// its own block's left edge, so a list item's bar sat 40px right of a
+// paragraph's and the marks formed a ragged staircase. A block's indent is
+// information about the prose, not about the comments. Every bar shares one x;
+// the height still comes from the block, so a bar still says *which* paragraph.
+// Where that x is, is `marginLane.ts` — it moves with the paper, not with the
+// block.
 //
 // Spec 16 §7.2 — each pane draws the bars for the targets that resolved in IT,
 // under the same number, so the two lanes read as a diff of the review as well
@@ -28,6 +30,7 @@
 import type { ThreadWithMessages } from "../../shared/types.ts";
 import type { ScopeRect } from "../anchor/pick.ts";
 import type { ResolvedThread } from "./anchoring.ts";
+import { LANE_STEP, laneGeometry } from "./marginLane.ts";
 import { markerClass } from "./wash.ts";
 
 interface Props {
@@ -40,18 +43,6 @@ interface Props {
   onSelect: (threadId: string) => void;
   onHover: (threadId: string | null) => void;
 }
-
-/** §8.2 — where the lane starts, measured from the pane's own left edge. */
-const LANE_X = 4;
-
-/** §8.3 — wide enough to carry a number inside it. */
-const BAR_W = 18;
-
-/** A second lane, for a bar that would sit on top of one already placed. */
-const LANE_STEP = 20;
-
-/** How much clear paper is left between the last lane and the prose. */
-const LANE_MARGIN = 4;
 
 /** §8.3 — two bars that end up in one lane step their numbers down by this. */
 const NUMBER_STEP = 18;
@@ -87,23 +78,6 @@ function laneFor(placed: Bar[], box: ScopeRect): number {
   }
 }
 
-/**
- * How many lanes fit between the pane's edge and the prose.
- *
- * §9.1 — the lane must not overlap the paper's text at any window width down to
- * 1200px with both panes open, and at that width each half has about 24px of
- * paper margin to work with. So the count is measured rather than assumed: the
- * leftmost block on screen is the closest the text ever comes, and lanes stop
- * before it. Beyond the last one, bars share a lane and their numbers step down
- * instead — a hidden bar is worse than a crowded one.
- */
-function laneCount(bars: Bar[]): number {
-  const textLeft = Math.min(...bars.map((bar) => bar.box.x));
-  if (!Number.isFinite(textLeft)) return 1;
-  const room = textLeft - LANE_MARGIN - LANE_X;
-  return Math.max(1, Math.floor((room - BAR_W) / LANE_STEP) + 1);
-}
-
 export function MarginBars(props: Props): React.JSX.Element {
   const numbers = new Map(props.threads.map((thread, position) => [thread.id, position + 1]));
   const byId = new Map(props.threads.map((thread) => [thread.id, thread]));
@@ -132,7 +106,7 @@ export function MarginBars(props: Props): React.JSX.Element {
         rule: check.rule,
         className: [
           "rex-margin",
-          markerClass(thread.status, check.state, thread.isNote),
+          markerClass(thread.status, check.state),
           props.activeId === thread.id ? "rex-margin-active" : "",
           props.hoveredThreadId === thread.id ? "rex-margin-lit" : "",
         ]
@@ -143,8 +117,12 @@ export function MarginBars(props: Props): React.JSX.Element {
     }
   }
 
-  const lanes = bars.length > 0 ? laneCount(bars) : 1;
-  const leftOf = (bar: Bar): number => LANE_X + Math.min(bar.lane, lanes - 1) * LANE_STEP;
+  // The leftmost block on screen is the closest the text ever comes, and the
+  // lane is laid out from it. `laneGeometry` is a module of its own so that
+  // `node --test` can measure it — plain node cannot read a `.tsx` file.
+  const textLeft = bars.length > 0 ? Math.min(...bars.map((bar) => bar.box.x)) : Number.NaN;
+  const lane = laneGeometry(textLeft);
+  const leftOf = (bar: Bar): number => lane.x + Math.min(bar.lane, lane.lanes - 1) * LANE_STEP;
 
   // §8.3 — a number pushed down by every number already at this height in this
   // lane. Only reached once the lanes run out, which is what the clamp above

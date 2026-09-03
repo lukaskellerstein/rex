@@ -67,6 +67,17 @@ export const Check = (p: Props): React.JSX.Element => (
   <Line {...p} size={p.size ?? 13} d="M3.5 8.5 6.5 11.5 12.5 5" />
 );
 
+/**
+ * Reopen — the tick undone.
+ *
+ * A back-curving arrow, which is the shape the rest of the world uses for undo.
+ * It never sits beside the tick: a comment is either open or resolved, so the
+ * corner carries one of the two and the glyph alone says which one it is.
+ */
+export const Undo = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 12} d="M5.5 4 2.5 7l3 3M2.5 7h6a3.5 3.5 0 1 1 0 7H6" />
+);
+
 export const Lines = (p: Props): React.JSX.Element => <Line {...p} d="M3 5h10M3 8h10M3 11h6" />;
 
 /**
@@ -298,6 +309,28 @@ export const Trash = (p: Props): React.JSX.Element => (
 /** Close — the lightbox, and anything else that is over the whole window. */
 export const Cross = (p: Props): React.JSX.Element => (
   <Line {...p} size={p.size ?? 13} d="M4 4l8 8M12 4l-8 8" />
+);
+
+/**
+ * "There is more here" — the button that opens a menu.
+ *
+ * Vertical, and never horizontal. A row of dots at the end of a line reads as
+ * text that was cut short; a column of them reads as a control. `Lines` is
+ * already the other kind of menu glyph — that one is a *view*, this one is a
+ * list of commands about the thing beside it.
+ */
+export const Kebab = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon-solid"
+    viewBox="0 0 16 16"
+    width={p.size ?? 14}
+    height={p.size ?? 14}
+    aria-hidden="true"
+  >
+    <circle cx="8" cy="3.6" r="1.3" />
+    <circle cx="8" cy="8" r="1.3" />
+    <circle cx="8" cy="12.4" r="1.3" />
+  </svg>
 );
 
 /**

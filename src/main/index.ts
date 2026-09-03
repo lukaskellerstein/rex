@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import { allowGenerationTools } from "./agent/gate.ts";
 import { allowGenerationServer } from "./agent/profiles.ts";
+import { isAgentMode, userAgent, windowTitle } from "./agentMode.ts";
 import { type CdpStatus, chooseCdpPort, probeCdp } from "./cdp.ts";
 import { closeDatabase, openDatabase } from "./db/database.ts";
 import { installDiagnostics } from "./diagnostics.ts";
@@ -37,6 +38,16 @@ if (cdpChoice.source !== "argv" && cdpChoice.port !== null) {
   app.commandLine.appendSwitch("remote-debugging-port", String(cdpChoice.port));
 }
 
+/**
+ * Spec 20 §2 — an agent's REX says so. Read once, here, so the title, the user
+ * agent and the way the window is shown cannot disagree with each other.
+ */
+const agentMode = isAgentMode(process.env);
+if (agentMode) {
+  app.userAgentFallback = userAgent(app.userAgentFallback, true);
+  record("info", "agent", "PW_AGENT set — agent window: title tagged, shown inactive");
+}
+
 /** Filled in once the app is up; §2.2 — what opened, never what was asked for. */
 let cdpStatus: CdpStatus = {
   port: cdpChoice.port,
@@ -51,7 +62,7 @@ function createWindow(): BrowserWindow {
     width: 1400,
     height: 950,
     show: false,
-    title: "REX",
+    title: windowTitle("REX", agentMode),
     // The Graphite ground, so the window does not flash a different dark grey
     // before the renderer paints. Must track `--bg` in overlay.css.
     backgroundColor: "#0e1012",
@@ -73,7 +84,20 @@ function createWindow(): BrowserWindow {
     },
   });
 
-  created.once("ready-to-show", () => created.show());
+  // Spec 20 §2.2 — an agent's window must never take the desktop with it.
+  // `show()` activates the app, and macOS follows an activated window to its
+  // space; `showInactive()` maps the window where the yabai rule put it and
+  // leaves the reviewer where they are.
+  created.once("ready-to-show", () => (agentMode ? created.showInactive() : created.show()));
+
+  // The renderer sets `document.title`, and Electron copies it onto the window
+  // — without the tag. Keep the tag on, or the window stops being an agent's
+  // the moment a document opens.
+  created.on("page-title-updated", (event, title) => {
+    if (!agentMode) return;
+    event.preventDefault();
+    created.setTitle(windowTitle(title, true));
+  });
 
   // A document's links open in the user's browser, never inside REX.
   created.webContents.setWindowOpenHandler(({ url }) => {
@@ -108,6 +132,9 @@ void app.whenReady().then(() => {
   // opening. Before the first window, because the first thing a window does is
   // render one.
   migrateWorkingCopyNames();
+  // Spec 34 §3.4 — and nothing is swept. A copy that matches its file is a
+  // document whose current version happens to equal the file, which is the
+  // ordinary state of every document; an agent may hold its path.
   const db = openDatabase();
   registerIpc(
     db,

@@ -1,5 +1,5 @@
 // Spec 10 §2.3 — one figure, as large as the window allows, pannable and
-// zoomable.
+// zoomable. Spec 29 §4.2 — and for a Mermaid diagram, its source beside it.
 //
 // `transform: scale()` here, and that is not a contradiction of
 // `DocumentView`'s insistence on CSS `zoom`. `zoom` is required *there* because
@@ -9,16 +9,63 @@
 // holding a copy of a figure rather than the figure. `transform` is composited
 // on the GPU and does not reflow, which is what makes a drag feel like dragging.
 //
+// A diagram's places are made by the surface, never here: a click names the
+// block and the part, `App` asks the surface for the anchor, and the panel gets
+// the row. This file draws where those places are, on a copy, and nothing it
+// draws is in the document.
+//
 // Inside the shadow root like everything else REX draws (spec 01 §7).
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type DiagramParts,
+  linesOf,
+  partKey,
+  partsOnLine,
+  scanDiagram,
+} from "../../shared/diagram.ts";
+import type { AnchorState, DiagramPart } from "../../shared/types.ts";
+import { partElements, partUnderPointer } from "../anchor/diagram.ts";
+import { DiagramSource, type SourceComment, type SourcePlace } from "./DiagramSource.tsx";
 import { Cross, FitFrame, ZoomIn, ZoomOut } from "./Icons.tsx";
 import type { PreviewFigure } from "./preview.ts";
+
+/** Spec 29 §4.2 — a place already taken on the open diagram, as the panel numbers it. */
+export interface LightboxPlace {
+  number: number;
+  part: DiagramPart;
+}
+
+/** Spec 29 §4.2 — a comment that already exists on a part of the open diagram. */
+export interface LightboxComment {
+  part: DiagramPart;
+  state: AnchorState;
+}
 
 interface Props {
   figure: PreviewFigure;
   onClose: () => void;
+  /** Spec 29 §4.2 — a click on a part or a line takes a place. Only for a diagram. */
+  onPick?: (part: DiagramPart) => void;
+  places?: LightboxPlace[];
+  comments?: LightboxComment[];
 }
+
+/** Spec 29 §4.2 — the three views of a diagram. */
+type DiagramView = "drawing" | "source" | "both";
+const VIEWS: DiagramView[] = ["drawing", "source", "both"];
+const VIEW_WORDS: Record<DiagramView, string> = {
+  drawing: "Drawing",
+  source: "Source",
+  both: "Both",
+};
+
+/**
+ * Remembered for the session and not persisted: a preference about one
+ * figure's view is not a setting about REX (spec 25 §6.1). `Both` first —
+ * the reviewer asked to see the source *as well*.
+ */
+let rememberedView: DiagramView = "both";
 
 /**
  * Wider than the document's own 0.4–3 (spec 04), on purpose.
@@ -52,6 +99,9 @@ const FIT_SCALE_MAX = 4;
 /** How much of the stage the opening view fills, leaving the bar its room. */
 const FIT_FRACTION = 0.94;
 
+/** A press and release closer than this is a click on a part, not a pan. */
+const CLICK_SLACK = 4;
+
 interface View {
   scale: number;
   x: number;
@@ -62,14 +112,76 @@ function clampScale(value: number): number {
   return Math.min(SCALE_MAX, Math.max(SCALE_MIN, value));
 }
 
+/** Spec 29 §4.2 — the lines a hovered part points at: its own strongly, its other mentions lightly. */
+function litLinesFor(
+  parts: DiagramParts | null,
+  part: DiagramPart | null,
+  line: number | null,
+): { strong: number[]; light: number[] } {
+  if (line !== null) return { strong: [line], light: [] };
+  if (!parts || !part) return { strong: [], light: [] };
+  const span = linesOf(parts, part);
+  if (!span) return { strong: [], light: [] };
+  const strong: number[] = [];
+  for (let at = span.from; at <= span.to; at++) strong.push(at);
+  const light =
+    part.kind === "node"
+      ? (parts.nodes.get(part.id)?.mentions ?? []).filter((at) => !strong.includes(at))
+      : [];
+  return { strong, light };
+}
+
+/**
+ * A part's box in the root SVG's own coordinates, so a `<rect>` appended to
+ * the root lands on it whatever transforms sit between — Mermaid translates
+ * every node's `<g>`, and the copy is scaled by the stage on top of that.
+ * `getScreenCTM` on both ends is what folds all of it into one matrix.
+ */
+function boxInRoot(
+  svg: SVGSVGElement,
+  el: Element,
+): { x: number; y: number; w: number; h: number } | null {
+  if (!(el instanceof SVGGraphicsElement)) return null;
+  const rootCtm = svg.getScreenCTM();
+  const elCtm = el.getScreenCTM();
+  if (!rootCtm || !elCtm) return null;
+  const into = rootCtm.inverse().multiply(elCtm);
+  const box = el.getBBox();
+  const corners = [
+    new DOMPoint(box.x, box.y),
+    new DOMPoint(box.x + box.width, box.y),
+    new DOMPoint(box.x, box.y + box.height),
+    new DOMPoint(box.x + box.width, box.y + box.height),
+  ].map((point) => point.matrixTransform(into));
+  const xs = corners.map((p) => p.x);
+  const ys = corners.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
 export function Lightbox(props: Props): React.JSX.Element {
   const [view, setView] = useState<View>({ scale: 1, x: 0, y: 0 });
   const stageRef = useRef<HTMLDivElement>(null);
   const figureRef = useRef<HTMLDivElement>(null);
   const svgHostRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ x: number; y: number; from: View } | null>(null);
+  const drag = useRef<{ x: number; y: number; from: View; moved: boolean } | null>(null);
 
   const { figure, onClose } = props;
+  const diagram = figure.kind === "diagram" ? figure : null;
+
+  // ── Spec 29 — the diagram's parts, and what the pointer is on ──
+  const parts = useMemo(() => (diagram ? scanDiagram(diagram.source) : null), [diagram]);
+  const [diagramView, setDiagramView] = useState<DiagramView>(rememberedView);
+  const [hoverPart, setHoverPart] = useState<DiagramPart | null>(null);
+  const [hoverLine, setHoverLine] = useState<number | null>(null);
+
+  const chooseView = useCallback((next: DiagramView): void => {
+    rememberedView = next;
+    setDiagramView(next);
+  }, []);
 
   /**
    * Back to the opening view: the whole figure, filling the window, centred.
@@ -143,7 +255,7 @@ export function Lightbox(props: Props): React.JSX.Element {
   // opens at some arbitrary size.
   useLayoutEffect(() => {
     const host = svgHostRef.current;
-    if (!host || figure.kind !== "svg") return;
+    if (!host || (figure.kind !== "svg" && figure.kind !== "diagram")) return;
     // Cloned, because appending a fragment empties it — and this effect runs
     // again whenever the figure changes.
     host.replaceChildren(figure.svg.cloneNode(true));
@@ -170,6 +282,12 @@ export function Lightbox(props: Props): React.JSX.Element {
     fit();
   }, [figure, fit]);
 
+  // Spec 29 §4.2 — the stage is a different width under each view, so the
+  // opening fit is taken again when the view changes.
+  useEffect(() => {
+    if (diagram) fit();
+  }, [diagram, diagramView, fit]);
+
   /**
    * An image has no size until it has loaded, so the fit is taken again then.
    *
@@ -184,6 +302,66 @@ export function Lightbox(props: Props): React.JSX.Element {
     else image.addEventListener("load", fit, { once: true });
     return () => image.removeEventListener("load", fit);
   }, [figure, fit]);
+
+  // ── Spec 29 §4.2 — the marks drawn on the copy ──────────────
+  //
+  // Places, comments and the hover are `<rect>`s appended to the copied SVG's
+  // root, in the root's own coordinates (`boxInRoot`), so they pan and zoom
+  // with the drawing for free. The copy is REX's to draw on; the document's
+  // diagram is never touched.
+  const lit = useMemo(() => {
+    if (!parts) return [];
+    if (hoverPart) return [hoverPart];
+    if (hoverLine !== null) return partsOnLine(parts, hoverLine);
+    return [];
+  }, [parts, hoverPart, hoverLine]);
+
+  useEffect(() => {
+    const svg = svgHostRef.current?.firstElementChild;
+    if (!parts || !(svg instanceof SVGSVGElement)) return;
+    svg.querySelector(".rex-lightbox-marks")?.remove();
+    const marks = document.createElementNS(SVG_NS, "g");
+    marks.setAttribute("class", "rex-lightbox-marks");
+    const map = partElements(svg, parts);
+
+    const draw = (part: DiagramPart, cls: string, number: number | null): void => {
+      const element = map.get(partKey(part));
+      if (!element) return;
+      const box = boxInRoot(svg, element);
+      if (!box) return;
+      const pad = 4;
+      const rect = document.createElementNS(SVG_NS, "rect");
+      rect.setAttribute("x", String(box.x - pad));
+      rect.setAttribute("y", String(box.y - pad));
+      rect.setAttribute("width", String(box.w + pad * 2));
+      rect.setAttribute("height", String(box.h + pad * 2));
+      rect.setAttribute("rx", "4");
+      rect.setAttribute("class", `rex-dmark ${cls}`);
+      marks.append(rect);
+      if (number !== null) {
+        const badge = document.createElementNS(SVG_NS, "g");
+        badge.setAttribute("class", "rex-dmark-number");
+        const circle = document.createElementNS(SVG_NS, "circle");
+        circle.setAttribute("cx", String(box.x - pad));
+        circle.setAttribute("cy", String(box.y - pad));
+        circle.setAttribute("r", "9");
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("x", String(box.x - pad));
+        text.setAttribute("y", String(box.y - pad));
+        text.textContent = String(number);
+        badge.append(circle, text);
+        marks.append(badge);
+      }
+    };
+
+    for (const comment of props.comments ?? [])
+      draw(comment.part, `rex-dmark-${comment.state}`, null);
+    for (const place of props.places ?? []) draw(place.part, "rex-dmark-place", place.number);
+    // Spec 29 §10 point 11 — the hover mark answers "which line is this" and
+    // only `Both` has lines to answer with. In `Drawing` a hover draws nothing.
+    if (diagramView !== "drawing") for (const part of lit) draw(part, "rex-dmark-hover", null);
+    svg.append(marks);
+  }, [parts, lit, props.places, props.comments, view.scale, diagramView]);
 
   /**
    * The preview takes the keyboard when it opens, and hands it back when it
@@ -229,12 +407,15 @@ export function Lightbox(props: Props): React.JSX.Element {
       else if (event.key === "+" || event.key === "=") zoomAbout(SCALE_STEP, null);
       else if (event.key === "-" || event.key === "_") zoomAbout(1 / SCALE_STEP, null);
       else if (event.key === "0") fit();
-      else return;
+      // Spec 29 §4.2 — `s` cycles the three views of a diagram.
+      else if (diagram && (event.key === "s" || event.key === "S")) {
+        chooseView(VIEWS[(VIEWS.indexOf(rememberedView) + 1) % VIEWS.length]);
+      } else return;
       event.preventDefault();
     };
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
-  }, [onClose, zoomAbout]);
+  }, [onClose, zoomAbout, fit, diagram, chooseView]);
 
   // ── The wheel ───────────────────────────────────────────────
   //
@@ -252,7 +433,28 @@ export function Lightbox(props: Props): React.JSX.Element {
     };
     stage.addEventListener("wheel", onWheel, { passive: false });
     return () => stage.removeEventListener("wheel", onWheel);
-  }, [originOf, zoomAbout]);
+  }, [originOf, zoomAbout, diagramView]);
+
+  // ── Spec 29 §4.2 — what the pointer is on, in the drawing ───
+  //
+  // The lightbox lives in a shadow root, so `document.elementFromPoint` would
+  // answer with the host; the root the stage sits in is asked instead.
+  const partUnder = useCallback(
+    (event: { clientX: number; clientY: number }): DiagramPart | null => {
+      const svg = svgHostRef.current?.firstElementChild;
+      const stage = stageRef.current;
+      if (!parts || !stage || !(svg instanceof SVGSVGElement)) return null;
+      const root = stage.getRootNode();
+      const hit =
+        root instanceof ShadowRoot || root instanceof Document
+          ? root.elementFromPoint(event.clientX, event.clientY)
+          : null;
+      // A mark is drawn over the part it marks; the part under it is the answer.
+      const through = hit?.closest(".rex-lightbox-marks") ? null : hit;
+      return partUnderPointer(svg, parts, through, event.clientX, event.clientY)?.part ?? null;
+    },
+    [parts],
+  );
 
   // ── The drag ────────────────────────────────────────────────
 
@@ -262,7 +464,7 @@ export function Lightbox(props: Props): React.JSX.Element {
     // this press. The stylesheet's `user-select: none` covers the figure; this
     // covers the gesture, which is the half that survives a stray click.
     event.preventDefault();
-    drag.current = { x: event.clientX, y: event.clientY, from: view };
+    drag.current = { x: event.clientX, y: event.clientY, from: view, moved: false };
     // Capture, so a fast drag that leaves the window still ends on this element
     // rather than stranding the figure mid-pan.
     //
@@ -278,7 +480,19 @@ export function Lightbox(props: Props): React.JSX.Element {
 
   const onPointerMove = (event: React.PointerEvent): void => {
     const from = drag.current;
-    if (!from) return;
+    if (!from) {
+      if (!diagram) return;
+      // No badge follows the pointer here (spec 29 §10 point 10): the mark on
+      // the drawing and the lit lines in the source are the answer to "what am
+      // I on", and a label over a node hid the node it named.
+      const next = partUnder(event);
+      setHoverPart((current) =>
+        (current ? partKey(current) : null) === (next ? partKey(next) : null) ? current : next,
+      );
+      return;
+    }
+    if (Math.hypot(event.clientX - from.x, event.clientY - from.y) >= CLICK_SLACK)
+      from.moved = true;
     setView({
       scale: from.from.scale,
       x: from.from.x + (event.clientX - from.x),
@@ -286,11 +500,83 @@ export function Lightbox(props: Props): React.JSX.Element {
     });
   };
 
-  const onPointerUp = (): void => {
+  const onPointerUp = (event: React.PointerEvent): void => {
+    const from = drag.current;
     drag.current = null;
+    // Spec 29 §4.2 — a click on a part takes a place; a drag pans; a click on
+    // empty ground does nothing.
+    if (from && !from.moved && diagram && props.onPick) {
+      const part = partUnder(event);
+      if (part) props.onPick(part);
+    }
   };
 
   const percent = Math.round(view.scale * 100);
+  const litLines = litLinesFor(parts, hoverPart, hoverLine);
+
+  const sourcePlaces: SourcePlace[] =
+    parts && props.places
+      ? props.places.flatMap((place) => {
+          const span = linesOf(parts, place.part);
+          return span ? [{ number: place.number, from: span.from, to: span.to }] : [];
+        })
+      : [];
+  const sourceComments: SourceComment[] =
+    parts && props.comments
+      ? props.comments.flatMap((comment) => {
+          const span = linesOf(parts, comment.part);
+          return span ? [{ from: span.from, to: span.to, state: comment.state }] : [];
+        })
+      : [];
+
+  const stage = (
+    <div
+      ref={stageRef}
+      className="rex-lightbox-stage"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onPointerLeave={() => {
+        setHoverPart(null);
+      }}
+      // Double-click is the shortest way back from "lost at 8×", which is
+      // where pan-and-zoom always eventually puts someone.
+      onDoubleClick={() => fit()}
+    >
+      {/*
+        `translate` before `scale`, and the stylesheet's `transform-origin` is
+        the figure's own centre — which is where the untransformed figure sits,
+        because the stage centres it. That is the frame `zoomAbout` does its
+        arithmetic in; swapping the two operations silently changes what a
+        zoom about the pointer means.
+      */}
+      <div
+        ref={figureRef}
+        className="rex-lightbox-figure"
+        style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
+      >
+        {figure.kind === "image" ? (
+          // `draggable={false}`: without it Chromium starts its own image
+          // drag on mousedown and the pan never begins.
+          <img
+            src={figure.src}
+            alt={figure.caption ?? ""}
+            draggable={false}
+            // §2.4 — whatever the document draws the figure on. Null falls
+            // through to the stylesheet's paper.
+            style={figure.backdrop ? { background: figure.backdrop } : undefined}
+          />
+        ) : (
+          <div
+            ref={svgHostRef}
+            className="rex-lightbox-svg"
+            style={figure.backdrop ? { background: figure.backdrop } : undefined}
+          />
+        )}
+      </div>
+    </div>
+  );
 
   return (
     // `tabIndex={-1}` so it can hold focus without joining the tab order: the
@@ -316,55 +602,80 @@ export function Lightbox(props: Props): React.JSX.Element {
         onClick={onClose}
       />
 
-      <div
-        ref={stageRef}
-        className="rex-lightbox-stage"
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        // Double-click is the shortest way back from "lost at 8×", which is
-        // where pan-and-zoom always eventually puts someone.
-        onDoubleClick={() => fit()}
-      >
-        {/*
-          `translate` before `scale`, and the stylesheet's `transform-origin` is
-          the figure's own centre — which is where the untransformed figure sits,
-          because the stage centres it. That is the frame `zoomAbout` does its
-          arithmetic in; swapping the two operations silently changes what a
-          zoom about the pointer means.
-        */}
-        <div
-          ref={figureRef}
-          className="rex-lightbox-figure"
-          style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})` }}
-        >
-          {figure.kind === "image" ? (
-            // `draggable={false}`: without it Chromium starts its own image
-            // drag on mousedown and the pan never begins.
-            <img
-              src={figure.src}
-              alt={figure.caption ?? ""}
-              draggable={false}
-              // §2.4 — whatever the document draws the figure on. Null falls
-              // through to the stylesheet's paper.
-              style={figure.backdrop ? { background: figure.backdrop } : undefined}
+      {diagram && parts ? (
+        // Spec 29 §4.2 — the drawing and its source, under one control.
+        <div className={`rex-lightbox-split rex-lightbox-split-${diagramView}`}>
+          {/*
+            Both halves stay MOUNTED and are hidden, never unmounted. The SVG copy
+            is put into its host once, by the layout effect above, and an
+            unmounted host comes back empty: `Source` then `Drawing` showed a
+            white rectangle where the diagram had been, for the rest of the
+            preview. Reported on 2026-09-01. `hidden` is `display: none`, so a
+            hidden half takes no grid column and `fit` measures nothing in it.
+          */}
+          <div className="rex-lightbox-half" hidden={diagramView === "source"}>
+            {stage}
+          </div>
+          <div className="rex-lightbox-source" hidden={diagramView === "drawing"}>
+            <div className="rex-source-head">
+              <span className="rex-source-file">{figure.caption ?? "Mermaid"}</span>
+              <span className="rex-source-span">
+                {diagram.fenceLine !== null
+                  ? `lines ${diagram.fenceLine + 1}–${diagram.fenceLine + diagram.source.split("\n").length}`
+                  : `${diagram.source.split("\n").length} lines`}
+                {" · "}
+                {parts.type || "mermaid"}
+              </span>
+            </div>
+            <DiagramSource
+              source={diagram.source}
+              parts={parts}
+              fenceLine={diagram.fenceLine}
+              litLines={litLines}
+              places={sourcePlaces}
+              comments={sourceComments}
+              onHoverLine={setHoverLine}
+              onPick={(part) => props.onPick?.(part)}
             />
-          ) : (
-            <div
-              ref={svgHostRef}
-              className="rex-lightbox-svg"
-              style={figure.backdrop ? { background: figure.backdrop } : undefined}
-            />
-          )}
+          </div>
         </div>
-      </div>
+      ) : (
+        stage
+      )}
 
       <div className="rex-lightbox-bar">
         {figure.caption ? (
           <span className="rex-lightbox-caption" title={figure.caption}>
             {figure.caption}
           </span>
+        ) : null}
+        {diagram ? (
+          <>
+            <div
+              className="rex-segment rex-lightbox-views"
+              role="tablist"
+              aria-label="What the preview shows"
+            >
+              {VIEWS.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="tab"
+                  aria-selected={diagramView === option}
+                  className={diagramView === option ? "rex-on" : undefined}
+                  title={`${VIEW_WORDS[option]} — s cycles`}
+                  onClick={() => chooseView(option)}
+                >
+                  {VIEW_WORDS[option]}
+                </button>
+              ))}
+            </div>
+            <span
+              className={`rex-lightbox-places${(props.places?.length ?? 0) === 0 ? " rex-lightbox-places-none" : ""}`}
+            >
+              {props.places?.length ?? 0} {(props.places?.length ?? 0) === 1 ? "place" : "places"}
+            </span>
+          </>
         ) : null}
         <span className="rex-spacer" />
         <span className="rex-lightbox-scale">{percent}%</span>

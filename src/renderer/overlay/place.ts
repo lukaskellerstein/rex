@@ -19,6 +19,7 @@
 // is the fallback for the places the sweep could not look at, because their
 // document is not the one on screen.
 
+import { describeRef } from "../../shared/diagram.ts";
 import type { Anchor } from "../../shared/types.ts";
 import { storedGapLabel } from "../anchor/gap.ts";
 
@@ -64,6 +65,16 @@ function tagOfPath(css: string | undefined): string | null {
  * hide the one line that tells the reviewer which comment they are looking at.
  */
 export function storedPlaceLabel(anchor: Anchor): string | null {
+  // Spec 29 §4.1 — a diagram part is named from its own lines: the ref carries
+  // the text that states it, and `source.line` is the part's file line, so
+  // the fence's opening line is the difference between the two.
+  if (anchor.diagram) {
+    const fenceLine =
+      anchor.source && anchor.diagram.lines.from > 0
+        ? anchor.source.line - anchor.diagram.lines.from
+        : null;
+    return describeRef(anchor.diagram, fenceLine).title;
+  }
   // Spec 16 §6.7 — a gap is always named. There is nothing at it to quote,
   // which is exactly what the comment is about.
   if (anchor.gap) return storedGapLabel(anchor.gap);

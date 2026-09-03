@@ -23,10 +23,27 @@ interface Props {
   scrollY: number;
   /** True once a scope is chosen and a box is being dragged inside it. */
   arming: boolean;
-  onProbe: (x: number, y: number) => void;
-  onActive: (index: number) => void;
+  /**
+   * Spec 26 §4.8 — `cause` is why: the pointer moved, or the document did.
+   *
+   * They are not the same question. A pointer that moves is the reviewer
+   * pointing somewhere else, and a deliberate widening should give way when the
+   * thing they chose is not there any more. A SCROLL moves the page under a
+   * cursor that did not move at all, and dropping their choice for it is how
+   * "widen to the section, scroll to see where it ends, click" ended in the
+   * paragraph. App decides; the layer only says which happened.
+   */
+  onProbe: (x: number, y: number, cause: "move" | "scroll") => void;
   /** Enter commits whatever the path bar currently shows. */
   onCommit: (index: number) => void;
+  /**
+   * Spec 26 §4.4 — ⌥ with the wheel walks the chain, one scope per notch.
+   *
+   * It lands here and nowhere else because holding ⌥ for 250ms is what mounts
+   * this layer: while ⌥ is down the layer is up and already owns the wheel.
+   * Positive widens.
+   */
+  onWiden: (by: number) => void;
   /**
    * A CLICK commits what is under the pointer, named by where it landed rather
    * than by what the last probe happened to leave behind.
@@ -58,6 +75,21 @@ interface Props {
 
 /** Ignore a click that was really a very small drag, and vice versa. */
 const DRAG_MINIMUM = 6;
+
+/**
+ * Spec 26 §4.8 — how far the pointer must travel to count as pointing somewhere
+ * else.
+ *
+ * A probe on every pixel is not only wasteful, it is destructive: a deliberate
+ * widening survives a re-probe only while `keptIndex` can still find the chosen
+ * element in the new chain, so a jitter of one or two pixels after a scroll was
+ * enough to throw a chosen section away. Nobody means anything by two pixels —
+ * a trackpad scroll nudges the cursor, and the mouse-down of a click carries a
+ * `mousemove` with it.
+ *
+ * Small enough that moving between two adjacent table cells still answers.
+ */
+const MOVE_MINIMUM = 4;
 
 interface Drag {
   fromX: number;
@@ -92,12 +124,18 @@ export function PickLayer(props: Props): React.JSX.Element {
   const layerRef = useRef<HTMLDivElement>(null);
   /** Where the pointer last was, in pane coordinates — a scroll re-probes there. */
   const lastPoint = useRef<{ x: number; y: number } | null>(null);
+  /** §4.8 — where the last probe was actually taken, for `MOVE_MINIMUM`. */
+  const lastProbed = useRef<{ x: number; y: number } | null>(null);
 
   const scope = props.scopes?.[props.active] ?? null;
-  const { onActive, onCancel, onCommit, scopes, active } = props;
+  const { onCancel, onCommit, scopes, active } = props;
 
-  // ↑ / ↓ widen and narrow; escape leaves. The path bar's crumbs do the same,
-  // and both are the same widening the composer's chips perform after a click.
+  // Escape leaves; Enter takes what the bar is showing.
+  //
+  // Spec 26 §5.4 — ↑ and ↓ moved up to `App.tsx`. They have to work when this
+  // layer is not mounted, because the bar outlives pick mode and a place taken
+  // with a text drag never had a layer at all. Enter stays: committing what is
+  // under the pointer is this layer's own gesture and means nothing without it.
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
@@ -106,10 +144,10 @@ export function PickLayer(props: Props): React.JSX.Element {
         return;
       }
       if (!scopes || scopes.length === 0) return;
-      // Pick mode and the selection panel are open together, and there ↑ belongs
-      // to the caret in the note, not to the scope chain. `composedPath()[0]`
-      // because the shadow boundary retargets `event.target` to the host — see
-      // App.tsx.
+      // Pick mode and the selection panel are open together, and there Enter
+      // belongs to the caret in the note, not to the scope chain.
+      // `composedPath()[0]` because the shadow boundary retargets
+      // `event.target` to the host — see App.tsx.
       const focused = event.composedPath()[0];
       if (
         focused instanceof HTMLElement &&
@@ -117,20 +155,14 @@ export function PickLayer(props: Props): React.JSX.Element {
       ) {
         return;
       }
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        onActive(Math.min(active + 1, scopes.length - 1));
-      } else if (event.key === "ArrowDown") {
-        event.preventDefault();
-        onActive(Math.max(active - 1, 0));
-      } else if (event.key === "Enter") {
+      if (event.key === "Enter") {
         event.preventDefault();
         onCommit(active);
       }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [scopes, active, onActive, onCancel, onCommit]);
+  }, [scopes, active, onCancel, onCommit]);
 
   /** Pane coordinates → the document's own, so probes and rects agree. */
   const toDocument = (event: React.PointerEvent | React.MouseEvent): { x: number; y: number } => {
@@ -164,11 +196,18 @@ export function PickLayer(props: Props): React.JSX.Element {
           props.onZoomBy(event.deltaY < 0 ? 1.1 : 1 / 1.1);
           return;
         }
+        // Spec 26 §4.4 — ⌥ with the wheel widens and narrows, in the same
+        // direction the keys do and the crumbs read. Checked before the scroll,
+        // because the reviewer holding ⌥ is holding it to pick, not to read.
+        if (event.altKey) {
+          props.onWiden(event.deltaY < 0 ? 1 : -1);
+          return;
+        }
         props.onScrollBy(event.deltaX, event.deltaY);
         // The document moved under a cursor that did not, so what the cursor is
         // over has changed. Probing again keeps the outline honest.
         const point = lastPoint.current;
-        if (point && !props.arming) props.onProbe(point.x, point.y);
+        if (point && !props.arming) props.onProbe(point.x, point.y, "scroll");
       }}
       onPointerMove={(event) => {
         const point = toDocument(event);
@@ -177,7 +216,21 @@ export function PickLayer(props: Props): React.JSX.Element {
           setDrag({ ...drag, toX: point.x + props.scrollX, toY: point.y + props.scrollY });
           return;
         }
-        if (!props.arming) props.onProbe(point.x, point.y);
+        if (props.arming) return;
+        // §4.8 — a move under `MOVE_MINIMUM` is not the reviewer pointing
+        // somewhere else, and re-probing on it can throw away a scope they
+        // chose by hand. Measured from the point the last probe was taken at,
+        // not from the last event, so a slow drift still adds up to a move.
+        const from = lastProbed.current;
+        if (
+          from &&
+          Math.abs(point.x - from.x) < MOVE_MINIMUM &&
+          Math.abs(point.y - from.y) < MOVE_MINIMUM
+        ) {
+          return;
+        }
+        lastProbed.current = point;
+        props.onProbe(point.x, point.y, "move");
       }}
       onPointerDown={(event) => {
         if (!props.arming) return;
@@ -260,46 +313,12 @@ export function PickLayer(props: Props): React.JSX.Element {
         </div>
       ) : null}
 
-      {props.scopes && props.scopes.length > 0 ? (
-        <div className="rex-pathbar">
-          <span className="rex-pathbar-label">PATH</span>
-          <div className="rex-crumbs">
-            {/* Widest first: a path reads outside in, even though the chain is
-                built inside out. */}
-            {[...props.scopes].reverse().map((crumb, position) => (
-              <span key={crumb.index} className="rex-crumbs">
-                {position > 0 ? <span className="rex-crumb-sep">›</span> : null}
-                <button
-                  type="button"
-                  className={crumb.index === props.active ? "rex-crumb rex-crumb-on" : "rex-crumb"}
-                  title={crumb.title}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    props.onActive(crumb.index);
-                  }}
-                >
-                  {crumb.label}
-                </button>
-              </span>
-            ))}
-          </div>
-          <span className="rex-pathbar-keys">
-            <span>
-              <span className="rex-key">↑</span>
-              <span className="rex-key">↓</span>
-              widen / narrow
-            </span>
-            <span>
-              <span className="rex-key">click</span>
-              adds to the selection
-            </span>
-            <span>
-              <span className="rex-key">esc</span>
-              leave
-            </span>
-          </span>
-        </div>
-      ) : null}
+      {/*
+        Spec 26 §4.1 — the path bar is no longer drawn here. It outlives this
+        layer, so `DocumentView` mounts it beside the mode strip; drawing it
+        from inside the thing it outlives is exactly what made the widening
+        vanish the moment ⌥ came up.
+      */}
     </div>
   );
 }

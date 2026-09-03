@@ -1,8 +1,23 @@
 # REX 19 — the Word document, and the notes on a slide
 
-**Version:** 1.0 · 2026-08-27
-**Status:** proposed. Every number in §2 was measured on this machine before this
-spec was written; everything else is a design that has not yet been run.
+**Version:** 1.2 · 2026-08-27
+**Status:** **built and complete.** Every milestone is done. Tracked changes —
+§6, once milestone 19.6 — was **withdrawn by the reviewer on 2026-08-27** before
+any of it was written; §6.2 is the reasoning and §6.3 records what would bring it
+back. §12 records the nine places the build departed from version 1.0, three of
+which are corrections to §2's own numbers.
+
+| § | What | Status |
+|:--|:--|:--|
+| §3.1 | the shared `ooxml/` package | **done** — `npm run test:docx`, 10 tests |
+| §4.1, §4.3 | the paragraph map and the sidecar | **done** — all 18 Word files |
+| §4.4 | the plan and its refusals | **done** — `npm run test:docx-edit` |
+| §4.5, §5 | ten operations, the surgery, the validator | **done** — 20 tests |
+| §4.2, §4.6 | ACT on a Word file, on the working copy | **done** — wired, gate opened |
+| §7 | `setNotes` and the notes preview | **done** — `npm run test:pptx-notes` |
+| §8 | PDF stays read-only | **done** — the message is the §8.4 one |
+| §6 | tracked changes | **withdrawn** — §6.2 |
+
 **Depends on:** [`01-initial/SPEC.md`](../01-initial/SPEC.md) §5.2 (why Apply was
 refused on a DOCX) and §8.7 (Apply, steps 1–7),
 [`03-rich-rendering/SPEC.md`](../03-rich-rendering/SPEC.md) §8 (DOCX through
@@ -31,17 +46,19 @@ change added), and [`17-stopping-a-run/SPEC.md`](../17-stopping-a-run/SPEC.md) �
 
 > [!note]
 > **A deck is already editable — this spec adds one operation to it.** Spec 11's
-> twelve operations shipped. The measured gap is speaker notes: 33 of the 72
-> decks on this machine carry them, 642 notes slides in all, and nothing can
-> change one. §7 adds the thirteenth operation and the one preview change it
-> forces.
+> twelve operations shipped, and nothing among them could change a speaker note.
+> §7 adds the thirteenth and the one preview change it forces. **The gap is
+> smaller than 1.0 said**: 5 decks on this machine carry real note text, on 66
+> slides — 1.0 counted notes *parts* and reported 33 decks. §12.3.
 
-> [!warning]
-> **The half of this spec that can be cut is §6, tracked changes.** Word has a
-> native review model and REX is a review tool, so writing `<w:ins>` and
-> `<w:del>` instead of overwriting prose is the one thing REX could do for a
-> Word file that it cannot do for Markdown. It is also the most expensive
-> milestone here and it is deliberately last. §5 must work before §6 is started.
+> [!note]
+> **Tracked changes were considered and withdrawn.** Version 1.0 held them as the
+> last milestone: REX would write `<w:ins>` and `<w:del>` so Word draws its edit
+> as a suggestion. The reviewer's answer, on 2026-08-27, was that this **stops
+> short of making the change** — it would leave them approving the same edit
+> twice, once in REX and once in Word. §6.2. The case it would have served is
+> sending an edited document to somebody without REX, and §6.3 keeps that
+> written down in case it ever arrives.
 
 ---
 
@@ -64,9 +81,10 @@ reviewer to Word to make the change is the same failure spec 11 §7.2.1 named:
 *a tool that can only retype a sentence sends the reviewer back to PowerPoint for
 everything else.*
 
-**And a deck's notes are a review document nobody can reach.** 642 notes slides
-sit on this machine, the agent already reads them in the sidecar (spec 11 §6.2),
-the reviewer can already comment on them — and no operation can change one.
+**And a deck's notes are a review document nobody can reach.** 66 slides on this
+machine carry a written note, the agent already reads them in the sidecar
+(spec 11 §6.2), the reviewer can already comment on them — and until §7 no
+operation could change one.
 
 ---
 
@@ -142,7 +160,7 @@ Of the 18 files, how many carry each thing at all:
 
 | Feature | Files | What it means here |
 |:--|--:|:--|
-| Numbering (`numbering.xml`) | **17** | lists are the norm, so `setListLevel` is worth having |
+| Numbering (`numbering.xml`) | **17** | but see §12.1 — carrying the part is not using it. Only **7** documents put a `<w:numPr>` on any paragraph |
 | Tables | **15** | a table is not an exotic case in Word, unlike in a deck (§2.5) |
 | Headers / footers | **9** | never edited by this spec — §9 |
 | Existing Word comments | **6** | must survive untouched, and §2.3 proves they do |
@@ -153,6 +171,8 @@ Of the 18 files, how many carry each thing at all:
 | Footnote references | **1** | |
 | Bookmarks | **1** | |
 | Text boxes (`txbxContent`) | **0** | |
+| **Paragraph styles used at all** | **10** | §12.2 — the other 8 are direct formatting, which is why `setHeadingLevel` cannot promise a match |
+| **Heading styles used** | **8** | |
 | **Tracked changes already present** | **0** | §6 never has to reconcile with someone else's revisions |
 
 The four rare ones — fields, content controls, footnotes, bookmarks — are the
@@ -164,16 +184,24 @@ attempted.
 
 | Feature | Decks carrying it | Total |
 |:--|--:|--:|
-| **Speaker notes** | **33 of 72** | **642 notes slides** |
+| Notes *parts* | 33 of 72 | 642 notes slides |
+| **Notes with real text in them** | **5 of 72** | **66 of 1,643 slides** — §12.3 |
 | Charts | 15 of 72 | — |
 | Tables | 2 of 72 | **3 tables in 1,643 slides** |
 | Groups | 1 of 72 | — |
 | SmartArt | **0 of 72** | — |
 | Embedded video | 0 of 72 | — |
 
-Spec 11 §2.1 measured 40 decks and found notes in 23 of them; the wider corpus
-says the same thing more loudly. **Notes are the gap and tables are not.** Three
-tables across 1,643 slides does not justify an operation, and §9 records that.
+Spec 11 §2.1 measured 40 decks and found notes in 23 of them, and this spec
+repeated that mistake at 1.0: **it counted notes *parts*.** PowerPoint writes an
+empty notes part for every slide as soon as a deck has a notes master, so 33 of
+72 is the number of decks that have a notes master, not the number that have
+notes. Read through the text instead — §12.3 — it is **5 decks and 66 slides**.
+
+That is a much smaller gap than 1.0 claimed, and `setNotes` was built anyway:
+the 5 are investor decks and design decks, which is exactly what gets reviewed,
+and the operation is 200 lines on machinery that already existed. **Tables are
+still not the gap** — three tables across 1,643 slides — and §9 records that.
 
 Charts moved: spec 11 measured 1 deck in 40, this measures 15 in 72. That is
 worth knowing and still does not change the answer — §9.
@@ -365,9 +393,12 @@ are exactly the short ones an agent is most likely to mis-target.
 Rules on the plan, carried over from spec 11 §7.2.2 with one addition:
 
 1. **`from` is required on every operation that changes something that already
-   exists** — `setText`, `setStyle`, `setHeadingLevel`, `setListLevel` and
-   `deleteParagraph`. An operation that names its expectation cannot silently act
-   on something else.
+   exists** — `setText`, `deleteParagraph`, `moveParagraph`, `setHeadingLevel`,
+   `setListLevel` and `deleteRow`. An operation that names its expectation cannot
+   silently act on something else. It must be *present* and **may be empty**: a
+   blank paragraph says nothing and is still a paragraph (§12.6). `setStyle` is
+   the exception and carries none — the sidecar shows text, not formatting, so
+   there is nothing for an agent to quote (§12.5).
 2. **Positions are the ones in the sidecar the agent was given**, and REX
    re-derives them from the working copy before performing anything. If the
    working copy has moved on since the sidecar was written, the run is refused
@@ -392,12 +423,13 @@ Rules on the plan, carried over from spec 11 §7.2.2 with one addition:
 | **Shape** | `setStyle` | bold, italic, size, colour, alignment | `<w:rPr>`, `<w:pPr>` |
 | | `setHeadingLevel` | promote or demote a heading | `<w:pStyle>` |
 | | `setListLevel` | indent or outdent a list item | `<w:numPr>` |
-| **Table** | `setCellText` | one cell's text | the paragraph inside a `<w:tc>` |
-| | `insertRow` / `deleteRow` | a table row | one `<w:tr>` |
-| **Picture** | `insertImage` | a picture at a paragraph | four parts — §5.4 |
+| **Table** | `insertRow` / `deleteRow` | a table row | one `<w:tr>` |
+| **Picture** | `insertImage` | an inline picture after a paragraph | four parts — §5.4 |
 
 Ten, not twelve, and each one is surgical, names what it expects to find, and is
-checked by re-opening the result.
+checked by re-opening the result. **`setCellText` was dropped while building
+19.2** — a cell is an ordinary paragraph with its own position, so `setText`
+already changes one. §12.4.
 
 ### 4.6 What the agent is told
 
@@ -542,31 +574,54 @@ finds later is a cost REX hid.
 
 ---
 
-## 6. Tracked changes — the last milestone
+## 6. Tracked changes — withdrawn
 
-**Deferred by design. §5 must ship and be used before this is started.**
+**Decided on 2026-08-27, by the reviewer, before any of it was built.** The
+section is kept rather than deleted because every cross-reference in the code
+counts on the numbering after it, and because a rejected idea is worth more
+written down than removed.
+
+### 6.1 What it would have been
 
 Word's review model is `<w:ins>` and `<w:del>`: an insertion is a run wrapped in
 `<w:ins>`, a deletion is a run whose `<w:t>` becomes `<w:delText>` inside
-`<w:del>`, and each carries an author and a date. Word then draws REX's change as
-a tracked change the reviewer accepts or rejects **in Word**.
+`<w:del>`, and each carries an author and a date. REX would have written those
+tags instead of replacing the text, and Word would then draw REX's change as a
+tracked change — coloured, struck through, waiting for someone to press Accept
+or Reject **in Word**.
 
-Why it is worth a milestone: it is the one thing REX can do for a Word file that
-it cannot do for Markdown, and it fits what REX is. A review tool that suggests
-is better than one that overwrites.
+### 6.2 Why it was withdrawn
 
-Why it is last: it roughly doubles §5. Every operation grows a second form, the
-validator grows a second set of expectations, and mammoth does not render
-revisions — so the preview needs a decision that §5 does not need.
+Because of what it does to the person REX is for.
 
-The design, when it is built:
+**In suggest mode REX would not actually make the change.** The document would
+come back holding both versions, and the reviewer — who has already read the
+change in REX's two panes and approved it — would then have to open Word and
+approve it a second time. Two approvals for one decision, in two applications,
+is not a review tool being careful. It is a review tool getting in the way.
+
+Overwrite mode already answers the question the reviewer actually asks: *is this
+change right?* They read the two panes, they approve, and the file holds the new
+sentence. Adding a mode that stops short of that makes the common case worse to
+buy the uncommon one.
+
+### 6.3 The one thing it would have bought, and what would bring it back
+
+There is a real case, and it is worth stating so it is recognised if it arrives:
+**sending the edited document to somebody who does not have REX.** They open it
+in ordinary Word, see exactly what changed and why, and accept or reject each
+edit themselves — no REX, no install, no screenshots of two panes.
+
+That is a *sharing* feature, not an editing one, and today the reviewer does not
+need it. It comes back onto the table when a document REX edited has to be
+reviewed again by somebody outside REX. If it does, the shape is already worked
+out:
 
 - The plan gains one field: `"mode": "overwrite" | "suggest"`, defaulting to
-  `"overwrite"`. A plan written before this milestone keeps working unchanged.
+  `"overwrite"`, so nothing built in §5 changes.
 - The author is `REX`, and the date is the run's timestamp.
-- **A document that already contains revisions is refused in `suggest` mode**
-  until reconciliation is designed. §2.4 measured 0 of 18 files carrying any, so
-  this refusal costs nothing today.
+- A document that already contains revisions is refused in `suggest` mode until
+  reconciliation is designed. §2.4 measured 0 of 18 files carrying any.
 - `@ansonlai/docx-redline-js` (MIT, v0.2.1) does exactly this job and is worth
   reading for its handling of `w:rPrChange` and list fallbacks. It is 13 stars
   and v0.2 — read it, do not depend on it.
@@ -701,6 +756,7 @@ format is rather than what REX lacks:
 | **Deck tables** | §2.5 — 3 tables in 1,643 slides. |
 | **Deck charts** | 15 of 72 decks carry one, so this is the strongest candidate for a later spec. Editing a chart means editing the embedded workbook beside it, and getting that half-right produces a chart whose picture and data disagree. |
 | **A `.doc` reader** | Not a zip. Same reasoning as spec 11 §4.1 for `.ppt`. |
+| **Tracked changes** (`w:ins` / `w:del`) | §6.2 — it stops short of making the change, so the reviewer would approve the same edit twice, in two applications. The one case it serves is handing the file to somebody without REX, which is a sharing problem and not an editing one. §6.3 keeps the design in case that case arrives. |
 | **Moving decks onto the working copy** | The right end state — one flow, one preview surface, iteration for decks too. It is a refactor of shipped, tested code and it is not what this spec is about. |
 | **LibreOffice as a preview renderer** | Measured at 1.06 s per file and installed on this machine, so a pixel-true "after" pane is possible. It is a 787 MB soft dependency for a fidelity upgrade over mammoth, and mammoth is what the reviewer already reads. Revisit if the preview proves too coarse to judge a change. |
 
@@ -755,6 +811,13 @@ writes the file; discard leaves it exactly as it was; the run can be stopped
 `git status --porcelain` in the document's repository is clean after a run that
 was not approved.
 
+**Built, and proven except for the live agent.** `test:docx-edit` drives
+fork → surgery → `saveRevision` → discard → approve against a copy of a real
+document and asserts each of those, with `REX_WORK_PATH` pointed at a scratch
+directory. What has **not** been run is the write agent itself on a real
+document — spec 01's own rule is that REX's write profile against a reviewer's
+own file is the reviewer's call, so that first run is theirs to make.
+
 ### 19.5 — the notes on a slide
 
 `setNotes`, the preview fields, and the validator check.
@@ -764,14 +827,10 @@ and leaves the slide part byte-identical; the preview shows the notes text befor
 and after; a deck with no notes part gains a valid one and PowerPoint opens the
 result without offering to repair it.
 
-### 19.6 — tracked changes
+### 19.6 — tracked changes · **withdrawn**
 
-§6. Only after 19.4 has been used on a real document.
-
-**Done when:** a `suggest`-mode run produces a file Word opens showing REX's
-change as a tracked change with the author `REX`; accepting it in Word yields
-exactly what an `overwrite` run would have produced, byte-compared; a document
-that already carries revisions is refused with a message saying so.
+Not built, and not deferred: withdrawn on 2026-08-27 with the reasoning in §6.2.
+There is no sixth milestone.
 
 ---
 
@@ -822,7 +881,94 @@ following hold.
 
 ---
 
-## 12. What this adds
+## 12. Where the build departed from version 1.0
+
+Nine places. Three are corrections to §2's own numbers, which matters more than
+the rest: a spec that measures badly argues badly, and each of these was found
+by pointing the code at the same files §2 counted.
+
+### 12.1 `numbering.xml` is carried far more often than it is used
+
+§2.4 read the **part list** and reported numbering in 17 of 18 documents. Read
+through the paragraph map instead: **7 of 18** documents put a `<w:numPr>` on
+any paragraph, and list items are **194 of 6,151** paragraphs. `setListLevel`
+acts on the second number. It stays, because it is a dozen lines once the
+paragraph-properties code exists, and it refuses cleanly on a paragraph that is
+not a list item.
+
+### 12.2 Most documents have no paragraph styles at all
+
+Not measured at 1.0, and it changes what §5.3 can promise: **8 of 18 documents
+carry no `<w:pStyle>` on any paragraph.** Their headings are a bold run at a
+larger size — direct formatting, which no style name describes. Two consequences,
+both built:
+
+- **The sidecar says so** (§4.3), before the agent writes a plan, and points at
+  `setStyle` instead.
+- **`setHeadingLevel` still works there and flags itself.** Word keeps its whole
+  latent style set in `styles.xml`, so `Heading2` is defined even in a document
+  that never uses it. 1.0 said REX would refuse; refusing something Word can do
+  is worse than doing it and saying what it will look like. It refuses only when
+  the style table genuinely has no such heading.
+
+### 12.3 The notes gap is 5 decks, not 33
+
+§2.5 counted notes **parts**. PowerPoint writes an empty one for every slide as
+soon as a deck has a notes master, so 33 of 72 was the number of decks with a
+notes master. Measured through the text: **5 decks, 66 of 1,643 slides.** The
+first test fixture was a deck whose 27 notes parts hold nothing but the slide
+number, which is how this was found.
+
+### 12.4 Nine operations plus a picture, not ten — `setCellText` is gone
+
+§4.1 decided that a cell is a paragraph inside a table and needs no separate
+model, and §4.3 gives every cell paragraph a body position in the sidecar. So
+`setText` at that position already changes a cell, and §4.5's `setCellText` was
+a second name for one surgery — a second way to get it wrong. Dropped. A row is
+not a paragraph, so `insertRow` and `deleteRow` stayed.
+
+### 12.5 `setStyle` does not carry `from`
+
+§4.4 rule 1 listed it among the operations that must state what they expect. It
+cannot: the sidecar shows text, not formatting, so an agent has nothing to quote
+and every `setStyle` would have been refused. The rule now covers `setText`,
+`deleteParagraph`, `moveParagraph`, `setHeadingLevel`, `setListLevel` and
+`deleteRow`.
+
+### 12.6 `from` may be an empty string
+
+Found by pointing 19.3 at a real file: the plan schema required a **non-empty**
+`from`, which made every blank paragraph in every document unaddressable — and a
+blank line between two sections is exactly where "add a sentence here" lands. It
+must be **present**; it may be empty.
+
+### 12.7 `insertRow` addresses a paragraph, not a row number
+
+1.0 gave it an `after` row index, which would have needed a second numbering
+scheme in the sidecar. It takes the position of any paragraph inside the table
+instead, and the new row goes after the row that paragraph is in. One addressing
+rule for the whole plan.
+
+### 12.8 The operation list is in the conversation, not above the panes
+
+§5.7 asked for it above the two panes. There is no message kind for "REX did
+this" and no field on the working-copy event to carry it, and inventing either
+is renderer work this milestone did not need: the conversation is where a
+reviewer already reads what happened, so the list and its warnings are posted
+there, named as REX's. The flags — lost mid-sentence formatting, inherited
+formatting on an inserted paragraph — are the part that must not be lost, and
+they are not.
+
+### 12.9 A picture declares its own namespaces
+
+Not a decision 1.0 made either way. `<w:drawing>` needs `wp`, `pic` and `a`, and
+a document written by something other than Word may not declare them on
+`<w:document>`. The fragment carries its own declarations, so it cannot depend
+on a root element it did not write.
+
+---
+
+## 13. What this adds
 
 | | Before | After |
 |:--|:--|:--|

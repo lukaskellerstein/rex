@@ -15,11 +15,21 @@ import { randomUUID } from "node:crypto";
 import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { OoxmlPackage } from "../ooxml/package.ts";
+import {
+  attributeOf,
+  escapeXml,
+  firstElement,
+  scanElements,
+  splice,
+  unescapeXml,
+  withAttribute,
+} from "../ooxml/xml.ts";
 import { parseDeck, usedFonts } from "../render/pptxText.ts";
 import type { DeckMap, ShapeSpan } from "./deck.ts";
 import { findShape, readDeckMap, relsPathFor, shapesOf, shapeTreeOf, slidePartAt } from "./deck.ts";
 import { describeSource, type MediaResolver, resolveSource } from "./media.ts";
-import type { DeckPackage } from "./package.ts";
+import { setNotes } from "./notes.ts";
 import {
   addRelationship,
   declareContentType,
@@ -41,18 +51,9 @@ import {
 } from "./style.ts";
 import { replaceText } from "./text.ts";
 import { videoPicXml, withMediaTiming } from "./video.ts";
-import {
-  attributeOf,
-  escapeXml,
-  firstElement,
-  scanElements,
-  splice,
-  unescapeXml,
-  withAttribute,
-} from "./xml.ts";
 
 /** The package as bytes, for the one place that needs to re-parse it. */
-async function packageBytes(pkg: DeckPackage): Promise<Buffer> {
+async function packageBytes(pkg: OoxmlPackage): Promise<Buffer> {
   return pkg.toBuffer();
 }
 
@@ -80,7 +81,7 @@ export interface SlideSize {
 }
 
 export interface EditContext {
-  pkg: DeckPackage;
+  pkg: OoxmlPackage;
   map: DeckMap;
   size: SlideSize;
   /** §7.5.2 — the deck's palette, so a theme colour is written as one. */
@@ -113,7 +114,7 @@ export interface OperationOutcome {
 }
 
 export async function openContext(
-  pkg: DeckPackage,
+  pkg: OoxmlPackage,
   resolver: MediaResolver = { drawDiagram: refuseDiagram, drawPoster: refusePoster },
 ): Promise<EditContext> {
   const map = await readDeckMap(pkg);
@@ -303,6 +304,32 @@ async function performSetText(
     summary: `Slide ${operation.slide}, "${operation.shape}": "${operation.from}" becomes "${operation.to}"`,
     slides: [operation.slide],
     flags,
+  };
+}
+
+/**
+ * Spec 19 §7.1 — the notes on a slide.
+ *
+ * The surgery lives in `notes.ts`; this is the operation, and it is short
+ * because a note is text in a text body and nothing else. §7.3's check is what
+ * makes it safe: the notes changed **and the slide part did not**.
+ */
+async function performSetNotes(
+  context: EditContext,
+  operation: Extract<Operation, { op: "setNotes" }>,
+): Promise<OperationOutcome> {
+  const part = slidePartAt(context.map, operation.slide);
+  const result = await setNotes(context.pkg, part, operation.from, operation.to);
+  return {
+    op: "setNotes",
+    summary:
+      operation.to.length === 0
+        ? `Slide ${operation.slide}: the speaker notes were cleared`
+        : `Slide ${operation.slide}, speaker notes: "${operation.to}"`,
+    slides: [operation.slide],
+    flags: result.created
+      ? [...result.flags, "This slide had no speaker notes, so REX added them."]
+      : result.flags,
   };
 }
 
@@ -871,6 +898,7 @@ const PERFORM: Record<
   deleteSlide: performDeleteSlide as never,
   moveShape: performMoveShape as never,
   deleteShape: performDeleteShape as never,
+  setNotes: performSetNotes as never,
 };
 
 /**
@@ -896,7 +924,7 @@ export async function performPlan(
 
 /** Convenience for callers that have bytes and a plan and want bytes back. */
 export async function applyPlanToPackage(
-  pkg: DeckPackage,
+  pkg: OoxmlPackage,
   plan: EditPlan,
   resolver?: MediaResolver,
 ): Promise<{ outcomes: OperationOutcome[]; bytes: Buffer }> {

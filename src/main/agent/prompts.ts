@@ -4,7 +4,16 @@
 import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 import {
+  findPart,
+  locateFence,
+  partLabel,
+  scanDiagram,
+  textOfLines,
+} from "../../shared/diagram.ts";
+import {
   type Anchor,
+  type AnchorTarget,
+  type DiagramRef,
   ELEMENT_QUOTE_MAX,
   type LineRange,
   type Message,
@@ -23,6 +32,10 @@ You may also search and fetch the web to check a claim the document makes. Do
 that when the comment asks whether something is still true, still current, or
 consistent with what is published elsewhere. You still cannot write anything,
 anywhere, by any route.
+
+If the reviewer asks you to change a file, say that this message was sent in
+ASK, that ASK cannot write, and that the same request sent with the switch on
+ACT will make the change. Do not paste the change into the thread.
 
 The \`LSP\` tool is deferred: its name is listed but it has no schema until you
 call ToolSearch("select:LSP"). Do that before any question about where a symbol
@@ -94,9 +107,9 @@ The plan looks like this:
   ]
 }
 
-There are exactly twelve operations. Use one of these and never invent another
-— a plan naming an operation that is not on this list is refused whole, and
-nothing is written.
+There are exactly thirteen operations. Use one of these and never invent
+another — a plan naming an operation that is not on this list is refused whole,
+and nothing is written.
 
 TEXT
   { "op": "setText", "slide": 4, "shape": "Text 1", "from": "…", "to": "…" }
@@ -124,6 +137,9 @@ SLIDES
   { "op": "duplicateSlide", "slide": 4 }
   { "op": "deleteSlide", "slide": 4, "from": "that slide's title" }
 
+NOTES
+  { "op": "setNotes", "slide": 4, "from": "the note it holds now", "to": "…" }
+
 DECK
   { "op": "setThemeFont", "major": "Georgia", "minor": "Inter" }
 
@@ -137,6 +153,9 @@ Rules that decide whether a plan runs at all:
   the whole run is refused and nothing is written.
 - Shapes are addressed by name, never by position. Slides are addressed by
   their current position, counting from 1.
+- setNotes changes the speaker notes and nothing on the slide itself. Its
+  "from" is the note as the sidecar shows it under "### Notes", and it is an
+  empty string when the slide has no notes yet.
 - Boxes are fractions of the slide — {"x":0.05,"y":0.28,"w":0.42,"h":0.55} —
   never points. A deck can be 16:9 or 4:3 and a plan in points misplaces
   everything on the other one.
@@ -154,6 +173,79 @@ it, screenshot it, or produce an image file. REX draws it.`;
 export const NO_GENERATION_NOTE = `Generated pictures and video are NOT available in this REX. Do not use
 "from": "generated" in a plan and do not call any media generation tool. Use a
 real picture from the web, a file already on this machine, or Mermaid source.`;
+
+/**
+ * Spec 19 §4.6 — what the agent is told before it changes a Word file.
+ *
+ * The same three loads as the deck prompt: you do not edit the file, you write
+ * a plan, and a plan that names something the document does not contain is
+ * refused. Two instructions a deck does not need are here because a `.docx` is
+ * a zip an agent could plausibly open by hand — §4.2's warning — and because a
+ * paragraph is addressed by two things at once, not one.
+ */
+export const DOCX_WRITE_SYSTEM_PROMPT = `You are proposing a change to a Word document that was agreed in a
+discussion. The full discussion is given below.
+
+You do not edit the document. You cannot: it is a zip of XML, and REX is the
+only thing that writes into it. What you produce is a PLAN, as one JSON file,
+and REX validates it, performs it on a copy, and shows the reviewer the before
+and after. A plan that names something the document does not contain is refused
+and nothing is written.
+
+Do NOT open the .docx yourself with any tool. Read the document's text through
+the Markdown file named below. Every paragraph in it is numbered, and those
+numbers are how the plan addresses paragraphs.
+
+Write the plan with the Write tool, to the exact path given below, and write
+nothing anywhere else.
+
+The plan looks like this:
+
+{
+  "document": "/absolute/path/to/the.docx",
+  "operations": [
+    { "op": "setText", "at": 34,
+      "from": "the paragraph exactly as the sidecar shows it",
+      "to": "what it should say instead" }
+  ]
+}
+
+There are exactly nine operations. Use one of these and never invent another —
+a plan naming an operation that is not on this list is refused whole, and
+nothing is written.
+
+TEXT
+  { "op": "setText", "at": 34, "from": "…", "to": "…" }
+  { "op": "insertParagraph", "after": 34, "text": "…", "style": "Heading2" }
+  { "op": "deleteParagraph", "at": 34, "from": "…" }
+  { "op": "moveParagraph", "at": 34, "from": "…", "after": 12 }
+
+SHAPE
+  { "op": "setStyle", "at": 34, "set": { "bold": true, "fontSize": 14 } }
+  { "op": "setHeadingLevel", "at": 34, "from": "…", "level": 2 }
+  { "op": "setListLevel", "at": 34, "from": "…", "level": 2 }
+
+TABLE — "at" is any paragraph inside the table
+  { "op": "insertRow", "at": 51, "cells": ["Week 4", "Agents", "3h"] }
+  { "op": "deleteRow", "at": 51, "from": ["Week 3", "Tools", "3h"] }
+
+Rules that decide whether a plan runs at all:
+
+- Address a paragraph by BOTH its number and its text. "at" is the number in
+  the sidecar; "from" is what that paragraph says now, copied exactly. If the
+  two disagree the operation is refused and nothing is written.
+- Every operation that changes something which already exists must carry
+  "from". setStyle is the exception: the sidecar does not show formatting, so
+  it cannot be quoted.
+- A paragraph the sidecar marks "locked" cannot be changed at all. Do not plan
+  an edit to one.
+- Every number in one plan refers to the document as the sidecar shows it now.
+  Do not renumber for your own earlier operations, and do not change the same
+  paragraph twice — REX refuses that.
+- A cell is an ordinary paragraph with its own number. Use setText on it. There
+  is no setCellText.
+- Make the smallest change the discussion actually calls for. Leaving the
+  document alone is a correct outcome when nothing was agreed.`;
 
 /** §8.6 — inlining the section is a head start, not a limit. */
 const SECTION_MAX = 2000;
@@ -235,6 +327,10 @@ function displayPath(repositoryRoot: string, path: string): string {
  */
 function describeTarget(anchor: Anchor, documentPath: string | null): string {
   if (anchor.extent === "document") return "the whole document";
+  // Spec 29 §5.8 — a diagram part is told in the words of the source and the
+  // line it is on now, which is a sentence the agent can act on in the file it
+  // may edit. Before the quote, which a diagram part never has.
+  if (anchor.diagram) return describeDiagramTarget(anchor, documentPath);
 
   const quote = anchor.quote?.exact?.trim();
   if (anchor.extent === "section") {
@@ -261,6 +357,99 @@ function describeTarget(anchor: Anchor, documentPath: string | null): string {
   return named
     ? `(no text — an element anchor: ${named}${region})`
     : "(no text and no element — a stored position only)";
+}
+
+/**
+ * Spec 29 §5.8 — a part of a Mermaid diagram, as the agent reads it:
+ *
+ *     In the Mermaid diagram (flowchart) at lines 156–162 of docs/SPEC.md:
+ *        the node B, labelled "Has comment?" — declared on line 157:
+ *            B{Has comment?}
+ *        It is also mentioned on lines 158 and 159.
+ *
+ * The lines are the file's as it is NOW: the fence is found again in the file
+ * by its fingerprint, else by the part (`locateFence`), and the part in it by
+ * what names it (`findPart`). When the file cannot be read, or the fence is
+ * gone, the stored ref still says what the part was — it carries the lines
+ * that stated it — and the stored line is the last resort, as it is for every
+ * anchor.
+ */
+function describeDiagramTarget(anchor: Anchor, documentPath: string | null): string {
+  const ref = anchor.diagram as DiagramRef;
+  const file = documentPath ? readSource(documentPath) : null;
+  const fence = file ? locateFence(file, ref) : null;
+  const parts = fence ? scanDiagram(fence.source) : null;
+  const found = parts ? findPart(parts, ref) : null;
+
+  // The fence's opening line: from the file when it was found there, else
+  // worked back from the stored line, which is the part's own.
+  const fenceLine =
+    fence?.fenceLine ?? (anchor.source ? anchor.source.line - ref.lines.from : null);
+  const lines = found?.lines ?? ref.lines;
+  const at = (line: number): string => String(fenceLine === null ? line : fenceLine + line);
+  const where =
+    lines.from === lines.to ? `line ${at(lines.from)}` : `lines ${at(lines.from)}–${at(lines.to)}`;
+  const span =
+    fence && fenceLine !== null
+      ? ` at lines ${fenceLine + 1}–${fenceLine + fence.source.split("\n").length}`
+      : "";
+
+  const text = (fence && found ? textOfLines(fence.source, lines) : ref.text)
+    .split("\n")
+    .map((line) => `       ${line}`)
+    .join("\n");
+
+  const part = found?.part ?? ref.part;
+  const label = parts && found ? partLabel(parts, part) : describeRefLabel(ref);
+  const quoted = label ? `, labelled ${JSON.stringify(label)}` : "";
+  let head: string;
+  switch (part.kind) {
+    case "node":
+      head = `the node ${part.id}${quoted} — declared on ${where}:`;
+      break;
+    case "edge":
+      head = `the edge from ${part.from} to ${part.to}${quoted} — ${where}:`;
+      break;
+    case "subgraph":
+      head = `the subgraph ${part.id}${label ? `, titled ${JSON.stringify(label)}` : ""} — ${where}:`;
+      break;
+    case "lines":
+      head = `${where}:`;
+      break;
+  }
+
+  const out = [`In the Mermaid diagram (${ref.type || "mermaid"})${span}:`, `   ${head}`, text];
+  if (part.kind === "node" && parts) {
+    const others = (parts.nodes.get(part.id)?.mentions ?? []).filter((l) => l !== lines.from);
+    if (others.length > 0) {
+      const named = others.map(at);
+      const list =
+        named.length === 1
+          ? named[0]
+          : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
+      out.push(`   It is also mentioned on line${others.length === 1 ? "" : "s"} ${list}.`);
+    }
+  }
+  if (!fence && file) {
+    out.push(
+      "   This diagram is not in the file any more as it was; the lines above are what it said.",
+    );
+  }
+  return out.join("\n");
+}
+
+/** The label a stored ref alone can give, through the one-fence scan `describeRef` does. */
+function describeRefLabel(ref: DiagramRef): string | null {
+  const parts = scanDiagram(`${ref.type}\n${ref.text}`);
+  return partLabel(parts, ref.part);
+}
+
+function readSource(path: string): string | null {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -405,7 +594,8 @@ export function passageSection(input: {
   thread: Thread;
   documentPaths: ReadonlyMap<string, string>;
   repositoryRoot: string;
-  heading: string;
+  /** The `##` line the list sits under. Null when the caller wrote its own. */
+  heading: string | null;
   /**
    * Where this passage sits *now*, when the caller can work it out. Apply
    * passes one; Ask passes one only while a working copy exists, because a read
@@ -413,14 +603,40 @@ export function passageSection(input: {
    * paragraph.
    */
   locate?: (documentPath: string, anchor: Anchor) => PassagePlace;
+  /**
+   * Spec 24 §6.1 — list only the targets from this position on. The numbers
+   * stay the targets' own, so a follow-up that adds places 4 and 5 says `4.`
+   * and `5.`, which is what the reviewer's chips and outlines say.
+   */
+  from?: number;
+  /**
+   * Spec 24 §6.2 — the user message being sent. A target that arrived with it
+   * has its line end in `— added with this instruction`, because the discussion
+   * the ACT prompt carries never mentions passages, and without the marker the
+   * agent sees five places and a conversation that only ever spoke of three.
+   */
+  addedWith?: string | null;
+  /**
+   * Spec 24 §6.1 — a `### file.md` heading even for a single document. The
+   * opening prompt names the document at its top; a follow-up has no such line,
+   * so the heading is the only thing that says where a new place is.
+   */
+  nameEveryDocument?: boolean;
 }): string[] {
   const { thread, documentPaths, repositoryRoot } = input;
-  if (thread.targets.length === 0) return [];
+  const from = input.from ?? 0;
+  if (thread.targets.length <= from) return [];
 
   const groups = new Map<string, string[]>();
   let anyOriginal = false;
 
+  // Spec 24 §6.2 — `messageId` is null on a place the comment started with, so
+  // a null `addedWith` marks nothing rather than everything.
+  const added = (target: AnchorTarget): string =>
+    input.addedWith && target.messageId === input.addedWith ? " — added with this instruction" : "";
+
   thread.targets.forEach((target, position) => {
+    if (position < from) return;
     const path = documentPaths.get(target.documentId) ?? target.documentId;
     const name = displayPath(repositoryRoot, path);
     const lines = groups.get(name) ?? [];
@@ -430,15 +646,16 @@ export function passageSection(input: {
     // own, so nothing below applies to it.
     if (target.anchor.gap) {
       const [head, tail] = describeGapTarget(target.anchor, name, place);
-      lines.push(`${position + 1}. ${head}`, tail);
+      lines.push(`${position + 1}. ${head}${added(target)}`, tail);
       groups.set(name, lines);
       return;
     }
 
     // Spec 06 §7.1 — an extent target carries its own range, or deliberately
     // none. A single line for a section would name where it *starts* as though
-    // that were the passage.
-    const line = target.anchor.extent ? null : (place?.line ?? null);
+    // that were the passage. Spec 29 §5.8 — a diagram part names its own lines
+    // in its description, so a second line here would say it twice.
+    const line = target.anchor.extent || target.anchor.diagram ? null : (place?.line ?? null);
 
     // Spec 16 §5.4 — a passage that only the original has is said to be one,
     // plainly. The agent would otherwise be handed a quote it cannot find in
@@ -448,27 +665,72 @@ export function passageSection(input: {
       lines.push(
         `${position + 1}. In the ORIGINAL version of ${name} — the version on disk, which`,
         "   the change you have already made removes:",
-        `   ${describeTarget(target.anchor, path)}${line === null ? "" : ` — line ${line} of the original`}`,
+        `   ${describeTarget(target.anchor, path)}${line === null ? "" : ` — line ${line} of the original`}${added(target)}`,
       );
       groups.set(name, lines);
       return;
     }
 
     const where = line === null ? "" : ` — line ${line}`;
-    lines.push(`${position + 1}. ${describeTarget(target.anchor, path)}${where}`);
+    lines.push(`${position + 1}. ${describeTarget(target.anchor, path)}${where}${added(target)}`);
     groups.set(name, lines);
   });
 
-  const parts = [input.heading];
+  const parts = input.heading === null ? [] : [input.heading];
   // One document needs no heading of its own — it is already named at the top
   // of the prompt, and a lone `### file.md` reads as if a second is missing.
-  const single = groups.size === 1;
+  const single = groups.size === 1 && !input.nameEveryDocument;
   for (const [name, lines] of groups) {
     if (!single) parts.push("", `### ${name}`);
     parts.push(...lines);
   }
   if (anyOriginal) parts.push("", LOOKING_AT_THE_ORIGINAL);
   parts.push("");
+  return parts;
+}
+
+/**
+ * Spec 34 §7 — the document's name, and where to read it: the top of the
+ * first prompt every fresh session gets.
+ *
+ * Two fresh sessions exist. The opening ASK is one; a reply whose SDK
+ * transcript was lost and is replayed from REX's own record (SPEC.md §8.5) is
+ * the other, and that record holds the reviewer's notes, not the prompts — so
+ * without this an agent replayed onto a pending change went looking in the
+ * repository and read the file, which is the wrong version. Said once per
+ * session, never per turn: the location does not move.
+ */
+export function documentHeader(input: {
+  thread: Thread;
+  documentPaths: ReadonlyMap<string, string>;
+  repositoryRoot: string;
+  readAt?: ReadonlyMap<string, string>;
+}): string[] {
+  const { thread, documentPaths, repositoryRoot } = input;
+  const primary = thread.targets[0] ?? null;
+  const primaryPath = primary ? (documentPaths.get(primary.documentId) ?? null) : null;
+  const primaryCopy = primary ? (input.readAt?.get(primary.documentId) ?? null) : null;
+
+  const parts: string[] = [];
+  if (primaryPath) parts.push(`Document: ${displayPath(repositoryRoot, primaryPath)}`);
+  // The location, once. It never changes, so no later turn repeats it:
+  // approve and discard move bytes between the two files, not the files.
+  if (primaryCopy && primaryCopy !== primaryPath) {
+    parts.push(
+      `Read it at: ${primaryCopy}`,
+      "  — REX's copy, the current version. The file in the workspace is what the",
+      "  reviewer has approved so far; do not edit either.",
+    );
+  }
+  const others = [...(input.readAt ?? [])].filter(
+    ([id, copy]) => id !== primary?.documentId && copy !== documentPaths.get(id),
+  );
+  if (others.length > 0) {
+    parts.push("Also read at:");
+    for (const [id, copy] of others) {
+      parts.push(`  ${displayPath(repositoryRoot, documentPaths.get(id) ?? id)} → ${copy}`);
+    }
+  }
   return parts;
 }
 
@@ -480,15 +742,26 @@ export function askPrompt(input: {
   /** The repository root of `targets[0]`'s document. */
   repositoryRoot: string;
   /**
-   * Spec 16 §5.4 — supplied only while a working copy exists, and only then.
-   * A passage the change removed has to be named as the original's or the read
-   * agent goes looking for it in a file that no longer has it.
+   * Spec 16 §5.4 — where each passage is now: in the copy, with its line
+   * there, or only in the original. A passage the change removed has to be
+   * named as the original's or the read agent goes looking for it in a file
+   * that no longer has it. Spec 34 §4 — supplied for every document that has a
+   * copy, which is every text document: the line it gives is the copy's, and
+   * the copy is what the agent opens.
    */
   locate?: (documentPath: string, anchor: Anchor) => PassagePlace;
+  /**
+   * Spec 34 §7 — where the agent READS each document, by document id: REX's
+   * working copy. `documentPaths` stay the reviewer's own, because they are
+   * the names the prompt uses; this is the location, said once, at the top.
+   * Absent for a document that has no copy — a deck, a Word file.
+   */
+  readAt?: ReadonlyMap<string, string>;
 }): string {
   const { thread, documentPaths, repositoryRoot } = input;
   const primary = thread.targets[0] ?? null;
   const primaryPath = primary ? (documentPaths.get(primary.documentId) ?? null) : null;
+  const primaryCopy = primary ? (input.readAt?.get(primary.documentId) ?? null) : null;
 
   // Spec 06 §7.1 — a document target has no line, and a wrong one sends the
   // agent to the wrong place. It carries no `source` at all (§4.3), so the
@@ -496,8 +769,7 @@ export function askPrompt(input: {
   // fallback line later.
   const wholeDocument = primary?.anchor.extent === "document";
 
-  const parts: string[] = [];
-  if (primaryPath) parts.push(`Document: ${displayPath(repositoryRoot, primaryPath)}`);
+  const parts: string[] = [...documentHeader(input)];
   if (primary?.anchor.source) parts.push(`Line: ${primary.anchor.source.line}`);
   parts.push("");
 
@@ -521,11 +793,89 @@ export function askPrompt(input: {
   // Spec 06 §7.1 — skipped for a document target: the surrounding section of
   // the whole document is the whole document, and printing it twice buys
   // nothing.
+  //
+  // Spec 34 §7 — read from the copy when there is one: that is the file the
+  // agent opens, and after a change it is the version the section is in.
   const section =
-    primary && primaryPath && !wholeDocument ? enclosingSection(primaryPath, primary.anchor) : null;
+    primary && primaryPath && !wholeDocument
+      ? enclosingSection(primaryCopy ?? primaryPath, primary.anchor)
+      : null;
   if (section) parts.push("## Surrounding section", section, "");
 
   parts.push("## Comment", thread.note);
+  return parts.join("\n");
+}
+
+/**
+ * Spec 34 §6.2 — what the reviewer did to the document since the agent last
+ * spoke, in front of a reply to a RESUMED session.
+ *
+ * A resumed session has its own memory and gets only the reply, so an approve
+ * or a discard that happened between turns is news it has no other way to
+ * hear. Said once, and only when there is something: with no events the reply
+ * is the bare text, exactly as `thread:reply` has always sent it. A fresh
+ * session never needs this — its transcript carries the events in place.
+ */
+export function withEvents(events: readonly string[], prompt: string): string {
+  if (events.length === 0) return prompt;
+  return ["Since your last turn:", ...events.map((event) => `- ${event}`), "", prompt].join("\n");
+}
+
+/**
+ * Spec 24 §6.1 — a reply that points somewhere new.
+ *
+ * Only the places added with THIS message are listed. On a resumed session the
+ * agent remembers the opening ones from its own transcript, and listing them
+ * again would bury the two that matter under the three it has. The numbers are
+ * the targets' own — `from` is where the new ones start — so the prompt, the
+ * chips and the outlines all say `4.`.
+ *
+ * With nothing new the prompt is the bare text, exactly as `thread:reply` has
+ * always sent it: an ordinary reply does not grow a heading.
+ */
+export function followUpPrompt(input: {
+  thread: Thread;
+  documentPaths: ReadonlyMap<string, string>;
+  repositoryRoot: string;
+  /** The position of the first place this message added. */
+  from: number;
+  /** What the reviewer typed. */
+  text: string;
+  locate?: (documentPath: string, anchor: Anchor) => PassagePlace;
+}): string {
+  const { thread, from, text } = input;
+  const fresh = thread.targets.slice(from);
+  if (fresh.length === 0) return text;
+
+  const count = fresh.length === 1 ? "1 more place" : `${fresh.length} more places`;
+  const numbering =
+    from > 0
+      ? `numbered on from the places this comment already had, 1 to ${from}`
+      : "numbered from 1";
+
+  const parts = [
+    "## New passages",
+    `The reviewer has pointed at ${count} since their last message. They are`,
+    `${numbering}.`,
+    // The list opens with its own blank line before the first `###`.
+    ...passageSection({
+      thread,
+      documentPaths: input.documentPaths,
+      repositoryRoot: input.repositoryRoot,
+      heading: null,
+      from,
+      nameEveryDocument: true,
+      ...(input.locate ? { locate: input.locate } : {}),
+    }),
+  ];
+
+  // Spec 06 §7.1 — the same instruction the opening prompt gives, for the same
+  // anchor: "the whole document" is a phrase with no action behind it.
+  if (fresh.some((target) => target.anchor.extent === "document")) {
+    parts.push(READ_IN_FULL, "");
+  }
+
+  parts.push("## Comment", text);
   return parts.join("\n");
 }
 

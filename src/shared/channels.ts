@@ -5,7 +5,7 @@
 // so this file is the entire surface between the two processes.
 
 import type {
-  Anchor,
+  AgentChoices,
   AnchorState,
   AnchorSummary,
   ChangedRegion,
@@ -15,13 +15,17 @@ import type {
   DocumentVersion,
   Message,
   OpenedDocument,
+  PaperView,
   ReferenceGraph,
   SkippedDocument,
+  TargetDraft,
   Thread,
+  ThreadStatus,
   ThreadWithMessages,
   ViewState,
   WorkingCopyView,
   WorkspaceRef,
+  WorkspaceSearchResult,
   WorkspaceTree,
 } from "./types.ts";
 
@@ -53,6 +57,17 @@ export const COMMAND = {
   workspaceGraph: "workspace:graph",
   /** Spec 10 §3.4 — take a folder or a file out of the review, or put it back. */
   workspaceExclude: "workspace:exclude",
+  /**
+   * Spec 23 §2 — the reviewer's own file acts, from the tree's menu.
+   *
+   * The second door REX has ever had into the folder under review, and the
+   * reason it is allowed is that nothing proposes these: the reviewer picked
+   * the row. Every check is main's (§2.2), and the agent can reach neither.
+   */
+  workspaceRename: "workspace:rename",
+  workspaceDelete: "workspace:delete",
+  /** Spec 28 §4.2 — every match of a query across the documents in the tree. */
+  workspaceSearch: "workspace:search",
   threadList: "thread:list",
   threadCreate: "thread:create",
   threadAsk: "thread:ask",
@@ -67,6 +82,16 @@ export const COMMAND = {
   threadReply: "thread:reply",
   threadResolve: "thread:resolve",
   threadDelete: "thread:delete",
+  /**
+   * The whole list at once, for starting a review over.
+   *
+   * Its own channel and not a `thread:delete` with the id left off, for the
+   * reason `group:delete` is not a `group:update`: a command that empties the
+   * panel must never be reachable by forgetting a field. It carries the SAME
+   * payload as `thread:list`, so what it destroys is by construction what the
+   * panel drew.
+   */
+  threadDeleteAll: "thread:delete-all",
   threadSynthesise: "thread:synthesise",
   threadApply: "thread:apply",
   /**
@@ -77,6 +102,22 @@ export const COMMAND = {
    * boolean is the kind of economy that ends with a paid run nobody asked for.
    */
   threadNote: "thread:note",
+  /**
+   * Spec 30 §3.2 — the reviewer left the composer with places in it.
+   *
+   * Replaces a draft's places and its question in one transaction. Refuses any
+   * thread that is not a draft: a comment that has been sent has messages
+   * pointing at its places (spec 24 §5.2), and replacing those wholesale would
+   * cut a message loose from what it was about.
+   */
+  threadDraftSave: "thread:draft-save",
+  /**
+   * Spec 30 §3.5 — **Turn into a comment**: a note becomes a draft.
+   *
+   * The one move that goes backwards through the lanes, and the only way out of
+   * `note` that is not the trash. Refuses anything that is not a note.
+   */
+  threadPromote: "thread:promote",
   /** Spec 14 §3 — the name on a comment. Null goes back to the note. */
   threadRename: "thread:rename",
   /** Spec 14 §5 — the reviewer's own arrangement of the list. */
@@ -135,6 +176,26 @@ export const COMMAND = {
    * depending on a null is the kind of economy that costs an afternoon later.
    */
   debugSnapshot: "debug:snapshot",
+  /**
+   * Spec 25 §6.3 — what the CLI offers this account, and the app-wide default.
+   *
+   * Two channels rather than one, because they change independently: the list
+   * is asked once per app run (§3.3) and the default is written whenever the
+   * reviewer picks a new one. `model:list` answers both at once so the picker
+   * never has to reason about a stored default missing from the list.
+   */
+  modelList: "model:list",
+  modelDefault: "model:default",
+  /**
+   * Spec 27 §4.7 — how the reviewer last left the Markdown page.
+   *
+   * Read once, when the overlay mounts, and written on every switch. It is one
+   * object rather than a key-value pair because the two values are one setting:
+   * a caller that could write the width without the ground would need to know
+   * the ground it was not changing.
+   */
+  paperView: "paper:view",
+  paperViewSet: "paper:view-set",
 } as const;
 
 /** Main → renderer, via `webContents.send`. */
@@ -176,15 +237,44 @@ export interface ThreadListRequest {
 
 /** Spec 05 §7 — `targets[0]` decides the thread's own document. Panel order. */
 export interface ThreadCreateRequest {
-  targets: Array<{ documentId: string; anchor: Anchor }>;
+  targets: TargetDraft[];
   note: string;
   /**
-   * NOTE mode — save it and send it to nobody.
+   * Spec 30 §2 — the lane it is born in. Absent means `open`, which is the
+   * ordinary comment: created and then sent by whichever of `thread:ask` or
+   * `thread:apply` the mode picked.
    *
-   * Absent and false both mean the ordinary comment, which is created and then
-   * sent by whichever of `thread:ask` or `thread:apply` the mode picked.
+   * `draft` is a comment the reviewer walked away from, `note` one they chose
+   * to send to nobody. `resolved` is not offered — nothing is dealt with at the
+   * moment it is made.
    */
-  isNote?: boolean;
+  status?: Exclude<ThreadStatus, "resolved">;
+  /**
+   * Spec 30 §3.6 — the name the reviewer typed in the composer, or null.
+   *
+   * Null and absent both mean **named by the note** (spec 14 §3.1), which is
+   * what every comment did before the composer had a name box. It is here
+   * rather than a `thread:rename` after the fact so a comment is never written
+   * with one name and then corrected to another.
+   */
+  title?: string | null;
+}
+
+/** Spec 30 §3.2 — a draft's places, question and name, replaced wholesale. */
+export interface ThreadDraftSaveRequest {
+  threadId: string;
+  targets: TargetDraft[];
+  note: string;
+  /** Spec 30 §3.6 — null goes back to being named by the note. */
+  title?: string | null;
+  /**
+   * The lane it lands in. Absent leaves it a draft, which is what back does.
+   *
+   * It rides along rather than being a second call because sending a draft is
+   * ONE act: a draft that saved its places and then failed to change lane would
+   * be a comment the reviewer has sent sitting in the unsent list.
+   */
+  status?: Extract<ThreadStatus, "draft" | "note" | "open">;
 }
 
 /**
@@ -200,9 +290,69 @@ export interface WorkspaceExcludeRequest {
   exclude: boolean;
 }
 
+/**
+ * Spec 23 §4 — one row, one new name.
+ *
+ * `name` is a basename and never a path: a rename is not a move (§8), and a
+ * box that accepts `../x.md` reads as one and acts as the other.
+ */
+export interface WorkspaceRenameRequest {
+  root: string;
+  path: string;
+  name: string;
+}
+
+/** Spec 23 §3 — one file, to the system Bin. Never a folder. */
+export interface WorkspaceDeleteRequest {
+  root: string;
+  path: string;
+}
+
+/** Spec 28 §4.2 — the root is the tree being drawn; main scans it again. */
+export interface WorkspaceSearchRequest {
+  root: string;
+  query: string;
+}
+
+/**
+ * Spec 23 §2.2 — a refusal is an answer, not a fault.
+ *
+ * "You cannot delete that" is something the reviewer needs to read, so it comes
+ * back as a sentence for the notice bar rather than as a thrown error, which
+ * the renderer would draw as a failure of REX.
+ *
+ * `path` on success is where the thing now is — the new path for a rename, and
+ * the path that was emptied for a delete.
+ */
+export type WorkspaceFileResult = { ok: true; path: string } | { ok: false; reason: string };
+
 export interface ThreadReplyRequest {
   threadId: string;
   text: string;
+  /**
+   * Spec 24 §4 — places to add to the comment with this message, in strip
+   * order. Absent and empty both mean a reply about the places it already has.
+   *
+   * They are written to `thread_target` BEFORE any prompt is built, so the
+   * comment has grown by the time the agent reads about it. `thread:note`
+   * takes the same shape, so a note can point somewhere too.
+   */
+  targets?: TargetDraft[];
+  /**
+   * Spec 25 §4.1 — the model this send runs on, as the reviewer picked it.
+   *
+   * Null is "REX said nothing, so the SDK decides" — the value every run
+   * carried before spec 25 — and it is what `thread:note` always sends, because
+   * a NOTE runs nothing (§2.3).
+   */
+  model: string | null;
+  /**
+   * Spec 31 §4 — the output style this send runs under.
+   *
+   * Null is the CLI's own default, which is what every run did before spec 31,
+   * and it is what `thread:note` always sends: a note runs nothing.
+   */
+  style: string | null;
 }
 
 /**
@@ -216,6 +366,22 @@ export interface ThreadReplyRequest {
 export interface ThreadApplyRequest {
   threadId: string;
   note: string;
+  /**
+   * Spec 21 §3 — the open workspace, so a file the agent creates can be scoped
+   * to it.
+   *
+   * Main cannot work it out: `applyThread` groups by **repository** root, and a
+   * repository is not a workspace. Null when no workspace is open, and then
+   * nothing the agent creates is kept — REX cannot show a file in a tree that
+   * is not on screen.
+   */
+  root: string | null;
+  /** Spec 24 §4.2 — as on `ThreadReplyRequest`. */
+  targets?: TargetDraft[];
+  /** Spec 25 §4.1 — as on `ThreadReplyRequest`. */
+  model: string | null;
+  /** Spec 31 §4 — as on `ThreadReplyRequest`. ACT gets a style too (§2.3). */
+  style: string | null;
 }
 
 /**
@@ -309,6 +475,16 @@ export interface DeckSlidePreview {
   before: string | null;
   after: string | null;
   /**
+   * Spec 19 §7.2 — the speaker notes, when this run changed them.
+   *
+   * Both null on a slide whose notes the run did not touch. They exist because
+   * a notes change **does not appear on the slide**: spec 11 §7.7's preview is
+   * two pictures, and two identical pictures are the rubber stamp that whole
+   * section exists to prevent.
+   */
+  notesBefore: string | null;
+  notesAfter: string | null;
+  /**
    * The slide box in points, so the preview can scale the picture exactly.
    *
    * It has to come from the deck: a 16:9 deck is 720×405pt and a 4:3 one is
@@ -366,6 +542,44 @@ export interface ApplyReadyEvent {
    */
   restored: string[];
   /**
+   * Spec 21 §4.3 — the directory holding what a put-back removed.
+   *
+   * Null when `restored` is empty. It is in the notice because it was not: the
+   * bytes have always been kept (`work.ts:427`) and the reviewer has never been
+   * told where, so a put-back read as a deletion. That is how spec 21 §1's
+   * report started.
+   */
+  restoredDir: string | null;
+  /**
+   * Spec 21 §2 — files the agent created, kept where it wrote them.
+   *
+   * Repository-relative, like `restored`. A creation destroys nothing, so it is
+   * kept and shown rather than put back; the tree is refreshed when this is
+   * non-empty, because otherwise the file exists and the sidebar disagrees.
+   */
+  created: string[];
+  /**
+   * Spec 22 §5.1 — text documents under the workspace root the agent edited,
+   * now held as working copies.
+   *
+   * Repository-relative, like `restored` and `created`. The file on disk is
+   * unchanged and the agent's version is in `working` beside the anchored
+   * document's; this names them because a run that changed a file the reviewer
+   * did not comment on has to say so, or "Applied to 0 file(s)" is what they
+   * read.
+   */
+  changed: string[];
+  /**
+   * Spec 21 §13 — files the agent wrote into REX's own store.
+   *
+   * Absolute, unlike `restored` and `created`: the store is not under the
+   * repository, and the path is the only way back to the bytes. REX leaves them
+   * exactly where they are — `base` lives in that directory and must never be
+   * touched — and says so, because the alternative is what §13 reports: a run
+   * that wrote 9.5 KB and reported "Applied to 0 file(s)".
+   */
+  misplaced: string[];
+  /**
    * Spec 17 §3.4 — the reviewer stopped this run.
    *
    * It suppresses the notice bar, and nothing else. A run that was stopped has
@@ -385,10 +599,19 @@ export interface ApplyReadyEvent {
 /** Spec 15 §7.2 — approving writes into the reviewer's file, so it can refuse. */
 export interface WorkApproveResponse {
   ok: boolean;
-  /** §7.3 — why not, in the words the reviewer sees. */
+  /** §7.3 and spec 34 §5.2 — why not, in the words the reviewer sees. */
   reason: string | null;
   /** The sweep that follows a write (§8.7 step 6). Null when nothing was written. */
   reanchored: AnchorSummary | null;
+}
+
+/**
+ * Spec 34 §5.2 — discard and undo can refuse too, while a run holds the copy.
+ * Both replaced the copy's content under a running agent before this spec.
+ */
+export interface WorkActResponse {
+  ok: boolean;
+  reason: string | null;
 }
 
 /** What main is asking the renderer to draw. */
@@ -441,9 +664,21 @@ export interface RexApi {
   workspaceTree(ref: WorkspaceRef, reveal?: boolean): Promise<WorkspaceTree>;
   workspaceGraph(ref: WorkspaceRef): Promise<ReferenceGraph>;
   workspaceExclude(request: WorkspaceExcludeRequest): Promise<void>;
+  /** Spec 23 §4 — the file, and every record REX keys on its path. */
+  workspaceRename(request: WorkspaceRenameRequest): Promise<WorkspaceFileResult>;
+  /** Spec 23 §3 — to the Bin. The comments on it are kept. */
+  workspaceDelete(request: WorkspaceDeleteRequest): Promise<WorkspaceFileResult>;
+  /** Spec 28 §4.2 — runs on `↵`; the answer is a snapshot. */
+  workspaceSearch(request: WorkspaceSearchRequest): Promise<WorkspaceSearchResult>;
   threadList(request: ThreadListRequest): Promise<ThreadWithMessages[]>;
   threadCreate(request: ThreadCreateRequest): Promise<Thread>;
-  threadAsk(threadId: string): Promise<void>;
+  /**
+   * Spec 25 §4.1 — a second argument, not a request object.
+   *
+   * The channel has always taken a bare id, and wrapping two fields in a named
+   * type to add one string buys nothing the other two sends needed.
+   */
+  threadAsk(threadId: string, model: string | null, style: string | null): Promise<void>;
   /**
    * Spec 17 §3.1 — stops every run this comment has, and says how many.
    *
@@ -455,10 +690,19 @@ export interface RexApi {
   threadResolve(request: ThreadResolveRequest): Promise<Thread>;
   /** Removes the comment and everything that belonged to it. Irreversible. */
   threadDelete(threadId: string): Promise<void>;
+  /**
+   * Removes every comment `thread:list` would return for this request, and says
+   * how many went. Folders survive. Irreversible.
+   */
+  threadDeleteAll(request: ThreadListRequest): Promise<number>;
   threadSynthesise(request: ThreadSynthesiseRequest): Promise<Thread>;
   threadApply(request: ThreadApplyRequest): Promise<string>;
   /** NOTE mode — saves the text in the thread. No agent, no session, no cost. */
   threadNote(request: ThreadReplyRequest): Promise<void>;
+  /** Spec 30 §3.2 — replaces a draft's places and question. Drafts only. */
+  threadDraftSave(request: ThreadDraftSaveRequest): Promise<Thread>;
+  /** Spec 30 §3.5 — a note becomes a draft, keeping every place and its words. */
+  threadPromote(threadId: string): Promise<Thread>;
   /** Spec 14 §3 — name a comment, or pass null to go back to the note. */
   threadRename(request: ThreadRenameRequest): Promise<void>;
   /** Spec 14 §5 — every group in one workspace, at every depth, in walk order. */
@@ -474,15 +718,28 @@ export interface RexApi {
   workList(): Promise<WorkingCopyView[]>;
   /** Writes the new version over the reviewer's file, or says why it will not. */
   workApprove(documentId: string): Promise<WorkApproveResponse>;
-  /** Throws the working copy away. The file was never touched. */
-  workDiscard(documentId: string): Promise<void>;
-  /** One ACT run back. The revision is kept, so this is a step, not a loss. */
-  workUndo(documentId: string): Promise<void>;
+  /**
+   * Throws the change away: the copy takes the file's bytes (spec 34 §3.2).
+   * The file was never touched. Refused while a run holds the copy (§5.2).
+   */
+  workDiscard(documentId: string): Promise<WorkActResponse>;
+  /**
+   * One ACT run back. The revision is kept, so this is a step, not a loss.
+   * Refused while a run holds the copy (spec 34 §5.2).
+   */
+  workUndo(documentId: string): Promise<WorkActResponse>;
   anchorRestate(request: AnchorRestateRequest): Promise<void>;
   /** Puts this thread's debug report on the clipboard and returns it. */
   debugCopy(threadId: string): Promise<string>;
   /** Spec 13 §4 — the same, for the app rather than for one comment. */
   debugSnapshot(view: ViewState): Promise<string>;
+  /** Spec 25 §3 — the models this account can use, and the current default. */
+  modelList(): Promise<AgentChoices>;
+  /** Spec 25 §6 — sets the app-wide default. Every send uses it. */
+  modelDefault(value: string): Promise<void>;
+  /** Spec 27 §4.7 — the paper the reviewer last read on. */
+  paperView(): Promise<PaperView>;
+  paperViewSet(view: PaperView): Promise<void>;
 
   onStreamStep(listener: (message: Message) => void): () => void;
   onStreamCost(listener: (event: CostEvent) => void): () => void;

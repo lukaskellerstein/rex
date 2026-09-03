@@ -1,10 +1,12 @@
-// Spec 05 §10 milestone 15 — the migration, and the one rule that reads a
-// thread's targets.
+// Spec 05 §10 milestone 15 and spec 32 — the migration, and the one rule that
+// reads a thread's targets.
 //
 // Both fail silently if they are wrong. A migration that drops a target loses a
-// place somebody chose by hand, and reports nothing; a worst-state rule that
-// counts `null` as orphaned turns "that document has not been open" into "the
-// text is gone", which sends a reviewer looking for damage that never happened.
+// place somebody chose by hand, and reports nothing; a roll-up rule that counts
+// `null` as orphaned turns "that document has not been open" into "the text is
+// gone", and one that counts a single dead place as a dead comment files three
+// live places in the `gone` lane. Both send a reviewer looking for damage that
+// never happened, and neither says a word.
 //
 // A real SQLite database, not a mock: the migration is SQL, and a test of SQL
 // against a fake is a test of the fake.
@@ -19,8 +21,8 @@ import Database from "better-sqlite3";
 import { migrateThreadTargets } from "../src/main/db/migrate.ts";
 import { commentCountsByDocument, createThread, getThread } from "../src/main/db/queries.ts";
 import { applyPlan, withDetail } from "../src/main/threads.ts";
-import { worstState } from "../src/shared/targets.ts";
-import type { Anchor } from "../src/shared/types.ts";
+import { placesWord, tallyPlaces, threadState } from "../src/shared/targets.ts";
+import type { Anchor, AnchorState } from "../src/shared/types.ts";
 
 const SCHEMA = readFileSync(join(import.meta.dirname, "..", "src/main/db/schema.sql"), "utf8");
 
@@ -236,21 +238,83 @@ test("a comment with nothing editable says so, once", () => {
   }
 });
 
-test("the worst-state rule ignores null", () => {
-  // §5.4 — a thread is as good as its worst target, and a target nobody has
-  // looked at is not competing.
-  assert.equal(worstState(["ok", null, "moved"]), "moved");
-  assert.equal(worstState([null, "ok"]), "ok");
-  assert.equal(worstState(["moved", "orphaned", "ok"]), "orphaned");
+/** The rule under test, from a list of place states. */
+const stateOf = (states: Array<AnchorState | null>): AnchorState | null =>
+  threadState(tallyPlaces(states));
+
+test("one lost place does not lose the comment", () => {
+  // Spec 32 §1.1, the comment this spec was written for: four places, one
+  // renamed heading. It read `anchor lost` and left the `open` filter while
+  // three of its four places were painted on the paper.
+  assert.equal(stateOf(["ok", "orphaned", "ok", "ok"]), "moved");
+  // And the loudest half is what the word reports.
+  assert.deepEqual(placesWord(tallyPlaces(["ok", "orphaned", "ok", "ok"])), {
+    text: "1 of 4 lost",
+    tone: "lost",
+  });
 });
 
-test("null never counts as orphaned", () => {
+test("a comment is gone only when every place is", () => {
+  // §2 — `orphaned` needs unanimity. It is the lane that says "you cannot reach
+  // this comment by pointing at the paper", and one live place disproves it.
+  assert.equal(stateOf(["orphaned"]), "orphaned");
+  assert.equal(stateOf(["orphaned", "orphaned"]), "orphaned");
+  assert.equal(stateOf(["orphaned", "moved"]), "moved");
+  assert.equal(stateOf(["orphaned", "ok"]), "moved");
+});
+
+test("moved takes the leftover, and a clean comment stays ok", () => {
+  // §2.1 — not gone and not clean is one amber wash, whichever way it got there.
+  assert.equal(stateOf(["ok", "moved"]), "moved");
+  assert.equal(stateOf(["moved", "moved"]), "moved");
+  assert.equal(stateOf(["ok", "ok"]), "ok");
+});
+
+test("null competes in neither direction", () => {
+  // §2 and spec 05 §5.4 — "nobody looked" cannot lose a comment and cannot save
+  // one. A comment whose only answer is `orphaned` is gone, whatever else it
+  // has that nobody has read.
+  assert.equal(stateOf(["ok", null, "moved"]), "moved");
+  assert.equal(stateOf([null, "ok"]), "ok");
+  assert.equal(stateOf(["orphaned", null, null]), "orphaned");
+});
+
+test("nothing checked is no state at all, never orphaned", () => {
   // The whole point of the null state: "nobody looked" is not "the text is
-  // gone", and a thread with nothing checked has no state at all rather than
-  // the worst one.
-  assert.equal(worstState([null, null]), null);
-  assert.equal(worstState([]), null);
-  assert.notEqual(worstState([null]), "orphaned");
+  // gone", and REX cannot report a document it never opened as fine either.
+  assert.equal(stateOf([null, null]), null);
+  assert.equal(stateOf([]), null);
+  assert.equal(placesWord(tallyPlaces([null, null])), null);
+});
+
+test("the word counts the places anyone looked at, and no others", () => {
+  // §2.2 — the denominator is `checked`. A fifth place in a file nobody has
+  // opened is not evidence, so putting it in the fraction would make the word a
+  // claim about a file nobody read.
+  assert.deepEqual(placesWord(tallyPlaces(["orphaned", "ok", null, null])), {
+    text: "1 of 2 lost",
+    tone: "lost",
+  });
+  assert.deepEqual(placesWord(tallyPlaces(["moved", "ok", "ok", "ok"])), {
+    text: "1 of 4 moved",
+    tone: "moved",
+  });
+  // Unanimous, so there is nothing to count: the plain words stay.
+  assert.deepEqual(placesWord(tallyPlaces(["orphaned", "orphaned"])), {
+    text: "anchor lost",
+    tone: "lost",
+  });
+  assert.deepEqual(placesWord(tallyPlaces(["moved"])), { text: "text moved", tone: "moved" });
+  // Nothing is wrong with it, so it says nothing.
+  assert.equal(placesWord(tallyPlaces(["ok", "ok"])), null);
+});
+
+test("a loss outshouts a move in the same comment", () => {
+  // §2.2 — one word for one comment, and the loss is the half worth reading.
+  assert.deepEqual(placesWord(tallyPlaces(["ok", "moved", "orphaned", "ok"])), {
+    text: "1 of 4 lost",
+    tone: "lost",
+  });
 });
 
 /** Spec 18 §4.2 — one document, one comment of every shape the counts see. */
@@ -259,9 +323,11 @@ function countingDatabase(): Database.Database {
   db.exec(SCHEMA);
   const at = "2026-08-26T00:00:00.000Z";
 
-  db.prepare(
-    "INSERT INTO document (id, kind, value, title, content_hash, last_seen_at) VALUES ('d1', 'file', ?, NULL, NULL, ?)",
-  ).run(DOCUMENT, at);
+  const document = db.prepare(
+    "INSERT INTO document (id, kind, value, title, content_hash, last_seen_at) VALUES (?, 'file', ?, NULL, NULL, ?)",
+  );
+  document.run("d1", DOCUMENT, at);
+  document.run("d2", OTHER_DOCUMENT, at);
 
   const thread = db.prepare(
     `INSERT INTO thread (id, document_id, kind, status, note, session_id, profile, model,
@@ -270,27 +336,41 @@ function countingDatabase(): Database.Database {
   );
   const target = db.prepare(
     `INSERT INTO thread_target (thread_id, position, document_id, anchor_json, anchor_state)
-     VALUES (?, 0, 'd1', ?, ?)`,
+     VALUES (?, ?, ?, ?, ?)`,
   );
 
-  const comment = (id: string, status: string, state: string | null): void => {
+  /** One comment, and one place per state given — all in `d1` unless said. */
+  const comment = (
+    id: string,
+    status: string,
+    places: Array<{ state: string | null; documentId?: string }>,
+  ): void => {
     thread.run(id, "anchored", status, `Comment ${id}`, at, at);
-    target.run(id, JSON.stringify(anchorQuoting(`Passage ${id}.`)), state);
+    places.forEach((place, position) => {
+      const json = JSON.stringify(anchorQuoting(`Passage ${id}.${position}`));
+      target.run(id, position, place.documentId ?? "d1", json, place.state);
+    });
   };
 
-  comment("t1", "open", "ok");
-  comment("t2", "open", "moved");
-  comment("t3", "open", "orphaned");
+  comment("t1", "open", [{ state: "ok" }]);
+  comment("t2", "open", [{ state: "moved" }]);
+  comment("t3", "open", [{ state: "orphaned" }]);
   // The one the two surfaces used to disagree about.
-  comment("t4", "resolved", "orphaned");
-  comment("t5", "resolved", "ok");
-  // A synthesis has no target, so its worst state is NULL rather than orphaned.
+  comment("t4", "resolved", [{ state: "orphaned" }]);
+  comment("t5", "resolved", [{ state: "ok" }]);
+  // A synthesis has no target, so it has no state rather than an orphaned one.
   thread.run("t6", "synthesis", "open", "About t1 and t2", at, at);
+  // Spec 32 §4 — two places in ONE file, one of them dead. Open, not gone.
+  comment("t7", "open", [{ state: "orphaned" }, { state: "ok" }]);
+  // Spec 32 §4 — the dead place is here and the live one is elsewhere. The
+  // comment is one thing and gets one verdict, counted against both files.
+  comment("t8", "open", [{ state: "orphaned" }, { state: "ok", documentId: "d2" }]);
 
   return db;
 }
 
 const DOCUMENT = "/tmp/rex-targets-spec/overview.md";
+const OTHER_DOCUMENT = "/tmp/rex-targets-spec/components.md";
 
 test("the three comment counts are disjoint", () => {
   // Spec 18 §4.2 — open + gone + resolved is every comment on the file, counted
@@ -299,8 +379,37 @@ test("the three comment counts are disjoint", () => {
   try {
     const counts = commentCountsByDocument(db).get(DOCUMENT);
     assert.ok(counts, "the document has comments and must appear in the map");
-    assert.deepEqual(counts, { open: 3, resolved: 2, orphaned: 1 });
-    assert.equal(counts.open + counts.resolved + counts.orphaned, 6);
+    // t1, t2, t6, t7 and t8 open; t4 and t5 resolved; t3 the only real orphan.
+    assert.deepEqual(counts, { open: 5, resolved: 2, orphaned: 1 });
+    assert.equal(counts.open + counts.resolved + counts.orphaned, 8);
+  } finally {
+    db.close();
+  }
+});
+
+test("a file's count is open when one of a comment's two places survives", () => {
+  // Spec 32 §4 — MIN, not MAX. t7 has a dead place and a live one in this file,
+  // and under the old rule the tree drew a grey `?` for it while the sidebar
+  // listed it as open.
+  const db = countingDatabase();
+  try {
+    const counts = commentCountsByDocument(db).get(DOCUMENT);
+    assert.equal(counts?.orphaned, 1, "t3 is the only comment with nothing left");
+  } finally {
+    db.close();
+  }
+});
+
+test("one comment gets one verdict, in every file it names", () => {
+  // Spec 32 §4 — the verdict is over the whole comment, not over one document's
+  // share of it. t8's dead place is in `DOCUMENT` and its live one is in
+  // `OTHER_DOCUMENT`; grouped per document it was gone here and open there, so
+  // the tree contradicted itself about one comment.
+  const db = countingDatabase();
+  try {
+    const counts = commentCountsByDocument(db);
+    assert.deepEqual(counts.get(OTHER_DOCUMENT), { open: 1, resolved: 0, orphaned: 0 });
+    assert.equal(counts.get(DOCUMENT)?.orphaned, 1, "t8 is not gone here either");
   } finally {
     db.close();
   }
@@ -325,8 +434,8 @@ test("a comment whose text moved is open, not a lane of its own", () => {
   // away, and the card says where it went.
   const db = countingDatabase();
   try {
-    // t1 (ok), t2 (moved) and t6 (no target) are the three.
-    assert.equal(commentCountsByDocument(db).get(DOCUMENT)?.open, 3);
+    // t1 (ok), t2 (moved), t6 (no target), t7 and t8 (part-lost) are the five.
+    assert.equal(commentCountsByDocument(db).get(DOCUMENT)?.open, 5);
   } finally {
     db.close();
   }

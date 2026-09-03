@@ -30,14 +30,21 @@ import {
 } from "../agent/prompts.ts";
 import { runAgent } from "../agent/runner.ts";
 import type { MessageDraft } from "../db/queries.ts";
+import { openPackage } from "../ooxml/package.ts";
 import { ensureSidecar, renderSlidePage } from "../render/pptx.ts";
 import { deckCacheDir } from "../render/pptxText.ts";
 import { readDeckMap } from "./deck.ts";
 import { applyPlanToPackage } from "./edit.ts";
 import { generationAvailable, type MediaResolver, setMediaOutputDir } from "./media.ts";
-import { openPackage } from "./package.ts";
+import { readNotes } from "./notes.ts";
 import { type EditPlan, PlanError, parsePlan } from "./plan.ts";
-import { affectedSlides, intentProblems, newProblems, videoProblems } from "./validate.ts";
+import {
+  affectedSlides,
+  intentProblems,
+  newProblems,
+  notesProblems,
+  videoProblems,
+} from "./validate.ts";
 
 function hashOf(bytes: Buffer): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -79,6 +86,8 @@ export interface DeckApplyInput {
   /** What the reviewer highlighted, already described. */
   passages: string[];
   model: string | null;
+  /** Spec 31 §2.3 — the output style the plan is written in. */
+  style: string | null;
   /** §7.4.2 — the renderer's diagram drawer, passed down from the IPC layer. */
   resolver: MediaResolver;
   /** Spec 17 §2.6 — the reviewer's Stop, handed on to the agent. */
@@ -163,6 +172,7 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
     sessionId: sessionIdFor(input.runKey),
     resume: false,
     model: input.model,
+    style: input.style,
     // §6.4.2 — a `.pptx` is a marker: the two design plugins load only here.
     documentPath: input.deckPath,
     signal: input.signal,
@@ -220,6 +230,10 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
       ...(await videoProblems(editedPackage, editedMap.slides[operation.slide - 1] ?? "")),
     );
   }
+  // Spec 19 §7.3 — the notes changed, and the slide did not. Its own pass,
+  // because a note is not drawn on the slide and nothing else would notice.
+  intent.push(...(await notesProblems(source, bytes, plan)));
+
   if (intent.length > 0) {
     throw new Error(
       `The edited copy does not match the plan, so it was discarded: ${intent
@@ -234,13 +248,29 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
   const map = await readDeckMap(original);
   const editedHash = hashOf(bytes);
   const slides: DeckSlidePreview[] = [];
+  const notesChanged = new Set(
+    plan.operations.filter((operation) => operation.op === "setNotes").map((o) => o.slide),
+  );
+  const editedPackageForNotes = await openPackage(bytes);
+  const editedMapForNotes = await readDeckMap(editedPackageForNotes);
+  const originalMapForNotes = await readDeckMap(original);
+
   for (const slide of affectedSlides(plan, map)) {
     const before = await renderSlidePage(source, contentHash, slide);
     const after = await renderSlidePage(bytes, editedHash, slide);
+    // §7.2 — only for the slides this run's notes operations named, so an
+    // ordinary edit's preview is exactly what spec 11 built.
+    const showNotes = notesChanged.has(slide);
     slides.push({
       slide,
       before: before?.html ?? null,
       after: after?.html ?? null,
+      notesBefore: showNotes
+        ? await readNotes(original, originalMapForNotes.slides[slide - 1] ?? "")
+        : null,
+      notesAfter: showNotes
+        ? await readNotes(editedPackageForNotes, editedMapForNotes.slides[slide - 1] ?? "")
+        : null,
       widthPt: after?.widthPt ?? before?.widthPt ?? 720,
       heightPt: after?.heightPt ?? before?.heightPt ?? 405,
     });

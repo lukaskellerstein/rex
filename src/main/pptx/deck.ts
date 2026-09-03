@@ -12,8 +12,8 @@
 //    is `<p:cNvPr name="…">`, which is what the reader puts in `data-name` and
 //    what the reviewer, the sidecar and the plan all call it.
 
-import type { DeckPackage } from "./package.ts";
-import { attributeOf, type ElementSpan, firstElement, scanElements } from "./xml.ts";
+import type { OoxmlPackage } from "../ooxml/package.ts";
+import { attributeOf, type ElementSpan, firstElement, scanElements } from "../ooxml/xml.ts";
 
 export const PRESENTATION_PART = "ppt/presentation.xml";
 
@@ -65,7 +65,7 @@ export interface DeckMap {
 
 const SLIDE_REL_TYPE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide";
 
-export async function readDeckMap(pkg: DeckPackage): Promise<DeckMap> {
+export async function readDeckMap(pkg: OoxmlPackage): Promise<DeckMap> {
   const presentation = await pkg.readText(PRESENTATION_PART);
   const rels = parseRelationships(await pkg.readText(relsPathFor(PRESENTATION_PART)));
   const byId = new Map(

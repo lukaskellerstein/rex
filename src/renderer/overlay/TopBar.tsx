@@ -10,24 +10,33 @@ import { useEffect, useRef, useState } from "react";
 // 5× on a retina panel and never upscaled. Imported from the kit rather than
 // copied into src/, so there is one source of truth for the brand.
 import logo from "../../../docs/logo/mark/rex-mark-color-128.png";
-import type { OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
+import type { AgentChoices, OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
 import { Bug, ChevronDown } from "./Icons.tsx";
+import { ModelPick } from "./ModelPick.tsx";
 
 interface Props {
   doc: OpenedDocument | null;
   workspace: WorkspaceRef | null;
   centre: "document" | "graph";
-  cost: number;
-  unanswered: number;
   /** The document's own zoom. 1 is 100%, and then nothing is shown. */
   zoom: number;
   onResetZoom: () => void;
   onCentre: (centre: "document" | "graph") => void;
-  onAskAll: () => void;
   onOpenFile: () => void;
   onOpenFolder: () => void;
   /** Spec 13 §4.1 — the app's state on the clipboard, for a bug report. */
   onDebug: () => void;
+  /**
+   * Spec 25 §7.2 — the app-wide default model, set here.
+   *
+   * On the app's side of the bar, beside the bug button, and not with the
+   * document controls to its left: a default is a fact about REX and it must
+   * still be settable when no document is open. It first sat beside the cost
+   * pill, which was the other run-shaped thing up here; the bar's redesign
+   * moved that away, and the boundary the bug button names is the better home.
+   */
+  models: AgentChoices;
+  onModel: (value: string) => void;
 }
 
 /**
@@ -203,8 +212,13 @@ export function TopBar(props: Props): React.JSX.Element {
         foot of the paper now (`ModeStrip.tsx`). The keys are unchanged.
       */}
 
+      {/*
+        Centred in the bar, not stacked with the right-edge controls. The
+        switcher chooses what the whole centre pane shows, so it sits over
+        that pane's middle rather than reading as one more document action.
+      */}
       {props.workspace ? (
-        <div className="rex-segment">
+        <div className="rex-segment rex-bar-centre">
           <button
             type="button"
             title="Show the document — D"
@@ -224,38 +238,40 @@ export function TopBar(props: Props): React.JSX.Element {
         </div>
       ) : null}
 
-      <span className="rex-cost" title="Running total for this document">
-        ${props.cost.toFixed(4)}
-      </span>
-
-      <button
-        type="button"
-        className="rex-button rex-primary"
-        disabled={props.unanswered === 0}
-        title={
-          props.unanswered === 0
-            ? "Every comment on this document has been asked"
-            : "Ask every unanswered comment, each in its own session — ⇧A"
-        }
-        onClick={props.onAskAll}
-      >
-        Ask all · {props.unanswered}
-      </button>
+      {/*
+        Spec 25 §7.2 — the model every send uses unless its comment says
+        otherwise. On the app's side of the bar with the bug button below, for
+        the same reason: it is about REX, not about the document.
+      */}
+      <ModelPick
+        models={props.models.models}
+        value={props.models.chosen}
+        fallback={props.models.chosen}
+        allowDefault={false}
+        disabled={null}
+        error={props.models.error}
+        onPick={(value) => {
+          if (value !== null) props.onModel(value);
+        }}
+      />
 
       {/*
         Spec 13 §4.1 — icon only, and always there. It is about the APP, not
         about the document, so it must still work when nothing opened; that
         failure is the one it was written for.
 
-        Last in the bar, past the primary action. Everything to its left acts on
-        the document under review; this one acts on REX itself, and the end of
-        the row is where a control that belongs to nothing else can sit without
-        being read as part of the group before it.
+        Last in the bar. Everything to its left acts on the document under
+        review; this one acts on REX itself, and the end of the row is where a
+        control that belongs to nothing else can sit without being read as part
+        of the group before it.
       */}
       <button
         type="button"
         className="rex-icon-button rex-debug"
-        title="Copy a debug report — what REX is doing, its debugger port and its recent errors. Paste it to Claude Code — B"
+        // The shortcut goes in the label: this is the one control in the bar
+        // that has a key, and a reviewer who reaches for it twice should learn
+        // the key rather than the corner.
+        data-tip="Copy debug report — B"
         aria-label="Copy a debug report"
         onClick={props.onDebug}
       >

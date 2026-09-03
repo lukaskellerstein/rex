@@ -19,7 +19,7 @@
 // is better than guessing how formatting should be redistributed across words
 // that no longer exist.
 
-import { type ElementSpan, escapeXml, scanElements, splice, unescapeXml } from "./xml.ts";
+import { type ElementSpan, escapeXml, scanElements, splice, unescapeXml } from "../ooxml/xml.ts";
 
 /** One `<a:t>`, both as text and as the two offsets that can replace it. */
 interface TextPiece {

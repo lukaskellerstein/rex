@@ -119,6 +119,40 @@ export interface GapRef {
 }
 
 /**
+ * Spec 29 §4.3 — one part of a Mermaid diagram, named in its source.
+ *
+ * A node by its id, an edge by its two ends and its ordinal among the edges
+ * between those two ends, a subgraph by its id, or a run of the fence's lines
+ * the reviewer chose in the source pane. Nothing here is an SVG id: §1.2 of the
+ * spec measured those changing between two renders of the same text.
+ */
+export type DiagramPart =
+  | { kind: "node"; id: string }
+  | { kind: "edge"; from: string; to: string; ordinal: number }
+  | { kind: "subgraph"; id: string }
+  /** 1-indexed inside the fence, inclusive. */
+  | { kind: "lines"; from: number; to: number };
+
+/**
+ * Spec 29 §5.2 — where in a Mermaid fence a comment points.
+ *
+ * Read before the four layers, exactly as `region`, `extent` and `gap` are, and
+ * for the same reason: the thing it names is not on the page as text. The page
+ * holds a drawing; this names the text the drawing was made from.
+ */
+export interface DiagramRef {
+  /** `flowchart`, `sequenceDiagram`, … — the first word of the source. */
+  type: string;
+  part: DiagramPart;
+  /** The lines that state the part, 1-indexed inside the fence, inclusive. */
+  lines: { from: number; to: number };
+  /** Those lines, trimmed and joined with `\n` — the quote that finds the part when the fence moves. */
+  text: string;
+  /** FNV-1a of the whole fence's source, whitespace-normalised. Equal means untouched. */
+  fingerprint: string;
+}
+
+/**
  * How much of a block's text an element anchor quotes.
  *
  * An element anchor quotes its opening text and not all of it — a long table
@@ -155,6 +189,12 @@ export interface Anchor {
    * reason: an anchor written before today reads as `undefined`.
    */
   gap?: GapRef;
+  /**
+   * Spec 29 §5.2 — a part of a Mermaid diagram, read before everything else in
+   * `resolveAnchor`. The same JSON blob, the same reason: an anchor written
+   * before today reads as `undefined` and resolves exactly as it did.
+   */
+  diagram?: DiagramRef;
 }
 
 export type AnchorState = "ok" | "moved" | "orphaned";
@@ -162,7 +202,28 @@ export type AnchorState = "ok" | "moved" | "orphaned";
 // ── Threads and messages ────────────────────────────────────
 
 export type ThreadKind = "anchored" | "synthesis";
-export type ThreadStatus = "open" | "resolved";
+
+/**
+ * Spec 30 §2 — the five lanes a comment can be in, in the order it moves
+ * through them.
+ *
+ * - `draft` — it has places, it has never been sent, and it is meant to be.
+ * - `note` — the reviewer chose that no agent would ever see it. Spec 12 §2's
+ *   NOTE mode, which was `thread.is_note` until spec 30 §7.2 made it a lane.
+ * - `open` — sent. Waiting on the reviewer.
+ * - `resolved` — dealt with, and **terminal**: spec 18 §2, nothing that happens
+ *   to the document moves a comment out of it.
+ *
+ * The fifth lane, **gone**, is not a status. It is `draft`, `note` or `open`
+ * with EVERY place orphaned (spec 32 §2), and it is computed from the two —
+ * spec 18 §2 kept it off this type on purpose, because "the text is gone" is a
+ * fact about the document and the other four are facts about the reviewer.
+ */
+export type ThreadStatus = "draft" | "note" | "open" | "resolved";
+
+/** The lanes that have never been sent, so nothing has run and nothing was spent. */
+export const UNSENT_STATUS: readonly ThreadStatus[] = ["draft", "note"];
+
 export type Profile = "read" | "write";
 
 /**
@@ -181,6 +242,27 @@ export interface AnchorTarget {
    * "the text is gone"; null means "nobody looked".
    */
   state: AnchorState | null;
+  /**
+   * Spec 24 §5.1 — the user message this place arrived with, or null for a
+   * place the comment was created with.
+   *
+   * A comment can grow: a reply, a change or a note can carry new places (spec
+   * 24 §4). This is what lets the `YOU` turn that brought them show them as
+   * chips. Nothing else reads it.
+   */
+  messageId: string | null;
+}
+
+/**
+ * Spec 24 §5.3 — a place as the renderer sends it: a document and an anchor,
+ * before main has given it a position or a state.
+ *
+ * Shared by `thread:create` and by the three sends that can add places to an
+ * existing comment, so the four cannot drift on what a place is made of.
+ */
+export interface TargetDraft {
+  documentId: string;
+  anchor: Anchor;
 }
 
 /**
@@ -250,18 +332,39 @@ export interface Thread {
   /** Spec 14 §4.1 — rank among the comments sharing `groupId`. */
   position: number;
   /**
-   * True for a comment the reviewer saved and never sent — NOTE mode.
+   * Spec 30 §7.2 — `isNote` is GONE, and it is not coming back as a second
+   * fact. A comment the reviewer saved and never sent is `status: "note"`, and
+   * one they have not finished is `status: "draft"`.
    *
-   * It is not "has no answer yet": an ASK that failed has no answer either, and
-   * the two must not look alike. This says the reviewer *chose* not to send it,
-   * which is why "Ask all" skips it and why the panel draws it in its own
-   * colour. It goes false the moment the comment is sent, because a note that
-   * has been asked is not a note any more.
+   * The sentence that field carried is still the rule, and it is now §2.1's:
+   * *"it is not 'has no answer yet' — an ASK that failed has no answer either,
+   * and the two must not look alike."* That is exactly why `draft` and `note`
+   * are two lanes and not one.
    */
-  isNote: boolean;
   sessionId: string | null;
   profile: Profile;
-  model: string | null;
+  /**
+   * Spec 25 §4.3 — the model is NOT here. It is an argument on each send,
+   * because it is a property of a send and not of a comment. The `thread.model`
+   * column is retired in place and read by nothing; the durable record is
+   * `Message.model`.
+   */
+  /**
+   * Spec 31 §2.1 — the output style IS here, and the contrast with the model
+   * above is the whole point.
+   *
+   * A model is what one SEND is worth, and there is a safe value to fall back
+   * to after a restart. A style is how this CHAT reads: it cannot be unsafe or
+   * dear, it has no app-wide default to return to (§2.2), and the reviewer
+   * asked for it to be *"remembered for the whole chat until I change my mind"*.
+   * A chat outlives a restart; renderer state does not.
+   *
+   * Null is the CLI's own default, which is what every comment starts on and
+   * what every run did before spec 31. The send still carries the style
+   * explicitly — this is the memory the composer is painted from, never the
+   * value main reads at run time (§2.1).
+   */
+  style: string | null;
   refThreadIds: string[]; // synthesis threads only
   createdAt: string;
   updatedAt: string;
@@ -302,7 +405,16 @@ export type MessageKind =
    * this break, or did I stop it?
    */
   | "stopped"
-  | "completed";
+  | "completed"
+  /**
+   * Spec 34 §6 — the reviewer approved, discarded or undid a change to this
+   * thread's document while no agent was in the room.
+   *
+   * The fifth lifecycle kind, and like `stopped` it is a person's own act: a
+   * fact about the conversation, recorded in it, so that an agent's transcript
+   * says why the document it edited no longer holds what it wrote.
+   */
+  | "event";
 
 export interface Message {
   id: string;
@@ -312,16 +424,117 @@ export interface Message {
   kind: MessageKind;
   /** Which mode the reviewer sent this in. Null unless they sent it. */
   mode: SendMode | null;
+  /**
+   * Spec 25 §5 — the model this row came from, as the reviewer picked it.
+   *
+   * Set on the reviewer's own send and on every message the run it started
+   * produced, so an answer can say which model wrote it. Null for a NOTE, which
+   * runs nothing, and for every row written before this column existed — which
+   * is the honest value for "nobody recorded it", and must never be drawn as
+   * "the default".
+   *
+   * The requested name, never the wire id the CLI resolves it to (§5.1): the
+   * record has to map back to a display name a month later, and `default`
+   * resolved to `claude-opus-5[1m]` would record a choice nobody made.
+   */
+  model: string | null;
+  /**
+   * Spec 31 §5 — the output style this row ran under, as the reviewer picked it.
+   *
+   * `message.model`'s neighbour and its twin in every way: set on the send and
+   * on everything the run produced, null for a note and for every row written
+   * before the column existed. It is recorded and not drawn — the answer's foot
+   * has four items already, and "why did this one read like that" is a
+   * debugging question, which is where it is answered.
+   */
+  style: string | null;
   content: string | null;
   toolName: string | null;
   toolInput: unknown | null;
   isError: boolean;
+  /**
+   * This call was refused rather than run — REX's gate (§8.4) in every case
+   * REX makes, and the SDK's own permission layer in the one it does not.
+   *
+   * Separate from `isError` because the two are different facts and only one of
+   * them is about permission. A `grep` that matches nothing exits 1; a `ls` of a
+   * missing directory exits 1; neither is a refusal, and drawing them as one
+   * says the safety gate fired when it did not. Every refusal sets both flags:
+   * a refused call did not succeed either.
+   *
+   * False for every row written before the column existed EXCEPT the ones the
+   * migration could prove, which are the ones whose thread carries the matching
+   * `Denied …` note.
+   */
+  denied: boolean;
   costUsd: number | null;
   durationMs: number | null;
   inputTokens: number | null;
   outputTokens: number | null;
   createdAt: string;
 }
+
+// ── What the agent can be asked for ─────────────────────────
+// Spec 25 §6.3 and spec 31 §3. REX's own shapes, not the SDK's `ModelInfo`:
+// `src/shared/` may not import from `main/` (spec 01 §3.1) and the SDK is
+// main's dependency, so the three fields the renderer needs are restated here.
+// The effort levels and fast-mode flags `ModelInfo` also carries never reach a
+// renderer that has no use for them.
+
+/** One row of the picker. `value` is the string `Options.model` takes. */
+export interface ModelChoice {
+  value: string;
+  displayName: string;
+  description: string;
+}
+
+/**
+ * Spec 25 §3 and spec 31 §3.1 — what the CLI offers, from one probe.
+ *
+ * `chosen` is the app-wide default MODEL with spec 25 §6.2 already applied, so
+ * the renderer never has to reason about a stored value that is no longer in
+ * `models`. There is no `chosen` style: spec 31 §2.2 gives the style no
+ * app-wide default, because the reviewer asked for it to belong to the chat.
+ *
+ * `styles` are bare names and not `ModelChoice`s, because that is all the CLI
+ * has: `available_output_styles` is a list of strings. Inventing a description
+ * for each would be REX writing documentation for somebody else's `.md` file.
+ *
+ * `error` is the sentence explaining a failed probe (spec 25 §3.4), or null.
+ */
+export interface AgentChoices {
+  models: ModelChoice[];
+  chosen: string;
+  styles: string[];
+  error: string | null;
+}
+
+/**
+ * Spec 31 §4 — the two things a send chooses, carried as one.
+ *
+ * They travel together through every layer of main: the send records them, the
+ * run is stamped with them, and each notice a run produces carries them. Spec
+ * 25 threaded the model alone through five signatures; a second parameter
+ * beside it in all five would have been the moment to notice they are one
+ * thing. Null in either means "REX says nothing, so the CLI decides", which is
+ * what every run did before the spec that added it.
+ */
+export interface SendChoices {
+  model: string | null;
+  style: string | null;
+}
+
+/** The SDK's own first row, and what "REX said nothing" resolves to. */
+export const DEFAULT_MODEL = "default";
+
+/**
+ * Spec 31 §6 — the CLI's own default style, and what a comment starts on.
+ *
+ * The same double meaning `DEFAULT_MODEL` carries: REX records it, because the
+ * reviewer picked it, and it MEANS "REX says nothing" — so the runner omits the
+ * setting rather than sending the word.
+ */
+export const DEFAULT_STYLE = "default";
 
 // ── Apply ───────────────────────────────────────────────────
 
@@ -564,6 +777,83 @@ export type DocumentVersion = "original" | "current";
 export type PaneMode = "original" | "both" | "new";
 
 /**
+ * Spec 27 §4 — how REX draws the page it typeset itself.
+ *
+ * Two switches, both about the reader rather than the file: nothing here is
+ * ever written to disk, and neither reaches a document whose styles are the
+ * author's (§4.2 — Markdown only).
+ *
+ * One object rather than two booleans threaded separately, because they travel
+ * together everywhere: one strip sets them, both panes read them, and one row
+ * each in the `setting` table remembers them (§4.7).
+ */
+export interface PaperView {
+  /** §4.3 — the text fills the pane instead of the 620px measure. */
+  wide: boolean;
+  /** §4.4 — the dark paper. Never `prefers-color-scheme`; only this flag. */
+  dark: boolean;
+}
+
+/** §4.7 — narrow and light, until the reviewer says otherwise. */
+export const PAPER_VIEW_DEFAULT: PaperView = { wide: false, dark: false };
+
+// ── Find and search (spec 28) ────────────────────────────────
+
+/** Spec 28 §5.5 — the words around a match, from `shared/find.ts`'s `contextOf`. */
+export interface SearchContext {
+  before: string;
+  match: string;
+  after: string;
+  /** True when `before` does not reach the start of the text. */
+  cutBefore: boolean;
+  cutAfter: boolean;
+}
+
+/** One hit in one file. `ordinal` is its index among the file's matches. */
+export interface SearchHit extends SearchContext {
+  ordinal: number;
+}
+
+export interface SearchFileHits {
+  path: string; // absolute
+  /** The first `MAX_HITS_PER_FILE` of them, or fewer once the total cap bites. */
+  hits: SearchHit[];
+  /** Every match in the file, `hits` included. */
+  total: number;
+}
+
+/** A file that was listed and not searched, and why (§4.2). */
+export interface SearchSkipped {
+  path: string;
+  reason: string;
+}
+
+export interface WorkspaceSearchResult {
+  /** The query as searched — normalised (§4.3). */
+  query: string;
+  /** Files with at least one match, in tree order. */
+  files: SearchFileHits[];
+  skipped: SearchSkipped[];
+  /** Documents whose text was read. */
+  searched: number;
+  /** Every match in every searched file. */
+  matches: number;
+  /** True when some file's hit rows were cut by the total cap. */
+  capped: boolean;
+  /** Spec 02 §4.2 — the tree scan stopped early, so some files were not listed. */
+  truncated: boolean;
+}
+
+/**
+ * Spec 28 §4.1.1 — one match's place along the whole document, for the
+ * overview ruler. Both are fractions of the document's height.
+ */
+export interface FindMark {
+  top: number;
+  height: number;
+}
+
+/**
  * Spec 15 §3 — a document with a change waiting for the reviewer.
  *
  * It is a fact about a *document*, not about a run: the working copy survives
@@ -591,6 +881,12 @@ export interface WorkingCopyView {
    * reviewer sees. Approval refuses while it is non-null; REX does not merge.
    */
   conflict: string | null;
+  /**
+   * Spec 34 §5.2 — set while a run is pointed at this document, in the words
+   * the reviewer sees. Approve, discard and undo refuse with it, and the three
+   * buttons grey out with it as their title.
+   */
+  held: string | null;
 }
 
 /** What `doc:open` hands the renderer. */

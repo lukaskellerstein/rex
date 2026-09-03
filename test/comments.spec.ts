@@ -26,15 +26,19 @@ import {
   nextThreadPosition,
   updateGroup,
 } from "../src/main/db/groups.ts";
-import { clearNoteFlag } from "../src/main/db/queries.ts";
+import { markThreadDraft, markThreadNoted, markThreadSent } from "../src/main/db/queries.ts";
+import { filesOf } from "../src/renderer/overlay/files.ts";
+import { LANE_LABEL, LANES, laneOf } from "../src/renderer/overlay/lanes.ts";
 import { MODE_LABEL, MODE_PROMISE, MODE_VERB, other } from "../src/renderer/overlay/mode.ts";
-import { tokenClass, washClass } from "../src/renderer/overlay/wash.ts";
+import { markerClass, tokenClass, washClass } from "../src/renderer/overlay/wash.ts";
 import {
   buildCommentTree,
   type CommentRow,
   dropMove,
   flattenRows,
+  startsLooseBlock,
   totalsById,
+  treeCells,
   walkOrder,
   wouldCycle,
 } from "../src/shared/commentTree.ts";
@@ -280,8 +284,13 @@ function openDb(name: string): Database.Database {
              title      TEXT,
              group_id   TEXT REFERENCES comment_group(id) ON DELETE SET NULL,
              position   INTEGER NOT NULL DEFAULT 0,
+             -- Spec 30 §2 — the lane. No CHECK here on purpose: this fixture is
+             -- for the query functions, and constraining it would make the test
+             -- a second copy of schema.sql, free to drift from it.
+             status     TEXT NOT NULL DEFAULT 'open',
              is_note    INTEGER NOT NULL DEFAULT 0,
-             created_at TEXT NOT NULL
+             created_at TEXT NOT NULL,
+             updated_at TEXT
            )`);
   return db;
 }
@@ -446,51 +455,183 @@ test("a group cannot be created inside another workspace's group", () => {
   db.close();
 });
 
-// ── NOTE mode — a comment saved and sent to nobody ──────────────
+// ── Spec 30 §2 — the five lanes, and the moves between them ─────
 
-test("the note flag is stored, and defaults to false", () => {
-  const db = openDb("note-flag.db");
-  db.prepare("INSERT INTO thread (id, note, position, created_at) VALUES ('a','x',0,'t')").run();
+/** Every lane move goes through these, so one helper reads the stored lane back. */
+function laneInDb(db: Database.Database, id: string): string {
+  return (
+    db.prepare<[string], { status: string }>("SELECT status FROM thread WHERE id = ?").get(id)
+      ?.status ?? "gone from the table"
+  );
+}
+
+function seed(db: Database.Database, id: string, status: string): void {
   db.prepare(
-    "INSERT INTO thread (id, note, position, is_note, created_at) VALUES ('b','y',1,1,'t')",
-  ).run();
-  const rows = db
-    .prepare<[], { id: string; is_note: number }>("SELECT id, is_note FROM thread ORDER BY id")
-    .all();
-  assert.deepEqual(rows, [
-    { id: "a", is_note: 0 },
-    { id: "b", is_note: 1 },
-  ]);
+    "INSERT INTO thread (id, note, position, status, created_at) VALUES (?, 'y', 0, ?, 't')",
+  ).run(id, status);
+}
+
+test("sending moves a comment out of draft and out of note", () => {
+  const db = openDb("lane-sent.db");
+  seed(db, "d", "draft");
+  seed(db, "n", "note");
+  markThreadSent(db, "d");
+  markThreadSent(db, "n");
+  assert.equal(laneInDb(db, "d"), "open");
+  assert.equal(laneInDb(db, "n"), "open");
   db.close();
 });
 
-test("sending a note clears the flag, and clearing twice is a no-op", () => {
-  const db = openDb("note-clear.db");
-  db.prepare(
-    "INSERT INTO thread (id, note, position, is_note, created_at) VALUES ('a','y',0,1,'t')",
-  ).run();
-  clearNoteFlag(db, "a");
-  const flag = (): number =>
-    db.prepare<[], { is_note: number }>("SELECT is_note FROM thread WHERE id = 'a'").get()
-      ?.is_note ?? -1;
-  assert.equal(flag(), 0);
-  clearNoteFlag(db, "a");
-  assert.equal(flag(), 0);
+test("sending twice is a no-op, and it never reopens a resolved comment", () => {
+  const db = openDb("lane-sent-twice.db");
+  seed(db, "d", "draft");
+  markThreadSent(db, "d");
+  markThreadSent(db, "d");
+  assert.equal(laneInDb(db, "d"), "open");
+
+  // Spec 18 §2 — resolved is terminal. Replying to a resolved comment must not
+  // quietly drag it back into `open`, which is why the UPDATE names the two
+  // unsent lanes rather than testing for "not open".
+  seed(db, "r", "resolved");
+  markThreadSent(db, "r");
+  assert.equal(laneInDb(db, "r"), "resolved");
   db.close();
 });
 
-test("the wash and the token put a note LAST, so it never hides a state", () => {
-  // The whole argument for a fourth colour: it fills the slot that had none.
-  assert.equal(washClass("open", null, true), "rex-thread-unsent");
-  assert.equal(tokenClass("open", null, true), "rex-token-unsent");
-  // An orphaned note is still drawn orphaned — where the text went matters more
-  // than who wrote the comment.
-  assert.equal(washClass("open", "orphaned", true), "rex-thread-orphaned");
-  assert.equal(washClass("open", "moved", true), "rex-thread-moved");
-  assert.equal(washClass("resolved", null, true), "rex-thread-done");
-  // And an ordinary comment is untouched by the new argument.
+test("Save makes a note out of a draft, and leaves a sent comment alone", () => {
+  const db = openDb("lane-noted.db");
+  seed(db, "d", "draft");
+  markThreadNoted(db, "d");
+  assert.equal(laneInDb(db, "d"), "note");
+
+  // Spec 24 §4.3 — a note ON an answered comment. That comment has been sent,
+  // so it keeps its lane; only the message is a note.
+  seed(db, "o", "open");
+  markThreadNoted(db, "o");
+  assert.equal(laneInDb(db, "o"), "open");
+  db.close();
+});
+
+test("Turn into a comment promotes a note, and refuses anything else", () => {
+  const db = openDb("lane-promote.db");
+  seed(db, "n", "note");
+  assert.equal(markThreadDraft(db, "n"), true);
+  assert.equal(laneInDb(db, "n"), "draft");
+  // Already a draft: the second press changes nothing and says so.
+  assert.equal(markThreadDraft(db, "n"), false);
+
+  seed(db, "o", "open");
+  assert.equal(markThreadDraft(db, "o"), false);
+  assert.equal(laneInDb(db, "o"), "open");
+  db.close();
+});
+
+test("spec 30 §6 — the two unsent lanes are drawn before every other state", () => {
+  assert.equal(washClass("draft", null), "rex-thread-draft");
+  assert.equal(tokenClass("draft", null), "rex-token-draft");
+  assert.equal(washClass("note", null), "rex-thread-unsent");
+  assert.equal(tokenClass("note", null), "rex-token-unsent");
+
+  // They come FIRST now, where the note came last while it was a flag. A draft
+  // or a note cannot also be resolved or moved, so there is nothing left for it
+  // to hide — the tension that put the note at the bottom went with the flag.
+  assert.equal(washClass("draft", "orphaned"), "rex-thread-draft");
+  assert.equal(washClass("note", "moved"), "rex-thread-unsent");
+
+  // And the three older lanes are untouched.
+  assert.equal(washClass("resolved", null), "rex-thread-done");
+  assert.equal(washClass("open", "orphaned"), "rex-thread-orphaned");
   assert.equal(washClass("open", null), "");
   assert.equal(tokenClass("open", null), "");
+});
+
+test("spec 33 §3.1 — the wash follows the lane, and `moved` is not one", () => {
+  // A comment with a moved or a part-lost place is an open comment and wears
+  // the open comment's look on all three surfaces. The amber went to the note.
+  for (const fn of [washClass, tokenClass, markerClass]) {
+    assert.equal(fn("open", "moved"), "");
+    assert.equal(fn("open", "ok"), "");
+    assert.equal(fn("open", null), "");
+  }
+  // The one anchor state that IS a lane keeps its colour.
+  assert.equal(markerClass("open", "orphaned"), "rex-margin-lost");
+  // And a lane still outranks it.
+  assert.equal(markerClass("resolved", "orphaned"), "rex-margin-done");
+  assert.equal(markerClass("note", "orphaned"), "rex-margin-unsent");
+});
+
+/** Spec 33 §2.1 — a place, as `filesOf` reads it: a file, and whether it is the whole of it. */
+function place(name: string, whole = false): { name: string; whole: boolean } {
+  return { name, whole };
+}
+
+function chipsOf(
+  places: Array<{ name: string; whole: boolean }>,
+  states: Array<"ok" | "moved" | "orphaned" | null>,
+) {
+  return filesOf(
+    {
+      targets: places.map((p) => ({
+        documentId: p.name,
+        anchor: {
+          quote: null,
+          position: null,
+          element: null,
+          region: null,
+          source: null,
+          ...(p.whole ? { extent: "document" as const } : {}),
+        },
+        state: null,
+        messageId: null,
+      })),
+      targetNames: places.map((p) => p.name),
+    },
+    states,
+  );
+}
+
+test("spec 33 §2.1 — one chip per file, in target order, counting every place", () => {
+  // The reviewer's comment 4: five places in four files, one lost.
+  const chips = chipsOf(
+    [
+      place("user-interaction-flow.md", true),
+      place("components.md"),
+      place("components.md"),
+      place("overview.md"),
+      place("lukas-feedback.md"),
+    ],
+    ["ok", "orphaned", "ok", "ok", "ok"],
+  );
+  assert.deepEqual(chips, [
+    { name: "user-interaction-flow.md", places: 1, whole: true, lost: 0 },
+    { name: "components.md", places: 2, whole: false, lost: 1 },
+    { name: "overview.md", places: 1, whole: false, lost: 0 },
+    { name: "lukas-feedback.md", places: 1, whole: false, lost: 0 },
+  ]);
+  // The counts sum to the places, so no place is hidden by the grouping.
+  assert.equal(
+    chips.reduce((n, chip) => n + chip.places, 0),
+    5,
+  );
+});
+
+test("spec 33 §2.1 — the whole file, and more places in it, is one chip", () => {
+  const [chip] = chipsOf([place("a.md"), place("a.md", true), place("a.md")], ["ok", "ok", "ok"]);
+  assert.deepEqual(chip, { name: "a.md", places: 3, whole: true, lost: 0 });
+});
+
+test("spec 33 §2.1 — a place nobody looked at is counted and is never lost", () => {
+  // Spec 05 §5.4: null is "nobody looked". It is a place, so it counts; it is
+  // not evidence of loss, so it does not.
+  const [chip] = chipsOf([place("a.md"), place("a.md")], [null, "orphaned"]);
+  assert.deepEqual(chip, { name: "a.md", places: 2, whole: false, lost: 1 });
+  // And a moved place gets no mark at all — spec 18 §2.1.
+  const [moved] = chipsOf([place("b.md")], ["moved"]);
+  assert.deepEqual(moved, { name: "b.md", places: 1, whole: false, lost: 0 });
+});
+
+test("spec 33 §2.1 — a synthesis comment has no places and draws no chips", () => {
+  assert.deepEqual(chipsOf([], []), []);
 });
 
 test("the mode chord cycles all three, and ACT is still one press from ASK", () => {
@@ -506,4 +647,163 @@ test("every mode has a label, a promise and a verb", () => {
     assert.ok(MODE_VERB[mode]);
   }
   assert.equal(MODE_VERB.note, "Save");
+});
+
+// ── Spec 30 §2 — laneOf, the one rule the list and the paper share ──
+
+test("the four stored lanes come straight back when the anchor is fine", () => {
+  assert.equal(laneOf("draft", null), "draft");
+  assert.equal(laneOf("note", "ok"), "note");
+  assert.equal(laneOf("open", "ok"), "open");
+  assert.equal(laneOf("resolved", "moved"), "resolved");
+});
+
+test("gone catches draft, note and open — and never resolved", () => {
+  // Spec 30 §2 widened spec 18's open-only rule at the front: a draft or a note
+  // whose text vanished is as lost as an open comment whose text vanished.
+  assert.equal(laneOf("draft", "orphaned"), "orphaned");
+  assert.equal(laneOf("note", "orphaned"), "orphaned");
+  assert.equal(laneOf("open", "orphaned"), "orphaned");
+
+  // Spec 18 §2 — and resolved is still terminal. A comment that was dealt with
+  // and whose text was later removed stays resolved: the gone lane exists so a
+  // reviewer does not lose a question they asked, and an answered question
+  // cannot be lost.
+  assert.equal(laneOf("resolved", "orphaned"), "resolved");
+});
+
+test("`moved` is not a lane, in any status", () => {
+  // Spec 18 §2.1 — a comment whose text was re-found somewhere else is open. It
+  // counts as open and is drawn as open; that it moved is a pill on its card.
+  for (const status of ["draft", "note", "open"] as const) {
+    assert.equal(laneOf(status, "moved"), status);
+  }
+});
+
+test("every lane has a label, and two of them are not their own key", () => {
+  for (const one of LANES) assert.equal(typeof LANE_LABEL[one], "string");
+  // Both differences were bought with a measurement: spec 18 §5.2 for `gone`,
+  // spec 30 §4.4 for `done`.
+  assert.equal(LANE_LABEL.orphaned, "gone");
+  assert.equal(LANE_LABEL.resolved, "done");
+});
+
+test("the lanes are disjoint — every comment lands in exactly one", () => {
+  // The whole reason laneOf is one function and not five predicates. A set of
+  // independent tests is free to put one comment in two lanes; this cannot.
+  const seen: string[] = [];
+  for (const status of ["draft", "note", "open", "resolved"] as const) {
+    for (const state of [null, "ok", "moved", "orphaned"] as const) {
+      const one = laneOf(status, state);
+      assert.equal(LANES.includes(one), true, `${status}/${state} gave ${one}`);
+      seen.push(one);
+    }
+  }
+  // And all five are reachable, so no pill is a control that can never fill.
+  for (const one of LANES) assert.equal(seen.includes(one), true, `nothing reaches ${one}`);
+});
+
+test("spec 30 §3.6 — a comment with neither a name nor words is not blank", () => {
+  // Unreachable before spec 30: every comment was made by a send, and a send
+  // needs a question. A draft is saved by walking away, and walking away at once
+  // is allowed — so this row exists now, and it drew an empty headline.
+  assert.equal(commentName({ title: null, note: "" }), "Untitled");
+  assert.equal(commentName({ title: "   ", note: "  \n  " }), "Untitled");
+  // And the two rules above it are untouched.
+  assert.equal(commentName({ title: null, note: "the note" }), "the note");
+  assert.equal(commentName({ title: "A name", note: "" }), "A name");
+});
+
+// ── §7.2 — the tree drawn beside the rows ───────────────────────
+
+/** Every row's cells, as one readable line per row: `id: cell cell`. */
+function drawn(rows: Array<CommentRow<FakeThread>>): string[] {
+  return rows.map((row, index) => `${row.id}: ${treeCells(rows, index).join(" ")}`.trim());
+}
+
+test("a folder's rows hang off it, and the last one closes the trunk", () => {
+  const groups = [group("G1", null, 0)];
+  const threads = [thread("a", "G1", 0), thread("b", "G1", 1), thread("loose", null, 0)];
+
+  assert.deepEqual(drawn(rowsFor(groups, threads)), [
+    // The folder hangs a stem for the rows below it.
+    "G1: stem",
+    // `a` is not the last, so its trunk carries on past the turn.
+    "a: tee",
+    // `b` is, so the trunk stops where it turns right.
+    "b: end",
+    // And a comment in no folder draws nothing at all.
+    "loose:",
+  ]);
+});
+
+test("a folder with nothing under it hangs no stem", () => {
+  // Collapsed is the same case: no row follows it at a deeper level, so there
+  // is nothing for a stem to reach.
+  assert.deepEqual(drawn(rowsFor([group("G1", null, 0)], [])), ["G1:"]);
+  const closed = rowsFor([group("G1", null, 0)], [thread("a", "G1", 0)], ["G1"]);
+  assert.deepEqual(drawn(closed), ["G1:"]);
+});
+
+test("a nested folder keeps the outer trunk running while it has rows left", () => {
+  const groups = [group("G1", null, 0), group("G1a", "G1", 0)];
+  const threads = [thread("deep", "G1a", 0), thread("own", "G1", 0), thread("loose", null, 0)];
+
+  assert.deepEqual(drawn(rowsFor(groups, threads)), [
+    "G1: stem",
+    // G1 has `own` still to come, so its trunk carries on past G1a.
+    "G1a: tee stem",
+    // `deep` is G1a's last row, and G1's trunk still runs to its left.
+    "deep: line end",
+    "own: end",
+    "loose:",
+  ]);
+});
+
+test("the last row of the last nested folder leaves every column blank", () => {
+  const groups = [group("G1", null, 0), group("G1a", "G1", 0)];
+  const threads = [thread("deep", "G1a", 0)];
+
+  assert.deepEqual(drawn(rowsFor(groups, threads)), [
+    "G1: stem",
+    // G1a is G1's last row, so G1's trunk ends here rather than continuing.
+    "G1a: end stem",
+    // Nothing follows, so the outer column is blank — `tree` draws it the same.
+    "deep:  end",
+  ]);
+});
+
+// ── §7.2 — where the folders end ────────────────────────────────
+
+/** The rows that begin the "in no folder" block. There is never more than one. */
+function looseAt(rows: Array<CommentRow<FakeThread>>): string[] {
+  return rows.filter((_, index) => startsLooseBlock(rows, index)).map((row) => row.id);
+}
+
+test("the rule falls on the first comment that is in no folder", () => {
+  const groups = [group("G1", null, 0)];
+  const threads = [thread("a", "G1", 0), thread("x", null, 0), thread("y", null, 1)];
+  // `x` only. `y` is in no folder too, but the break is above `x`.
+  assert.deepEqual(looseAt(rowsFor(groups, threads)), ["x"]);
+});
+
+test("a COLLAPSED folder still ends the folders — the reported bug", () => {
+  // Nothing steps out here: the folder header and the comment are both at the
+  // top level, and the rule that looked for a change of depth drew nothing.
+  const groups = [group("G1", null, 0)];
+  const threads = [thread("a", "G1", 0), thread("x", null, 0)];
+  assert.deepEqual(looseAt(rowsFor(groups, threads, ["G1"])), ["x"]);
+});
+
+test("an EMPTY folder ends them too", () => {
+  assert.deepEqual(looseAt(rowsFor([group("G1", null, 0)], [thread("x", null, 0)])), ["x"]);
+});
+
+test("with no folder at all there is nothing to separate", () => {
+  assert.deepEqual(looseAt(rowsFor([], [thread("x", null, 0), thread("y", null, 1)])), []);
+});
+
+test("a list that is entirely folders has no rule either", () => {
+  const groups = [group("G1", null, 0)];
+  assert.deepEqual(looseAt(rowsFor(groups, [thread("a", "G1", 0)])), []);
 });

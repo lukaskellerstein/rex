@@ -1,13 +1,17 @@
 // SPEC.md §6.4 — Range → Anchor. Four layers are recorded at creation time so
 // that resolution has something to fall back to (§6.2).
 
+import { makeDiagramRef } from "../../shared/diagram.ts";
+import { fnv1a } from "../../shared/hash.ts";
 import {
   type Anchor,
+  type DiagramPart,
   ELEMENT_QUOTE_MAX,
   type ElementRef,
   type RegionRef,
   type SourceRef,
 } from "../../shared/types.ts";
+import { fenceLineOf, sourceOf } from "./diagram.ts";
 import { elementToOffsets, rangeToOffsets, type TextIndex } from "./textIndex.ts";
 
 /** How much context either side of the quote disambiguates a repeat (§4). */
@@ -260,19 +264,37 @@ export function createDocumentAnchor(): Anchor {
 }
 
 /**
- * A cheap content hash — FNV-1a, 32 bits, hex.
+ * Spec 29 §5.2 — a part of a drawn Mermaid diagram, named in its source.
  *
- * Not a security primitive and not trying to be: it answers one question, "is
- * this the same drawing it was", and it has to answer synchronously inside the
- * document's own window, where `crypto.subtle` is a promise.
+ * `quote` and `position` are null on purpose: the quote layer matches the
+ * page's text, and the source is not on the page — a quote here would be the
+ * SVG label, which is the thing §1.2 stops binding to. `element` is the
+ * `<pre>`'s ref, the way to find the diagram and never the part; `source.line`
+ * is the part's own file line, so `locatePassage`'s last resort lands on the
+ * part rather than on the fence.
+ *
+ * Null when the source has no such part, which a caller reaches only by
+ * handing in a part the scanner did not produce.
  */
-function hash(value: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < value.length; i++) {
-    h ^= value.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h.toString(16).padStart(8, "0");
+export function createDiagramAnchor(
+  block: HTMLElement,
+  part: DiagramPart,
+  sourceFile: string | null,
+): Anchor | null {
+  const diagram = makeDiagramRef(sourceOf(block), part);
+  if (!diagram) return null;
+  const fenceLine = fenceLineOf(block);
+  return {
+    quote: null,
+    position: null,
+    element: elementRef(block),
+    region: null,
+    source:
+      sourceFile && fenceLine !== null
+        ? { file: sourceFile, line: fenceLine + diagram.lines.from }
+        : null,
+    diagram,
+  };
 }
 
 /**
@@ -324,7 +346,7 @@ export function fingerprintElement(el: Element): string {
     }
   }
 
-  return hash(parts.join(" "));
+  return fnv1a(parts.join(" "));
 }
 
 /**

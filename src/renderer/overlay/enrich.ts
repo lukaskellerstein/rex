@@ -17,18 +17,27 @@
 // runs inside the iframe. The renderer draws, from outside.
 
 import type { OpenedDocument } from "../../shared/types.ts";
-import { mermaidPass } from "./mermaid.ts";
+import { type DiagramTheme, mermaidPass } from "./mermaid.ts";
 import { pdfPass } from "./pdf.ts";
 
-/** One drawing job against the document's live DOM. */
-export type EnrichPass = (doc: Document, source: OpenedDocument) => Promise<void>;
+/**
+ * One drawing job against the document's live DOM.
+ *
+ * Spec 27 §4.5 — the theme travels with the job because one of the passes
+ * draws in it. A pass that does not care simply declares fewer parameters.
+ */
+export type EnrichPass = (
+  doc: Document,
+  source: OpenedDocument,
+  theme: DiagramTheme,
+) => Promise<void>;
 
 /**
  * In order, and never in parallel. Two passes writing the same DOM is a race
  * that reproduces about once a week.
  */
 const PASSES: ReadonlyArray<{ name: string; run: EnrichPass }> = [
-  { name: "mermaid", run: mermaidPass },
+  { name: "mermaid", run: (doc, _source, theme) => mermaidPass(doc, theme) },
   { name: "pdf", run: pdfPass },
 ];
 
@@ -46,10 +55,20 @@ const PASSES: ReadonlyArray<{ name: string; run: EnrichPass }> = [
  * case — must still build its final DOM *structure* here and fill in only
  * pixels later. Pixels arriving late change nothing the resolver can see.
  */
-export async function enrichDocument(doc: Document, source: OpenedDocument): Promise<void> {
+export async function enrichDocument(
+  doc: Document,
+  source: OpenedDocument,
+  /**
+   * Spec 27 §4.5 — the theme a diagram is drawn in, decided by the paper the
+   * reviewer is reading on. Passed at load rather than corrected afterwards: a
+   * dark page that drew its diagrams light and then redrew them would flash,
+   * and would re-measure the whole document for nothing.
+   */
+  theme: DiagramTheme = "neutral",
+): Promise<void> {
   for (const pass of PASSES) {
     try {
-      await pass.run(doc, source);
+      await pass.run(doc, source, theme);
     } catch (error) {
       // The document still opens. A diagram that will not draw must never cost
       // the reviewer the document, and every pass leaves its own fallback in

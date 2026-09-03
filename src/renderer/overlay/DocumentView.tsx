@@ -26,6 +26,7 @@ import type {
   LineRange,
   OpenedDocument,
   PaneMode,
+  PaperView,
   ThreadWithMessages,
   WorkingCopyView,
 } from "../../shared/types.ts";
@@ -39,6 +40,7 @@ import {
 } from "./anchoring.ts";
 import { enrichDocument } from "./enrich.ts";
 import {
+  applyPaperView,
   applyZoom,
   forwardKeysToParent,
   jumpToFragmentsInsteadOfNavigating,
@@ -47,8 +49,11 @@ import {
 } from "./frame.ts";
 import { GapLayer } from "./GapLayer.tsx";
 import { ModeStrip } from "./ModeStrip.tsx";
+import { mermaidPass } from "./mermaid.ts";
 import { OriginalPane } from "./OriginalPane.tsx";
 import { type DraftMark, PaneMarks } from "./PaneMarks.tsx";
+import { PaperStrip } from "./PaperStrip.tsx";
+import { PathBar } from "./PathBar.tsx";
 import { PenLayer } from "./PenLayer.tsx";
 import { PickLayer } from "./PickLayer.tsx";
 import { addPaperFonts } from "./paperFonts.ts";
@@ -96,18 +101,39 @@ interface Props {
   activeId: string | null;
   /** Spec 05 §3 — the panel's items. Only this document's are drawn. */
   selection: SelectionItem[];
+  /**
+   * Spec 24 §3.3 — the places picked for the open comment and not yet sent.
+   * Empty unless a card is on screen. Drawn exactly as the panel's items are,
+   * numbered on from `pendingFrom` so the outline says what the strip says.
+   */
+  pending: SelectionItem[];
+  /** How many places the open comment already has — the first pending one is `pendingFrom + 1`. */
+  pendingFrom: number;
   /** The item the reviewer is pointing at, in the panel or here (§6). */
   hoveredItemId: string | null;
   onHoverItem: (id: string | null) => void;
   /** Drop one place from the selection, from its own outline rather than the panel. */
   onRemoveItem: (id: string) => void;
+  /** Spec 26 §4.5 — the number badge puts its place on the path bar. */
+  onFocusItem: (id: string) => void;
   /** Spec 05 §5.6.1 — what an Apply changed in this document, while it is pending. */
   changeBoxes: ScopeRect[];
   picking: boolean;
-  pickScopes: PickScope[] | null;
-  pickActive: number;
+  /**
+   * Spec 26 §2 — the chain REX is outlining: the hover while pick mode is on,
+   * the focused place otherwise. One chain, so the outline, the crumbs and the
+   * chips can never say three different things.
+   */
+  pathScopes: PickScope[] | null;
+  pathActive: number;
   /** Spec 16 §4 — which pane the chain above belongs to. */
-  pickPane: DocumentVersion;
+  pathPane: DocumentVersion;
+  /** Spec 26 §4.1 — the focused place's number, or null under a hover. */
+  pathNumber: number | null;
+  /** A crumb. Re-anchors the place, or moves the pick — App decides which. */
+  onPathScope: (index: number) => void;
+  /** `esc` and the bar's own `done`. */
+  onPathDone: () => void;
   arming: boolean;
   /** Spec 06 §5.1 — the pen layer, mounted only while the mode is on. */
   penning: boolean;
@@ -137,9 +163,10 @@ interface Props {
    */
   onPaneResized: () => void;
   onSelectMarker: (threadId: string) => void;
-  onProbe: (pane: DocumentVersion, x: number, y: number) => void;
-  onPickActive: (index: number) => void;
+  onProbe: (pane: DocumentVersion, x: number, y: number, cause: "move" | "scroll") => void;
   onPickCommit: (index: number) => void;
+  /** Spec 26 §4.4 — ⌥ with the wheel. Positive widens. */
+  onWiden: (by: number) => void;
   /** A click in pick mode, at the point it landed on. */
   onPickCommitAt: (pane: DocumentVersion, x: number, y: number) => void;
   onPickCancel: () => void;
@@ -163,8 +190,27 @@ interface Props {
   zoom: number;
   onZoomBy: (factor: number) => void;
   onZoomReset: () => void;
-  /** Called once a new zoom is on the page, so the resolver can re-measure. */
-  onZoomApplied: () => void;
+  /**
+   * Called once the page has been redrawn at a new size, so the resolver can
+   * re-measure. Fired by the zoom, by the width switch and by a Mermaid redraw
+   * — every box the overlay holds was measured against the layout before it.
+   */
+  onReflowed: () => void;
+  /** Spec 27 §4 — how the paper is drawn. Both panes read this one value (§4.6). */
+  paper: PaperView;
+  /** §4.2 — whether this document is one REX typeset, and may therefore be switched. */
+  paperable: boolean;
+  onPaperWide: () => void;
+  onPaperDark: () => void;
+  /**
+   * Spec 28 §4.1 — the pane being read, which is where the find acts. The
+   * original when the pane control is on `Original`; this pane otherwise.
+   */
+  findPane: DocumentVersion;
+  /** §5.6 — the find bar, or null while it is closed. Drawn in `findPane`'s corner. */
+  corner: React.ReactNode;
+  /** §4.1.1 — the overview ruler, or null while there is nothing to mark. */
+  ruler: React.ReactNode;
 }
 
 /** A drag-resize fires continuously; answer once it stops. */
@@ -221,8 +267,19 @@ function WorkingHead(props: {
         ))}
       </span>
 
+      {/*
+        Spec 34 §5.3 — while a run is pointed at this document the three
+        answers are greyed, with main's own reason as their title. Main refuses
+        anyway; this is the affordance, not the guard.
+      */}
       <span className="rex-half-actions">
-        <button type="button" className="rex-approve" onClick={props.bar.onApprove}>
+        <button
+          type="button"
+          className="rex-approve"
+          onClick={props.bar.onApprove}
+          disabled={view.held !== null}
+          title={view.held ?? undefined}
+        >
           Approve
         </button>
         {/*
@@ -235,10 +292,22 @@ function WorkingHead(props: {
             Approve all ({props.bar.others + 1})
           </button>
         ) : null}
-        <button type="button" className="rex-half-button" onClick={props.bar.onUndo}>
+        <button
+          type="button"
+          className="rex-half-button"
+          onClick={props.bar.onUndo}
+          disabled={view.held !== null}
+          title={view.held ?? undefined}
+        >
           Undo last
         </button>
-        <button type="button" className="rex-half-button" onClick={props.bar.onDiscard}>
+        <button
+          type="button"
+          className="rex-half-button"
+          onClick={props.bar.onDiscard}
+          disabled={view.held !== null}
+          title={view.held ?? undefined}
+        >
           Discard
         </button>
       </span>
@@ -307,7 +376,10 @@ export function DocumentView(props: Props): React.JSX.Element {
     [onSelectionChanged],
   );
   const originalDrawn = useCallback((strokes: Stroke[]) => onDrawn("original", strokes), [onDrawn]);
-  const originalProbe = useCallback((x: number, y: number) => onProbe("original", x, y), [onProbe]);
+  const originalProbe = useCallback(
+    (x: number, y: number, cause: "move" | "scroll") => onProbe("original", x, y, cause),
+    [onProbe],
+  );
   const originalCommitAt = useCallback(
     (x: number, y: number) => onPickCommitAt("original", x, y),
     [onPickCommitAt],
@@ -318,7 +390,10 @@ export function DocumentView(props: Props): React.JSX.Element {
   );
 
   const currentDrawn = useCallback((strokes: Stroke[]) => onDrawn("current", strokes), [onDrawn]);
-  const currentProbe = useCallback((x: number, y: number) => onProbe("current", x, y), [onProbe]);
+  const currentProbe = useCallback(
+    (x: number, y: number, cause: "move" | "scroll") => onProbe("current", x, y, cause),
+    [onProbe],
+  );
   const currentCommitAt = useCallback(
     (x: number, y: number) => onPickCommitAt("current", x, y),
     [onPickCommitAt],
@@ -376,6 +451,21 @@ export function DocumentView(props: Props): React.JSX.Element {
   const zoomCommands = useRef({ by: props.onZoomBy, reset: props.onZoomReset });
   zoomRef.current = props.zoom;
   zoomCommands.current = { by: props.onZoomBy, reset: props.onZoomReset };
+  /**
+   * Spec 27 §5.2 — read through a ref for exactly the reason above: the load
+   * effect must apply the current paper, and must not re-run when the reviewer
+   * changes it. The effect below is what applies every change after the load.
+   */
+  const paperRef = useRef(props.paper);
+  paperRef.current = props.paper;
+  /**
+   * Spec 26 §5.4 — the overlay is holding the arrow keys, so the frame must not
+   * scroll on them as well. A ref for the same reason as the zoom commands: the
+   * load effect must not re-run when this changes, because re-running it
+   * rewrites `srcdoc`.
+   */
+  const wantsArrows = useRef(false);
+  wantsArrows.current = (props.pathScopes?.length ?? 0) > 0;
 
   /** Read through a ref for the same reason, and it matters more here: a
       re-run of the load effect would rewrite `srcdoc` mid-review. */
@@ -410,7 +500,7 @@ export function DocumentView(props: Props): React.JSX.Element {
       );
       jumpToFragmentsInsteadOfNavigating(inner);
       zoomFromInside(inner, zoomCommands);
-      forwardKeysToParent(inner);
+      forwardKeysToParent(inner, wantsArrows);
 
       // Before the zoom, and long before the surface: a face that lands after
       // the page has been measured reflows every line under it.
@@ -422,13 +512,18 @@ export function DocumentView(props: Props): React.JSX.Element {
       // Before the surface is handed up, so the text index and every rect the
       // resolver takes are measured at the size the reader is actually seeing.
       applyZoom(inner, zoomRef.current);
+      // Spec 27 §5.4 — and at the WIDTH they are seeing. Before the enrichment
+      // for the same reason as the zoom: a page that drew its diagrams at
+      // 620px and then went wide would have measured every one of them against
+      // a layout it is about to leave.
+      applyPaperView(inner, paperRef.current);
 
       // Spec 03 §4.3 — the DOM must be final before the surface is handed up,
       // because `onSurfaceReady` is what makes the resolver build its text
       // index. An anchor created against a half-drawn document records offsets
       // into text that is about to move: it resolves, it reports `ok`, and it
       // points at the wrong place.
-      await enrichDocument(inner, doc);
+      await enrichDocument(inner, doc, paperRef.current.dark ? "dark" : "neutral");
       if (!live) return;
 
       // After the enrichment passes: until Mermaid has run there is no `<svg>`
@@ -496,13 +591,53 @@ export function DocumentView(props: Props): React.JSX.Element {
   // rewrites `srcdoc` and would reload the document on every notch of the
   // wheel. The load effect applies the *current* zoom once, this one applies
   // every change after that.
-  const { zoom, onZoomApplied } = props;
+  const { zoom, onReflowed } = props;
   useEffect(() => {
     applyZoom(frameRef.current?.contentDocument ?? null, zoom);
     // Every box the overlay draws was measured at the old size, so the
     // resolver has to run again before any of them is believable.
-    onZoomApplied();
-  }, [zoom, onZoomApplied]);
+    onReflowed();
+  }, [zoom, onReflowed]);
+
+  // ── The paper (spec 27 §5.2, §5.4) ──────────────────────────
+  //
+  // Applied here rather than in the load effect for the same reason the zoom
+  // is: that effect rewrites `srcdoc`, and re-running it would reload the
+  // document under review every time the reviewer pressed `W`.
+  const { paper } = props;
+  /**
+   * The load effect has already applied the paper and drawn the diagrams in
+   * its theme, so the FIRST run of this one has nothing to do — and doing it
+   * anyway would re-render every diagram in the document on open, for nothing.
+   */
+  const paperDrawn = useRef(false);
+  useEffect(() => {
+    const inner = frameRef.current?.contentDocument ?? null;
+    if (!inner) return;
+    applyPaperView(inner, paper);
+    if (!paperDrawn.current) {
+      paperDrawn.current = true;
+      return;
+    }
+
+    let live = true;
+    void (async () => {
+      // Spec 27 §4.5 — a Mermaid diagram is REX's own drawing, so it is drawn
+      // again to match the paper. `mermaidPass` returns at once when the
+      // document holds none, which is what makes this cheap enough to run on
+      // every switch rather than only on the dark one.
+      await mermaidPass(inner, paper.dark ? "dark" : "neutral").catch((error: unknown) =>
+        console.warn("[rex] the diagrams were not redrawn for the new paper", error),
+      );
+      // Spec 03 §4.3, arriving on the second render instead of the first: the
+      // DOM has to be final before anything is measured against it. A width
+      // change reflows every line, and a redrawn diagram can change height.
+      if (live) onReflowed();
+    })();
+    return () => {
+      live = false;
+    };
+  }, [paper, onReflowed]);
 
   /**
    * Spec 15 §6.2 — the two panes, kept level.
@@ -523,23 +658,34 @@ export function DocumentView(props: Props): React.JSX.Element {
   // spec 16 §4 — in the pane they were taken from. A place picked in the
   // original resolves at the original's coordinates, and drawing it here would
   // put a numbered box over whatever now sits at that height in the new version.
-  const marksIn = (pane: DocumentVersion): DraftMark[] =>
-    props.selection.flatMap((item, position) =>
+  const marksFor = (items: SelectionItem[], pane: DocumentVersion, from: number): DraftMark[] =>
+    items.flatMap((item, position) =>
       // A row from another document keeps its number without a box, and so does
       // one whose anchor stopped resolving here — see `SelectionItem.rect`.
       item.documentId === props.doc?.documentId && item.pane === pane && item.rect
         ? [
             {
               id: item.id,
-              number: position + 1,
+              number: from + position + 1,
               // Rescaled from the zoom it was measured at: a selection outlives a
               // zoom change, and reading a table closely before deciding whether
               // the fourth row belongs is exactly when someone zooms.
               box: rescaleRect(item.rect, props.zoom / item.zoom),
+              // A passage is outlined by its lines, so the shape follows the
+              // words. A place that is a box has none, and keeps its box.
+              lines: item.lines?.map((line) => rescaleRect(line, props.zoom / item.zoom)) ?? null,
             },
           ]
         : [],
     );
+
+  // Spec 24 §3.3 — the two lists are never both non-empty on screen: a
+  // selection lands in the card while a card is shown and in the panel
+  // otherwise. Drawing both is what keeps that true rather than assumed.
+  const marksIn = (pane: DocumentVersion): DraftMark[] => [
+    ...marksFor(props.selection, pane, 0),
+    ...marksFor(props.pending, pane, props.pendingFrom),
+  ];
 
   /**
    * Spec 08 §7.2 — the place the card is pointing at, if it is in THIS
@@ -586,6 +732,10 @@ export function DocumentView(props: Props): React.JSX.Element {
             doc={props.original}
             removed={props.removedLines}
             zoom={props.zoom}
+            paper={props.paper}
+            // Spec 28 §4.1 — the find follows the pane being read.
+            corner={props.findPane === "original" ? props.corner : null}
+            ruler={props.findPane === "original" ? props.ruler : null}
             onFrameReady={setOriginalFrame}
             onSurfaceReady={originalSurfaceReady}
             onSelectionChanged={originalSelectionChanged}
@@ -597,17 +747,21 @@ export function DocumentView(props: Props): React.JSX.Element {
             hoveredItemId={props.hoveredItemId}
             onHoverItem={props.onHoverItem}
             onRemoveItem={props.onRemoveItem}
+            onFocusItem={props.onFocusItem}
             onSelectMarker={props.onSelectMarker}
             onHoverThread={props.onHoverThread}
             picking={props.picking}
-            pickScopes={props.pickPane === "original" ? props.pickScopes : null}
-            pickActive={props.pickActive}
+            pathScopes={props.pathPane === "original" ? props.pathScopes : null}
+            pathActive={props.pathActive}
+            pathNumber={props.pathNumber}
+            onPathScope={props.onPathScope}
+            onPathDone={props.onPathDone}
             arming={props.arming}
             penning={props.penning}
             onTogglePick={props.onTogglePick}
             onTogglePen={props.onTogglePen}
             onProbe={originalProbe}
-            onPickActive={props.onPickActive}
+            onWiden={props.onWiden}
             onPickCommit={props.onPickCommit}
             onPickCommitAt={originalCommitAt}
             onPickCancel={props.onPickCancel}
@@ -649,6 +803,32 @@ export function DocumentView(props: Props): React.JSX.Element {
             />
 
             {/*
+              Spec 27 §4.1 — the paper's own switches, at the head of the pane.
+
+              Drawn on this pane only, even while two are on screen: one strip
+              governs both (§4.6), and a second copy in the original's head
+              would be a control that appears to be about the pane it sits in.
+            */}
+            {/*
+              Spec 28 §5.6 — the same corner, as a right-aligned row: the
+              strip's right edge stays where spec 27 put it, and the find bar
+              grows leftwards from it while it is open.
+            */}
+            {props.paperable || (props.findPane === "current" && props.corner) ? (
+              <div className="rex-corner">
+                {props.findPane === "current" ? props.corner : null}
+                {props.paperable ? (
+                  <PaperStrip
+                    view={props.paper}
+                    onWide={props.onPaperWide}
+                    onDark={props.onPaperDark}
+                  />
+                ) : null}
+              </div>
+            ) : null}
+            {props.findPane === "current" ? props.ruler : null}
+
+            {/*
         Spec 05 §5.6.1 — what an Apply just changed, in the write colour, while
         the reviewer decides. Drawn first so a selection outline over the same
         block still reads on top of it. Spec 16 §4.1 — these are also exactly
@@ -679,6 +859,7 @@ export function DocumentView(props: Props): React.JSX.Element {
               scrollY={scroll.y}
               onHoverItem={props.onHoverItem}
               onRemoveItem={props.onRemoveItem}
+              onFocusItem={props.onFocusItem}
               onSelectMarker={props.onSelectMarker}
               onHoverThread={props.onHoverThread}
             />
@@ -734,13 +915,13 @@ export function DocumentView(props: Props): React.JSX.Element {
 
             {props.picking ? (
               <PickLayer
-                scopes={props.pickPane === "current" ? props.pickScopes : null}
-                active={props.pickActive}
+                scopes={props.pathPane === "current" ? props.pathScopes : null}
+                active={props.pathActive}
                 scrollX={scroll.x}
                 scrollY={scroll.y}
                 arming={props.arming}
                 onProbe={currentProbe}
-                onActive={props.onPickActive}
+                onWiden={props.onWiden}
                 onCommit={props.onPickCommit}
                 onCommitAt={currentCommitAt}
                 onRegion={props.onRegion}
@@ -751,10 +932,26 @@ export function DocumentView(props: Props): React.JSX.Element {
             ) : null}
 
             {/*
-        Spec 08 §4.1 — one strip, three states, and only ever one at a time.
-        The two bars above are the other two; this is the resting one.
+        Spec 08 §4.1, widened by spec 26 §4.7 — one strip, four states, and only
+        ever one at a time. The path bar is now two of them: it is drawn while
+        pick mode is on, AND while a place is focused with the mode off. Its own
+        `number` prop tells the two apart.
+
+        The pen bar is drawn by `PenLayer`; this file mounts the other two.
       */}
-            {props.doc && !props.picking && !props.penning ? (
+            {props.doc &&
+            props.pathPane === "current" &&
+            props.pathScopes &&
+            props.pathScopes.length > 0 &&
+            !props.penning ? (
+              <PathBar
+                scopes={props.pathScopes}
+                active={props.pathActive}
+                number={props.pathNumber}
+                onScope={props.onPathScope}
+                onDone={props.onPathDone}
+              />
+            ) : props.doc && !props.picking && !props.penning ? (
               <ModeStrip
                 canPick
                 // Spec 16 §6.4 — the gap list is the test, not the file's

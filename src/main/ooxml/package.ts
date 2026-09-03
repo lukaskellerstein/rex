@@ -1,10 +1,22 @@
-// Spec 11 §7.3 — the deck as a package of parts, opened and written back.
+// Spec 11 §7.3 — an OOXML file as a package of parts, opened and written back.
+//
+// Spec 19 §3.1 moved this out of `pptx/`. Nothing in it was ever about slides,
+// and spec 19 §2.3 proved it: all 18 Word files on this machine open here and
+// write back with **every part byte-identical**, 0 parts lost, 0 added. A
+// `.docx` and a `.pptx` are the same kind of file, so they share this module.
 //
 // The rule this module exists to keep: **modify only the parts the plan names,
 // and write every other entry back with its original compression method.** §2.4
 // measured what happens without it — a deck REX barely edited comes back a
 // different size — and `pptx-automizer` was rejected for the same reason at a
 // larger scale: 139 parts in, 255 parts out.
+//
+// Spec 19 §2.3 sharpened what "unchanged" means here, and it is worth stating
+// exactly: **every part comes back byte-identical, and the zip container does
+// not.** Local headers carry timestamps and jszip's deflate level is not
+// Office's, so the file's own size can move — measured at up to −9.68% on a
+// Word file, −4.21% on a deck — while nothing inside it has changed. The
+// invariant the validators check is the part-level one.
 //
 // Compression is per entry and it genuinely varies. Measured on 2026-08-24: the
 // Agrofert deck stores 113 of its 132 parts uncompressed, VOLAREZA deflates all
@@ -31,7 +43,7 @@ function methodOf(entry: JSZip.JSZipObject): Method {
   return magic === STORE_MAGIC ? "STORE" : "DEFLATE";
 }
 
-export interface DeckPackage {
+export interface OoxmlPackage {
   has(path: string): boolean;
   /** Every part currently in the package, in the original zip's order. */
   paths(): string[];
@@ -45,7 +57,7 @@ export interface DeckPackage {
   toBuffer(): Promise<Buffer>;
 }
 
-export async function openPackage(bytes: Buffer): Promise<DeckPackage> {
+export async function openPackage(bytes: Buffer): Promise<OoxmlPackage> {
   const zip = await JSZip.loadAsync(bytes);
 
   const order: string[] = [];

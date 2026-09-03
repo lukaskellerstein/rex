@@ -4,25 +4,42 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApplyReadyEvent } from "../../shared/channels.ts";
-import { outOfReviewScope, worstState } from "../../shared/targets.ts";
+import { isMarkdownPath } from "../../shared/formats.ts";
+import { movedPath } from "../../shared/paths.ts";
+import {
+  NO_PLACES,
+  outOfReviewScope,
+  type PlaceTally,
+  tallyPlaces,
+  threadState,
+} from "../../shared/targets.ts";
 import type {
+  AgentChoices,
   Anchor,
   AnchorState,
   AnchorSummary,
   CommentGroup,
   CommentMove,
+  DiagramPart,
   DocumentRef,
   DocumentVersion,
   LineRange,
   Message,
   OpenedDocument,
   PaneMode,
+  PaperView,
   ReferenceGraph,
   ThreadWithMessages,
   ViewState,
   WorkingCopyView,
   WorkspaceRef,
   WorkspaceTree,
+} from "../../shared/types.ts";
+import {
+  DEFAULT_MODEL,
+  DEFAULT_STYLE,
+  PAPER_VIEW_DEFAULT,
+  UNSENT_STATUS,
 } from "../../shared/types.ts";
 import { createDocumentAnchor } from "../anchor/create.ts";
 import type { Stroke } from "../anchor/lasso.ts";
@@ -31,6 +48,7 @@ import { ApplyResult } from "./ApplyResult.tsx";
 import {
   type DocumentSurface,
   type GapSpot,
+  type MeasuredPlace,
   mergeResolved,
   NO_KEPT_SCOPE,
   type ResolvedThread,
@@ -39,21 +57,29 @@ import {
 import { CommentCard } from "./CommentCard.tsx";
 import { DiffDialog } from "./DiffDialog.tsx";
 import { DocumentView } from "./DocumentView.tsx";
+import { diagramCommentsFor, diagramPlacesFor } from "./diagramPlaces.ts";
 import { type ChangeCounts, Explorer } from "./Explorer.tsx";
+import { FindBar } from "./FindBar.tsx";
+import { FindRuler } from "./FindRuler.tsx";
+import { type FindDeps, useFind } from "./find.ts";
 import { GraphView } from "./GraphView.tsx";
+import { ChevronLeft } from "./Icons.tsx";
 import { Lightbox } from "./Lightbox.tsx";
+import { type Lane, laneOf } from "./lanes.ts";
 import { drawDiagramPng, posterFramePng } from "./mermaid.ts";
 import type { Mode } from "./mode.ts";
+import type { PlaceFacts } from "./placeLine.ts";
 import type { PreviewFigure } from "./preview.ts";
 import { SelectionPanel } from "./SelectionPanel.tsx";
 import { Sidebar } from "./Sidebar.tsx";
-import { type SidebarTab, SidebarTabs } from "./SidebarTabs.tsx";
 import { Splitter } from "./Splitter.tsx";
 import {
   addSelectionItem,
   moveSelectionItem,
   newSelectionItem,
+  type PathFocus,
   type SelectionItem,
+  threadOf,
 } from "./selection.ts";
 import { TopBar } from "./TopBar.tsx";
 import { TraceSheet } from "./TraceSheet.tsx";
@@ -62,10 +88,38 @@ import { tokenClass } from "./wash.ts";
 /** What the middle of the window is showing. */
 type Centre = "document" | "graph";
 
+/**
+ * Spec 30 §3 — the sidebar has one home and two screens that lead back to it.
+ *
+ * It was `SidebarTab = "selection" | "comments"`, chosen from a tab bar. Spec 30
+ * §8.1 reverses spec 08 §3.1: a tab bar says "two destinations, pick one", and
+ * only one of the two was a destination. The other is a form you fill in and
+ * leave — which is exactly what `CommentCard` has always been for a comment
+ * that already exists.
+ *
+ * The card is deliberately not a third value. It is a comment being open
+ * (`activeId`) while the screen is `list`, which is the pair `cardOnScreen` has
+ * always tested and the reason this rename is behaviour-preserving.
+ */
+type SideScreen = "list" | "composer";
+
 /** SPEC.md §8.8 point 4 — confirm before a fan-out larger than this. */
 const FAN_OUT_CONFIRM = 10;
 /** A rough per-comment figure, only ever shown as an estimate. */
 const ESTIMATED_USD_PER_ASK = 0.05;
+/**
+ * Spec 06 §4.3 — how many files one folder may add before REX asks first.
+ *
+ * Deliberately not `FAN_OUT_CONFIRM`. That one guards money spent on agent
+ * runs; this guards time and a panel that suddenly holds forty rows. Every file
+ * is opened and rendered to get its id, which is milliseconds for Markdown and
+ * seconds for a deck, so the wait is the count times the slowest file.
+ *
+ * The same number decides whether the loop says it is working: a progress line
+ * for four files is a flicker, and one for forty is the only thing on screen
+ * that says REX has not hung.
+ */
+const FOLDER_SELECT_CONFIRM = 20;
 /** How long ⌥ must be held before it means "pick", not "I am typing ⌥-something". */
 const ALT_PICK_DELAY = 250;
 
@@ -89,6 +143,12 @@ function clampZoom(value: number): number {
 function same(a: ScopeRect | null, b: ScopeRect | null): boolean {
   if (a === null || b === null) return a === b;
   return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+/** The same, for the line boxes an outline follows — asked once per sweep. */
+function sameLines(a: ScopeRect[] | null, b: ScopeRect[] | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.length === b.length && a.every((box, at) => same(box, b[at] ?? null));
 }
 
 /** Spec 05 §3.5 — the file name. Never the whole path. */
@@ -163,7 +223,6 @@ export function App(): React.JSX.Element {
    */
   const offeredGap = useRef<number | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [cost, setCost] = useState(0);
   const [pendingApply, setPendingApply] = useState<ApplyReadyEvent | null>(null);
   const [applyOutcome, setApplyOutcome] = useState<ApplyOutcome | null>(null);
   /**
@@ -228,6 +287,61 @@ export function App(): React.JSX.Element {
   const setMode = (threadId: string, mode: Mode): void =>
     setModeByThread((current) => ({ ...current, [threadId]: mode }));
 
+  /**
+   * Spec 25 §3 — the models this account can use, asked once.
+   *
+   * Main caches the probe, so this costs one IPC round trip and no CLI process
+   * of its own. Until it answers the picker has an empty list and shows the
+   * default's own name, which is the truth: nothing else is known yet.
+   */
+  const [modelList, setModelList] = useState<AgentChoices>({
+    models: [],
+    chosen: DEFAULT_MODEL,
+    styles: [DEFAULT_STYLE],
+    error: null,
+  });
+  /**
+   * §5 — the model each comment's next send will run on, or absent for "follow
+   * the default".
+   *
+   * Renderer state keyed by thread id, exactly like `modeByThread` above and
+   * for the same reason: this is what the NEXT send will do, and after a restart
+   * the value to come back to is the reviewer's own default rather than a
+   * one-off escalation they made last week. What survives is `message.model`,
+   * which is a different fact — what a send that already happened DID.
+   */
+  const [modelByThread, setModelByThread] = useState<Record<string, string>>({});
+  /** §7.1 — the model a comment that does not exist yet will be created with. */
+  const [selectionModel, setSelectionModel] = useState<string | null>(null);
+  /**
+   * Spec 31 §2.2 — the style a comment that does not exist yet will be made
+   * with, and the ONLY memory a style has outside a chat.
+   *
+   * It keeps its value for the session, so setting the panel to `Concise` gives
+   * `Concise` to the next comment made and the one after. That is not an
+   * application setting — nothing writes it to disk — and it is what the
+   * reviewer meant by not wanting to pick again for every message.
+   */
+  const [selectionStyle, setSelectionStyle] = useState<string>(DEFAULT_STYLE);
+
+  /** Null means "follow the default", which is what most comments do. */
+  const modelOf = (threadId: string): string | null => modelByThread[threadId] ?? null;
+
+  /** What actually goes on the wire: the pick, or the default it follows. */
+  const modelFor = (threadId: string): string => modelOf(threadId) ?? modelList.chosen;
+
+  const setModel = (threadId: string, model: string | null): void =>
+    setModelByThread((current) => {
+      const next = { ...current };
+      if (model === null) delete next[threadId];
+      else next[threadId] = model;
+      return next;
+    });
+
+  useEffect(() => {
+    void window.rex.modelList().then(setModelList);
+  }, []);
+
   const [notice, setNotice] = useState<string | null>(null);
   // Spec 02: the workspace is a view of a folder, independent of which
   // document is open, so switching documents never disturbs it.
@@ -244,6 +358,18 @@ export function App(): React.JSX.Element {
   const [explorerWidth, setExplorerWidth] = useState(272);
   const [commentsWidth, setCommentsWidth] = useState(384);
   /**
+   * The widest the comments column may be dragged. The old fixed 760 was too
+   * low: a long answer, a diff or a tool trace wants half the window or more,
+   * and on a wide screen 760 is nowhere near half. So the ceiling follows the
+   * window and only holds back the last strip of it, which keeps a sliver of
+   * document on screen — the splitter lives on the column's edge, so that
+   * strip is also what the reviewer grabs to drag it back.
+   *
+   * The floor keeps a narrow window exactly as it was.
+   */
+  const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
+  const commentsMax = Math.max(760, windowWidth - 240);
+  /**
    * Spec 10 §3.5 — whether the tree lists the folders REX skips on its own.
    *
    * A view state and not a stored one: it is how you go and find `node_modules`
@@ -255,18 +381,10 @@ export function App(): React.JSX.Element {
   /** Spec 10 §2 — the figure being read at a real size, if any. */
   const [preview, setPreview] = useState<PreviewFigure | null>(null);
 
-  // design/selection — pick mode and the region drag it can hand off to.
+  // design/selection — pick mode and the region drag it can hand off to. The
+  // chain the mode steers is spec 26's `pathScopes`, below: it outlives the
+  // mode now, so it is not the mode's to own.
   const [picking, setPicking] = useState(false);
-  const [pickScopes, setPickScopes] = useState<PickScope[] | null>(null);
-  const [pickActive, setPickActive] = useState(0);
-  /**
-   * Spec 16 §4 — which pane the chain above was probed in.
-   *
-   * A chain holds live elements of one document, and both panes now offer pick
-   * mode. Without this the left pane's chain would be drawn over the right
-   * pane's prose, at coordinates that mean nothing there.
-   */
-  const [pickPane, setPickPane] = useState<DocumentVersion>("current");
   const [arming, setArming] = useState(false);
   /** Spec 06 §5.1 — the pen, a mode like pick and off by default. */
   const [penning, setPenning] = useState(false);
@@ -283,6 +401,47 @@ export function App(): React.JSX.Element {
   const [adding, setAdding] = useState(false);
   /** The document's own zoom. 1 is 100%. */
   const [zoom, setZoom] = useState(1);
+  /**
+   * Spec 27 §4 — how REX draws the page it typeset itself.
+   *
+   * The reviewer's, not the document's: it survives opening another file, and
+   * outlives the session in the `setting` table (§4.7). Both panes read it,
+   * which is what stops a comparison from having two grounds (§4.6).
+   */
+  const [paper, setPaper] = useState<PaperView>(PAPER_VIEW_DEFAULT);
+  /**
+   * Read once, on mount. Until it answers the page is drawn narrow and light,
+   * which is the same first paint a reviewer who never touched the switches
+   * gets — so a stored `wide` shows as one reflow at open rather than as a
+   * flash of the wrong ground.
+   */
+  useEffect(() => {
+    void window.rex.paperView().then(setPaper);
+  }, []);
+
+  /**
+   * Spec 27 §4.7 — every change is written through.
+   *
+   * The write is not awaited and its failure is not shown: it is a reading
+   * preference, and a reviewer whose disk refused it should still get the
+   * paper they just asked for.
+   */
+  const paperRef = useRef(paper);
+  paperRef.current = paper;
+  const changePaper = useCallback((next: PaperView): void => {
+    setPaper(next);
+    void window.rex
+      .paperViewSet(next)
+      .catch((error: unknown) => console.warn("[rex] the paper setting was not stored", error));
+  }, []);
+  const togglePaperWide = useCallback(
+    (): void => changePaper({ ...paperRef.current, wide: !paperRef.current.wide }),
+    [changePaper],
+  );
+  const togglePaperDark = useCallback(
+    (): void => changePaper({ ...paperRef.current, dark: !paperRef.current.dark }),
+    [changePaper],
+  );
 
   // ── The selection panel (spec 05 §3) ────────────────────────
   //
@@ -292,8 +451,56 @@ export function App(): React.JSX.Element {
   // database — a half-built selection restored three days later is a puzzle.
   const [selection, setSelection] = useState<SelectionItem[]>([]);
   const [selectionNote, setSelectionNote] = useState("");
+  /**
+   * Spec 30 §3.6 — the name being typed in the composer, from the moment it
+   * opens.
+   *
+   * It is App's and not the panel's for the reason the lane is (§5.5): the
+   * panel is not on screen when the composer is empty — `SelectionPanel` draws
+   * one line of prose until a place is picked — so a name box living in it
+   * could not be reached until after the first click, which is the complaint.
+   * It sits in the composer's own header instead, which is always there.
+   */
+  const [selectionTitle, setSelectionTitle] = useState("");
+  /**
+   * Spec 24 §3.5 — places picked for an OPEN comment and not yet sent, by
+   * thread id.
+   *
+   * Its own list and not the panel's, because the two number differently: the
+   * panel numbers from 1 and a comment's new places number on from the ones it
+   * has (§3.3). One list with two numberings would put two `1`s on one page.
+   *
+   * Keyed by thread so the places belong to the comment they were picked for:
+   * `all comments` and back finds them where they were. Not handed to the
+   * panel when the card closes — `goToPlace` closes and reopens the card on
+   * every jump to another document, and that hand-over would fire each time.
+   * Session-only, like the panel.
+   */
+  const [pendingByThread, setPendingByThread] = useState<Map<string, SelectionItem[]>>(
+    () => new Map(),
+  );
   /** Spec 08 §3.1 — which job the sidebar is doing. */
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>("comments");
+  const [sidebarTab, setSidebarTab] = useState<SideScreen>("list");
+  /**
+   * Spec 30 §3.2 — the draft the composer is editing, or null for a fresh one.
+   *
+   * It is what makes a draft edited five times ONE comment rather than five.
+   * Set when a draft row is opened, cleared on every leave — back, Ask, Save —
+   * so the next thing the composer builds starts from nothing.
+   */
+  const [draftId, setDraftId] = useState<string | null>(null);
+  /**
+   * Spec 30 §5.5 — the lane the panel is showing, and it lives HERE.
+   *
+   * It was `Sidebar`'s own `useState`, which made §1.1's fault structural: the
+   * paper could not see it, so the pills narrowed the list and left the
+   * document drawing every bar. Lifting it also fixes the smaller fault in the
+   * same line — `Sidebar` unmounts whenever a comment card opens, so the row
+   * used to snap back to `open` every time a comment was read.
+   */
+  const [lane, setLane] = useState<Lane>("open");
+  /** Narrowed to the open document. Off by default: the list is the workspace's. */
+  const [onlyThisFile, setOnlyThisFile] = useState(false);
   /** Spec 08 §6 — the comment whose trace is covering the document pane. */
   const [traceId, setTraceId] = useState<string | null>(null);
   /** Spec 08 §7.2 — which of the open comment's places is being pointed at. */
@@ -302,9 +509,26 @@ export function App(): React.JSX.Element {
   /** Hovering a row in the panel lights that comment's passages on the paper. */
   const [hoveredThreadId, setHoveredThreadId] = useState<string | null>(null);
   const [expandedItemId, setExpandedItemId] = useState<string | null>(null);
-  /** The chain rebuilt from the expanded row's anchor — §4.1. */
-  const [rowScopes, setRowScopes] = useState<PickScope[] | null>(null);
-  const [rowActive, setRowActive] = useState(0);
+  /**
+   * Spec 26 §2 — the chain the path bar shows, and which of it is chosen.
+   *
+   * One chain, about one of two things. `pathFocus` says which: a place when it
+   * is set, the thing under the cursor when it is null. It used to be two
+   * chains — the hover's, and a private copy the expanded panel row kept — and
+   * spec 26 puts both on the same bar, where two answers would be visible.
+   */
+  const [pathScopes, setPathScopes] = useState<PickScope[] | null>(null);
+  const [pathActive, setPathActive] = useState(0);
+  /**
+   * Spec 16 §4 — which pane the chain above was built in.
+   *
+   * A chain holds live elements of one document, and both panes offer pick mode
+   * and hold places. Without this the left pane's chain would be drawn over the
+   * right pane's prose, at coordinates that mean nothing there.
+   */
+  const [pathPane, setPathPane] = useState<DocumentVersion>("current");
+  /** Spec 26 §4.2 — the place the bar is about, or null while it is a hover. */
+  const [pathFocus, setPathFocus] = useState<PathFocus | null>(null);
   /** Spec 05 §5.6.1 — what a pending Apply changed in the document on screen. */
   const [changeBoxes, setChangeBoxes] = useState<ScopeRect[]>([]);
 
@@ -321,9 +545,17 @@ export function App(): React.JSX.Element {
   const hadSelection = useRef(false);
   useEffect(() => {
     const has = selection.length > 0;
-    if (has !== hadSelection.current) setSidebarTab(has ? "selection" : "comments");
+    if (has !== hadSelection.current) setSidebarTab(has ? "composer" : "list");
     hadSelection.current = has;
   }, [selection.length]);
+
+  // The comments column's ceiling follows the window, so it has to be measured
+  // again whenever the window changes size.
+  useEffect(() => {
+    const measure = (): void => setWindowWidth(window.innerWidth);
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
 
   /**
    * Spec 08 §3.1 — entering pick or the pen is starting to select, so the tab
@@ -336,10 +568,22 @@ export function App(): React.JSX.Element {
    * place also puts the panel in front before the first click, which is where
    * the reviewer needs it: the row appears under a heading they are already
    * looking at.
+   *
+   * **The tab is borrowed, not taken.** A mode that ends with nothing picked
+   * hands it back. Without that, every moment of pick mode costs the reviewer
+   * their place: they were reading a comment, something armed pick, and they
+   * come back to a Selection tab reading 0.
+   *
+   * One of those "somethings" is not a gesture at all. This machine switches
+   * macOS desktops with ⌥ and a digit, so the window sees the ⌥ press, loses
+   * focus, and never sees the release — the hold below arms pick mode into an
+   * empty room. Reported on 2026-08-31: leave the desktop REX is on, come back,
+   * and the sidebar is on Selection. `onBlur` in the keyboard effect ends the
+   * hold; this is what puts the reviewer back where they were.
    */
-  useEffect(() => {
-    if (picking || penning) setSidebarTab("selection");
-  }, [picking, penning]);
+  const tabBeforeMode = useRef<SideScreen | null>(null);
+  // The effect itself sits below `cardOnScreen`, which it needs and which needs
+  // every ref declared between here and there.
 
   const surfaceRef = useRef<DocumentSurface | null>(null);
   /**
@@ -351,9 +595,35 @@ export function App(): React.JSX.Element {
    */
   const originalSurfaceRef = useRef<DocumentSurface | null>(null);
   const docRef = useRef<OpenedDocument | null>(null);
+
+  /**
+   * Spec 28 §4.1 — the pane being read, which is where a find acts and where
+   * its bar and ruler are drawn. The original only while it is the one pane on
+   * screen; a find painted on a hidden pane would report `12 of 12` over an
+   * empty screen.
+   */
+  const readPane: DocumentVersion =
+    paneMode === "original" && original !== null ? "original" : "current";
+  /**
+   * Spec 28 — the find bar, the Search, and which of the two the page shows.
+   *
+   * The dependencies go in by ref and are filled below `guard`, because
+   * `sweep` (next) has to call `find.refind()` and `openDocument` — which the
+   * jump needs — is declared long after it.
+   */
+  const findDeps = useRef<FindDeps>({
+    surface: () => null,
+    pane: "current",
+    documentPath: () => null,
+    openDocument: async () => {},
+  });
+  const find = useFind(findDeps, readPane);
   const threadsRef = useRef<ThreadWithMessages[]>([]);
   const groupsRef = useRef<CommentGroup[]>([]);
   const workspaceRef = useRef<WorkspaceRef | null>(null);
+  /** Read by `refreshTree`, which has to stay stable — see its own note. */
+  const showSkippedRef = useRef(false);
+  showSkippedRef.current = showSkipped;
   const pendingApplyRef = useRef<ApplyReadyEvent | null>(null);
   /**
    * Which comments were already orphaned when this Apply began.
@@ -383,16 +653,18 @@ export function App(): React.JSX.Element {
    * would put a row in the panel that the reviewer never built.
    */
   const anchorWhenReady = useRef<{ path: string; anchor: Anchor } | null>(null);
-  /**
-   * The anchor the expanded row had when it was expanded.
-   *
-   * Widening re-anchors the row (§4.1), so its own anchor moves under the chips.
-   * Rebuilding the chain from the *moved* anchor would drop every scope narrower
-   * than the one just chosen, and the reviewer could widen but never come back.
-   */
-  const expandedBase = useRef<SelectionItem | null>(null);
   /** Read by the sweep, which re-measures every row's box (§6). */
   const selectionRef = useRef<SelectionItem[]>([]);
+  /**
+   * Spec 30 §3.2 — what the back arrow needs, and it keeps one identity for the
+   * life of the app, so it reads these rather than closing over the render's
+   * own values.
+   */
+  const draftIdRef = useRef<string | null>(null);
+  const selectionNoteRef = useRef("");
+  const selectionTitleRef = useRef("");
+  /** Spec 24 §3.5 — the same, for the places waiting on each open comment. */
+  const pendingRef = useRef<Map<string, SelectionItem[]>>(new Map());
   /** Read by the sweep, which paints the open comment's passages violet (§6). */
   const activeIdRef = useRef<string | null>(null);
   /**
@@ -400,9 +672,11 @@ export function App(): React.JSX.Element {
    * identity for the life of the app — DocumentView's tier 1 effect depends on
    * that, and a new identity there rewrites the iframe's `srcdoc`.
    */
-  const pickActiveRef = useRef(0);
+  const pathActiveRef = useRef(0);
   /** The chain on screen, for the click that lands where no element is. */
-  const pickScopesRef = useRef<PickScope[] | null>(null);
+  const pathScopesRef = useRef<PickScope[] | null>(null);
+  /** Spec 26 §4.2 — read by the arrow keys, which are bound once and for all. */
+  const pathFocusRef = useRef<PathFocus | null>(null);
   const zoomRef = useRef(1);
   /**
    * Whether the chosen scope was chosen **by hand** — ↑ ↓ or a crumb — rather
@@ -412,7 +686,7 @@ export function App(): React.JSX.Element {
    */
   const pickChosenByHand = useRef(false);
   /** Which pane the chain on screen belongs to, for the callbacks that commit it. */
-  const pickPaneRef = useRef<DocumentVersion>("current");
+  const pathPaneRef = useRef<DocumentVersion>("current");
   /** §4.1 — what the new-version pane answers a gesture on. See `liveRangesOf`. */
   const liveRangesRef = useRef<LineRange[] | null>(null);
   liveRangesRef.current = liveRangesOf(doc);
@@ -426,25 +700,83 @@ export function App(): React.JSX.Element {
    * true when it was made.
    */
   const centreRef = useRef<Centre>("document");
-  const sidebarTabRef = useRef<SidebarTab>("comments");
+  const sidebarTabRef = useRef<SideScreen>("list");
   const traceIdRef = useRef<string | null>(null);
   const noticeRef = useRef<string | null>(null);
   const appRef = useRef<HTMLDivElement>(null);
 
   docRef.current = doc;
   threadsRef.current = threads;
+
+  /**
+   * §2.1 — the style each comment is having, seeded from `thread.style`.
+   *
+   * The deliberate opposite of `modelByThread` above, which resets on restart.
+   * This map starts empty and every lookup falls through to the stored column,
+   * so a comment reopened tomorrow is still having the conversation it was.
+   */
+  const [styleByThread, setStyleByThread] = useState<Record<string, string>>({});
+
+  const styleOf = (threadId: string): string => {
+    const picked = styleByThread[threadId];
+    if (picked !== undefined) return picked;
+    const stored = threadsRef.current.find((one) => one.id === threadId)?.style;
+    return stored ?? DEFAULT_STYLE;
+  };
+
+  const setStyle = (threadId: string, style: string): void =>
+    setStyleByThread((current) => ({ ...current, [threadId]: style }));
   workspaceRef.current = workspace;
   pendingApplyRef.current = pendingApply;
   selectionRef.current = selection;
+  draftIdRef.current = draftId;
+  selectionNoteRef.current = selectionNote;
+  selectionTitleRef.current = selectionTitle;
+  pendingRef.current = pendingByThread;
   activeIdRef.current = activeId;
-  pickActiveRef.current = pickActive;
-  pickScopesRef.current = pickScopes;
-  pickPaneRef.current = pickPane;
+  pathActiveRef.current = pathActive;
+  pathScopesRef.current = pathScopes;
+  pathPaneRef.current = pathPane;
+  pathFocusRef.current = pathFocus;
   zoomRef.current = zoom;
   centreRef.current = centre;
   sidebarTabRef.current = sidebarTab;
   traceIdRef.current = traceId;
   noticeRef.current = notice;
+
+  /**
+   * Spec 24 §3.1 — the comment a selection joins, when its card is on screen.
+   *
+   * "On screen" is a card open AND the sidebar on the Comments tab. A reviewer
+   * who clicked the Selection tab by hand while a card is open is building a
+   * new comment, and their selection goes to the panel. A synthesis comment has
+   * no places and takes none (§3.6).
+   *
+   * Reads refs, not state, because it is called from callbacks that keep one
+   * identity for the life of the app.
+   */
+  const cardOnScreen = useCallback((): ThreadWithMessages | null => {
+    const id = activeIdRef.current;
+    if (id === null || sidebarTabRef.current !== "list") return null;
+    const thread = threadsRef.current.find((one) => one.id === id) ?? null;
+    return thread && thread.kind !== "synthesis" ? thread : null;
+  }, []);
+
+  useEffect(() => {
+    // Spec 24 §3.1 — not while a card is on screen. The picked places land in
+    // the card, which the reviewer can already see, so there is nothing to
+    // bring forward and nothing to hand back afterwards.
+    if ((picking || penning) && cardOnScreen() === null) {
+      if (tabBeforeMode.current === null) tabBeforeMode.current = sidebarTabRef.current;
+      setSidebarTab("composer");
+      return;
+    }
+    const before = tabBeforeMode.current;
+    tabBeforeMode.current = null;
+    // Only when the mode produced nothing. A reviewer who picked places wants
+    // to look at them, and they are in the tab the mode opened.
+    if (before !== null && selectionRef.current.length === 0) setSidebarTab(before);
+  }, [picking, penning, cardOnScreen]);
 
   /**
    * Each thread's targets' states, in target order — the stored one, or the
@@ -470,21 +802,29 @@ export function App(): React.JSX.Element {
   }, [threads, resolved]);
 
   /**
-   * A thread's own state is the worst of its targets', ignoring the ones nobody
-   * has looked at (§5.4). Null when nobody has looked at any of them.
+   * Spec 32 §5 — how each thread's places came out, counted.
+   *
+   * The tally and not the state is the memo, because the two summaries below it
+   * need different halves of it: the lane wants one state, and the row's word
+   * wants `1 of 4`. Deriving the count back out of a state is impossible, so the
+   * count is what is kept.
    */
-  const stateById = useMemo(() => {
-    const map = new Map<string, AnchorState | null>();
-    for (const [threadId, states] of targetStatesById) map.set(threadId, worstState(states));
+  const tallyById = useMemo(() => {
+    const map = new Map<string, PlaceTally>();
+    for (const [threadId, states] of targetStatesById) map.set(threadId, tallyPlaces(states));
     return map;
   }, [targetStatesById]);
 
-  /** What a quoteless anchor turned out to point at — `Table · 3 × 4`. */
-  const labelById = useMemo(() => {
-    const map = new Map<string, string | null>();
-    for (const entry of resolved) map.set(entry.threadId, entry.label);
+  /**
+   * Spec 32 §2 — a thread is lost only when EVERY place it has is lost, and the
+   * ones nobody has looked at count in neither direction (§5.4). Null when
+   * nobody has looked at any of them.
+   */
+  const stateById = useMemo(() => {
+    const map = new Map<string, AnchorState | null>();
+    for (const [threadId, tally] of tallyById) map.set(threadId, threadState(tally));
     return map;
-  }, [resolved]);
+  }, [tallyById]);
 
   /**
    * The same two facts per PLACE rather than per thread: what it is, and which
@@ -494,14 +834,19 @@ export function App(): React.JSX.Element {
    */
   const targetPlacesById = useMemo(() => {
     const sweptBy = new Map(resolved.map((entry) => [entry.threadId, entry]));
-    const map = new Map<string, Array<{ label: string | null; line: number | null }>>();
+    const map = new Map<string, PlaceFacts[]>();
     for (const thread of threads) {
       const swept = sweptBy.get(thread.id);
       map.set(
         thread.id,
         thread.targets.map((_, position) => {
           const check = swept?.checked.find((entry) => entry.position === position);
-          return { label: check?.label ?? null, line: check?.line ?? null };
+          // Spec 35 §3 — and the line it ends on, from the same sweep.
+          return {
+            label: check?.label ?? null,
+            line: check?.line ?? null,
+            lineEnd: check?.lineEnd ?? null,
+          };
         }),
       );
     }
@@ -511,6 +856,46 @@ export function App(): React.JSX.Element {
   const numbers = useMemo(
     () => new Map(threads.map((thread, position) => [thread.id, position + 1])),
     [threads],
+  );
+
+  /**
+   * Spec 30 §2 — which lane each comment is in, from the MERGED state.
+   *
+   * One map, read by the panel's five counts and by what the paper draws, so
+   * the list and the page cannot disagree about where a comment belongs.
+   */
+  const laneById = useMemo(() => {
+    const map = new Map<string, Lane>();
+    for (const thread of threads) {
+      map.set(thread.id, laneOf(thread.status, stateById.get(thread.id) ?? null));
+    }
+    return map;
+  }, [threads, stateById]);
+
+  /**
+   * Spec 30 §5 — the filter reaches the paper, and this is the whole of it.
+   *
+   * `MarginBars`, the block outlines and the gap rules in `PaneMarks` all read
+   * one `ResolvedThread[]`, so filtering it once moves all three and they cannot
+   * disagree. **`threads` is never filtered**: §5.2 — both `MarginBars` and
+   * `Sidebar` number comments by position in the full list, and narrowing it
+   * would renumber the document every time a pill was pressed.
+   *
+   * §5.3 — the open comment passes whatever the pill says. Open a resolved
+   * comment, then press `open`: the card is still on screen, and a reviewer
+   * reading a comment is not asking to have it hidden.
+   */
+  const onPaper = useCallback(
+    (entry: ResolvedThread): boolean =>
+      entry.threadId === activeId || laneById.get(entry.threadId) === lane,
+    [laneById, lane, activeId],
+  );
+  const paneShown = useMemo(
+    () => ({
+      current: paneResolved.current.filter(onPaper),
+      original: paneResolved.original.filter(onPaper),
+    }),
+    [paneResolved, onPaper],
   );
 
   // ── Resolution sweep (§6.5, §6.6) ───────────────────────────
@@ -525,7 +910,11 @@ export function App(): React.JSX.Element {
    * their box is still true of the document they belong to.
    */
   const remeasureSelection = useCallback(async (openDocumentId: string): Promise<void> => {
-    const items = selectionRef.current;
+    // Spec 24 §3.3 — the places waiting on every open comment are measured
+    // too, for the same reason and by the same code: their outlines are drawn
+    // from these boxes. Every comment's, not the open one's only, so a card the
+    // reviewer returns to has boxes that are true of the document as it is.
+    const items = [...selectionRef.current, ...[...pendingRef.current.values()].flat()];
     const here = items.filter((item) => item.documentId === openDocumentId);
     if (here.length === 0) return;
 
@@ -533,42 +922,57 @@ export function App(): React.JSX.Element {
     // falls to the other one when its own no longer has it. That is what makes
     // a place survive an approve: the original pane goes, and the row's box is
     // re-found in the one version that is left.
-    const measured = new Map<string, { rect: ScopeRect | null; pane: DocumentVersion }>();
+    const measured = new Map<string, { place: MeasuredPlace | null; pane: DocumentVersion }>();
     for (const pane of ["current", "original"] as const) {
       const surface = pane === "original" ? originalSurfaceRef.current : surfaceRef.current;
       const wanted = here.filter(
-        (item) => !measured.has(item.id) || measured.get(item.id)?.rect === null,
+        (item) => !measured.has(item.id) || measured.get(item.id)?.place === null,
       );
       if (!surface || wanted.length === 0) continue;
-      const rects = await surface.rectsForAnchors(
+      const places = await surface.rectsForAnchors(
         wanted.map((item) => ({ anchor: item.anchor, kind: item.kind })),
       );
       wanted.forEach((item, position) => {
-        const rect = rects[position] ?? null;
+        const place = places[position] ?? null;
         // Its own pane's answer stands even when it is null, unless the other
         // pane can do better — a row that resolves nowhere keeps no box at all.
-        if (rect !== null || !measured.has(item.id)) measured.set(item.id, { rect, pane });
+        if (place !== null || !measured.has(item.id)) measured.set(item.id, { place, pane });
       });
     }
 
-    setSelection((current) => {
+    // The same list back when nothing moved: this runs on every sweep, and a
+    // fresh array each time would re-render the panel and the outlines for
+    // nothing.
+    const remeasured = (current: SelectionItem[]): SelectionItem[] => {
       let moved = false;
       const next = current.map((item) => {
         const found = measured.get(item.id);
         if (!found) return item;
+        const rect = found.place?.rect ?? null;
+        const lines = found.place?.lines ?? null;
         if (
-          same(item.rect, found.rect) &&
+          same(item.rect, rect) &&
+          sameLines(item.lines, lines) &&
           item.zoom === zoomRef.current &&
           item.pane === found.pane
         )
           return item;
         moved = true;
-        return { ...item, rect: found.rect, pane: found.pane, zoom: zoomRef.current };
+        return { ...item, rect, lines, pane: found.pane, zoom: zoomRef.current };
       });
-      // The same list back when nothing moved: this runs on every sweep, and a
-      // fresh array each time would re-render the panel and the outlines for
-      // nothing.
       return moved ? next : current;
+    };
+
+    setSelection(remeasured);
+    setPendingByThread((current) => {
+      let changed = false;
+      const next = new Map<string, SelectionItem[]>();
+      for (const [threadId, list] of current) {
+        const after = remeasured(list);
+        if (after !== list) changed = true;
+        next.set(threadId, after);
+      }
+      return changed ? next : current;
     });
   }, []);
 
@@ -607,6 +1011,10 @@ export function App(): React.JSX.Element {
     setResolved(entries);
     setPaneResolved({ current: inCurrent, original: inOriginal });
     setGaps(surface?.gaps() ?? []);
+    // Spec 28 §5.2 — the index was just rebuilt, so every find range and every
+    // ruler mark measured against the old one is stale. The current match
+    // stays where it was; only the paint and the marks follow.
+    find.refind();
     await remeasureSelection(current.documentId);
 
     // Invariant I1 — main stores anchor states but cannot compute them. One call
@@ -633,7 +1041,7 @@ export function App(): React.JSX.Element {
       }
     }
     return summary;
-  }, [remeasureSelection]);
+  }, [remeasureSelection, find.refind]);
 
   /** §5.6.1 — the boxes for a pending Apply, in whichever document is open. */
   const refreshChangeBoxes = useCallback(async (): Promise<void> => {
@@ -681,12 +1089,17 @@ export function App(): React.JSX.Element {
   }, [sweep, refreshChangeBoxes]);
 
   /**
-   * A zoom is geometry, exactly as a resize is, so it re-resolves for the same
+   * The page was redrawn at a new size, so every box the overlay holds is
+   * stale. Geometry, exactly as a resize is, so it re-resolves for the same
    * reason (see the resize effect above). Skipped before there is a surface:
    * this fires once on mount, and sweeping then would clear the list the load
    * is about to fill.
+   *
+   * Spec 27 §5.4 renamed this from `onZoomApplied`. It has three callers now —
+   * the zoom, the width switch and a Mermaid redraw — and a callback named
+   * after one of them is how the other two get forgotten.
    */
-  const onZoomApplied = useCallback((): void => {
+  const onReflowed = useCallback((): void => {
     if (!surfaceRef.current) return;
     void sweep();
     void refreshChangeBoxes();
@@ -741,6 +1154,8 @@ export function App(): React.JSX.Element {
         // The left lane has nothing in it until this sweep runs, and a comment
         // on removed text has nowhere at all until then.
         await sweep();
+        // Spec 28 §5.5 — a Search hit waiting for this pane lands now.
+        if (surface) find.surfaceReady("original");
         return;
       }
 
@@ -751,6 +1166,9 @@ export function App(): React.JSX.Element {
       surface.setLiveBlocks(liveRangesRef.current);
       const summary = await sweep();
       await refreshChangeBoxes();
+      // Spec 28 §5.5 — a Search hit waiting for this document lands now, on
+      // the first DOM there is to land on.
+      find.surfaceReady("current");
 
       // §3.3 — a row clicked while its document was closed asked to be scrolled
       // to, and this is the first moment there is a DOM to scroll.
@@ -758,9 +1176,31 @@ export function App(): React.JSX.Element {
       if (waiting && waiting.documentId === docRef.current?.documentId) {
         scrollWhenReady.current = null;
         surface.scrollToAnchor(waiting.anchor);
+        // Spec 26 §4.5 — the row asked to be widened, and this is the first
+        // moment there is a chain to widen it through. Written out rather than
+        // through `focusPlace`, which is declared below `surfaceFor` and cannot
+        // be named in this effect's dependency array — and the surface this one
+        // wants is the argument it was handed.
         const probe = await surface.scopesForAnchor(waiting.anchor, waiting.kind);
-        setRowScopes(probe?.scopes ?? null);
-        setRowActive(probe?.active ?? 0);
+        if (probe && probe.scopes.length > 0) {
+          // Spec 26 §4.8 — the refs alongside, exactly as `showChain` does.
+          // `showChain` itself is declared below this effect and so cannot be
+          // named in its dependency array.
+          pathScopesRef.current = probe.scopes;
+          pathActiveRef.current = probe.active;
+          pathPaneRef.current = waiting.pane;
+          setPathScopes(probe.scopes);
+          setPathActive(probe.active);
+          setPathPane(waiting.pane);
+          const focus: PathFocus = {
+            itemId: waiting.id,
+            threadId: threadOf(pendingRef.current, waiting.id),
+            pane: waiting.pane,
+            base: { anchor: waiting.anchor, kind: waiting.kind },
+          };
+          pathFocusRef.current = focus;
+          setPathFocus(focus);
+        }
       }
 
       // Spec 07 §8.1 — the same moment, for a finding's Open.
@@ -776,7 +1216,7 @@ export function App(): React.JSX.Element {
         waiter(summary);
       }
     },
-    [sweep, refreshChangeBoxes],
+    [sweep, refreshChangeBoxes, find.surfaceReady],
   );
 
   // ── Opening documents ───────────────────────────────────────
@@ -790,11 +1230,57 @@ export function App(): React.JSX.Element {
   /** Spec 06 §5.1 — `esc`, and every route that leaves a mode behind. */
   const leavePen = useCallback((): void => setPenning(false), []);
 
+  /**
+   * Spec 26 §4.5 — the bar stops being about a place.
+   *
+   * Declared here rather than beside the rest of §4's code because four things
+   * that run earlier in the file end a focus: opening a document, Ask, `clear`,
+   * and leaving pick mode. A `useCallback` dependency array is evaluated during
+   * render, so a reference to a `const` declared further down throws.
+   */
+  /**
+   * Spec 26 §4.8 — put a chain on the bar: the state AND its ref, together.
+   *
+   * The refs above are assigned during render, which is a whole render behind
+   * the setter. Every reader of `pathActiveRef` is an event handler, and events
+   * do not wait for React: a wheel notch that widens and a click that follows
+   * it are two events with no guaranteed render in between, so the click read
+   * the index from *before* the widening. That is one of the two ways a click
+   * could take the child while the outline showed the parent (§9.6).
+   *
+   * `probe` and `commitAt` also `await` the surface mid-way, which opens the
+   * same window inside a single handler.
+   */
+  const showChain = useCallback(
+    (pane: DocumentVersion, scopes: PickScope[] | null, active: number): void => {
+      pathPaneRef.current = pane;
+      pathScopesRef.current = scopes;
+      pathActiveRef.current = active;
+      setPathPane(pane);
+      setPathScopes(scopes);
+      setPathActive(active);
+    },
+    [],
+  );
+
+  const dropFocus = useCallback((): void => {
+    pathFocusRef.current = null;
+    pathScopesRef.current = null;
+    setPathFocus(null);
+    setPathScopes(null);
+  }, []);
+
   const leavePick = useCallback((): void => {
     setPicking(false);
     setArming(false);
-    setPickScopes(null);
-    setPickActive(0);
+    pathScopesRef.current = null;
+    pathActiveRef.current = 0;
+    setPathScopes(null);
+    setPathActive(0);
+    // Spec 26 §4.5 — `esc` gives the bar up as well as the mode. The place
+    // stays: removing one is the trash button, and it always was.
+    pathFocusRef.current = null;
+    setPathFocus(null);
     pickChosenByHand.current = false;
   }, []);
 
@@ -832,20 +1318,37 @@ export function App(): React.JSX.Element {
       const list = await window.rex.threadList(listRequest(opened.documentId));
       surfaceRef.current = null;
       originalSurfaceRef.current = null;
-      setActiveId(null);
+      // Spec 24 §11.1 — the open card SURVIVES a change of document. Until spec
+      // 24 this closed it, on the grounds that the comment being read need not
+      // be about the document just opened. That is still true and no longer a
+      // reason: the list is workspace-wide (spec 05 §5.3), a card already
+      // lists places in documents that are not on screen, and the one thing a
+      // reviewer does with a card open and another document opening is point
+      // at something in it — which lands in the card only while the card is
+      // there. The trace sheet goes, because it covers the document pane and
+      // the reviewer has just asked to see a document.
+      setTraceId(null);
       setResolved([]);
       setPaneResolved({ original: [], current: [] });
       setGaps([]);
       resolvedRef.current = [];
       // §3.3 — the panel survives. Only the chain belongs to the old DOM, and a
-      // chain holds live elements that are about to stop existing.
-      setRowScopes(null);
+      // chain holds live elements that are about to stop existing. Spec 26 §4.5
+      // — so the bar goes with it rather than pointing at a dead element.
+      dropFocus();
       leavePick();
       leavePen();
       setThreads(list);
       setDoc(opened);
     },
     [leavePen, leavePick, listRequest, refreshGroups],
+  );
+
+  /** The surface for one pane. Spec 16 §4.2 — there are two of them now. */
+  const surfaceFor = useCallback(
+    (pane: DocumentVersion): DocumentSurface | null =>
+      pane === "original" ? originalSurfaceRef.current : surfaceRef.current,
+    [],
   );
 
   const guard = useCallback(async (task: () => Promise<void>): Promise<void> => {
@@ -855,6 +1358,60 @@ export function App(): React.JSX.Element {
       setNotice(error instanceof Error ? error.message : String(error));
     }
   }, []);
+
+  // Spec 28 — filled every render, read at call time. See `findDeps`.
+  findDeps.current = {
+    surface: surfaceFor,
+    pane: readPane,
+    documentPath: () => docRef.current?.ref.value ?? null,
+    openDocument: (path) => guard(() => openDocument({ kind: "file", value: path })),
+  };
+
+  /**
+   * Spec 26 §4.5 — put a place on the path bar, and rebuild its chain.
+   *
+   * The chain is rebuilt from the anchor rather than remembered from when the
+   * place was made, for `scopeChainForAnchor`'s own reason: a chain holds live
+   * `Element`s, they die when the document re-renders, and a stale one resolves
+   * to *somewhere* and looks entirely fine.
+   *
+   * A place whose document is not open, or whose anchor no longer resolves,
+   * gets no chain and therefore no bar (§4.7). That is the honest answer, and
+   * the panel row already says it in words.
+   *
+   * **Every route into the bar comes through here, a fresh commit included.**
+   * A `Selected` already carries the chain that produced it, and using that
+   * chain looked free — but it is not the chain `anchorFromAnchorScope` indexes
+   * into when the reviewer then presses ↑, and for a text drag the two differ
+   * in length. Measured on 2026-08-31 by the §7.1 run at step 11: the bar read
+   * `document › section › paragraph › [text]`, and one ↑ produced the SECTION
+   * rather than the paragraph, because the rebuilt chain had no text scope and
+   * index 1 meant something else in it. One chain, built one way.
+   */
+  const focusPlace = useCallback(
+    (item: SelectionItem, threadId: string | null) => {
+      void guard(async () => {
+        const surface = surfaceFor(item.pane);
+        const probed = await surface?.scopesForAnchor(item.anchor, item.kind);
+        if (!probed || probed.scopes.length === 0) {
+          dropFocus();
+          return;
+        }
+        showChain(item.pane, probed.scopes, probed.active);
+        // Spec 26 §4.8 — the ref with the state. A click is followed by `↑`
+        // more often than by anything else, and `widenBy` reads the ref.
+        const focus: PathFocus = {
+          itemId: item.id,
+          threadId,
+          pane: item.pane,
+          base: { anchor: item.anchor, kind: item.kind },
+        };
+        pathFocusRef.current = focus;
+        setPathFocus(focus);
+      });
+    },
+    [dropFocus, guard, showChain, surfaceFor],
+  );
 
   /**
    * Spec 13 §4 — what the overlay knows about itself, measured at the click.
@@ -926,14 +1483,22 @@ export function App(): React.JSX.Element {
     [guard, openDocument],
   );
 
+  /**
+   * Spec 05 §5.3 — the panel lists the WORKSPACE's comments, so an open
+   * document is not what it needs to have one.
+   *
+   * The open document only widens the scope: `thread:list` takes it as well as
+   * the root so that a single file opened by path still brings its own comments
+   * (§5.3, and `scopeOf` in main). With neither, the scope is empty and the
+   * empty list is the right answer — which is also what makes `Delete all`
+   * clear the panel when nothing is open, instead of leaving dead rows on it.
+   */
   const refreshThreads = useCallback(async (): Promise<ThreadWithMessages[]> => {
-    const current = docRef.current;
-    if (!current) return [];
     // Both, always. The list arrives in the walk order main computed from these
     // very groups (§4.4); fetching one without the other is how a row ends up
     // drawn under a group that is no longer there.
     await refreshGroups();
-    const list = await window.rex.threadList(listRequest(current.documentId));
+    const list = await window.rex.threadList(listRequest(docRef.current?.documentId ?? null));
     setThreads(list);
     threadsRef.current = list;
     return list;
@@ -1007,19 +1572,34 @@ export function App(): React.JSX.Element {
         workspaceRef.current = ref;
         setGraph(null);
         setTree(await window.rex.workspaceTree(ref, showSkipped));
-        // Spec 14 §5.3 — groups belong to a root, so they change with it.
-        await refreshGroups();
+        // Spec 14 §5.3 — groups belong to a root, so they change with it, and
+        // spec 05 §5.3 — so do the comments. Opening a folder is the moment the
+        // panel gets its list: before this it only ever arrived with a document,
+        // so a fresh start on a workspace full of comments showed none of them
+        // until the reviewer clicked a file. `refreshThreads` fetches the groups
+        // too, which is why it replaces the `refreshGroups` that stood here.
+        await refreshThreads();
       }),
-    [guard, refreshGroups, showSkipped],
+    [guard, refreshThreads, showSkipped],
   );
 
-  /** Re-scans the tree so comment counts follow what just happened. */
+  /**
+   * Re-scans the tree so comment counts follow what just happened.
+   *
+   * Read through refs rather than closed over, so this keeps one identity for
+   * the life of the app — spec 21 §4.1 calls it from the `apply:ready`
+   * listener, and that effect registers IPC subscriptions. An unstable
+   * dependency there would tear the listeners down and rebuild them every time
+   * the reviewer opened a folder or toggled the skipped rows, and a run whose
+   * event landed in the gap would report nothing at all.
+   */
   const refreshTree = useCallback(
     () =>
       guard(async () => {
-        if (workspace) setTree(await window.rex.workspaceTree(workspace, showSkipped));
+        const current = workspaceRef.current;
+        if (current) setTree(await window.rex.workspaceTree(current, showSkippedRef.current));
       }),
-    [guard, showSkipped, workspace],
+    [guard],
   );
 
   /**
@@ -1129,6 +1709,86 @@ export function App(): React.JSX.Element {
     await refreshWorking();
   }, [refreshWorking]);
 
+  // ── Spec 23 — the reviewer's own file acts ──────────────────
+
+  /**
+   * §5.4 — everything that has to catch up after a file moved or went.
+   *
+   * `to` is the new path, or null for a delete. The open document is read
+   * *before* the tree is re-scanned, because the scan is what removes the row
+   * this decision is about.
+   *
+   * The tree is re-scanned rather than patched, for spec 10 §3.4's reason: what
+   * a path ends up as is main's answer to give.
+   */
+  const afterFileAct = useCallback(
+    async (from: string, to: string | null): Promise<void> => {
+      const open = docRef.current?.ref.value ?? null;
+      // `to ?? from` asks the same question of a delete: was the open document
+      // this path, or under it?
+      const moved = open === null ? null : movedPath(open, from, to ?? from);
+
+      await refreshTree();
+      // A view of the same scan, so it is now stale. Dropping it makes the next
+      // visit rebuild, as `setExcluded` does.
+      setGraph(null);
+      await refreshThreads();
+      // §4.1 — a working copy followed its file, so the pending list moved too.
+      await refreshWorking();
+
+      if (moved === null) return;
+      if (to === null) {
+        setDoc(null);
+        setNotice(
+          "That file is in the Bin. Its comments are kept — put the file back and they return.",
+        );
+        return;
+      }
+      try {
+        await openDocument({ kind: "file", value: moved });
+      } catch {
+        // §4.3 — the extension changed to something REX cannot render. The file
+        // and its comments are both fine; only the pane cannot stay.
+        setDoc(null);
+        setNotice(`Renamed. REX cannot open it under that name, so the pane is closed.`);
+      }
+    },
+    [openDocument, refreshThreads, refreshTree, refreshWorking],
+  );
+
+  const renameEntry = useCallback(
+    (path: string, name: string): void => {
+      void guard(async () => {
+        const current = workspaceRef.current;
+        if (!current) return;
+        const answer = await window.rex.workspaceRename({ root: current.root, path, name });
+        // §2.2 — a refusal is a sentence to read, not a failure of REX.
+        if (!answer.ok) {
+          setNotice(answer.reason);
+          return;
+        }
+        await afterFileAct(path, answer.path);
+      });
+    },
+    [afterFileAct, guard],
+  );
+
+  const deleteEntry = useCallback(
+    (path: string): void => {
+      void guard(async () => {
+        const current = workspaceRef.current;
+        if (!current) return;
+        const answer = await window.rex.workspaceDelete({ root: current.root, path });
+        if (!answer.ok) {
+          setNotice(answer.reason);
+          return;
+        }
+        await afterFileAct(path, null);
+      });
+    },
+    [afterFileAct, guard],
+  );
+
   const approveWorking = useCallback(
     (documentId: string) =>
       guard(async () => {
@@ -1156,16 +1816,18 @@ export function App(): React.JSX.Element {
     () =>
       guard(async () => {
         const all = await window.rex.workList();
+        // Spec 15 §7.3 and spec 34 §5.2 — each refusal carries its own reason:
+        // the file moved on disk, or an agent is working on it. Both are named.
         const refused: string[] = [];
         for (const copy of all) {
           const answer = await window.rex.workApprove(copy.documentId);
-          if (!answer.ok) refused.push(copy.name);
+          if (!answer.ok) refused.push(`${copy.name} — ${answer.reason ?? "refused"}`);
         }
         await reopenDocument();
         setNotice(
           refused.length === 0
             ? `Approved ${all.length} document(s).`
-            : `Approved ${all.length - refused.length} of ${all.length}. ${refused.join(", ")} changed on disk since REX copied ${refused.length === 1 ? "it" : "them"}, so ${refused.length === 1 ? "it was" : "they were"} left alone.`,
+            : `Approved ${all.length - refused.length} of ${all.length}. Left alone: ${refused.join("; ")}`,
         );
       }),
     [guard, reopenDocument],
@@ -1174,7 +1836,13 @@ export function App(): React.JSX.Element {
   const discardWorking = useCallback(
     (documentId: string) =>
       guard(async () => {
-        await window.rex.workDiscard(documentId);
+        const answer = await window.rex.workDiscard(documentId);
+        // Spec 34 §5.2 — refused while a run holds the copy. Said in the same
+        // words the greyed button carries, for the reviewer who got past it.
+        if (!answer.ok) {
+          setNotice(answer.reason ?? "Discard was refused.");
+          return;
+        }
         await reopenDocument();
         setNotice("Discarded. Your file was never changed.");
       }),
@@ -1184,7 +1852,11 @@ export function App(): React.JSX.Element {
   const undoWorking = useCallback(
     (documentId: string) =>
       guard(async () => {
-        await window.rex.workUndo(documentId);
+        const answer = await window.rex.workUndo(documentId);
+        if (!answer.ok) {
+          setNotice(answer.reason ?? "Undo was refused.");
+          return;
+        }
         await reopenDocument();
       }),
     [guard, reopenDocument],
@@ -1242,7 +1914,6 @@ export function App(): React.JSX.Element {
         ),
       );
     });
-    const offCost = window.rex.onStreamCost((event) => setCost(event.totalUsd));
 
     // Spec 11 §7.4.2 and §7.4.5 — main holds the deck and can draw neither a
     // Mermaid diagram nor a video's poster frame: one needs a live layout to
@@ -1293,22 +1964,83 @@ export function App(): React.JSX.Element {
       // STOPPED block the reviewer's own press produced. "This document was not
       // changed" under it is REX reporting the absence of a result nobody was
       // waiting for any more.
-      const notice = event.working.length === 0 && !event.stopped ? event : null;
+      //
+      // Spec 21 §4.2 — so has a run that created a file. It makes no working
+      // copy, so this bar used to open behind the created-file notice and say
+      // "The agent changed no files" under a sentence naming the file it wrote.
+      // Both were true and together they read as a contradiction; the notice is
+      // the one that tells the reviewer something.
+      //
+      // Spec 21 §13 — and so has a run that wrote into REX's store. It changed
+      // no working copy, so this bar would open under a notice naming the file
+      // and say "The agent changed no files" — true, and the least useful of the
+      // two sentences on screen.
+      const notice =
+        event.working.length === 0 &&
+        !event.stopped &&
+        event.created.length === 0 &&
+        event.misplaced.length === 0
+          ? event
+          : null;
       setPendingApply(notice);
       pendingApplyRef.current = notice;
       // Before anything is re-rendered or re-swept — see the ref's own note.
       orphansBeforeApply.current = new Set(
         resolvedRef.current.filter((e) => e.state === "orphaned").map((e) => e.threadId),
       );
-      // §4.3 — a file the agent wrote that was not its to write, put back. It
-      // is never silent: a document nobody commented on is not part of a review.
+      // §4.3 and spec 21 §4.2 — what the run did outside its own list. Never
+      // silent, in either direction: a document nobody commented on is not part
+      // of a review, and a file that now exists is one the reviewer must be
+      // told about.
+      const said: string[] = [];
       if (event.restored.length > 0) {
-        setNotice(
+        said.push(
           `The agent also changed ${event.restored.join(", ")}. REX put ${
             event.restored.length === 1 ? "it" : "them"
-          } back — a change outside this comment's documents cannot be reviewed here.`,
+          } back — a change outside this comment's documents cannot be reviewed here.` +
+            // Spec 21 §4.3 — the bytes have always been kept and the reviewer
+            // was never told where, so a put-back read as a deletion.
+            (event.restoredDir ? ` What it wrote is in ${event.restoredDir}.` : ""),
         );
       }
+      if (event.created.length > 0) {
+        said.push(
+          `The agent created ${event.created.join(", ")}. ${
+            event.created.length === 1 ? "It is" : "They are"
+          } in your workspace now.`,
+        );
+      }
+      // Spec 22 §5.1 — edited under the workspace root and held, not put back.
+      // The file on disk is unchanged and the agent's version is a working
+      // copy like the anchored document's. Said, because from the reviewer's
+      // side a run that changed a file they did not comment on and reported
+      // nothing about it is spec 22 §1.1's 08:43 with the roles reversed.
+      if (event.changed.length > 0) {
+        const one = event.changed.length === 1;
+        said.push(
+          `The agent changed ${event.changed.join(", ")}. REX holds ${
+            one ? "it" : "them"
+          } as a new version beside the original — open ${one ? "it" : "them"} to review and approve.`,
+        );
+      }
+      // Spec 21 §13 — the silent case. REX will not move these and will not
+      // delete them: `base` lives in that directory, and guessing where a file
+      // was meant to go is how the wrong file gets overwritten. So it says
+      // where they are, in full, and the reviewer decides.
+      if (event.misplaced.length > 0) {
+        said.push(
+          `The agent wrote ${event.misplaced.join(", ")} into REX's own store, not into your workspace. ${
+            event.misplaced.length === 1 ? "It is" : "They are"
+          } not in your file tree. Move ${
+            event.misplaced.length === 1 ? "it" : "them"
+          } where you want ${event.misplaced.length === 1 ? "it" : "them"}, or ask again and name the path.`,
+        );
+      }
+      if (said.length > 0) setNotice(said.join(" "));
+      // Spec 21 §4.1 — the file is on disk, so the sidebar has to agree. Without
+      // this the row appears only after the reviewer reloads the tree by hand,
+      // which reads exactly like the file not being there.
+      if (event.created.length > 0) void refreshTree();
       void refreshWorking();
       const current = docRef.current;
       const path = current?.ref.value ?? null;
@@ -1327,11 +2059,10 @@ export function App(): React.JSX.Element {
 
     return () => {
       offStep();
-      offCost();
       offApply();
       offRender();
     };
-  }, [guard, refreshChangeBoxes, refreshWorking]);
+  }, [guard, refreshChangeBoxes, refreshTree, refreshWorking]);
 
   // ── Commands ────────────────────────────────────────────────
 
@@ -1362,20 +2093,77 @@ export function App(): React.JSX.Element {
         anchor: next.anchor,
         label: next.label,
         rect: next.rect,
+        lines: next.lines,
         zoom: zoomRef.current,
       });
     },
     [],
   );
 
-  /** §3.1 — everything selected is added. The three rules live in selection.ts. */
+  /**
+   * Spec 24 §3.1 — where a selection lands: the open comment when its card is
+   * on screen, the panel otherwise. Every gesture that makes a place comes
+   * through here, so the rule is written once.
+   *
+   * The comment's own places count as taken (§3.1): pointing at place 2 again
+   * is refused the way picking the same cell twice is.
+   */
+  /**
+   * Spec 26 §4.2 — it reports which list it wrote to and which place survived
+   * the three rules, because the path bar has to take that place.
+   *
+   * The decision is made against the refs and then applied, rather than made
+   * inside the state updater: a caller needs the answer now, and the two
+   * cannot disagree — every ref is assigned during render, so both read the
+   * same list this handler was fired against.
+   *
+   * Null when nothing landed. That is a duplicate being refused silently, and
+   * the bar must not then point at a row that is not there.
+   */
+  const place = useCallback(
+    (items: SelectionItem[]): { item: SelectionItem; threadId: string | null } | null => {
+      const card = cardOnScreen();
+      const before = card ? (pendingRef.current.get(card.id) ?? []) : selectionRef.current;
+      const taken = card ? card.targets : [];
+      const after = items.reduce((list, item) => addSelectionItem(list, item, taken), before);
+
+      if (card) {
+        setPendingByThread((map) => {
+          const next = new Map(map);
+          next.set(card.id, after);
+          return next;
+        });
+      } else {
+        setSelection(after);
+      }
+
+      // The last one asked for, if the rules kept it. An extended drag REPLACES
+      // the newest row with this one, so its id is in `after` either way; a
+      // duplicate is not, and that is the case this test exists for.
+      const last = items.at(-1);
+      return last && after.some((one) => one.id === last.id)
+        ? { item: last, threadId: card?.id ?? null }
+        : null;
+    },
+    [cardOnScreen],
+  );
+
+  /**
+   * §3.1 — everything selected is added. The three rules live in selection.ts.
+   *
+   * Spec 26 §4.2 — and the place it made goes on the path bar, so ↑ widens the
+   * thing that was just taken rather than adding a second row beside it. The
+   * chain is the one the commit already built: every `Selected` carries the
+   * chain that produced it, so this costs no second pass over the DOM.
+   */
   const addSelected = useCallback(
     (next: Selected, pane: DocumentVersion): void => {
       const current = docRef.current;
       if (!current) return;
-      setSelection((items) => addSelectionItem(items, itemFor(next, current, pane)));
+      const landed = place([itemFor(next, current, pane)]);
+      if (landed) focusPlace(landed.item, landed.threadId);
     },
-    [itemFor],
+    [focusPlace, itemFor, place],
   );
 
   /**
@@ -1390,35 +2178,130 @@ export function App(): React.JSX.Element {
    * it the one anchor that cannot move, so it needs no rect, draws no outline
    * (§6.4) and resolves in any document that still opens.
    */
+  /**
+   * One whole-file place, for either route into it.
+   *
+   * `shownAs` overrides the row's name and exists for the folder route alone.
+   * Spec 05 §3.5 says the panel shows the file name and never the whole path,
+   * and for a file the reviewer picked by hand that is right — they know which
+   * one they clicked. A folder adds forty at once, and a repository where four
+   * of them are called `README.md` gives four identical rows with nothing to
+   * tell them apart. The path relative to the chosen folder is the shortest
+   * string that still names one file.
+   *
+   * Display only. `documentName` never leaves the renderer: main builds
+   * `thread.documentNames` itself from the `document` rows.
+   */
+  const wholeFileItem = useCallback(
+    (path: string, documentId: string, shownAs?: string): SelectionItem => {
+      const ref: DocumentRef = { kind: "file", value: path };
+      return newSelectionItem({
+        kind: "element",
+        documentId,
+        // The file itself, not a version of it — §4.5 of spec 06 calls this the
+        // one anchor that cannot move, and it resolves in whichever pane is on
+        // screen.
+        pane: "current",
+        documentRef: ref,
+        documentName: shownAs ?? nameOf(ref),
+        anchor: createDocumentAnchor(),
+        label: "The whole document",
+        rect: null,
+        lines: null,
+        zoom: zoomRef.current,
+      });
+    },
+    [],
+  );
+
   const selectWholeFile = useCallback(
     (path: string): void => {
       void guard(async () => {
-        const ref: DocumentRef = { kind: "file", value: path };
-        const opened = await window.rex.docOpen(ref);
-        setSelection((items) =>
-          addSelectionItem(
-            items,
-            newSelectionItem({
-              kind: "element",
-              documentId: opened.documentId,
-              // The file itself, not a version of it — §4.5 of spec 06 calls
-              // this the one anchor that cannot move, and it resolves in
-              // whichever pane is on screen.
-              pane: "current",
-              documentRef: ref,
-              documentName: nameOf(ref),
-              anchor: createDocumentAnchor(),
-              label: "The whole document",
-              rect: null,
-              zoom: zoomRef.current,
-            }),
-          ),
-        );
+        const opened = await window.rex.docOpen({ kind: "file", value: path });
+        // Spec 24 §3.1 — a whole file joins the open comment when its card is
+        // on screen, like any other place. Decided before the row is made, so
+        // the tab only moves when the row went to the panel.
+        const toCard = cardOnScreen() !== null;
+        place([wholeFileItem(path, opened.documentId)]);
         // The panel is where the row landed, so that is where to look.
-        setSidebarTab("selection");
+        if (!toCard) setSidebarTab("composer");
       });
     },
-    [guard],
+    [cardOnScreen, guard, place, wholeFileItem],
+  );
+
+  /**
+   * Spec 06 §4.3 — every document under one folder, as whole-file places.
+   *
+   * The same act as `selectWholeFile`, repeated: "is this folder consistent?"
+   * and "does this whole section still match what we shipped?" are questions
+   * about a set of files, and there was no way to ask one without right-clicking
+   * each file in turn.
+   *
+   * `Explorer` decides WHICH files, because it is the only side that holds the
+   * tree — it walks the subtree in the order it draws, skips what REX cannot
+   * render, and skips an excluded subtree for free (the scan never walked it).
+   * The order matters beyond looks: `targets[0]` is what Apply's prompt leads
+   * with, so it has to be the order the reviewer can see.
+   *
+   * One `place()` call at the end, never one per file. `place` reads the current
+   * list from a ref that only moves when React re-renders, so a call per file in
+   * this loop would read a stale list and silently drop rows.
+   *
+   * Each file is opened on its own and a failure is kept rather than thrown: one
+   * unreadable file in a folder of forty must not lose the thirty-nine that
+   * worked, and the reviewer has to be told the count is short.
+   */
+  const selectWholeFolder = useCallback(
+    (folder: string, paths: string[]): void => {
+      void guard(async () => {
+        if (paths.length === 0) return;
+        const folderName = folder.split("/").pop() ?? folder;
+        const many = paths.length > FOLDER_SELECT_CONFIRM;
+        if (many) {
+          const proceed = window.confirm(
+            `Add ${paths.length} files from "${folderName}" to the selection?\nEach one is opened and rendered, so this can take a moment.`,
+          );
+          if (!proceed) return;
+          setNotice(`Opening ${paths.length} files from "${folderName}"…`);
+        }
+
+        const items: SelectionItem[] = [];
+        let failed = 0;
+        for (const path of paths) {
+          try {
+            const opened = await window.rex.docOpen({ kind: "file", value: path });
+            // The prefix carries the separator, so a sibling `docs-old/` is
+            // never read as living inside `docs/` — the same test `movedPath`
+            // makes, in a second place.
+            const inside = path.startsWith(`${folder}/`) ? path.slice(folder.length + 1) : path;
+            items.push(wholeFileItem(path, opened.documentId, inside));
+          } catch (error) {
+            failed += 1;
+            console.warn("[rex] could not open", path, error);
+          }
+        }
+
+        if (items.length === 0) {
+          setNotice(`None of the ${paths.length} files in "${folderName}" could be opened.`);
+          return;
+        }
+        const toCard = cardOnScreen() !== null;
+        place(items);
+        // Silence when every file landed: the rows themselves are the report,
+        // and a progress line left on screen reads as an unfinished job. The
+        // count named is what FAILED, never what was added — `place` refuses a
+        // file the panel already holds, so "added 40" would be a number the
+        // reviewer can see is wrong.
+        setNotice(
+          failed === 0
+            ? null
+            : `${failed} of the ${paths.length} files in "${folderName}" could not be opened — see the console.`,
+        );
+        if (!toCard) setSidebarTab("composer");
+      });
+    },
+    [cardOnScreen, guard, place, wholeFileItem],
   );
 
   /**
@@ -1456,13 +2339,13 @@ export function App(): React.JSX.Element {
         // and `enter` commits both. The two calls land here in the same tick, so
         // a list built from `selectionRef` — which only catches up on the next
         // render — drops whichever pane got here first. Measured on 2026-08-26:
-        // the left pane's circle silently ate the right pane's. The updater is
-        // the only thing that sees the list as it really is, and the ref is left
-        // to the render that follows.
-        setSelection((items) => added.reduce(addSelectionItem, items));
+        // the left pane's circle silently ate the right pane's. `place` uses
+        // the updater, which is the only thing that sees the list as it really
+        // is; the ref is left to the render that follows.
+        place(added);
       });
     },
-    [guard, itemFor],
+    [guard, itemFor, place],
   );
 
   const onSelectionChanged = useCallback(
@@ -1504,10 +2387,38 @@ export function App(): React.JSX.Element {
     [guard, refreshThreads, refreshTree],
   );
 
+  /**
+   * Start over: every comment in the workspace, gone.
+   *
+   * The scope is `listRequest` — the very object `refreshThreads` sends — so
+   * what goes is what the Comments tab was counting. Building a second one here
+   * would be a second answer to "which comments are these", and the two would
+   * drift the first time either changed.
+   *
+   * The confirm belongs to the menu that was pressed, as it does for one
+   * comment. Folders survive; main's `deleteThreadsInScope` says why.
+   */
+  const removeAllThreads = useCallback((): void => {
+    void guard(async () => {
+      await window.rex.threadDeleteAll(listRequest(docRef.current?.documentId ?? null));
+      // Both were showing a comment that no longer exists.
+      setActiveId(null);
+      setTraceId(null);
+      await refreshThreads();
+      // The tree carries per-file comment counts, and every one of them is 0.
+      await refreshTree();
+    });
+  }, [guard, listRequest, refreshThreads, refreshTree]);
+
   const withBusy = useCallback(
     async (threadId: string, task: () => Promise<void>): Promise<void> => {
       setBusyThreads((current) => [...current, threadId]);
       try {
+        // Spec 34 §5.3 — a run holds its documents from the moment it starts,
+        // and `held` rides on the pending list, so the list is re-read here
+        // and the three buttons grey out while the agent is still thinking.
+        // Fired and not awaited: the run must not wait on a paint.
+        void refreshWorking();
         await task();
       } catch (error) {
         setNotice(error instanceof Error ? error.message : String(error));
@@ -1519,9 +2430,27 @@ export function App(): React.JSX.Element {
         setStoppingThreads((current) => current.filter((id) => id !== threadId));
         await refreshThreads();
         await refreshTree();
+        // And the hold is released, so the buttons come back.
+        await refreshWorking();
       }
     },
-    [refreshThreads, refreshTree],
+    [refreshThreads, refreshTree, refreshWorking],
+  );
+
+  /**
+   * End a comment, or put it back.
+   *
+   * One callback for both surfaces — the open card's button and the list row's
+   * tick. They are the same act on the same thread, and two copies of it would
+   * be two places for the busy handling and the refresh to drift apart.
+   */
+  const resolveThread = useCallback(
+    (threadId: string, resolved: boolean): void => {
+      void withBusy(threadId, async () => {
+        await window.rex.threadResolve({ threadId, resolved });
+      });
+    },
+    [withBusy],
   );
 
   /**
@@ -1553,18 +2482,38 @@ export function App(): React.JSX.Element {
       if (items.length === 0 || note.length === 0) return;
 
       const mode = selectionMode;
-      const thread = await window.rex.threadCreate({
-        targets: items.map((item) => ({ documentId: item.documentId, anchor: item.anchor })),
-        note,
-        // NOTE mode. The flag is stored so the panel and "Ask all" can tell a
-        // comment the reviewer chose not to send from one whose send failed.
-        isNote: mode === "note",
-      });
+      const targets = items.map((item) => ({ documentId: item.documentId, anchor: item.anchor }));
+
+      /*
+        Spec 30 §3.2 — a draft is PROMOTED, never duplicated.
+
+        Sending a draft has to end with one comment, not with a draft plus the
+        comment it became. So an existing draft has its places and question
+        written back and then moves lane; only a composer that was never left
+        creates a row here.
+
+        `thread:note` does the same promotion on main's side for NOTE, which is
+        why nothing below has to special-case it: `markThreadNoted` moves a
+        draft, and `markThreadSent` moves one for ASK and ACT.
+      */
+      const editing = draftIdRef.current;
+      // Born in the lane the mode names. NOTE lands in `note` and stops; ASK and
+      // ACT land in `open`, because the send is a few lines below and cannot
+      // fail in between.
+      const status = mode === "note" ? "note" : "open";
+      const title = selectionTitleRef.current.trim() || null;
+      const thread = editing
+        ? await window.rex.threadDraftSave({ threadId: editing, targets, note, status, title })
+        : await window.rex.threadCreate({ targets, note, status, title });
+      setDraftId(null);
 
       setSelection([]);
       setSelectionNote("");
+      // §3.6 — the name went with the comment, so the composer starts empty for
+      // the next one. Left behind it would name the following comment too.
+      setSelectionTitle("");
       setExpandedItemId(null);
-      setRowScopes(null);
+      dropFocus();
       // §3.4 — the panel is empty, so nothing in REX is about that passage any
       // more. The browser's own selection is not the panel's and does not go
       // with it, so it is dropped by hand or the text stays blue in the
@@ -1583,50 +2532,283 @@ export function App(): React.JSX.Element {
       // §1.3 says was missing: a reviewer who already knows what they want does
       // not have to ask a question first.
       setMode(thread.id, mode);
+      // Spec 25 §7.1 — and the panel's model, the same way. A reviewer who
+      // escalated the panel to Fable meant this comment, so the comment it
+      // creates keeps the pick.
+      setModel(thread.id, selectionModel);
+      // Spec 31 §2.2 — and the panel's style, which the first send then writes
+      // to the comment so it is still there tomorrow.
+      setStyle(thread.id, selectionStyle);
 
       // NOTE stops here, and that is the whole feature: the comment is written
       // down, nothing runs, nothing is spent. No `withBusy` either — there is
       // no work to be busy with, and a spinner over an instant save is a lie.
       if (mode === "note") return;
 
+      const model = selectionModel ?? modelList.chosen;
+      const style = selectionStyle;
       await withBusy(thread.id, async () => {
-        if (mode === "act") await window.rex.threadApply({ threadId: thread.id, note });
-        else await window.rex.threadAsk(thread.id);
+        // Spec 21 §3 — the open workspace, so a file the agent creates can be
+        // scoped to somewhere the reviewer will actually see it.
+        if (mode === "act")
+          await window.rex.threadApply({
+            threadId: thread.id,
+            note,
+            root: workspaceRef.current?.root ?? null,
+            model,
+            style,
+          });
+        else await window.rex.threadAsk(thread.id, model, style);
       });
     });
   }, [
     guard,
     leavePen,
     leavePick,
+    modelList,
     refreshThreads,
     selection,
     selectionMode,
+    selectionModel,
+    selectionStyle,
     selectionNote,
     sweep,
     withBusy,
   ]);
 
+  /**
+   * Drop one place, wherever it is waiting — the panel, or an open comment's
+   * strip. One function, because the outline's own trash button (`PaneMarks`)
+   * knows only the id, and a place is drawn the same way from either list.
+   */
   const removeItem = useCallback((id: string): void => {
     setSelection((items) => {
+      if (!items.some((item) => item.id === id)) return items;
       const next = items.filter((item) => item.id !== id);
       // §3.4 — a note with nothing to attach it to is not a thing REX has a
       // place for, and keeping it invisibly to reappear later is worse.
       if (next.length === 0) setSelectionNote("");
       return next;
     });
+    setPendingByThread((map) => {
+      let changed = false;
+      const next = new Map<string, SelectionItem[]>();
+      for (const [threadId, list] of map) {
+        const kept = list.filter((item) => item.id !== id);
+        if (kept.length !== list.length) changed = true;
+        // Spec 24 §3.2 — removing the last one removes the strip.
+        if (kept.length > 0) next.set(threadId, kept);
+      }
+      return changed ? next : map;
+    });
     setExpandedItemId((current) => (current === id ? null : current));
   }, []);
+
+  // ── Spec 24 — places waiting on an open comment ──────────────
+
+  /** The pending list, gone. After a send that took them, or `new comment ›`. */
+  const clearPending = useCallback((threadId: string): void => {
+    setPendingByThread((map) => {
+      if (!map.has(threadId)) return map;
+      const next = new Map(map);
+      next.delete(threadId);
+      return next;
+    });
+  }, []);
+
+  /** Spec 24 §3.2 — the strip's rows reorder like the panel's. */
+  const movePending = useCallback((threadId: string, from: number, to: number): void => {
+    setPendingByThread((map) => {
+      const list = map.get(threadId);
+      if (!list) return map;
+      const next = new Map(map);
+      next.set(threadId, moveSelectionItem(list, from, to));
+      return next;
+    });
+  }, []);
+
+  /**
+   * Spec 24 §3.2 — `new comment ›`: the one escape hatch for a reviewer who
+   * meant to start comment 5 after all. The places move to the panel, where
+   * they number from 1, and the tab follows them.
+   */
+  const pendingToNewComment = useCallback(
+    (threadId: string): void => {
+      const items = pendingRef.current.get(threadId) ?? [];
+      if (items.length === 0) return;
+      clearPending(threadId);
+      setSelection((list) => items.reduce((acc, item) => addSelectionItem(acc, item), list));
+      setSidebarTab("composer");
+    },
+    [clearPending],
+  );
 
   const clearSelection = useCallback((): void => {
     setSelection([]);
     setSelectionNote("");
+    // Spec 30 §3.6 — `Clear` empties the composer, and the name is part of it.
+    setSelectionTitle("");
     setExpandedItemId(null);
-    setRowScopes(null);
+    dropFocus();
     // The same reason as Ask's — see the note there. Both panes: the browser's
     // selection belongs to whichever frame it was dragged in.
     surfaceRef.current?.clearTextSelection();
     originalSurfaceRef.current?.clearTextSelection();
   }, []);
+
+  /**
+   * Spec 30 §3.1 — the `＋` button: the composer's second door.
+   *
+   * It does NOT clear a standing draft. While one is being built the button
+   * reads as "back to what you were writing" (§3.3), and throwing the places
+   * away would make the way back the one gesture that destroys them. `Clear` is
+   * still the only thing that empties the panel — spec 05 §3.2, unchanged.
+   */
+  const openComposer = useCallback((): void => {
+    setActiveId(null);
+    setTraceId(null);
+    setSidebarTab("composer");
+  }, []);
+
+  /**
+   * Spec 30 §3.2 — the back arrow, and the whole of its rule.
+   *
+   * The gesture carries the decision and there is no dialog either way:
+   *
+   * - **No places** — nothing is saved, and any draft being edited is deleted.
+   *   §2.4: a comment with no places has no document either, so there is no row
+   *   to write. That is `ipc.ts`'s oldest refusal, not a rule invented here.
+   * - **One or more** — saved as a draft. An existing draft is UPDATED, which is
+   *   what `draftId` is for: a draft edited five times is one comment.
+   *
+   * The lane moves to `draft` on a save (§3.3) so the row the reviewer just made
+   * is on screen rather than behind a pill they did not press.
+   */
+  const leaveComposer = useCallback((): void => {
+    const items = selectionRef.current;
+    const editing = draftIdRef.current;
+    const note = selectionNoteRef.current.trim();
+
+    void guard(async () => {
+      if (items.length === 0) {
+        // A draft the reviewer emptied is a draft they threw away. `Clear` did
+        // not delete it, because `Clear` does not know it is being left.
+        if (editing) {
+          await window.rex.threadDelete(editing);
+          await refreshThreads();
+        }
+      } else {
+        const targets = items.map((item) => ({
+          documentId: item.documentId,
+          anchor: item.anchor,
+        }));
+        // §3.6 — the name goes with the places. A draft the reviewer named and
+        // walked away from comes back named.
+        const title = selectionTitleRef.current.trim() || null;
+        if (editing) {
+          await window.rex.threadDraftSave({ threadId: editing, targets, note, title });
+        } else {
+          await window.rex.threadCreate({ targets, note, status: "draft", title });
+        }
+        await refreshThreads();
+        await sweep();
+        setLane("draft");
+      }
+
+      setDraftId(null);
+      clearSelection();
+      setSidebarTab("list");
+    });
+  }, [guard, refreshThreads, sweep, clearSelection]);
+
+  /**
+   * Spec 30 §3.2 — reopening a draft puts its places back in the composer.
+   *
+   * Every field a `SelectionItem` carries that a stored target does not is
+   * rebuilt rather than invented:
+   *
+   * - `kind` — from the anchor's own shape. A pure text anchor has a quote and
+   *   no element; everything else was picked as a thing on the page. `create.ts`
+   *   gives both the same fields, which is why `SelectionItem` carried it in the
+   *   first place (spec 05 §3.5).
+   * - `rect` — **null, and it must be**. Spec 05 §3.5: a box measured against an
+   *   older render points at whatever has moved into it since. The sweep that
+   *   runs on the next line re-measures every one of them.
+   * - `label` — what the last sweep found this place to be, falling back to the
+   *   anchor's own quote.
+   */
+  const openDraft = useCallback(
+    (thread: ThreadWithMessages): void => {
+      const places = targetPlacesById.get(thread.id) ?? [];
+      setSelection(
+        thread.targets.map((target, at) =>
+          newSelectionItem({
+            kind: target.anchor.quote && !target.anchor.element ? "text" : "element",
+            documentId: target.documentId,
+            pane: "current",
+            documentRef: thread.targetRefs[at] ?? { kind: "file", value: "" },
+            documentName: thread.documentNames[at] ?? thread.documentNames[0] ?? "",
+            anchor: target.anchor,
+            label: places[at]?.label ?? target.anchor.quote?.exact ?? "",
+            rect: null,
+            // Null for the same reason `rect` is: the sweep on the next line
+            // measures both, and a shape from an older render is not a shape.
+            lines: null,
+            zoom: zoomRef.current,
+          }),
+        ),
+      );
+      setSelectionNote(thread.note);
+      // §3.6 — null is "named by the note", which the box shows as empty.
+      setSelectionTitle(thread.title ?? "");
+      setDraftId(thread.id);
+      setActiveId(null);
+      setTraceId(null);
+      setSidebarTab("composer");
+      void guard(async () => {
+        await sweep();
+      });
+    },
+    [targetPlacesById, guard, sweep],
+  );
+
+  /**
+   * Spec 30 §3.5 — **Turn into a comment**: a note becomes a draft, and the
+   * composer opens on it.
+   *
+   * `openDraft` does the loading, so the note's places and its words arrive in
+   * the composer by exactly the route a draft's do. Main refuses the move on
+   * anything that is not a note, which is why nothing is checked here.
+   */
+  const promoteNote = useCallback(
+    (threadId: string): void => {
+      void guard(async () => {
+        const promoted = await window.rex.threadPromote(threadId);
+        // The refreshed list, not the row main handed back: `openDraft` reads
+        // the document names and refs that `withDetail` adds, and a bare
+        // `Thread` carries none of them.
+        const fresh = await refreshThreads();
+        const loaded = fresh.find((one) => one.id === promoted.id);
+        if (loaded) openDraft(loaded);
+      });
+    },
+    [guard, refreshThreads, openDraft],
+  );
+
+  /**
+   * Spec 30 §3 — a draft opens the composer; everything else opens its card.
+   *
+   * One function on the row's `onSelect`, so the list has one gesture and the
+   * lane decides what it means.
+   */
+  const openComment = useCallback(
+    (threadId: string): void => {
+      const thread = threadsRef.current.find((one) => one.id === threadId);
+      if (thread?.status === "draft") openDraft(thread);
+      else setActiveId(threadId);
+    },
+    [openDraft],
+  );
 
   /**
    * Spec 10 §3.3 — the excluded paths, live, for the fan-out below.
@@ -1638,11 +2820,12 @@ export function App(): React.JSX.Element {
   excludedRef.current = tree?.excluded ?? [];
 
   const askAll = useCallback(async (): Promise<void> => {
-    // A note is a comment the reviewer chose not to send. "Ask all" is the one
-    // command that would send it behind their back, so it is the one command
-    // that has to know about the flag.
+    // Spec 30 §2 — the two unsent lanes are both skipped, and for one reason
+    // between them: "Ask all" is the one command that could send a comment
+    // behind the reviewer's back. A note is one they chose not to send; a draft
+    // is one they have not finished, and its question may still be empty.
     const waiting = threadsRef.current.filter(
-      (thread) => thread.messages.length === 0 && !thread.isNote,
+      (thread) => thread.messages.length === 0 && !UNSENT_STATUS.includes(thread.status),
     );
     // §3.3 — a comment about nothing but excluded documents is not asked. It
     // stays in the list and can still be asked on its own; what it stops doing
@@ -1674,45 +2857,87 @@ export function App(): React.JSX.Element {
       if (!proceed) return;
     }
     // Main caps real concurrency at five (§8.8 point 2).
+    //
+    // Spec 25 §5 — each comment on its own model: the one it was set to, or the
+    // default. "Ask all" is not a place to make a choice, so it makes none.
     await Promise.all(
-      unanswered.map((thread) => withBusy(thread.id, () => window.rex.threadAsk(thread.id))),
+      unanswered.map((thread) =>
+        withBusy(thread.id, () =>
+          window.rex.threadAsk(thread.id, modelFor(thread.id), styleOf(thread.id)),
+        ),
+      ),
     );
-  }, [withBusy]);
+    // `modelFor` is rebuilt every render, so the two states it reads are the
+    // dependencies. Naming the function instead would make this callback new
+    // every render and the memo pointless.
+  }, [modelByThread, modelList, styleByThread, withBusy]);
 
   // ── Picking (design/selection) ──────────────────────────────
 
-  /** The surface for one pane. Spec 16 §4.2 — there are two of them now. */
-  const surfaceFor = useCallback(
-    (pane: DocumentVersion): DocumentSurface | null =>
-      pane === "original" ? originalSurfaceRef.current : surfaceRef.current,
-    [],
-  );
-
   const probe = useCallback(
-    (pane: DocumentVersion, x: number, y: number) => {
+    (pane: DocumentVersion, x: number, y: number, cause: "move" | "scroll") => {
       void (async () => {
+        /*
+          Spec 26 §4.8 — **a scroll never gives up a deliberate widening.**
+
+          The wheel re-probes because the document moved under a cursor that did
+          not, so what is under the cursor really has changed. That is right for
+          an ordinary hover, and wrong the moment the reviewer has chosen a scope
+          by hand: `keptIndex` keeps their choice only while the chosen element
+          is still in the chain, and scrolling out of a section takes it out of
+          the chain. The reviewer had not changed their mind — they were reading
+          the section they had just selected, which is the whole point of
+          selecting one.
+
+          Reported 2026-09-01: *"it selects the parent element ... but when I
+          click it still selects the element I am on top of, not the parent
+          element that I scroll on"*.
+
+          A pointer that MOVES still re-probes and `keptIndex` still decides, so
+          pointing somewhere else drops the choice exactly as it always did.
+        */
+        if (cause === "scroll" && pickChosenByHand.current && pathPaneRef.current === pane) {
+          return;
+        }
+        // Spec 26 §4.2 — the pointer moved, so the bar goes back to the hover.
+        // A commit hands the bar to the place it made and it stays there until
+        // exactly this happens: the reviewer's hand is what decides which of
+        // the two ↑ moves, and the outline on the page says which it is.
+        //
+        // Cleared here and not in the layer's own `pointermove`, because this
+        // is the one thing every probe has in common — the wheel re-probes too,
+        // and the document moving under a still cursor changes what is under it.
+        const focused = pathFocusRef.current !== null;
+        if (focused) {
+          pathFocusRef.current = null;
+          setPathFocus(null);
+        }
         const keep =
-          pickChosenByHand.current && pickPaneRef.current === pane
-            ? pickActiveRef.current
+          !focused && pickChosenByHand.current && pathPaneRef.current === pane
+            ? pathActiveRef.current
             : NO_KEPT_SCOPE;
         // §4.1 — in the new version the probe answers nothing outside the live
         // blocks, so the path bar never offers a scope a click cannot take.
         const found = (await surfaceFor(pane)?.probeAt(x, y, keep)) ?? null;
         if (!found) return;
-        setPickPane(pane);
-        setPickScopes(found.scopes);
         // Usually the smallest anchorable element; the surface says otherwise when
         // the reviewer had already widened and that element is still in the chain.
-        setPickActive(found.active);
+        showChain(pane, found.scopes, found.active);
       })();
     },
-    [surfaceFor],
+    [showChain, surfaceFor],
   );
 
-  /** ↑ ↓ or a crumb. This, and only this, is a deliberate widening. */
+  /**
+   * ↑ ↓, a crumb, or ⌥ with the wheel. This, and only this, is a deliberate
+   * widening — and from here on the click owes the reviewer what it shows.
+   */
   const choosePickScope = useCallback((index: number): void => {
     pickChosenByHand.current = true;
-    setPickActive(index);
+    // Spec 26 §4.8 — the ref too, or the very next click reads the index from
+    // before this one. See `showChain`.
+    pathActiveRef.current = index;
+    setPathActive(index);
   }, []);
 
   const scrollDocument = useCallback(
@@ -1731,12 +2956,30 @@ export function App(): React.JSX.Element {
   const commitScope = useCallback(
     (index: number) => {
       void (async () => {
-        const pane = pickPaneRef.current;
+        const pane = pathPaneRef.current;
         const next = await surfaceFor(pane)?.anchorFromScope(index);
         if (next) addSelected(next, pane);
       })();
     },
     [addSelected, surfaceFor],
+  );
+
+  /**
+   * Spec 29 §4.2 — a part clicked in the lightbox becomes a place, exactly as
+   * a pick in the page does: the surface makes the anchor and `addSelected`
+   * puts the row where a pick would. The lightbox only ever shows the current
+   * pane's diagram (`DocumentView` is the one pane that opens a preview).
+   */
+  const pickDiagramPart = useCallback(
+    (part: DiagramPart) => {
+      const figure = preview;
+      if (figure?.kind !== "diagram") return;
+      void (async () => {
+        const next = await surfaceFor("current")?.anchorFromDiagramPart(figure.blockId, part);
+        if (next) addSelected(next, "current");
+      })();
+    },
+    [addSelected, preview, surfaceFor],
   );
 
   /**
@@ -1790,19 +3033,51 @@ export function App(): React.JSX.Element {
    *   · A chain left null by something else. `selectionMade` used to do exactly
    *     that on any mouse-up that selected nothing.
    *
-   * A deliberate widening still survives, by the same `keep` the hover probe
-   * uses: `keptIndex` carries the chosen ELEMENT into the new chain.
+   * **A deliberate widening is not re-probed at all** (spec 26 §4.8). It used
+   * to survive by the same `keep` the hover probe uses, and `keptIndex` carries
+   * the chosen ELEMENT into the new chain — but only when that element is still
+   * in it. When it is not, `keptIndex` falls back to the narrowest scope, by
+   * design: for a pointer that MOVED somewhere else, the narrow scope is the
+   * right answer again.
+   *
+   * A scroll is not a pointer that moved. The document slid under a cursor that
+   * did not, and the reviewer widened on purpose and can see the outline. Then
+   * the fallback silently handed them the paragraph inside the section they were
+   * pointing at. Reported 2026-09-01 as *"it selects the element I am on top of,
+   * not the parent I scrolled to"*, and *"it works in maybe 80% of cases"* —
+   * the 20% being a scroll far enough to put the click under a different
+   * heading, which is exactly what "widen to the section, scroll to see where it
+   * ends, click" does.
    */
   const commitAt = useCallback(
     (pane: DocumentVersion, x: number, y: number) => {
       void (async () => {
         const surface = surfaceFor(pane);
         if (!surface) return;
-        const keep =
-          pickChosenByHand.current && pickPaneRef.current === pane
-            ? pickActiveRef.current
-            : NO_KEPT_SCOPE;
-        const found = await surface.probeAt(x, y, keep);
+
+        /*
+          The outline is REX's promise about what a click takes, and a hand-made
+          choice is the one case where the promise is not simply "the smallest
+          thing under the cursor". So take it, and do not ask again.
+
+          There is nothing to lose by not re-probing. The two cases the re-probe
+          exists for are both cases where NO chain exists — a first click with no
+          pointer move, or a chain something else nulled — and `pickChosenByHand`
+          cannot be true without a chain to have chosen in. A pointer that moves
+          away re-probes through `probe` on the way, so what is shown is already
+          the answer for where the pointer now is.
+        */
+        if (
+          pickChosenByHand.current &&
+          pathPaneRef.current === pane &&
+          pathScopesRef.current?.length
+        ) {
+          const shown = await surface.anchorFromScope(pathActiveRef.current);
+          if (shown) addSelected(shown, pane);
+          return;
+        }
+
+        const found = await surface.probeAt(x, y, NO_KEPT_SCOPE);
         if (!found) {
           // Nothing anchorable under the point: a margin, or the gap between
           // two blocks. `probe` leaves the outline where it was in exactly this
@@ -1816,19 +3091,17 @@ export function App(): React.JSX.Element {
           // Where the probe DOES find something the outline is already showing
           // that same thing, so this branch changes nothing about a normal
           // click — it only stops the promise being broken.
-          if (!pickScopesRef.current?.length || pickPaneRef.current !== pane) return;
-          const shown = await surface.anchorFromScope(pickActiveRef.current);
+          if (!pathScopesRef.current?.length || pathPaneRef.current !== pane) return;
+          const shown = await surface.anchorFromScope(pathActiveRef.current);
           if (shown) addSelected(shown, pane);
           return;
         }
-        setPickPane(pane);
-        setPickScopes(found.scopes);
-        setPickActive(found.active);
+        showChain(pane, found.scopes, found.active);
         const next = await surface.anchorFromScope(found.active);
         if (next) addSelected(next, pane);
       })();
     },
-    [addSelected, surfaceFor],
+    [addSelected, showChain, surfaceFor],
   );
 
   // ── The selection panel ─────────────────────────────────────
@@ -1882,7 +3155,6 @@ export function App(): React.JSX.Element {
       void guard(async () => {
         if (docRef.current?.documentId !== item.documentId) {
           setExpandedItemId(item.id);
-          expandedBase.current = item;
           scrollWhenReady.current = item;
           await openDocument(item.documentRef);
           return;
@@ -1890,103 +3162,161 @@ export function App(): React.JSX.Element {
 
         // The row belongs to one pane, and widening it has to act on that
         // pane's DOM — see `SelectionItem.pane`.
-        const surface = surfaceFor(item.pane);
-        surface?.scrollToAnchor(item.anchor);
+        surfaceFor(item.pane)?.scrollToAnchor(item.anchor);
 
         if (expandedItemId === item.id) {
           setExpandedItemId(null);
-          setRowScopes(null);
-          expandedBase.current = null;
+          dropFocus();
           return;
         }
 
         setExpandedItemId(item.id);
-        expandedBase.current = item;
-        const probed = await surface?.scopesForAnchor(item.anchor, item.kind);
-        setRowScopes(probed?.scopes ?? null);
-        setRowActive(probed?.active ?? 0);
+        focusPlace(item, threadOf(pendingRef.current, item.id));
       });
     },
-    [expandedItemId, guard, openDocument, surfaceFor],
+    [dropFocus, expandedItemId, focusPlace, guard, openDocument, surfaceFor],
   );
 
   /**
-   * §4.1 — widening a row is exactly re-anchoring it.
+   * Spec 26 §4.1 — widening a place is exactly re-anchoring it.
    *
-   * The chain is rebuilt from the anchor the row had when it was expanded, not
-   * from the one it has now: re-anchoring to the table would otherwise drop
-   * every scope narrower than the table, and the reviewer could widen once and
-   * never come back.
+   * One function for both lists, the way `removeItem` is: a place is drawn the
+   * same from either, and only the write-back needs to know which one holds it.
+   *
+   * The chain is rebuilt from `focus.base` — the anchor the place had when the
+   * bar took it — and never from the anchor it has now. Re-anchoring to the
+   * section and then rebuilding from *that* drops every scope narrower than the
+   * section, and the reviewer could widen once and never come back.
    */
-  const changeRowScope = useCallback(
+  const rescope = useCallback(
     (index: number) => {
       void guard(async () => {
-        const base = expandedBase.current;
-        const surface = base ? surfaceFor(base.pane) : null;
-        if (!base || !surface) return;
+        const focus = pathFocusRef.current;
+        const surface = focus ? surfaceFor(focus.pane) : null;
+        if (!focus || !surface) return;
 
-        const next = await surface.anchorFromAnchorScope(base.anchor, base.kind, index);
+        const next = await surface.anchorFromAnchorScope(focus.base.anchor, focus.base.kind, index);
         if (!next) return;
 
-        setSelection((items) =>
-          items.map((item) =>
-            item.id === base.id
-              ? {
-                  ...item,
-                  kind: next.scopes[next.active]?.kind ?? item.kind,
-                  anchor: next.anchor,
-                  label: next.label,
-                  rect: next.rect,
-                  zoom: zoomRef.current,
-                }
-              : item,
-          ),
-        );
-        setRowScopes(next.scopes);
-        setRowActive(next.active);
+        const patch = (item: SelectionItem): SelectionItem =>
+          item.id === focus.itemId
+            ? {
+                ...item,
+                kind: next.scopes[next.active]?.kind ?? item.kind,
+                anchor: next.anchor,
+                label: next.label,
+                rect: next.rect,
+                lines: next.lines,
+                zoom: zoomRef.current,
+              }
+            : item;
+
+        if (focus.threadId === null) {
+          setSelection((items) => items.map(patch));
+        } else {
+          setPendingByThread((map) => {
+            const list = map.get(focus.threadId as string);
+            if (!list) return map;
+            const copy = new Map(map);
+            copy.set(focus.threadId as string, list.map(patch));
+            return copy;
+          });
+        }
+
+        // Spec 26 §4.8 — refs with the state, so a second `↑` before React has
+        // re-rendered steps from where the first one landed and not from where
+        // it started. Two quick notches of ⌥ + wheel used to widen once.
+        showChain(focus.pane, next.scopes, next.active);
         setArming(false);
       });
     },
-    [guard, surfaceFor],
+    [guard, showChain, surfaceFor],
+  );
+
+  /**
+   * Spec 26 §4.5 — the outline's number badge, which knows only an id.
+   *
+   * Both lists are searched, because the badge is drawn the same way over a
+   * panel place and over one waiting on the open comment's strip.
+   */
+  const focusItemById = useCallback(
+    (itemId: string): void => {
+      const threadId = threadOf(pendingRef.current, itemId);
+      const list =
+        threadId === null ? selectionRef.current : (pendingRef.current.get(threadId) ?? []);
+      const item = list.find((one) => one.id === itemId);
+      if (item) focusPlace(item, threadId);
+    },
+    [focusPlace],
+  );
+
+  /**
+   * Spec 26 §2 — one step along the chain, whatever the bar is about.
+   *
+   * The single entry point for ↑, ↓ and ⌥ with the wheel, so the three can
+   * never drift apart. Positive widens, because the chain is built narrow to
+   * wide and the crumbs read wide to narrow — "up" is out, in both.
+   *
+   * Which of the two things moves is `pathFocus` and nothing else: a place when
+   * one is focused, the pick when the pointer has moved since the last commit.
+   * §4.2 — the reviewer's hand decides, and the outline on the page says which.
+   */
+  const widenBy = useCallback(
+    (by: number): void => {
+      const scopes = pathScopesRef.current;
+      if (!scopes || scopes.length === 0) return;
+      const to = Math.max(0, Math.min(pathActiveRef.current + by, scopes.length - 1));
+      if (to === pathActiveRef.current) return;
+      if (pathFocusRef.current) rescope(to);
+      else choosePickScope(to);
+    },
+    [choosePickScope, rescope],
   );
 
   const armRegion = useCallback(() => {
-    if (!rowScopes) return;
-    // The layer has to be up to catch the drag, and it needs the expanded row's
-    // own chain so the box is cut from the element the chips point at — in the
-    // pane that chain came from.
-    setPickPane(expandedBase.current?.pane ?? "current");
-    setPickScopes(rowScopes);
-    setPickActive(rowActive);
+    // The layer has to be up to catch the drag, and the chain it needs is
+    // already the one on the bar — in the pane that chain came from.
+    if (!pathScopesRef.current) return;
     setPicking(true);
     setArming(true);
-  }, [rowActive, rowScopes]);
+  }, []);
 
-  /** A dragged box re-anchors the expanded row, exactly as a chip does. */
+  /** A dragged box re-anchors the focused place, exactly as a crumb does. */
   const takeRegion = useCallback(
     (index: number, box: ScopeRect) => {
       void guard(async () => {
-        const base = expandedBase.current;
-        const next = await surfaceFor(pickPaneRef.current)?.anchorFromRegion(index, box);
+        const focus = pathFocusRef.current;
+        const next = await surfaceFor(pathPaneRef.current)?.anchorFromRegion(index, box);
         setArming(false);
         setPicking(false);
-        if (!next || !base) return;
-        setSelection((items) =>
-          items.map((item) =>
-            item.id === base.id
-              ? {
-                  ...item,
-                  // A region is always cut from an element, whatever the row was
-                  // before, and the chain has to be rebuilt through that element.
-                  kind: "element",
-                  anchor: next.anchor,
-                  label: next.label,
-                  rect: next.rect,
-                  zoom: zoomRef.current,
-                }
-              : item,
-          ),
-        );
+        if (!next || !focus) return;
+
+        const patch = (item: SelectionItem): SelectionItem =>
+          item.id === focus.itemId
+            ? {
+                ...item,
+                // A region is always cut from an element, whatever the place was
+                // before, and the chain has to be rebuilt through that element.
+                kind: "element",
+                anchor: next.anchor,
+                label: next.label,
+                rect: next.rect,
+                lines: next.lines,
+                zoom: zoomRef.current,
+              }
+            : item;
+
+        if (focus.threadId === null) {
+          setSelection((items) => items.map(patch));
+        } else {
+          setPendingByThread((map) => {
+            const list = map.get(focus.threadId as string);
+            if (!list) return map;
+            const copy = new Map(map);
+            copy.set(focus.threadId as string, list.map(patch));
+            return copy;
+          });
+        }
       });
     },
     [guard, surfaceFor],
@@ -2007,6 +3337,28 @@ export function App(): React.JSX.Element {
   // down and put them back each time. What the keyboard needs to know is only
   // whether there is one.
   const hasGaps = gaps.length > 0;
+  /**
+   * Whether pick mode is on **because ⌥ is being held**, rather than because
+   * `P` or the strip turned it on.
+   *
+   * The two have to be told apart, because only one of them can be left behind:
+   * a hold ends on a key the window may never see (`onBlur` below), and a
+   * toggle ends when the reviewer says so. A ref and not state — nothing draws
+   * from it, and it is written from inside listeners that must not be rebuilt.
+   */
+  const heldPick = useRef(false);
+  /**
+   * Spec 26 §4.8 — whether pick mode is on, readable from inside the listeners.
+   *
+   * The ⌥ timer fires 250ms after the key went down and has to know whether it
+   * is the thing turning pick mode on or merely arriving on top of a `P` that
+   * already did. A ref, because the keyboard effect is deliberately not rebuilt
+   * when `picking` changes.
+   */
+  const pickingRef = useRef(false);
+  pickingRef.current = picking;
+  /** The same question about Add, which is a ⇧ hold and a strip toggle too. */
+  const heldAdd = useRef(false);
   useEffect(() => {
     let altTimer: number | null = null;
     /** §6.6 — the ⇧ hold that arms Add. Its own timer, its own mode. */
@@ -2048,6 +3400,16 @@ export function App(): React.JSX.Element {
     */
     const canAdd = canPick && hasGaps;
 
+    /*
+      Spec 27 §4.2 — the two switches exist on the page REX typeset itself, and
+      nowhere else. The extension is the test here and not the gap list, because
+      that is genuinely the question: it is not "does this page carry
+      `data-src-line`" but "did REX write this page's stylesheet". A DOCX
+      carries neither and shares the stylesheet; a hand-written HTML file
+      carries neither and does not.
+    */
+    const canPaper = canPick && doc !== null && isMarkdownPath(doc.ref.value);
+
     const onKeyDown = (event: KeyboardEvent): void => {
       /*
         Spec 14 §4.5 — Alt inside the comments panel belongs to the panel.
@@ -2061,6 +3423,50 @@ export function App(): React.JSX.Element {
         .composedPath()
         .some((node) => node instanceof HTMLElement && node.classList.contains("rex-side-scroll"));
 
+      /*
+        Spec 26 §5.4 — ↑ and ↓ walk the path bar's chain.
+
+        Handled before the modifier guard below, because ⌥ has to be allowed:
+        holding ⌥ is what arms pick mode, and reaching for ↑ while it is held is
+        the whole flow §4.4 exists for. ⌥ with an arrow inside the comment list
+        still belongs to the list (spec 14 §4.5), which is why that is tested
+        first and not after.
+
+        They moved up out of `PickLayer` because the bar outlives that layer
+        now, and a place taken with a text drag never had one at all.
+      */
+      if (
+        (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !inCommentList &&
+        !typing(event) &&
+        pathScopesRef.current !== null &&
+        pathScopesRef.current.length > 0
+      ) {
+        event.preventDefault();
+        widenBy(event.key === "ArrowUp" ? 1 : -1);
+        return;
+      }
+
+      /*
+        Spec 26 §4.5 — `esc` gives the bar up, and the bar says so.
+
+        `PickLayer` answers `esc` too, and that was the only place it was
+        answered: with pick mode off the layer is unmounted, so a bar left over
+        from a committed place could not be dismissed at all while its own hint
+        read `esc done`. Found by the §7.1 live run at step 7.
+
+        Only when a place is focused. A bare `esc` with no focus and no mode is
+        not this binding, and pick mode's own `esc` keeps working through the
+        layer — both end at `leavePick`, which is idempotent.
+      */
+      if (event.key === "Escape" && pathFocusRef.current !== null && !typing(event)) {
+        event.preventDefault();
+        leavePick();
+        return;
+      }
+
       if (
         event.key === "Alt" &&
         altTimer === null &&
@@ -2070,7 +3476,17 @@ export function App(): React.JSX.Element {
         !inCommentList &&
         !typing(event)
       ) {
-        altTimer = window.setTimeout(() => setPicking(true), ALT_PICK_DELAY);
+        altTimer = window.setTimeout(() => {
+          // Spec 26 §4.8 — **only a hold that actually turns pick mode ON owns
+          // the release.** `P` is a toggle, and ⌥ is how the wheel widens
+          // (§4.4), so a reviewer in sticky pick mode who reaches for ⌥ + wheel
+          // was having their mode ended by letting go of ⌥ — after which the
+          // click that followed landed on the document and added nothing.
+          // Reported 2026-09-01. `onBlur` below already tested this; the keyup
+          // did not.
+          heldPick.current = !pickingRef.current;
+          setPicking(true);
+        }, ALT_PICK_DELAY);
         return;
       }
 
@@ -2092,9 +3508,40 @@ export function App(): React.JSX.Element {
         !inCommentList &&
         !typing(event)
       ) {
-        shiftTimer = window.setTimeout(() => setAdding(true), ALT_PICK_DELAY);
+        shiftTimer = window.setTimeout(() => {
+          heldAdd.current = true;
+          setAdding(true);
+        }, ALT_PICK_DELAY);
         return;
       }
+      /*
+        Spec 28 §4.1, §4.2 — ⌘F finds in the page, ⌘⇧F searches the workspace.
+
+        Both modifiers, as the send chord takes both (`keys.tsx`). Before the
+        `typing()` guard on purpose: ⌘F pressed in a comment's textarea opens
+        the bar, as it does in every browser — the guard is for bare letters.
+        A copy of the chord arrives here from inside the frame too (§5.3).
+      */
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.altKey &&
+        (event.key === "f" || event.key === "F")
+      ) {
+        event.preventDefault();
+        if (event.shiftKey) {
+          // With a single file open there is no tree to search. Said, rather
+          // than nothing happening.
+          if (!workspace) setNotice("Open a folder to search across documents.");
+          else find.openSearch();
+          return;
+        }
+        if (!doc) return;
+        // A find is about the page, so the page comes back in front of the graph.
+        if (centre !== "document") void showCentre("document");
+        find.openBar();
+        return;
+      }
+
       // Zoom the document, the way every reader expects: ⌘/ctrl with + − 0.
       // Handled before the modifier guard below, because the modifier is the
       // binding. `=` as well as `+`, so the key does not need ⇧ on a US layout.
@@ -2171,6 +3618,21 @@ export function App(): React.JSX.Element {
           // string to the clipboard, so unlike ⇧A it needs no shift to be safe.
           void copyDebug();
           break;
+        case "w":
+        case "W":
+          // Spec 27 §4.1 — the width. Both switches change how a page is drawn
+          // and nothing about what it says, so neither needs a modifier and
+          // neither can cost anything.
+          if (!canPaper) return;
+          togglePaperWide();
+          break;
+        case "t":
+        case "T":
+          // `T` for theme. `D` is the Document view, and a letter that means
+          // two things is a letter that means neither.
+          if (!canPaper) return;
+          togglePaperDark();
+          break;
         default:
           return;
       }
@@ -2183,6 +3645,7 @@ export function App(): React.JSX.Element {
           window.clearTimeout(shiftTimer);
           shiftTimer = null;
         }
+        heldAdd.current = false;
         setAdding(false);
         return;
       }
@@ -2191,14 +3654,59 @@ export function App(): React.JSX.Element {
         window.clearTimeout(altTimer);
         altTimer = null;
       }
-      if (!arming) setPicking(false);
+      const wasHeld = heldPick.current;
+      heldPick.current = false;
+      // Only what the hold turned on is turned off — the same rule `onBlur`
+      // below already applies, and for the same reason.
+      if (!arming && wasHeld) setPicking(false);
+    };
+
+    /**
+     * A hold that ends off-screen is not a hold.
+     *
+     * ⌥ and ⇧ arm their modes on the press and end them on the release, and the
+     * release is not guaranteed to arrive. This machine switches macOS desktops
+     * with ⌥ and a digit: REX sees the ⌥ press, the desktop changes, and the
+     * release lands on whatever app is over there. Pick mode then stayed on for
+     * as long as REX was away, and the Selection tab it pulled forward was
+     * still in front when the reviewer came back. Reported on 2026-08-31.
+     *
+     * **Only what a hold turned on is turned off.** Pick and Add are toggles
+     * too — `P`, `A` and the strip — and a reviewer who switched to another app
+     * to copy a sentence must find the mode exactly as they left it.
+     *
+     * `hasFocus()` is the test for "the window, not a frame in it": focus
+     * moving into the document iframe blurs this window too, and that is a
+     * reviewer working, not a reviewer leaving. It stays true while any frame
+     * of this window holds focus.
+     */
+    const onBlur = (): void => {
+      if (document.hasFocus()) return;
+      if (altTimer !== null) {
+        window.clearTimeout(altTimer);
+        altTimer = null;
+      }
+      if (shiftTimer !== null) {
+        window.clearTimeout(shiftTimer);
+        shiftTimer = null;
+      }
+      if (heldPick.current) {
+        heldPick.current = false;
+        setPicking(false);
+      }
+      if (heldAdd.current) {
+        heldAdd.current = false;
+        setAdding(false);
+      }
     };
 
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
       if (altTimer !== null) window.clearTimeout(altTimer);
       if (shiftTimer !== null) window.clearTimeout(shiftTimer);
     };
@@ -2210,9 +3718,15 @@ export function App(): React.JSX.Element {
     centre,
     copyDebug,
     doc,
+    find.openBar,
+    find.openSearch,
     hasGaps,
+    leavePick,
     penning,
     showCentre,
+    togglePaperDark,
+    togglePaperWide,
+    widenBy,
     workspace,
     zoomBy,
   ]);
@@ -2276,10 +3790,67 @@ export function App(): React.JSX.Element {
     if (!active) return;
     const threadId = active.id;
     const mode = modeOf(threadId);
+
+    // Spec 24 §4 — the places waiting on this comment go with the message.
+    const places = pendingByThread.get(threadId) ?? [];
+    const targets = places.map((item) => ({ documentId: item.documentId, anchor: item.anchor }));
+    const had = active.targets.length;
+
+    /**
+     * §4.4 — the strip gives way to the head's rows and the turn's chips as
+     * soon as main has the places, not when the run ends minutes later.
+     *
+     * Main writes them before its first `await` (`addPlaces` in `ipc.ts`), and
+     * Electron delivers one renderer's IPC in order, so a `thread:list` sent
+     * after the send already sees the grown comment. If the send then fails
+     * WITHOUT having taken them — a document REX no longer has — they come back,
+     * because nothing the reviewer picked is lost to a failed send.
+     */
+    const sent = async (run: Promise<unknown>): Promise<void> => {
+      if (targets.length === 0) {
+        await run;
+        return;
+      }
+      clearPending(threadId);
+      try {
+        await refreshThreads();
+        await sweep();
+      } catch {
+        // The run below is what reports; a failed refresh must not mask it.
+      }
+      try {
+        await run;
+      } catch (error) {
+        const now = threadsRef.current.find((one) => one.id === threadId)?.targets.length ?? had;
+        if (now < had + targets.length) {
+          setPendingByThread((map) => {
+            const next = new Map(map);
+            next.set(threadId, [...places, ...(map.get(threadId) ?? [])]);
+            return next;
+          });
+        }
+        throw error;
+      }
+    };
+
+    // Spec 25 §4.1 — the comment's own model, or the default it follows.
+    const model = modelFor(threadId);
+    // Spec 31 §2.1 — and the style this chat is having.
+    const style = styleOf(threadId);
+
     if (mode === "act") {
-      void withBusy(threadId, async () => {
-        await window.rex.threadApply({ threadId, note: text });
-      });
+      void withBusy(threadId, () =>
+        sent(
+          window.rex.threadApply({
+            threadId,
+            note: text,
+            root: workspaceRef.current?.root ?? null,
+            targets,
+            model,
+            style,
+          }),
+        ),
+      );
       return;
     }
     // NOTE writes the text into the comment and runs nothing. No `withBusy`:
@@ -2287,17 +3858,64 @@ export function App(): React.JSX.Element {
     // because `guard` is where that lives.
     if (mode === "note") {
       void guard(async () => {
-        await window.rex.threadNote({ threadId, text });
+        // §2.3 — a NOTE runs nothing, so it names no model.
+        await sent(window.rex.threadNote({ threadId, text, targets, model: null, style: null }));
         await refreshThreads();
       });
       return;
     }
-    void withBusy(threadId, () => window.rex.threadReply({ threadId, text }));
+    void withBusy(threadId, () =>
+      sent(window.rex.threadReply({ threadId, text, targets, model, style })),
+    );
   };
 
-  const unanswered = threads.filter(
-    (thread) => thread.messages.length === 0 && !thread.isNote,
-  ).length;
+  /**
+   * Spec 24 §3.2 — a pending place's row, clicked: take me there. The same two
+   * steps the panel's row takes, minus the widening chips.
+   */
+  const goToPending = (item: SelectionItem): void => {
+    void guard(async () => {
+      if (docRef.current?.documentId === item.documentId) {
+        surfaceFor(item.pane)?.scrollToAnchor(item.anchor);
+        return;
+      }
+      const threadId = activeIdRef.current;
+      scrollWhenReady.current = item;
+      setCentre("document");
+      await openDocument(item.documentRef);
+      // `openDocument` closes the card, as `goToPlace` explains; the places
+      // being pointed at belong to this comment, so it comes back.
+      if (threadId) setActiveId(threadId);
+    });
+  };
+
+  // Spec 24 §3.3 — the strip's places, and their outlines, only while the card
+  // that owns them is on screen.
+  const shownCard = active && sidebarTab === "list" && active.kind !== "synthesis";
+  const pending = shownCard ? (pendingByThread.get(active.id) ?? []) : [];
+  const pendingFrom = shownCard ? active.targets.length : 0;
+
+  /**
+   * Spec 26 §4.1 — the number the bar wears, which is the number the focused
+   * place's outline draws.
+   *
+   * Computed here rather than stored on the focus, because it is a position in
+   * a list and the list moves: dropping place 1 makes place 2 into place 1, and
+   * a remembered number would then name a row that is no longer there. Null
+   * while the bar is about a hover, and for a place whose list is not on
+   * screen — a strip belongs to one card, and `pending` is already empty when
+   * that card is not shown.
+   */
+  const focusedNumber = ((): number | null => {
+    if (!pathFocus) return null;
+    if (pathFocus.threadId === null) {
+      const at = selection.findIndex((item) => item.id === pathFocus.itemId);
+      return at >= 0 ? at + 1 : null;
+    }
+    const at = pending.findIndex((item) => item.id === pathFocus.itemId);
+    return at >= 0 ? pendingFrom + at + 1 : null;
+  })();
+
   const applyTarget = pendingApply
     ? (threads.find((thread) => thread.id === pendingApply.threadId) ?? null)
     : null;
@@ -2307,21 +3925,47 @@ export function App(): React.JSX.Element {
   // went to look at the graph is the same fault as losing it to a stray click.
   const sideHidden = centre !== "document" && selection.length === 0;
 
+  // Spec 28 — the bar while it is open, the ruler while there is a mark to
+  // draw. Both go to the pane being read; `DocumentView` decides which.
+  const findBar = find.bar.open ? (
+    <FindBar
+      query={find.bar.query}
+      count={find.bar.count}
+      current={find.current}
+      capped={find.bar.capped}
+      focusToken={find.barFocus}
+      onQuery={find.setQuery}
+      onNext={find.next}
+      onPrevious={find.previous}
+      onClose={find.closeBar}
+    />
+  ) : null;
+  const findRuler =
+    find.marks.length > 0 ? (
+      <FindRuler marks={find.marks} current={find.current} onPick={find.goTo} />
+    ) : null;
+
   return (
     <div className="rex-app" ref={appRef}>
       <TopBar
         doc={doc}
         workspace={workspace}
         centre={centre}
-        cost={cost}
-        unanswered={unanswered}
         zoom={zoom}
         onResetZoom={resetZoom}
         onCentre={showCentre}
-        onAskAll={askAll}
         onOpenFile={pick}
         onOpenFolder={pickFolder}
         onDebug={copyDebug}
+        models={modelList}
+        onModel={(value) => {
+          // Spec 25 §6 — optimistic. The write is one row in REX's own
+          // database and cannot fail in a way the reviewer could act on;
+          // waiting would leave the button showing the old name for a round
+          // trip.
+          setModelList((current) => ({ ...current, chosen: value }));
+          void window.rex.modelDefault(value);
+        }}
       />
 
       {notice ? (
@@ -2346,8 +3990,26 @@ export function App(): React.JSX.Element {
               onOpen={(path) => void guard(() => openDocument({ kind: "file", value: path }))}
               onReload={refreshTree}
               onSelectFile={selectWholeFile}
+              onSelectFolder={selectWholeFolder}
               onExclude={(path, exclude) => void setExcluded(path, exclude)}
+              onRename={renameEntry}
+              onDelete={deleteEntry}
               onToggleSkipped={() => void toggleShowSkipped()}
+              tab={find.tab}
+              onTab={find.setTab}
+              search={{
+                root: tree.root,
+                query: find.search.query,
+                busy: find.search.busy,
+                result: find.search.result,
+                folded: find.search.folded,
+                focusToken: find.searchFocus,
+                onQuery: find.setSearchQuery,
+                onRun: () => void guard(() => find.runSearch(tree.root)),
+                onClear: find.clearSearch,
+                onFold: find.toggleFold,
+                onOpen: (path, hit) => void guard(() => find.openHit(path, hit)),
+              }}
             />
             <Splitter
               width={explorerWidth}
@@ -2383,7 +4045,15 @@ export function App(): React.JSX.Element {
               workingBar={
                 doc?.working
                   ? {
-                      view: doc.working,
+                      // Spec 34 §5.3 — `held` comes from the pending list, which
+                      // is re-read around every run; the view `doc:open` handed
+                      // over is only as fresh as the last open.
+                      view: {
+                        ...doc.working,
+                        held:
+                          working.find((view) => view.documentId === doc.working?.documentId)
+                            ?.held ?? doc.working.held,
+                      },
                       others: working.length - 1,
                       onApprove: () => approveWorking(doc.working?.documentId ?? ""),
                       onApproveAll: approveAllWorking,
@@ -2394,14 +4064,17 @@ export function App(): React.JSX.Element {
               }
               paneMode={paneMode}
               onPaneMode={setPaneMode}
-              resolved={paneResolved.current}
-              originalResolved={paneResolved.original}
+              resolved={paneShown.current}
+              originalResolved={paneShown.original}
               threads={threads}
               activeId={activeId}
               selection={selection}
+              pending={pending}
+              pendingFrom={pendingFrom}
               hoveredItemId={hoveredItemId}
               onHoverItem={setHoveredItemId}
               onRemoveItem={removeItem}
+              onFocusItem={focusItemById}
               changeBoxes={changeBoxes}
               adding={adding}
               onToggleAdd={() => {
@@ -2410,9 +4083,14 @@ export function App(): React.JSX.Element {
                 setAdding((on) => !on);
               }}
               picking={picking}
-              pickScopes={pickScopes}
-              pickActive={pickActive}
-              pickPane={pickPane}
+              pathScopes={pathScopes}
+              pathActive={pathActive}
+              pathPane={pathPane}
+              // Spec 26 §4.1 — the bar says which place it is about, and the
+              // number is the one that place's outline draws.
+              pathNumber={focusedNumber}
+              onPathScope={pathFocus ? rescope : choosePickScope}
+              onPathDone={leavePick}
               arming={arming}
               penning={penning}
               hoveredThreadId={hoveredThreadId}
@@ -2437,9 +4115,16 @@ export function App(): React.JSX.Element {
               zoom={zoom}
               onZoomBy={zoomBy}
               onZoomReset={resetZoom}
-              onZoomApplied={onZoomApplied}
+              onReflowed={onReflowed}
+              paper={paper}
+              paperable={doc !== null && isMarkdownPath(doc.ref.value)}
+              onPaperWide={togglePaperWide}
+              onPaperDark={togglePaperDark}
+              findPane={readPane}
+              corner={findBar}
+              ruler={findRuler}
               onProbe={probe}
-              onPickActive={choosePickScope}
+              onWiden={widenBy}
               onPickCommit={commitScope}
               onPickCommitAt={commitAt}
               onPickCancel={leavePick}
@@ -2459,13 +4144,32 @@ export function App(): React.JSX.Element {
             <TraceSheet
               thread={active}
               number={numbers.get(active.id) ?? 0}
-              tokenClass={tokenClass(
-                active.status,
-                stateById.get(active.id) ?? null,
-                active.isNote,
-              )}
+              tokenClass={tokenClass(active.status, stateById.get(active.id) ?? null)}
               busy={busyThreads.includes(active.id)}
-              mode={modeOf(active.id)}
+              // Spec 38 §4 — the sheet's foot is the card's composer, reading
+              // and writing the same state, so the two cannot disagree about
+              // what the next send does.
+              mode={active.status === "note" ? "note" : modeOf(active.id)}
+              onMode={(mode) => setMode(active.id, mode)}
+              models={modelList}
+              model={modelOf(active.id)}
+              onModel={(model) => setModel(active.id, model)}
+              style={styleOf(active.id)}
+              onStyle={(style) => setStyle(active.id, style)}
+              pending={pending}
+              hoveredItemId={hoveredItemId}
+              onHoverItem={setHoveredItemId}
+              onRemovePending={removeItem}
+              onReorderPending={(from, to) => movePending(active.id, from, to)}
+              onGoToPending={goToPending}
+              onPendingToNewComment={() => pendingToNewComment(active.id)}
+              // Spec 38 §3.2 — the places under each `YOU`, in the head's cells.
+              targetPlaces={targetPlacesById.get(active.id) ?? []}
+              targetStates={targetStatesById.get(active.id) ?? []}
+              openDocumentId={doc?.documentId ?? null}
+              hoveredPlace={hoveredPlace}
+              onHoverPlace={setHoveredPlace}
+              onGoToPlace={(position) => goToPlace(active, position)}
               onClose={() => setTraceId(null)}
               onReply={replyToActive}
             />
@@ -2508,7 +4212,7 @@ export function App(): React.JSX.Element {
           <Splitter
             width={commentsWidth}
             min={300}
-            max={760}
+            max={commentsMax}
             direction={-1}
             label="the comments panel"
             onChange={setCommentsWidth}
@@ -2519,56 +4223,113 @@ export function App(): React.JSX.Element {
           style={{ width: commentsWidth }}
         >
           {/*
-            Spec 08 §3.1 — the tab bar is furniture. It is here whatever the
-            column holds, and an empty selection dims its tab rather than
-            removing the bar.
+            Spec 30 §3 — the composer is a SCREEN, not a tab, so it carries the
+            same back arrow the card has always carried. The tab bar that used
+            to sit here is gone; §8.1 records what that reverses, and its `⋮`
+            menu moved into the list's own header row.
           */}
-          <SidebarTabs
-            tab={sidebarTab}
-            selectionCount={selection.length}
-            commentCount={threads.length}
-            onTab={setSidebarTab}
-          />
+          {sidebarTab === "composer" ? (
+            <>
+              <nav className="rex-side-head rex-composer-head">
+                <button
+                  type="button"
+                  className="rex-icon-button"
+                  aria-label="Back to the comments"
+                  data-tip={
+                    selection.length > 0
+                      ? `Keep this as a draft — ${selection.length} place${selection.length === 1 ? "" : "s"}`
+                      : "Back to the comments"
+                  }
+                  onClick={leaveComposer}
+                >
+                  <ChevronLeft />
+                </button>
+                {/*
+                  Spec 30 §3.6 — the name, from the moment the composer opens.
 
-          {sidebarTab === "selection" ? (
-            <SelectionPanel
-              items={selection}
-              note={selectionNote}
-              openDocumentId={doc?.documentId ?? null}
-              expandedId={expandedItemId}
-              scopes={rowScopes}
-              scopeActive={rowActive}
-              arming={arming}
-              hoveredId={hoveredItemId}
-              mode={selectionMode}
-              onMode={setSelectionMode}
-              onNote={setSelectionNote}
-              onExpand={expandRow}
-              onScope={changeRowScope}
-              onArmRegion={armRegion}
-              onRemove={removeItem}
-              onClear={clearSelection}
-              onAsk={askAboutSelection}
-              onHover={setHoveredItemId}
-              onReorder={(from, to) => setSelection((items) => moveSelectionItem(items, from, to))}
-            />
+                  The screen's title IS the name box rather than a field below
+                  it. A comment is named the same way a file is: you type over
+                  the heading. And it is here rather than in `SelectionPanel`
+                  because that panel is one line of prose until the first place
+                  is picked — a name box inside it could not be reached until
+                  after the click, which is the whole complaint.
+
+                  Empty is not a name. It writes NULL, and spec 14 §3.1's rule
+                  stands: the comment is then named by its own first line.
+                */}
+                <input
+                  className="rex-side-name"
+                  value={selectionTitle}
+                  placeholder={draftId === null ? "New comment" : "Draft"}
+                  aria-label="Name for this comment"
+                  title="A name for this comment. Left empty, it is named by its own first line."
+                  onChange={(event) => setSelectionTitle(event.target.value)}
+                />
+              </nav>
+              <SelectionPanel
+                items={selection}
+                note={selectionNote}
+                openDocumentId={doc?.documentId ?? null}
+                expandedId={expandedItemId}
+                // Spec 26 §5.2 — the chips and the bar read the same chain now,
+                // so they cannot disagree about what the expanded row is.
+                scopes={pathFocus?.itemId === expandedItemId ? pathScopes : null}
+                scopeActive={pathActive}
+                arming={arming}
+                hoveredId={hoveredItemId}
+                mode={selectionMode}
+                onMode={setSelectionMode}
+                models={modelList}
+                model={selectionModel}
+                onModel={setSelectionModel}
+                style={selectionStyle}
+                onStyle={setSelectionStyle}
+                onNote={setSelectionNote}
+                onExpand={expandRow}
+                onScope={rescope}
+                onArmRegion={armRegion}
+                onRemove={removeItem}
+                onClear={clearSelection}
+                onAsk={askAboutSelection}
+                onHover={setHoveredItemId}
+                onReorder={(from, to) =>
+                  setSelection((items) => moveSelectionItem(items, from, to))
+                }
+              />
+            </>
           ) : active ? (
             <CommentCard
               thread={active}
               number={numbers.get(active.id) ?? 0}
-              anchorState={stateById.get(active.id) ?? null}
+              tally={tallyById.get(active.id) ?? NO_PLACES}
               targetStates={targetStatesById.get(active.id) ?? []}
               targetPlaces={targetPlacesById.get(active.id) ?? []}
               busy={busyThreads.includes(active.id)}
               stopping={stoppingThreads.includes(active.id)}
               onStop={() => stopThread(active.id)}
-              mode={modeOf(active.id)}
+              // Spec 30 §3.5 — a note has already chosen: nothing runs. The
+              // card draws no mode switch for one, so this is the mode its
+              // Save sends under and `onMode` is never reached.
+              mode={active.status === "note" ? "note" : modeOf(active.id)}
               onMode={(mode) => setMode(active.id, mode)}
+              onPromote={() => promoteNote(active.id)}
+              models={modelList}
+              model={modelOf(active.id)}
+              onModel={(model) => setModel(active.id, model)}
+              style={styleOf(active.id)}
+              onStyle={(style) => setStyle(active.id, style)}
               tracing={traceId === active.id}
               openDocumentId={doc?.documentId ?? null}
               hoveredPlace={hoveredPlace}
               onHoverPlace={setHoveredPlace}
               onGoToPlace={(position) => goToPlace(active, position)}
+              pending={pending}
+              hoveredItemId={hoveredItemId}
+              onHoverItem={setHoveredItemId}
+              onRemovePending={removeItem}
+              onReorderPending={(from, to) => movePending(active.id, from, to)}
+              onGoToPending={goToPending}
+              onPendingToNewComment={() => pendingToNewComment(active.id)}
               onShowTrace={() => setTraceId(traceId === active.id ? null : active.id)}
               onBack={() => {
                 setActiveId(null);
@@ -2576,26 +4337,33 @@ export function App(): React.JSX.Element {
                 setTraceId(null);
               }}
               onReply={replyToActive}
-              onResolve={(resolvedFlag) =>
-                void withBusy(active.id, async () => {
-                  await window.rex.threadResolve({ threadId: active.id, resolved: resolvedFlag });
-                })
-              }
+              onResolve={(resolvedFlag) => resolveThread(active.id, resolvedFlag)}
               onDelete={() => removeThread(active.id)}
               onRename={(title) => void renameThread(active.id, title)}
             />
           ) : (
             <Sidebar
               threads={threads}
+              lane={lane}
+              onLane={setLane}
+              onlyThisFile={onlyThisFile}
+              onOnlyThisFile={setOnlyThisFile}
+              // §3.3 — the `＋` says how many places are waiting, so a draft
+              // being built is never a thing the reviewer has to remember.
+              draftPlaces={selection.length}
+              onNewComment={openComposer}
+              onDeleteAll={removeAllThreads}
               openDocument={doc ? { id: doc.documentId, name: nameOf(doc.ref) } : null}
-              stateById={stateById}
-              labelById={labelById}
+              statesById={targetStatesById}
               busyThreads={busyThreads}
               groups={groups}
               root={workspace?.root ?? null}
-              onSelect={setActiveId}
+              // Spec 30 §3 — one gesture, and the lane decides what it opens: a
+              // draft goes back to the composer, everything else to its card.
+              onSelect={openComment}
               onHover={setHoveredThreadId}
               onDelete={removeThread}
+              onResolve={resolveThread}
               onRename={renameThread}
               onGroupCreate={createGroup}
               onGroupRename={(groupId, name) => void updateGroup({ groupId, name })}
@@ -2613,7 +4381,11 @@ export function App(): React.JSX.Element {
                   });
                   await refreshThreads();
                   setActiveId(thread.id);
-                  await withBusy(thread.id, () => window.rex.threadAsk(thread.id));
+                  // Spec 25 — a synthesis comment is made and sent in one act,
+                  // so it has no composer to have picked from: the default.
+                  await withBusy(thread.id, () =>
+                    window.rex.threadAsk(thread.id, modelList.chosen, DEFAULT_STYLE),
+                  );
                 })
               }
             />
@@ -2626,7 +4398,7 @@ export function App(): React.JSX.Element {
           event={pendingApply}
           thread={applyTarget}
           number={numbers.get(pendingApply.threadId) ?? 0}
-          anchorState={stateById.get(pendingApply.threadId) ?? null}
+          places={tallyById.get(pendingApply.threadId) ?? NO_PLACES}
           outlined={changeBoxes.length}
           openDocumentPath={doc?.ref.value ?? null}
           onOpenFile={(path) => void guard(() => openDocument({ kind: "file", value: path }))}
@@ -2641,7 +4413,15 @@ export function App(): React.JSX.Element {
         `document` runs before the bindings below and stops them, so no guard is
         needed here and there is only one place that decides.
       */}
-      {preview ? <Lightbox figure={preview} onClose={() => setPreview(null)} /> : null}
+      {preview ? (
+        <Lightbox
+          figure={preview}
+          onClose={() => setPreview(null)}
+          onPick={pickDiagramPart}
+          places={diagramPlacesFor(preview, selection, pendingByThread, threads, doc)}
+          comments={diagramCommentsFor(preview, threads, doc)}
+        />
+      ) : null}
 
       {applyOutcome ? (
         <ApplyResult
