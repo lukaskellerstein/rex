@@ -25,6 +25,7 @@
 // still looks exactly as its author wrote it (spec 01 §5.4 point 3).
 
 import DOMPurify from "dompurify";
+import { fenceText } from "../../shared/diagram.ts";
 
 /**
  * What the lightbox was handed, already lifted out of the document.
@@ -36,7 +37,23 @@ import DOMPurify from "dompurify";
  */
 export type PreviewFigure =
   | { kind: "image"; src: string; caption: string | null; backdrop: string | null }
-  | { kind: "svg"; svg: DocumentFragment; caption: string | null; backdrop: string | null };
+  | { kind: "svg"; svg: DocumentFragment; caption: string | null; backdrop: string | null }
+  /**
+   * Spec 29 §4.2 — a Mermaid diagram REX drew: the drawing as any SVG, plus
+   * the fence's source and enough to name the block, so the lightbox can show
+   * both and a click in either can become a place through the surface.
+   */
+  | {
+      kind: "diagram";
+      svg: DocumentFragment;
+      source: string;
+      /** The `<pre>`'s id — `mermaid-155` — which `anchorFromDiagramPart` takes back. */
+      blockId: string;
+      /** The line the fence opens on, for the source pane's gutter. Null without a stamp. */
+      fenceLine: number | null;
+      caption: string | null;
+      backdrop: string | null;
+    };
 
 /**
  * The CSS properties that decide what a diagram looks like.
@@ -274,7 +291,24 @@ function figureFrom(element: Element): PreviewFigure | null {
     return src ? { kind: "image", src, caption, backdrop } : null;
   }
   const svg = DOMPurify.sanitize(withInlineStyles(element), SVG_SANITISE_OPTIONS);
-  return svg.firstElementChild ? { kind: "svg", svg, caption, backdrop } : null;
+  if (!svg.firstElementChild) return null;
+
+  // Spec 29 §4.2 — a drawing REX made from a fence carries its source with it.
+  // `closest` on the iframe's element, for the realm reason above.
+  const block = element.closest("pre.rex-mermaid[data-rendered]") as HTMLElement | null;
+  if (block?.id) {
+    const fenceLine = Number.parseInt(block.getAttribute("data-src-line") ?? "", 10);
+    return {
+      kind: "diagram",
+      svg,
+      source: fenceText(block.dataset.source ?? block.textContent ?? ""),
+      blockId: block.id,
+      fenceLine: Number.isFinite(fenceLine) && fenceLine > 0 ? fenceLine : null,
+      caption,
+      backdrop,
+    };
+  }
+  return { kind: "svg", svg, caption, backdrop };
 }
 
 /**

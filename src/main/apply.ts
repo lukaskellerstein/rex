@@ -17,13 +17,15 @@
 // directory an agent reads from is per-repository even now that what it writes
 // is not.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative } from "node:path";
 import type { ApplyConfirmResponse, DeckPreview } from "../shared/channels.ts";
+import { findPart, locateFence, scanDiagram } from "../shared/diagram.ts";
 import type {
   Anchor,
   AnchorSummary,
   ChangedRegion,
+  DiagramRef,
   Message,
   SkippedDocument,
   Thread,
@@ -32,39 +34,45 @@ import type {
 import { sessionIdFor } from "./agent/profiles.ts";
 import { type PassagePlace, passageSection, writeInstructions } from "./agent/prompts.ts";
 import { runAgent } from "./agent/runner.ts";
-import { beginRun, endRun } from "./agent/runs.ts";
+import { beginRun, endRun, HELD_REASON, isHeld } from "./agent/runs.ts";
 import { renderTranscript } from "./agent/transcript.ts";
 import type { Db } from "./db/database.ts";
 import {
   completeApplyRun,
   createApplyRun,
+  findDocument,
   getApplyRun,
   getThread,
   listMessages,
   type MessageDraft,
   setApplyRunDiff,
   setDocumentHash,
+  upsertDocument,
 } from "./db/queries.ts";
+import { runDocxApply } from "./docx/run.ts";
 import { changedFiles, isRepository, repositoryRoot, revert } from "./git.ts";
 import type { MediaResolver } from "./pptx/media.ts";
 import { acceptDeckApply, discardDeckApply, runDeckApply } from "./pptx/run.ts";
-import { isPptxPath } from "./render/formats.ts";
+import { isDocxPath, isPptxPath, isTextDocumentPath } from "./render/formats.ts";
 import { sha256 } from "./render/html.ts";
+import { putBack } from "./stray.ts";
 import { applyPlan, documentsOf } from "./threads.ts";
 import {
   type BeforeSet,
   basePath,
   currentHash,
   currentPath,
-  forkWorkingCopy,
-  movedSince,
-  restoreFromBeforeSet,
+  ensureWorkingCopy,
+  matchesBase,
+  pendingCopies,
+  restoredDir,
   saveRevision,
   takeBeforeSet,
   type WorkingMeta,
   workRoot,
 } from "./work.ts";
 import { workingDiff } from "./workDiff.ts";
+import { isInsideWorkspace } from "./workspace/created.ts";
 
 export interface ApplyContext {
   db: Db;
@@ -97,6 +105,26 @@ export interface ApplyContext {
     working: WorkingCopyView[];
     /** Spec 15 §4.3 — files the agent wrote that were not its to write. */
     restored: string[];
+    /**
+     * Spec 21 §4.3 — where the bytes a put-back removed were kept.
+     *
+     * Null when nothing was put back. Named in the notice because the reviewer
+     * is otherwise never told the copy exists, which is how spec 21 §1's report
+     * started.
+     */
+    restoredDir: string | null;
+    /** Spec 21 §2 — files the agent created, kept where it wrote them. */
+    created: string[];
+    /** Spec 22 §5.1 — files the agent edited under the workspace root, held as working copies. */
+    changed: string[];
+    /**
+     * Spec 21 §13 — absolute paths the agent wrote inside REX's own store.
+     *
+     * Left exactly where they are, and reported. Nothing in that directory is
+     * ever shown, so a run that wrote its whole answer there looked to the
+     * reviewer like a run that did nothing at all.
+     */
+    misplaced: string[];
     /** Spec 17 §3.4 — the reviewer ended this run, so it reports no verdict. */
     stopped: boolean;
     /** Spec 11 §7.7 — the before-and-after slides that replace the diff. */
@@ -138,6 +166,20 @@ function quoteLine(documentPath: string, quote: string | null): number | null {
   return source.slice(0, at).split("\n").length;
 }
 
+/** Spec 29 §5.8 — the file line a diagram part is on in one file, or null when it is not in it. */
+function diagramPartLine(documentPath: string, ref: DiagramRef): number | null {
+  let source: string;
+  try {
+    source = readFileSync(documentPath, "utf8");
+  } catch {
+    return null;
+  }
+  const fence = locateFence(source, ref);
+  if (!fence) return null;
+  const found = findPart(scanDiagram(fence.source), ref);
+  return found ? fence.fenceLine + found.lines.from : null;
+}
+
 /**
  * Spec 16 §5.1 — which version this passage's text lives in, and where.
  *
@@ -152,6 +194,16 @@ function quoteLine(documentPath: string, quote: string | null): number | null {
  * it belonged to.
  */
 export function locatePassage(copy: string, base: string | null, anchor: Anchor): PassagePlace {
+  // Spec 29 §5.8 — a diagram part has no quote either. The fence is found again
+  // in each version by its fingerprint or by the part, and the part in it by
+  // what names it; a line number alone is never the answer.
+  if (anchor.diagram) {
+    const here = diagramPartLine(copy, anchor.diagram);
+    if (here !== null) return { version: "current", line: here };
+    const there = base ? diagramPartLine(base, anchor.diagram) : null;
+    if (there !== null) return { version: "original", line: there };
+    return { version: "current", line: anchor.source?.line ?? null };
+  }
   // §6.7 — a gap has no text of its own. Its two neighbours are what say where
   // it is, and both are looked up in the version the agent will edit.
   if (anchor.gap) {
@@ -184,6 +236,49 @@ function pathsOf(db: Db, thread: Thread): Map<string, string> {
   return paths;
 }
 
+/**
+ * Spec 21 §13 and spec 22 §6.1 — what the agent may do beyond its list, said
+ * with a path instead of a pronoun.
+ *
+ * Its own function because it has two shapes and the difference matters: with
+ * no workspace open, `putBack` keeps nothing (spec 21 §3) and adopts nothing
+ * (spec 22 §2.3), so an agent that creates or edits a file has the work undone.
+ * Telling it not to is better than letting it work and then removing the
+ * result — and telling it that it *may*, once a workspace is open, is what
+ * spec 22 §1.3 found missing: the agent was not unable to write, it was told
+ * the write would be undone, and it chose to describe the change instead.
+ */
+function workspaceParagraph(workspaceRoot: string | null): string[] {
+  if (workspaceRoot === null) {
+    return [
+      "Anything you write outside the list above is put back and reported.",
+      "",
+      "No workspace is open in REX, so a new file has nowhere to appear and REX will",
+      "remove it. Do not create one. Answer in the discussion instead, and say what",
+      "the file would have held.",
+      "",
+    ];
+  }
+  return [
+    `The reviewer's workspace is ${workspaceRoot}. You may also edit any Markdown or`,
+    "HTML file under it, in place. REX will hold your version beside the original",
+    "and the reviewer will approve or discard it, so make the change they asked for",
+    "rather than describing it. Do not change files they did not ask about.",
+    `Anything you write outside ${workspaceRoot} is put back and reported.`,
+    "",
+    "If the reviewer asked you to create a NEW file, write it under",
+    `${workspaceRoot} — the workspace open in REX. Use the path they named,`,
+    "relative to that root. It appears in their file tree when the run ends.",
+    "",
+    "Never write a new file beside the working copies above. Their directory,",
+    `${workRoot()}, is REX's own store and is not the workspace: the file tree does`,
+    "not draw it, and nothing you leave there ever reaches the reviewer.",
+    "",
+    "Do not create files they did not ask for.",
+    "",
+  ];
+}
+
 /** One document this run may change: the reviewer's file, and REX's copy of it. */
 interface Editable {
   documentId: string;
@@ -208,9 +303,20 @@ function writePrompt(input: {
   db: Db;
   thread: Thread;
   root: string;
+  /**
+   * Spec 21 §13 — the open workspace, as an absolute path the agent can write.
+   *
+   * Named in the prompt and not merely used by `putBack`, because §5 told the
+   * agent to create a file "inside this workspace" and never said where that
+   * was. The only directory the prompt showed was `~/.rex/work/<id>/`, so an
+   * agent that obeyed the sentence wrote its new file into REX's store.
+   */
+  workspaceRoot: string | null;
   files: Editable[];
   instruction: string;
   transcript: string;
+  /** Spec 24 §6.2 — the message being sent, so the places it added are marked. */
+  addedWith: string | null;
 }): string {
   const copies = new Map(input.files.map((file) => [file.original, file.copy]));
   const bases = new Map(input.files.map((file) => [file.original, basePath(file.meta)]));
@@ -241,10 +347,15 @@ function writePrompt(input: {
   parts.push("");
   parts.push(
     "Edit those files in place. They are REX's working copies: the reviewer has not",
-    "accepted these changes yet, so the originals must not be touched. Anything you",
-    "write outside the list above is put back and reported.",
+    "accepted these changes yet, so the originals must not be touched.",
     "",
   );
+
+  // Spec 21 §5 and §13, spec 22 §6.1 — what lies beyond the list, stated with
+  // an address. The store is named because "inside this workspace" without a
+  // root sent a file into it; the workspace root is named because without it
+  // the agent has no way to know an edit there is now kept rather than undone.
+  parts.push(...workspaceParagraph(input.workspaceRoot));
 
   if (fromOriginal) {
     parts.push("Files you may READ but never write:");
@@ -265,11 +376,41 @@ function writePrompt(input: {
       repositoryRoot: input.root,
       heading: "## The passages under discussion",
       locate,
+      addedWith: input.addedWith,
     }),
   );
 
   parts.push(...writeInstructions(input.transcript, input.instruction));
   return parts.join("\n");
+}
+
+/**
+ * Spec 24 §4.2 — what a send can tell Apply beyond its instruction.
+ *
+ * `addedWith` is the id of the user message that carried this instruction.
+ * The places that arrived with it are already rows by the time `startApply`
+ * runs (`thread:apply` writes them first), so nothing here has to add them;
+ * the id only lets the passage list say which ones the discussion never had a
+ * chance to mention (§6.2).
+ */
+export interface ApplyOptions {
+  addedWith?: string | null;
+  /**
+   * Spec 25 §4.1 — the model this ACT runs on, as the reviewer picked it.
+   *
+   * An argument and not `thread.model`, which is retired (§4.3): a field on the
+   * comment would be mutable state no send owns, and an ACT started while an
+   * ASK is still streaming would take the other one's model.
+   */
+  model?: string | null;
+  /**
+   * Spec 31 §2.3 — the output style this ACT writes in.
+   *
+   * ACT gets one for the same reason ASK does: in Claude Code a style applies
+   * to everything a session does, and an exception here would be a rule the
+   * reviewer has to remember.
+   */
+  style?: string | null;
 }
 
 /**
@@ -361,6 +502,11 @@ async function startDeckApply(
   others: string[],
   skipped: SkippedDocument[],
   instruction: string,
+  addedWith: string | null,
+  /** Spec 25 §4.1 and spec 31 §4 — what this ACT runs under. `startApply`
+   * already stamped `context.record`; this is the copy the deck agent needs. */
+  model: string | null,
+  style: string | null,
 ): Promise<string> {
   const { db } = context;
   for (const file of others) {
@@ -389,8 +535,10 @@ async function startDeckApply(
           documentPaths: pathsOf(db, thread),
           repositoryRoot: dirname(deckPath),
           heading: "## The passages under discussion",
+          addedWith,
         }),
-        model: thread.model,
+        model,
+        style,
         resolver: context.resolver,
         signal: controller.signal,
         onMessage: (message) => context.record(thread.id, message),
@@ -427,6 +575,13 @@ async function startDeckApply(
     // `apply:confirm` rather than through a working copy.
     working: [],
     restored: [],
+    restoredDir: null,
+    // Spec 22 §5.1 — and nothing edited beside it, so nothing adopted.
+    changed: [],
+    // Spec 21 §2 — the deck pipeline writes only into its own cache, so it has
+    // no stray write to sort, nothing to keep and nothing misplaced.
+    created: [],
+    misplaced: [],
     // A stopped deck run returned above, so reaching here means every deck was
     // planned and performed.
     stopped: false,
@@ -435,15 +590,38 @@ async function startDeckApply(
   return run.id;
 }
 
-/** SPEC.md §8.7 steps 1–4, across every document the comment is about. */
+/**
+ * SPEC.md §8.7 steps 1–4, across every document the comment is about.
+ *
+ * `workspaceRoot` is spec 21 §3: the open workspace, so a file the agent
+ * creates can be scoped to somewhere the reviewer will actually see it. Null
+ * when no workspace is open, and then nothing created is kept.
+ */
 export async function startApply(
-  context: ApplyContext,
+  outer: ApplyContext,
   threadId: string,
   instruction: string,
+  workspaceRoot: string | null,
+  options: ApplyOptions = {},
 ): Promise<string> {
+  const model = options.model ?? null;
+  const style = options.style ?? null;
+  /**
+   * Spec 25 §5 — every message this run produces says which model ran it.
+   *
+   * Stamped once, here, rather than at each of the dozen `record` calls below
+   * and in `startDeckApply`: the model belongs to the run, so the run's own
+   * context is the honest place to put it. `confirmApply` keeps the plain one —
+   * accepting a diff is the reviewer's act and no model was involved.
+   */
+  const context: ApplyContext = {
+    ...outer,
+    record: (id, message) => outer.record(id, { ...message, model, style }),
+  };
   const { db } = context;
   const thread = getThread(db, threadId);
   if (!thread) throw new Error(`No such thread: ${threadId}`);
+  const addedWith = options.addedWith ?? null;
   // §4.3 — ACT with an empty box does nothing. The button is disabled for it,
   // and this is the backstop: an empty instruction reaches the agent as an
   // order to do nothing in particular, which is the one way a write run can go
@@ -464,12 +642,22 @@ export async function startApply(
       plan.editable.filter((path) => !isPptxPath(path)),
       skipped,
       instruction,
+      addedWith,
+      model,
+      style,
     );
   }
 
-  const groups = groupByRepository(plan.editable, skipped);
+  // Spec 19 §4.2 — a Word file is edited by a plan REX performs, not by the
+  // agent's own Edit tool, so it runs on its own and cannot share the prose
+  // agent's turn. It does share everything after that: the working copy, the
+  // two panes, approve, undo and discard. So it is **not** split off the way a
+  // deck is — a comment about a `.docx` and a `.md` applies to both in one run.
+  const documents = plan.editable.filter((path) => isDocxPath(path));
+  const prose = plan.editable.filter((path) => !isDocxPath(path));
+  const groups = groupByRepository(prose, skipped);
 
-  if (groups.size === 0) {
+  if (groups.size === 0 && documents.length === 0) {
     throw new Error(
       skipped.length > 0
         ? `Apply cannot edit any of this comment's documents. ${skipped[0].reason}`
@@ -484,19 +672,129 @@ export async function startApply(
   const touched: string[] = [];
   const working: WorkingCopyView[] = [];
   const restored: string[] = [];
+  /** Spec 21 §2 — kept where the agent wrote them, and named in the notice. */
+  const created: string[] = [];
+  /** Spec 22 §5.1 — edited under the workspace root, held as working copies. */
+  const changed: string[] = [];
+  /** Spec 21 §13 — written into REX's store, where nothing would show them. */
+  const misplaced: string[] = [];
   const regions: ChangedRegion[] = [];
   const diffs: string[] = [];
   /** Spec 17 §3.4 — the reviewer ended it, so it has no verdict to report. */
   let stopped = false;
 
-  for (const [root, files] of groups) {
-    // §3 — fork before anything runs. `base` is the reviewer's bytes, and it is
-    // on disk before the agent's first tool call.
-    const editable: Editable[] = files.map((original) => {
-      const documentId = documentIds.get(original) as string;
-      const meta = forkWorkingCopy(documentId, original);
-      return { documentId, original, copy: currentPath(meta), meta };
+  // Spec 19 §4.2 — the Word files, one agent each, each performed by REX.
+  for (const [position, documentPath] of documents.entries()) {
+    const documentId = documentIds.get(documentPath) as string;
+    // §3 — the copy exists before anything runs, exactly as the prose path does.
+    const meta = ensureWorkingCopy(documentId, documentPath);
+    const before = currentHash(meta);
+    const root = repositoryRoot(documentPath);
+
+    // Spec 34 §5.1 — holding the document, so nobody replaces the copy under it.
+    const controller = beginRun(threadId, [documentId]);
+    let edited: Awaited<ReturnType<typeof runDocxApply>>;
+    try {
+      edited = await runDocxApply({
+        runKey: deckRunKey(run.id, position),
+        documentPath,
+        workingPath: currentPath(meta),
+        instruction,
+        transcript,
+        passages: passageSection({
+          thread,
+          documentPaths: pathsOf(db, thread),
+          repositoryRoot: root,
+          heading: "## The passages under discussion",
+          addedWith,
+        }),
+        model,
+        style,
+        resolver: context.resolver,
+        signal: controller.signal,
+        onMessage: (message) => context.record(threadId, message),
+      });
+    } catch (error) {
+      // Nothing was written, so there is nothing to undo — the whole point of
+      // §4.2's ordering. The run is failed and the reason is the reviewer's.
+      completeApplyRun(db, run.id, "failed");
+      throw error;
+    } finally {
+      endRun(threadId, controller);
+    }
+
+    // Spec 17 §2.6 — stopped before the plan was finished, so the working copy
+    // holds exactly what it held. The conversation's STOPPED block says why.
+    if (!edited) {
+      stopped = true;
+      break;
+    }
+
+    // §4.2 — REX writes the copy, not the agent. `saveRevision` takes bytes and
+    // does not care where they came from, so this is a new caller and not a new
+    // mechanism.
+    writeFileSync(currentPath(meta), edited.bytes);
+    const next = saveRevision(meta, { applyRunId: run.id, threadId, before });
+    // A run that took back everything an earlier one wrote has a revision and
+    // no difference. There is nothing to review, so nothing is reported, and
+    // `thread:apply` removes the copy when this returns (`work.ts` §4.2).
+    if (next && !matchesBase(next)) {
+      const view = viewOf(next, root);
+      working.push(view);
+      touched.push(documentPath);
+      regions.push(...view.added);
+      diffs.push(view.patch);
+    }
+
+    // §5.7 — the operation list, with its costs. A cost the reviewer finds
+    // later is a cost REX hid, so it is said in the conversation.
+    context.record(threadId, {
+      role: "assistant",
+      // There is no message kind for "REX did this" — the deck path puts its
+      // operation list in the preview instead, and that surface does not exist
+      // here (§5.7 departure, recorded in the spec). The conversation is where
+      // a reviewer reads what happened, so the list goes there, named.
+      kind: "text",
+      content: [
+        `REX performed this plan on ${basename(documentPath)}:`,
+        ...edited.outcomes.map((outcome) => `- ${outcome.op}: ${outcome.summary}`),
+        ...edited.outcomes.flatMap((outcome) => outcome.flags.map((flag) => `  ⚠ ${flag}`)),
+      ].join("\n"),
+      toolName: null,
+      toolInput: null,
+      isError: false,
+      costUsd: null,
+      durationMs: null,
+      inputTokens: null,
+      outputTokens: null,
     });
+  }
+
+  for (const [root, files] of groups) {
+    if (stopped) break;
+    // §3 — the copy exists before anything runs. `base` is the reviewer's
+    // bytes, and it is on disk before the agent's first tool call. Spec 34
+    // §3.3 — a copy that already exists is kept, or synced from the file when
+    // nothing is pending.
+    //
+    // Spec 22 §12.1 — a pending working copy this workspace already holds for
+    // another file in this repository is on the list too. Without it a second
+    // ACT run on an adopted file reads the file on disk — the reviewer's bytes
+    // — and its edit silently drops everything the previous run wrote, leaving
+    // it only as a revision nobody is looking at.
+    const editable: Editable[] = [
+      ...files.map((original) => {
+        const documentId = documentIds.get(original) as string;
+        const meta = ensureWorkingCopy(documentId, original);
+        return { documentId, original, copy: currentPath(meta), meta };
+      }),
+      ...pendingCopiesIn(root, workspaceRoot, files).map((meta) => ({
+        documentId: meta.documentId,
+        original: meta.path,
+        copy: currentPath(meta),
+        meta,
+      })),
+    ];
     const hashesBefore = new Map(editable.map((file) => [file.copy, currentHash(file.meta)]));
     const allowed = new Set(editable.map((file) => file.copy));
     const beforeSet = beforeSetFor(root, files);
@@ -506,19 +804,34 @@ export async function startApply(
     const wrote = new Set<string>();
 
     // Spec 17 §2.5 — a write run is the one a reviewer most wants to be able to
-    // end, and the one whose book-keeping must survive being ended.
-    const controller = beginRun(threadId);
+    // end, and the one whose book-keeping must survive being ended. Spec 34
+    // §5.1 — it holds every document on its list, so nobody replaces a copy
+    // under it.
+    const controller = beginRun(
+      threadId,
+      editable.map((file) => file.documentId),
+    );
     let result: Awaited<ReturnType<typeof runAgent>>;
     try {
       result = await runAgent({
         cwd: root,
         profile: "write",
-        prompt: writePrompt({ db, thread, root, files: editable, instruction, transcript }),
+        prompt: writePrompt({
+          db,
+          thread,
+          root,
+          workspaceRoot,
+          files: editable,
+          instruction,
+          transcript,
+          addedWith,
+        }),
         // One session per repository: two turns sharing a session id would resume
         // the first one's transcript in the second one's working directory.
         sessionId: sessionIdFor(`${run.id}:${root}`),
         resume: false,
-        model: thread.model,
+        model,
+        style,
         signal: controller.signal,
         onMessage: (message) => context.record(threadId, message),
         onWrote: (path) => wrote.add(path),
@@ -528,9 +841,38 @@ export async function startApply(
     }
 
     // §4.3 — put back anything written outside the working copies, whichever
-    // source found it. Done before the error check, because a failed run can
-    // have written just as much as a successful one.
-    restored.push(...putBack(run.id, root, beforeSet, wrote, allowed));
+    // source found it, and keep what it created (spec 21 §2). Done before the
+    // error check, because a failed run can have written just as much as a
+    // successful one.
+    const stray = putBack({
+      applyRunId: run.id,
+      threadId,
+      root,
+      workspaceRoot,
+      beforeSet,
+      wrote,
+      allowed,
+      documentIdFor: (path) => documentIdFor(db, path),
+    });
+    restored.push(...stray.restored);
+    created.push(...stray.created);
+    misplaced.push(...stray.misplaced);
+
+    // Spec 22 §3 step 5 — an adopted file is reported the way an anchored one
+    // is: in `working`, so the panes and the list draw it, and in `changed`, so
+    // the notice names it. Before the error check for the same reason the
+    // put-back is: the copy exists whether or not the run ended well.
+    for (const meta of stray.adopted) {
+      // Back to the reviewer's own bytes — a second run undoing the first.
+      // Nothing to review; `thread:apply` sweeps the copy on return.
+      if (matchesBase(meta)) continue;
+      const view = viewOf(meta, root);
+      working.push(view);
+      touched.push(meta.path);
+      regions.push(...view.added);
+      diffs.push(view.patch);
+      changed.push(relative(root, meta.path));
+    }
 
     if (result.error) {
       completeApplyRun(db, run.id, "failed");
@@ -545,13 +887,18 @@ export async function startApply(
         threadId,
         before: hashesBefore.get(file.copy) ?? "",
       });
-      if (!next) continue;
+      // Moved, but back to the reviewer's own bytes: a revision and no
+      // difference. Not reported, and removed by `thread:apply` on return.
+      if (!next || matchesBase(next)) continue;
 
       const view = viewOf(next, root);
       working.push(view);
       touched.push(file.original);
       regions.push(...view.added);
       diffs.push(view.patch);
+      // Spec 22 §5.1 — a pending copy is a file the comment is not about, so
+      // the notice names it as it would name an adoption.
+      if (!files.includes(file.original)) changed.push(relative(root, file.original));
     }
 
     // Spec 17 §2.5 — stop means stop. This repository's partial change is
@@ -577,6 +924,10 @@ export async function startApply(
     skipped,
     working,
     restored,
+    restoredDir: restored.length > 0 ? restoredDir(run.id) : null,
+    created,
+    changed,
+    misplaced,
     stopped,
   });
   return run.id;
@@ -587,6 +938,42 @@ function documentIdsByPath(db: Db, thread: Thread): Map<string, string> {
   const ids = new Map<string, string>();
   for (const record of documentsOf(db, thread)) ids.set(record.ref.value, record.id);
   return ids;
+}
+
+/**
+ * Spec 22 §3 step 2 — the document row for a file the run adopted, made only
+ * if REX has never seen the file. `upsertDocument` would overwrite the title of
+ * one it has, and the disk holds the reviewer's bytes again by the time this
+ * is called, so the hash stored is the file's and not the agent's.
+ */
+function documentIdFor(db: Db, path: string): string {
+  const ref = { kind: "file" as const, value: path };
+  const existing = findDocument(db, ref);
+  if (existing) return existing.id;
+  return upsertDocument(db, ref, null, sha256(readFileSync(path))).record.id;
+}
+
+/**
+ * Spec 22 §12.1 — the pending working copies held for text documents in this
+ * repository and this workspace, other than the ones the comment is anchored
+ * to. By path containment rather than `git`, because the copy's file can be
+ * gone from disk and a process per copy is a cost for a list that is seldom
+ * more than a handful. Spec 34 §4 — pending, not present: a copy that equals
+ * its file has nothing a second run could drop.
+ */
+function pendingCopiesIn(
+  root: string,
+  workspaceRoot: string | null,
+  anchored: readonly string[],
+): WorkingMeta[] {
+  if (workspaceRoot === null) return [];
+  return pendingCopies().filter(
+    (meta) =>
+      !anchored.includes(meta.path) &&
+      isTextDocumentPath(meta.path) &&
+      isInsideWorkspace(workspaceRoot, meta.path) &&
+      isInsideWorkspace(root, meta.path),
+  );
 }
 
 /** Spec 15 §3 — one working copy, as the two panes and the top bar need it. */
@@ -618,48 +1005,10 @@ export function viewOf(meta: WorkingMeta, root: string): WorkingCopyView {
     removed: change.removed,
     patch: change.patch,
     conflict,
+    // Spec 34 §5.2 — the same words main refuses with, so the greyed button
+    // and the refusal cannot disagree.
+    held: isHeld(meta.documentId) ? HELD_REASON : null,
   };
-}
-
-/**
- * Spec 15 §4.3 — every file the agent wrote that was not its to write, put back.
- *
- * Two sources, because neither is complete on its own. `wrote` is exact but
- * blind to `Bash` — the write profile allows it (spec 11 §6.4.4), so `sed -i`
- * is a write no tool call names. The before-set catches those by content, but
- * only for paths git listed, so a brand-new file in an ignored directory is
- * seen by the first source and not the second.
- *
- * Restoring is a copy back, or a delete for a file that did not exist —
- * `git checkout` is not used, and cannot be: the paths that most need putting
- * back are the ones git does not track.
- */
-function putBack(
-  applyRunId: string,
-  root: string,
-  beforeSet: BeforeSet,
-  wrote: ReadonlySet<string>,
-  allowed: ReadonlySet<string>,
-): string[] {
-  const store = `${workRoot()}/`;
-  const suspects = new Set<string>();
-  for (const path of wrote) if (!allowed.has(path)) suspects.add(path);
-  for (const path of beforeSet.contents.keys()) {
-    if (!allowed.has(path) && movedSince(beforeSet, path)) suspects.add(path);
-  }
-
-  const done: string[] = [];
-  for (const path of suspects) {
-    // Never REX's own store. A stray write to a working copy's `base` would be
-    // "restored" by deleting it, and `base` is the only copy of the reviewer's
-    // original bytes — the one file in this design that must never be lost.
-    if (path.startsWith(store)) continue;
-    // A path the agent named but never changed is not a write. It happens: an
-    // Edit that fails leaves the tool call in the transcript and the file alone.
-    if (beforeSet.contents.has(path) && !movedSince(beforeSet, path)) continue;
-    if (restoreFromBeforeSet(beforeSet, path, applyRunId)) done.push(relative(root, path) || path);
-  }
-  return done;
 }
 
 /** Undo everything a run wrote, whichever repositories it wrote into. */

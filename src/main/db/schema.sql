@@ -38,8 +38,13 @@ CREATE TABLE IF NOT EXISTS thread (
   id            TEXT PRIMARY KEY,
   document_id   TEXT NOT NULL REFERENCES document(id) ON DELETE CASCADE,
   kind          TEXT NOT NULL CHECK (kind IN ('anchored','synthesis')),
+  -- Spec 30 §2 — five lanes. `draft` is a comment with places that has never
+  -- been sent and is meant to be; `note` is one the reviewer chose that no agent
+  -- would ever see. Both are before `open`; `resolved` stays terminal.
+  -- `migrateThreadLanes` widens this CHECK on a database made before spec 30,
+  -- which needs a table rebuild — SQLite cannot alter a constraint in place.
   status        TEXT NOT NULL DEFAULT 'open'
-                  CHECK (status IN ('open','resolved')),
+                  CHECK (status IN ('draft','note','open','resolved')),
   anchor_json   TEXT,
   -- Further anchors for the same comment, as a JSON array. NULL and '[]' both
   -- mean the ordinary one-target comment.
@@ -55,10 +60,12 @@ CREATE TABLE IF NOT EXISTS thread (
   -- contents to its parent first (§5.4), so this fires only for a row deleted
   -- some other way. A comment is never destroyed by rearranging groups.
   group_id      TEXT REFERENCES comment_group(id) ON DELETE SET NULL,
-  -- A comment the reviewer saved and never sent. 1 means NOTE mode made it, so
-  -- "Ask all" leaves it alone and the panel draws it in its own colour. Cleared
-  -- the moment the comment IS sent — a note that has been asked is not a note
-  -- any more, and nothing about it should keep saying so.
+  -- Spec 30 §7.2 — RETIRED, and read by nothing but its own migration. A note is
+  -- a lane in `status` now, so the flag has no second fact to carry. Left in
+  -- place because dropping a column rewrites the table, exactly as `model` and
+  -- `anchor_json` below and above are left. NOT to be confused with
+  -- `message.mode`, which is a different fact — which mode sent ONE message —
+  -- and is untouched by spec 30.
   is_note       INTEGER NOT NULL DEFAULT 0,
   -- Spec 14 §4.1 — rank among the comments sharing group_id. Renumbered 0..n-1
   -- inside one transaction on every drop; never a fractional key, which has a
@@ -67,7 +74,20 @@ CREATE TABLE IF NOT EXISTS thread (
   session_id    TEXT,
   profile       TEXT NOT NULL DEFAULT 'read'
                   CHECK (profile IN ('read','write')),
+  -- Spec 25 §4.3 — RETIRED, and read by nothing. The model is an argument on
+  -- each send now, because it is a property of a send and not of a comment: a
+  -- field here would be mutable state no send owns, and two runs on one comment
+  -- would be each other's model. Left in place because dropping a column
+  -- rewrites the table, exactly as anchor_json above is left. The durable
+  -- record is message.model.
   model         TEXT,
+  -- Spec 31 §2.1 — the output style this chat is having, and the deliberate
+  -- opposite of the retired column above. A model is what one SEND is worth and
+  -- has a safe default to fall back to; a style is how this CHAT reads, cannot
+  -- be unsafe or dear, and was asked for as "remembered for the whole chat".
+  -- A chat outlives a restart, so this is a column and not renderer state.
+  -- NULL is the CLI's own default.
+  style         TEXT,
   created_at    TEXT NOT NULL,
   updated_at    TEXT NOT NULL,
   resolved_at   TEXT
@@ -95,6 +115,11 @@ CREATE TABLE IF NOT EXISTS thread_target (
   -- NULL means "that document has not been open, so nobody looked". It is not
   -- orphaned, and §5.7 must never count it as one.
   anchor_state  TEXT CHECK (anchor_state IN ('ok','moved','orphaned')),
+  -- Spec 24 §5.2 — the user message that added this place. NULL for a place
+  -- the comment was created with. Plain TEXT with no foreign key: a message and
+  -- a target belong to one thread and leave with it, and `migrateTargetMessage`
+  -- could not add a constraint by ALTER on an existing database anyway.
+  message_id    TEXT,
   PRIMARY KEY (thread_id, position)
 );
 
@@ -112,10 +137,24 @@ CREATE TABLE IF NOT EXISTS message (
   -- never changes; the mode a thread will send its next message in stays in the
   -- renderer and is deliberately not stored.
   mode            TEXT CHECK (mode IN ('ask','act','note')),
+  -- Spec 25 §5 — the model this row came from, as the reviewer picked it. Set
+  -- on their send and on everything the run it started produced. NULL for a
+  -- NOTE, which runs nothing, and for every row written before this column;
+  -- NULL is "nobody recorded it" and is never drawn as "the default".
+  model           TEXT,
+  -- Spec 31 §5 — the output style this row ran under. `model`'s twin: set on
+  -- the send and on everything the run produced, NULL for a NOTE and for every
+  -- row written before it. Recorded and not drawn; the debug report reads it.
+  style           TEXT,
   content         TEXT,
   tool_name       TEXT,
   tool_input_json TEXT,
   is_error        INTEGER NOT NULL DEFAULT 0,
+  -- The GATE refused this call (§8.4), which `is_error` cannot say on its own:
+  -- a command that exits non-zero is an error too, and reading the one as the
+  -- other made every failed shell line read as a refusal. Only the runner sets
+  -- it, from the reason the gate recorded moments earlier.
+  denied          INTEGER NOT NULL DEFAULT 0,
   cost_usd        REAL,
   duration_ms     INTEGER,
   input_tokens    INTEGER,
@@ -162,6 +201,18 @@ CREATE TABLE IF NOT EXISTS workspace_rule (
   mode        TEXT NOT NULL CHECK (mode IN ('exclude','include')),
   created_at  TEXT NOT NULL,
   PRIMARY KEY (root, path)
+);
+
+-- Spec 25 §6.1 — one fact about REX itself, keyed by name.
+--
+-- One row today: `model.default`, the model every send uses unless the comment
+-- says otherwise. Absent means 'default', the SDK's own first row.
+--
+-- General on purpose so the next such fact needs no migration, and deliberately
+-- NOT a settings system: nothing reads a key that a spec does not name.
+CREATE TABLE IF NOT EXISTS setting (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
 );
 
 -- Full-text search over comments and transcripts.

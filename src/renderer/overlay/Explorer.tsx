@@ -4,8 +4,13 @@
 // holding no database handle: the counts arrive already aggregated.
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { documentsIn } from "../../shared/tree.ts";
 import type { CommentCounts, TreeEntry, WorkspaceTree } from "../../shared/types.ts";
+import type { ExplorerTab } from "./find.ts";
 import { EyeOff, TriangleDown, TriangleRight } from "./Icons.tsx";
+import { NameBox } from "./NameBox.tsx";
+import { SearchView, type SearchViewProps } from "./SearchView.tsx";
+import { Tabs } from "./Tabs.tsx";
 
 /**
  * Spec 18 §4.3 — a file's block counts, from its working copy.
@@ -54,6 +59,18 @@ interface Props {
    */
   onSelectFile: (path: string) => void;
   /**
+   * Spec 06 §4.3 — the same gesture on a folder: every document under it.
+   *
+   * The tree decides WHICH files, because it is the only side that holds the
+   * tree: it walks the subtree in the order it draws and skips what REX cannot
+   * open. The App decides what a place is and what it costs to make one.
+   *
+   * The folder's own path travels with them, and it is the path rather than the
+   * name: the App names the folder in its confirm AND shortens every file
+   * against it, and deriving one from the other only works in that direction.
+   */
+  onSelectFolder: (folder: string, paths: string[]) => void;
+  /**
    * Spec 10 §3.4 — one path in or out of the review.
    *
    * `exclude: false` covers both "take that exclusion back" and "pull in a
@@ -61,7 +78,22 @@ interface Props {
    * on the same word. Which of the two it turns out to be is main's to decide.
    */
   onExclude: (path: string, exclude: boolean) => void;
+  /**
+   * Spec 23 §4 — a new basename for one row, main's to accept or refuse.
+   *
+   * The tree does not predict the outcome and does not patch itself: main moves
+   * the file, the document rows, the exclusion rules and the working copy
+   * together, and the tree is re-scanned from what that left behind.
+   */
+  onRename: (path: string, name: string) => void;
+  /** Spec 23 §3 — one file to the system Bin. The confirm has already run. */
+  onDelete: (path: string) => void;
   onToggleSkipped: () => void;
+  /** Spec 28 §4.2 — which of the two views the column shows. */
+  tab: ExplorerTab;
+  onTab: (tab: ExplorerTab) => void;
+  /** Everything the Search view needs, as one thing: it all changes together. */
+  search: SearchViewProps;
 }
 
 /** Which row the menu belongs to, and where the pointer opened it. */
@@ -189,6 +221,8 @@ export function Explorer(props: Props): React.JSX.Element {
   /** The row that was just copied, so it can say so for a moment. */
   const [copied, setCopied] = useState<string | null>(null);
   const [menu, setMenu] = useState<MenuAt | null>(null);
+  /** Spec 23 §5.2 — the one row whose name is a box rather than a label. */
+  const [renaming, setRenaming] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const flash = useRef(0);
 
@@ -268,6 +302,42 @@ export function Explorer(props: Props): React.JSX.Element {
     setMenu({ entry, x: event.clientX, y: event.clientY });
   };
 
+  /**
+   * Spec 23 §3.2 — the confirm names the file and what survives it.
+   *
+   * The count is the one thing the reviewer cannot see from a dialog, and it is
+   * the thing that decides whether this is a mistake: eleven comments on a file
+   * are eleven questions that go quiet with it. They are kept either way, and
+   * saying so is what makes the Bin readable as the reversible act it is.
+   */
+  const confirmDelete = (entry: TreeEntry): void => {
+    const counts = entry.comments ?? EMPTY_COMMENTS;
+    const many = counts.open + counts.resolved + counts.orphaned;
+    const kept =
+      many === 0
+        ? "It has no comments."
+        : `Its ${many} ${many === 1 ? "comment" : "comments"} are kept — put the file back and they return.`;
+    if (window.confirm(`Move "${entry.name}" to the Bin?\n${kept}`)) props.onDelete(entry.path);
+  };
+
+  /**
+   * Spec 06 §4.3 — the files `Select folder` would add, or none when the item
+   * is not offered.
+   *
+   * Recursive, because a folder in this tree is everything under it: "select
+   * `docs/`" on a nested repo would otherwise hand back three files out of
+   * forty. `documentsIn` is the walk main already does for the reference graph,
+   * so the two can never disagree about what is in the review.
+   *
+   * Computed where the menu is decided rather than inside it, so the item can
+   * hide itself on a folder that holds nothing REX can open. A menu item that
+   * silently does nothing is worse than an absent one.
+   */
+  const folderDocs =
+    menu && menu.entry.kind === "directory" && menu.entry.exclusion === null
+      ? documentsIn(menu.entry.children)
+      : [];
+
   const toggle = (path: string): void => {
     const next = new Set(open);
     if (next.has(path)) next.delete(path);
@@ -286,8 +356,35 @@ export function Explorer(props: Props): React.JSX.Element {
       const words = countWords(row);
       const marks = row.comments !== null || row.change !== null;
       // The path on hover, what the markers mean, and how to take the path.
-      const hint = [entry.path, ...words, "Right-click for path and selection"].join("\n");
+      const hint = [entry.path, ...words, "Right-click to copy, select, rename or delete"].join(
+        "\n",
+      );
       const justCopied = copied === entry.path;
+
+      // Spec 23 §5.2 — the name is edited where it is, so a `div` stands in for
+      // whatever the row usually is. An `<input>` inside the `<button>` a
+      // document row draws would be invalid markup, and every click in the box
+      // would open the file.
+      if (renaming === entry.path) {
+        const isOpen = entry.kind === "directory" && open.has(entry.path);
+        return [
+          <div key={entry.path} className="rex-tree-row rex-tree-renaming" style={indent}>
+            <span className="rex-tree-twisty" />
+            <NameBox
+              value={entry.name}
+              label={`New name for ${entry.name}`}
+              allowEmpty={false}
+              selection="stem"
+              onSave={(name) => {
+                setRenaming(null);
+                if (name !== null && name !== entry.name) props.onRename(entry.path, name);
+              }}
+              onCancel={() => setRenaming(null)}
+            />
+          </div>,
+          ...(isOpen ? rows(entry.children, depth + 1) : []),
+        ];
+      }
 
       if (entry.exclusion !== null) {
         const byHand = entry.exclusion === "user";
@@ -385,41 +482,63 @@ export function Explorer(props: Props): React.JSX.Element {
 
   return (
     <nav className="rex-explorer" style={{ width: props.width }}>
-      <header className="rex-explorer-head">
-        <span className="rex-label rex-explorer-root" title={props.tree.root}>
-          WORKSPACE · {(props.tree.root.split("/").pop() || props.tree.root).toUpperCase()}
-        </span>
-        {/*
+      {/*
+        Spec 28 §4.2 — two views, one column. The same segmented row the
+        comments column switches with (spec 08 §3.1). The `Search` tab counts
+        the files the last search found something in.
+      */}
+      <div className="rex-side-head rex-side-tabs">
+        <Tabs
+          tabs={[
+            { id: "files", label: "Files" },
+            { id: "search", label: "Search", count: props.search.result?.files.length ?? 0 },
+          ]}
+          on={props.tab}
+          onTab={props.onTab}
+        />
+      </div>
+
+      {props.tab === "search" ? (
+        <SearchView {...props.search} />
+      ) : (
+        <div className="rex-explorer-scroll">
+          <header className="rex-explorer-head">
+            <span className="rex-label rex-explorer-root" title={props.tree.root}>
+              WORKSPACE · {(props.tree.root.split("/").pop() || props.tree.root).toUpperCase()}
+            </span>
+            {/*
           §3.5 — the way into the built-in skip list, which was unreachable
           until this existed: there was no way at all to review a folder REX had
           decided to skip. It says nothing about the reviewer's own exclusions,
           which are always drawn.
         */}
-        <button
-          type="button"
-          className="rex-link"
-          title={
-            props.showSkipped
-              ? "Hide the folders REX skips on its own"
-              : "List the folders REX skips on its own — build output, dependencies — so one can be brought in"
-          }
-          onClick={props.onToggleSkipped}
-        >
-          {props.showSkipped ? "hide skipped" : "skipped"}
-        </button>
-        <button type="button" className="rex-link" onClick={props.onReload}>
-          reload
-        </button>
-      </header>
+            <button
+              type="button"
+              className="rex-link"
+              title={
+                props.showSkipped
+                  ? "Hide the folders REX skips on its own"
+                  : "List the folders REX skips on its own — build output, dependencies — so one can be brought in"
+              }
+              onClick={props.onToggleSkipped}
+            >
+              {props.showSkipped ? "hide skipped" : "skipped"}
+            </button>
+            <button type="button" className="rex-link" onClick={props.onReload}>
+              reload
+            </button>
+          </header>
 
-      {props.tree.truncated ? (
-        // §4.2 — a silently truncated tree reads exactly like a complete one.
-        <p className="rex-explorer-warn">
-          Tree truncated — this folder is larger than REX will scan. Some files are not listed.
-        </p>
-      ) : null}
+          {props.tree.truncated ? (
+            // §4.2 — a silently truncated tree reads exactly like a complete one.
+            <p className="rex-explorer-warn">
+              Tree truncated — this folder is larger than REX will scan. Some files are not listed.
+            </p>
+          ) : null}
 
-      <div className="rex-tree">{rows(props.tree.entries, 0)}</div>
+          <div className="rex-tree">{rows(props.tree.entries, 0)}</div>
+        </div>
+      )}
 
       {/*
         Fixed to the viewport, at the pointer. Inside the shadow root like
@@ -457,6 +576,63 @@ export function Explorer(props: Props): React.JSX.Element {
               }}
             >
               Select file
+            </button>
+          ) : null}
+
+          {/*
+            The same slot for a folder, so there is one `Select …` item whatever
+            was right-clicked. It says the count out loud: the whole point of the
+            item is that it adds more than one row, and a gesture whose size you
+            only learn afterwards is a gesture nobody uses twice.
+          */}
+          {folderDocs.length > 0 ? (
+            <button
+              type="button"
+              className="rex-menu-item"
+              title={`Add all ${folderDocs.length} documents under this folder to the selection, to comment on the folder as a whole`}
+              onClick={() => {
+                props.onSelectFolder(menu.entry.path, folderDocs);
+                setMenu(null);
+              }}
+            >
+              Select folder ({folderDocs.length})
+            </button>
+          ) : null}
+
+          {/*
+            Spec 23 §5.1 — the two acts that change the disk, kept apart from
+            the three above by a rule. Everything above this line reads; the
+            first thing below it writes.
+          */}
+          <span className="rex-menu-rule" />
+          <button
+            type="button"
+            className="rex-menu-item"
+            title="Rename this in place. Every comment written on it follows the new name."
+            onClick={() => {
+              setRenaming(menu.entry.path);
+              setMenu(null);
+            }}
+          >
+            Rename…
+          </button>
+
+          {/*
+            §3.1 — files only. A folder holds a tree, and one click must not be
+            able to take a whole `docs/` with it.
+          */}
+          {menu.entry.kind !== "directory" ? (
+            <button
+              type="button"
+              className="rex-menu-item rex-menu-danger"
+              title="Move this file to the system Bin. Its comments are kept, and the Finder's Put Back brings both back."
+              onClick={() => {
+                const entry = menu.entry;
+                setMenu(null);
+                confirmDelete(entry);
+              }}
+            >
+              Move to Bin
             </button>
           ) : null}
 

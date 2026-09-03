@@ -73,6 +73,15 @@
   --gone: #8b9298;
   --gone-text: #b8bfc5;
   --done: #e6eaed;
+  /*
+    Spec 28 §4.4 — the reviewer's question. A third family beside spec 18's
+    two: the words they are looking for, on the ruler and in a result row.
+    Lemon, not gold — `--moved` above is the gold, and the two must not be
+    mistaken for each other across a card.
+  */
+  --find: #f0d45c;
+  --find-strong: #ffd21f;
+  --wash-find: #3d3512;
 
   /* Card washes — resting, then selected. §"CARD WASHES" on the System page. */
   --wash-ok: #22262a;
@@ -102,18 +111,19 @@
   /*
     The note family — a comment saved and sent to nobody.
 
-    Slate, deliberately the coolest and least saturated of the five. The other
-    four say something happened to the comment (moved, lost, resolved) or that
-    an agent has it; a note is the absence of all of that, so its colour is the
-    quietest one on the panel. It never competes with the other four, because
-    `washClass` puts it last and it only fills the slot that had no colour.
+    Yellow, since spec 33 §3.3: a note is a sticky note, and the reviewer asked
+    for it to look like one. It was slate until then — the quietest colour on
+    the panel — and the yellow was `moved`'s, which spec 33 §3.1 took off the
+    lanes: a comment with a moved place is an open comment and wears the open
+    comment's look. `--moved` keeps its value for the warnings that still read
+    it; no comment state does.
   */
-  --note: #7f8aa3;
-  --note-text: #a7b1c6;
-  --wash-note: #1b1e24;
-  --wash-note-edge: #333a46;
-  --wash-note-on: #232833;
-  --wash-note-edge-on: #4d5a70;
+  --note: #d9b23a;
+  --note-text: #d9b23a;
+  --wash-note: #2b2718;
+  --wash-note-edge: #4a4026;
+  --wash-note-on: #3a3220;
+  --wash-note-edge-on: #8a7229;
   --wash-done: #202a25;
   --wash-done-edge: #2e3833;
   --wash-done-on: #26302c;
@@ -238,6 +248,7 @@
 /* ── Top bar ─────────────────────────────────────────────── */
 
 .rex-bar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -246,6 +257,17 @@
   padding: 0 12px;
   border-bottom: 1px solid var(--rule);
   background: var(--panel);
+}
+
+/*
+  The Document/Graph switcher, in the true middle of the bar. Absolute, so the
+  left group (path) and the right group (zoom, debug) cannot push it around;
+  its own background keeps it legible if a long path runs underneath.
+*/
+.rex-bar-centre {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 /*
@@ -318,11 +340,6 @@
   color: var(--moved);
 }
 
-.rex-pill-ok {
-  background: #24322d;
-  color: var(--ok);
-}
-
 /*
   Spec 01 §5.2 — READ ONLY, beside the file name.
 
@@ -340,21 +357,11 @@
 }
 
 /*
-  Spec 18 §3 — the two used to share this rule, and they mean opposite things.
-
-  `rex-pill-write` is the write-capable agent, which is the one place red is
-  meant to stop a reviewer. `rex-pill-lost` is a comment whose text is gone,
-  which is normal operation.
+  Spec 18 §3 — the write-capable agent, which is the one place red is meant to
+  stop a reviewer. It shared this rule with a `lost` pill until spec 35 took the
+  card's pills away: a comment whose text is gone is normal operation, and it
+  is said on the place's own line now.
 */
-.rex-pill-lost {
-  background: var(--wash-gone-on);
-  color: var(--gone-text);
-}
-
-.rex-pill-lost::before {
-  background: var(--gone);
-}
-
 .rex-pill-write {
   background: var(--write-bg);
   color: var(--lost-text);
@@ -491,6 +498,9 @@
   warning is worth anything.
 */
 .rex-icon-button {
+  /* Its own positioning context, so a `data-tip` label hangs off THIS button
+     and not off whatever ancestor happens to be positioned. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -511,11 +521,16 @@
 }
 
 /*
-  Spec 13 §4.1 — the debug button, in the bar beside the running cost.
+  The debug button: spec 13 §4.1 in the bar beside the running cost, and spec 08
+  §6.2 in an open comment's head.
 
-  Dim until it is wanted, like every other icon-only control here. It is the one
-  control in the bar that still means something when nothing is open, so it is
-  never disabled and never hidden.
+  Two reports, one look, because to the hand they are one thing — copy what is
+  wrong here. Which "here" decides which report: the bar's is the app's, the
+  card's is that comment's run.
+
+  Dim until it is wanted, like every other icon-only control here. The bar's is
+  the one control there that still means something when nothing is open, so it
+  is never disabled and never hidden.
 */
 .rex-debug:hover {
   background: var(--raised);
@@ -550,9 +565,43 @@
   cursor: pointer;
 }
 
-.rex-menu-item:hover {
+.rex-menu-item:hover:not(:disabled) {
   background: var(--action);
   color: #fff;
+}
+
+/*
+  Nothing to act on — an empty list has no "delete all".
+
+  Dimmed and left in place rather than removed: a menu whose items come and go
+  is a menu you have to read every time, and this one is here to be found once.
+*/
+.rex-menu-item:disabled {
+  color: var(--faint);
+  cursor: default;
+}
+
+/*
+  A menu item that destroys something, and red only under the pointer — the
+  same rule the trash glyphs follow. Red at rest would make the whole menu
+  read as a warning, and it is not one until it is about to be pressed.
+*/
+.rex-menu-danger:hover:not(:disabled) {
+  background: var(--lost);
+  color: #fff;
+}
+
+/*
+  A menu opened by a BUTTON, not by a right-click.
+
+  A context menu is placed at the pointer and grows right, which is correct
+  when the pointer is anywhere. This one hangs off a control pinned to the
+  right edge of a resizable panel, so growing right runs it off the sidebar.
+  The coordinate given is the button's right edge and the panel is pulled back
+  under it, which keeps it inside the panel at every width.
+*/
+.rex-menu-right {
+  transform: translateX(-100%);
 }
 
 /* Separates acting on a path from changing what REX looks at (spec 10 §3.4). */
@@ -562,16 +611,18 @@
   background: var(--rule);
 }
 
-.rex-cost {
-  flex: none;
-  color: var(--muted);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
 .rex-input {
   width: 100%;
-  min-height: 58px;
+  /*
+    Double the two-line box REX started with (asked for 2026-09-02). What is
+    typed here is a paragraph, not a chat line, and a box that shows two lines
+    of it made the reviewer scroll their own sentence while writing it.
+
+    It is also the floor `ReplyGrip.tsx` drags to, and the two numbers must
+    agree: a grip that reported a height this rule then clamped would spend the
+    first pixels of every drag doing nothing visible.
+  */
+  min-height: 116px;
   padding: 9px 11px;
   border: 1px solid var(--rule);
   border-radius: 2px;
@@ -707,6 +758,15 @@
   flex: none;
   border-right: 1px solid var(--rule);
   background: var(--panel);
+  /* Spec 28 §4.2 — the tabs row stays put; what scrolls is the view under it. */
+  overflow: hidden;
+}
+
+.rex-explorer-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -789,6 +849,22 @@
 
 .rex-tree-dir .rex-tree-name {
   font-weight: 600;
+}
+
+/*
+  Spec 23 §5.2 — the row while its name is being typed.
+
+  It keeps the row's own height and indent, so nothing below it moves while the
+  box is open: a tree that jumps as you start typing makes you look for what you
+  were renaming. The right padding goes, because the box carries its own.
+*/
+.rex-tree-renaming {
+  padding-right: 6px;
+  cursor: default;
+}
+
+.rex-tree-renaming:hover {
+  background: none;
 }
 
 .rex-tree-other {
@@ -1224,10 +1300,6 @@
   cursor: pointer;
 }
 
-.rex-margin-moved {
-  background: var(--moved);
-}
-
 .rex-margin-done {
   background: var(--rule);
 }
@@ -1268,10 +1340,6 @@
 
 .rex-margin-done .rex-margin-number {
   color: var(--muted);
-}
-
-.rex-margin-moved .rex-margin-number {
-  color: #2b2000;
 }
 
 /* ── Add: a place between two blocks (spec 16 §6) ────────── */
@@ -1352,9 +1420,17 @@
   A table, a figure or a region of one is outlined rather than filled: the
   Custom Highlight API paints ranges, and there is no range here to paint. Drawn
   over the pane, never on the document.
+
+  `border-box`, because `PaneMarks` hands this the box it wants the RING to
+  occupy — the block's own box grown by `MARK_REACH` on every side, so the
+  border stands clear of the prose instead of running down the first column of
+  pixels of every line. Under the default `content-box` the 2px border would be
+  added outside that again, and the gap would come out wider on the right than
+  on the left.
 */
 .rex-block-outline {
   position: absolute;
+  box-sizing: border-box;
   border: 2px solid var(--action);
   border-radius: 2px;
   pointer-events: none;
@@ -1420,6 +1496,51 @@
 }
 
 /*
+  A PASSAGE IS NOT A BOX.
+
+  A selection that starts halfway along one line and ends on the next is two
+  partial lines, and the smallest rectangle holding both is the full width of
+  both. Drawn as a box it claims the text before the selection started and the
+  text after it ended — reported 2026-09-02 with a screenshot of a two-line
+  selection whose dashed box had swallowed a list marker and most of a line
+  nobody had touched.
+
+  So a passage gives up the box entirely and is drawn as a path that follows
+  its own lines (`hug.ts`). The two buttons keep hanging off the box, which is
+  what keeps them in the margins: the box is the passage's extent, and its
+  corners are the only two places on it guaranteed not to be over prose.
+
+  Two classes, so this beats `-lit`'s single-class `background` — a lit passage
+  must brighten the shape, never fill the rectangle back in.
+*/
+.rex-draft-outline.rex-draft-outline-hug {
+  border: none;
+  background: none;
+}
+
+.rex-draft-shape {
+  position: absolute;
+  /* The stroke straddles the path, so half of it is outside the viewBox. */
+  overflow: visible;
+  pointer-events: none;
+}
+
+.rex-draft-shape path {
+  fill: rgb(143 180 240 / 10%);
+  stroke: var(--link);
+  stroke-width: 2;
+  /* The same dashed edge the box had: "picked, not saved yet" (spec 30 §6). */
+  stroke-dasharray: 5 4;
+  stroke-linejoin: round;
+  transition: fill 120ms ease;
+}
+
+.rex-draft-outline-lit .rex-draft-shape path {
+  fill: rgb(143 180 240 / 26%);
+  stroke: #a8c8f5;
+}
+
+/*
   Spec 05 §5.6.1 — what an Apply changed, while the reviewer decides.
 
   Spec 15 §6.2 turned it green. Until then there was one document on screen and
@@ -1443,12 +1564,18 @@
 .rex-draft-index {
   position: absolute;
   pointer-events: auto;
-  cursor: default;
+  /* Spec 26 §4.5 — it is a button now: it puts this place on the path bar, so
+     ↑ ↓ widen the thing the reviewer is looking at. It keeps every pixel it
+     had, because the badge was already the mouse's part of the outline and
+     moving or resizing it would break the pairing with the panel's row. */
+  cursor: pointer;
   top: -9px;
   left: -9px;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  border: none;
   width: 18px;
   height: 18px;
   border-radius: 50%;
@@ -1457,6 +1584,12 @@
   font-family: var(--mono);
   font-size: 10px;
   line-height: 1;
+}
+
+/* A ring rather than a colour change: the badge's fill is the pairing signal
+   the panel row matches, and swapping it would say the place had changed. */
+.rex-draft-index:hover {
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 55%);
 }
 
 /* Dropping one place from its own outline, mirroring the number badge across
@@ -1515,43 +1648,40 @@
 /*
   Spec 08 §3.2 — the body of the Selection tab, not a band above the comments.
   It owns the column, so it fills it.
+
+  Spec 37 §2.1 — on the panel's ground, as the card's conversation is: this is
+  the card's shape before there is a card, and the two must not change ground
+  when Ask turns one into the other.
 */
 .rex-selection {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  background: var(--well);
+  background: var(--panel);
 }
 
-.rex-selection-empty {
-  padding: 14px;
-}
-
-/* `clear` and nothing else. The count is on the tab. */
-.rex-selection-head {
-  display: flex;
-  align-items: center;
-  flex: none;
-  height: 30px;
-  padding: 0 14px;
+/* The conversation that does not exist yet. Holds the hint, or nothing. */
+.rex-composer-body {
+  flex: 1;
+  min-height: 0;
+  padding: 16px 14px;
+  overflow-y: auto;
 }
 
 /*
-  Spec 08 §3.2 — no maximum height any more.
-
-  Spec 05 §3.3 capped this at a third of the sidebar for one reason: twenty
-  items must not push the comments off the bottom. The comments are a tab away
-  now rather than underneath, so the list simply scrolls.
+  Spec 37 §2.1 — the places, in the foot above the box. Capped at two fifths of
+  the column and scrolling past it, so the box stays on screen under twenty
+  places; spec 08 §3.2 lifted the old cap because the list owned the column,
+  and it does not any more.
 */
 .rex-selection-list {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  flex: 1;
-  min-height: 0;
+  max-height: 40vh;
   margin: 0;
-  padding: 8px 10px;
+  padding: 0;
   overflow-y: auto;
   list-style: none;
 }
@@ -1616,6 +1746,8 @@
 }
 
 .rex-selection-remove {
+  /* Positioning context for its `data-tip` label. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1648,6 +1780,145 @@
   flex: none;
   padding: 10px 14px 12px;
   border-top: 1px solid var(--rule-soft);
+}
+
+/*
+  Spec 24 §3.2 — the places picked for an OPEN comment, above its reply box.
+
+  The rows are the panel's rows (`.rex-selection-row` and its parts), because a
+  pending place is the same thing wherever it is waiting: a quote, a file name,
+  a remove. What differs is the number — numbered on from the comment's places,
+  so `4` here is `4` on the outline and `4.` in the prompt — and that the index
+  wears the draft blue rather than the open comment's violet: it is not one of
+  the comment's places yet.
+*/
+.rex-pending {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rex-pending-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+}
+
+.rex-pending-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Five rows, then it scrolls: the reply box must stay on screen. */
+  max-height: 172px;
+  overflow-y: auto;
+}
+
+.rex-pending-item {
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: var(--panel);
+}
+
+.rex-pending-item:hover,
+.rex-pending-lit {
+  border-color: var(--link);
+}
+
+/*
+  Spec 24 §3.4 — the places a `YOU` turn brought with it, under its text.
+
+  Chips and not rows: the head already lists every place in full, and this row
+  only has to answer "which ones came with THIS message". The index wears the
+  open comment's violet, because by now they are the comment's places.
+*/
+.rex-turn-places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.rex-turn-place {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px 1px 2px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 9.5px;
+  cursor: pointer;
+}
+
+.rex-turn-place:hover {
+  border-color: var(--active);
+  color: var(--fg);
+}
+
+/*
+  Spec 36 §3 — a turn and the row of tool glyphs that ran before it, spaced as
+  the turns are. The wrapper exists so the row and its turn are one item in the
+  conversation's column and the gap between turns stays what it was.
+*/
+.rex-turn-and-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/*
+  Spec 36 §3.1 — one glyph per call, in order, indented to the aside's text.
+  No words and no border: the row says THAT something ran and what kind of
+  thing it was; the trace, which the row opens, has the rest.
+*/
+.rex-turn-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 7px;
+  min-height: 18px;
+  padding: 0 0 0 12px;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rex-turn-tools:hover {
+  color: var(--muted);
+}
+
+.rex-tool {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Spec 18 §3 — a call that failed or was refused wears the same red everywhere. */
+.rex-tool-bad {
+  color: var(--lost-text);
+}
+
+/* Spec 36 §3.2 — the newest call of a run still going. */
+.rex-tool-live {
+  animation: rex-tool-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes rex-tool-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rex-tool-live {
+    animation: none;
+  }
 }
 
 .rex-scopes {
@@ -1692,30 +1963,35 @@
   font-size: 11px;
 }
 
-/* Spec 05 §3.2 — every place a comment is about, numbered as the panel numbered
-   it, each saying which document it is in and how it last resolved. */
+/*
+  Spec 35 §2.3 — every place a comment is about, one line each, in cells:
+  number, file, where it is and how big, `go to ›`.
+
+  The list is a grid and each row a SUBGRID of it, so the columns line up down
+  the list while every row keeps a box of its own for the hover wash. Only the
+  list scrolls past a cap (spec 08 §7.2 gave the cap to the whole block, and the
+  title scrolled out of it); the title and the run above it never do.
+*/
 .rex-places {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  column-gap: 10px;
+  max-height: min(24vh, 320px);
   margin: 0;
   padding: 0;
+  overflow-y: auto;
   list-style: none;
 }
 
 /*
-  Spec 08 §7.2 — a place is a row with two lines: where it is, and what is
-  there. Pointing at it lights the row and draws its number on its mark in the
-  document; `go to ›` opens the document first when the place is somewhere else.
-
-  It stopped being a single `<button>` when it grew a quote, because a
-  blockquote inside a button is text nobody can select, and selecting the
-  quoted passage is the first thing anyone does with it.
+  Pointing at a row lights it and draws its number on its mark in the document;
+  `go to ›` opens the document first when the place is somewhere else.
 */
 .rex-place {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
   padding: 5px 7px;
   border: 1px solid transparent;
   border-radius: 2px;
@@ -1728,49 +2004,116 @@
   background: var(--wash-ok);
 }
 
-.rex-place-head {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
+/* The file, bright: the one thing on the line to find. */
+.rex-place-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
 }
 
-/* `go to ›` rides the place's own line, right-aligned. */
-.rex-place-head .rex-link {
+.rex-place-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+  The cells, with a hairline between them. The where and size cells hold a
+  minimum width, so the hairlines line up down the list whatever the numbers.
+*/
+.rex-place-cells {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 3px 0;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.rex-place-cell {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border-left: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rex-place-cell:first-child {
+  min-width: 12ch;
+}
+
+.rex-place-cell:last-child {
+  padding-right: 0;
+}
+
+.rex-place-size {
+  min-width: 9.5ch;
+  color: var(--fg-dim);
+}
+
+.rex-place-unchecked {
+  color: var(--faint);
+}
+
+/* `L794–812` as a raised badge; `whole file` outlined, so it is not read as a number. */
+.rex-place-badge {
+  padding: 0 5px;
+  border-radius: 2px;
+  background: var(--raised);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+
+.rex-place-whole {
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--fg-dim);
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+}
+
+.rex-place-go {
   display: flex;
   align-items: center;
   gap: 3px;
-  flex: none;
-  margin-left: auto;
+  justify-self: end;
 }
 
 /*
-  The address the state phrase above it does not give. "re-found after the file
-  changed" tells a reviewer that something moved and leaves them nowhere to
-  look; `L41 was L37` is the same fact with somewhere to look.
+  At the panel's default width the cells sit under the file name as one line,
+  indented to it, with the first hairline dropped so the line does not start
+  with a rule. The head is the container, so dragging the splitter moves them.
 */
-.rex-place-line {
-  color: var(--fg-dim);
-}
+@container (max-width: 480px) {
+  .rex-place {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
 
-.rex-place-was {
-  color: var(--moved);
-}
+  .rex-place-cells {
+    grid-column: 1 / 4;
+    padding-left: 21px;
+  }
 
-/*
-  What is at the place, when what is there is not prose — `Code block`,
-  `Table · 3 rows × 4 columns`. In REX's own sans and never the Newsreader a
-  quote wears, because this is REX describing the document rather than the
-  document speaking.
-*/
-.rex-place-kind {
-  align-self: flex-start;
-  padding: 2px 7px;
-  border-radius: 2px;
-  background: var(--well);
-  color: var(--fg-dim);
-  font-family: var(--sans);
-  font-size: 11px;
-  font-weight: 600;
+  .rex-place-cells .rex-place-cell:first-child {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .rex-place-go {
+    grid-column: 3;
+    grid-row: 1;
+  }
 }
 
 /*
@@ -1795,17 +2138,9 @@
   pointer-events: none;
 }
 
-.rex-place-doc {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted);
-  font-family: var(--mono);
-  font-size: 10px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The card's copy of the number drawn on the outline in the document. */
+/* The card's copy of the number drawn on the outline in the document. A SQUARE,
+   spec 35 §2.3: a comment is a circle, a place is a square, and two round
+   numbered discs on one row read as the same kind of thing. */
 .rex-place-index {
   display: inline-flex;
   flex: none;
@@ -1814,7 +2149,7 @@
   width: 15px;
   height: 15px;
   margin-right: 6px;
-  border-radius: 50%;
+  border-radius: 3px;
   background: var(--link);
   color: #fff;
   font-family: var(--mono);
@@ -1833,6 +2168,12 @@
 */
 .rex-place-index-active {
   background: var(--active);
+}
+
+/* In a place row the grid's own gap spaces the number; the margin is the pending
+   strip's and the turn chips'. After `.rex-place-index`, which it overrides. */
+.rex-place > .rex-place-index {
+  margin-right: 0;
 }
 
 /*
@@ -1905,6 +2246,10 @@
 
   Solid rather than tinted, because this is the one control on the card whose
   state changes what the next send DOES. A tint reads as "hovered".
+
+  Spec 33 §3.3 — ACT is the write agent's red, the tint the Change button beside
+  it has worn since spec 12. Its amber went to NOTE: a sticky note is yellow,
+  and two of the three modes cannot share a colour.
 */
 .rex-modeseg-ask.rex-modeseg-on {
   background: #4d84e8;
@@ -1912,16 +2257,152 @@
 }
 
 .rex-modeseg-act.rex-modeseg-on {
-  background: #d9b23a;
+  background: var(--lost);
   color: var(--bg);
 }
 
 /* The hint. No border: beside a two-segment control a cap reads as a third. */
 .rex-modehint {
   flex: none;
-  color: var(--faint);
+  color: var(--muted);
   font-family: var(--mono);
-  font-size: 10px;
+  /* Big on purpose: at 13px the two glyphs read as a smudge, not as keys. */
+  font-size: 20px;
+  line-height: 1;
+}
+
+/* ── The model (spec 25 §7.1) ─────────────────────────────── */
+
+/*
+  A button and a menu, and deliberately quieter than the mode switch beside it.
+
+  The mode has three states with a promise attached to each, and a wrong one
+  costs a diff; the model changes what the answer is worth, never what it is
+  allowed to do. Drawing both as filled controls would say they carry the same
+  weight of consequence, and they do not.
+*/
+/*
+  Shrinkable, unlike the controls beside it.
+
+  A model name is the one thing in the composer's row that can lose its tail
+  and still be read, so on a narrow sidebar it is the one that gives way rather
+  than pushing something else out. It does NOT stop the row wrapping — the row
+  wraps by design, and `.rex-row-end` keeps the picker with the button it sends
+  with when it does.
+*/
+.rex-modelpick {
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/*
+  The composer's foot: the mode switch and its key hint start at the left
+  edge; the model and the send button are one group that ends at the right
+  edge. The auto margin is what splits the row, and grouping the pair keeps
+  them together when a narrow sidebar wraps the row.
+*/
+.rex-row-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.rex-modelbutton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.rex-modelbutton:hover:not(:disabled),
+.rex-modelbutton-open {
+  border-color: var(--rule-soft);
+  background: var(--well);
+  color: var(--fg-dim);
+}
+
+.rex-modelbutton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.rex-modelcaret {
+  color: var(--faint);
+  font-size: 9px;
+  line-height: 1;
+}
+
+/*
+  Pinned under the button rather than at the pointer. `.rex-menu` is `position:
+  fixed` for a context menu, which is placed in viewport coordinates; this one
+  belongs to a control, so it is absolute inside `.rex-modelpick` and follows
+  the button when the panel is resized or scrolled.
+*/
+.rex-modelmenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 100%;
+}
+
+/*
+  Grown upward, for the copy of this control that sits at the bottom of the
+  panel. Downward from there put the whole menu below the window's edge: the
+  button opened something nobody could see, which is the worst way for a
+  control to fail. `ModelPick` measures the button and picks the direction.
+*/
+.rex-modelmenu-up {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+/* §3.4 — the probe failed. A sentence, not an item: there is nothing to press. */
+.rex-modelnote {
+  max-width: 260px;
+  padding: 5px 9px;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/*
+  §7.3 — which model wrote an answer, in the answer's own foot.
+
+  One step up from the numbers it sits with (`--muted` against the foot's
+  `--faint`) and a heavier weight, and that is the whole treatment. It is
+  first in the line, which does most of the work; brightness does the rest.
+
+  No pill, and no colour. A pill in REX is the mode the reviewer picked (spec
+  12 §7.1) and a colour is one of spec 18's seven facts — borrowing either
+  would spend a word from a vocabulary that already says something else, to
+  add emphasis that ordering alone can give.
+*/
+/*
+  Spec 31 §5 — the style shares the model's register exactly.
+
+  They are one fact in two words — what produced this answer — and the numbers
+  after them are what it cost. Giving the style a quieter treatment would have
+  said it is a lesser fact, and it is not: the same answer from the same model
+  in a different style is a different answer.
+*/
+.rex-foot-model,
+.rex-foot-style {
+  color: var(--muted);
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 /* ── Quotes ──────────────────────────────────────────────── */
@@ -1941,46 +2422,6 @@
   line-height: 1.5;
   max-height: 6rem;
   overflow: hidden;
-}
-
-.rex-quote-small {
-  padding-left: 8px;
-  font-size: 12px;
-  line-height: 1.45;
-  max-height: 3.2rem;
-}
-
-/*
-  A figure or a table has no quote. The line is replaced by what the anchor
-  actually is — never left blank, and never filled with a description REX
-  invented.
-*/
-.rex-kind {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 9px;
-  border-radius: 2px;
-  background: var(--well);
-}
-
-.rex-kind-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.rex-kind-title {
-  color: var(--fg-dim);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.rex-kind-geom {
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: 9.5px;
 }
 
 /* ── Comments column ─────────────────────────────────────── */
@@ -2064,7 +2505,22 @@
   color: var(--faint);
 }
 
+/*
+  The `⋮` at the end of the tab row — the commands that act on the whole list.
+
+  Quiet at rest, like every other icon-only control in REX's chrome, and it
+  stays lit while its menu is open so the row says where the menu came from.
+*/
+.rex-tabs-menu:hover,
+.rex-tabs-menu[aria-expanded="true"] {
+  background: var(--raised);
+  color: var(--fg-dim);
+}
+
 .rex-side-scroll {
+  /* One level of nesting, in one place: the indent AND the tree's cell width. */
+  --rex-step: 20px;
+
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2139,19 +2595,233 @@
 }
 
 /*
-  The file filter is a second question, not a fourth answer.
+  Spec 30 §4.1 — the scope, on its own row above the pills.
 
-  `open`, `resolved` and `orphaned` are one state each and only ever one at a
-  time; this one asks what the comment is ABOUT, and narrows whichever of the
-  three is on. A fourth identical pill in the same row would read as a fourth
-  state, so a hairline splits the row into its two halves.
+  It was a fourth pill in the filter row with a hairline down its left edge, and
+  the hairline was not a sentence: four identical pills read as four states.
+  After spec 30 §5 the two controls do not even reach the same surfaces — the
+  pills narrow the list AND the paper, the scope narrows only the list — so
+  drawing them alike was not merely unclear.
+
+  The row takes the segmented control `Tabs` draws, which is REX's one "pick one
+  of these" shape, and the pills below stay round. Two shapes, two questions.
 */
-.rex-filter-split {
+/*
+  Spec 30 §4.1 — the scope sits in the MIDDLE of the row, and the two commands
+  sit at its right edge.
+
+  Centred rather than packed left because the row is a header, and what a header
+  names belongs in the middle of it: pressed against the left edge with a wide
+  empty gap after it, the switch read as the first of a row of controls rather
+  than as the title of the list below. Reported on 2026-09-02.
+
+  `position: absolute` for the commands and `margin: 0 auto` for the switch, so
+  the switch is centred on the ROW rather than on the space the commands leave.
+  A flex spacer on each side would centre it in the remainder and drift left by
+  half the buttons' width.
+*/
+/*
+  Spec 30 §4.1 / §13 — the list's header row: the scope switch in the MIDDLE,
+  the two commands at the right edge.
+
+  **The class is `rex-listhead`, and the name matters.** It was `rex-scope`, and
+  `rex-scope` has belonged to spec 26's scope chip — `heading #overview`,
+  `section "Overview"` — since that spec shipped: a pill with `border: 1px solid
+  var(--rule)` and `border-radius: 999px`. This `<nav>` picked both up and drew a
+  rounded capsule around the whole header. Reported three times before it was
+  found, on 2026-09-01 and twice on 2026-09-02, and it was never in this block —
+  it was 660 lines above it, under a name that read as free.
+
+  Column 1 is an empty mirror, column 2 the switch, column 3 the `⋮`.
+  A GRID rather than a flex row with the menu taken out of flow: absolute
+  positioning centred the switch and then let it run underneath the buttons at a
+  384px sidebar. `1fr auto 1fr` does not work either — `1fr` is
+  `minmax(auto, 1fr)`, so the column holding the buttons cannot shrink below
+  them while the empty one can, and the columns came out `17.6 / 251 / 85`.
+
+  The two outer columns are the width of one `.rex-icon-button` and no more.
+  They were 88px, which is what `＋ New` plus the `⋮` needed, and only one of
+  "the switch is centred" and "the switch keeps its labels" could win below
+  about 470px. `New comment` moved to the make row below, so the row now spends
+  48px on chrome instead of 176px and both win at every width the panel can be
+  dragged to. The mirror stays `minmax(0, …)` all the same: it is the half that
+  gives way if that ever stops being true.
+*/
+.rex-listhead {
+  display: grid;
+  grid-template-columns: minmax(0, 24px) auto 24px;
+  align-items: center;
+  gap: 0;
+}
+
+/*
+  No `min-width: 0` here, and that is the whole sizing rule.
+
+  An `auto` track takes its minimum from the item's min-content contribution.
+  Zero it and the track can be starved: at 384px the mirror took its full 88px
+  first and left the switch 180px for 259px of labels. Leaving it at `auto` makes
+  the switch's own content the floor, so the MIRROR gives way instead — which is
+  the right order, since a centred switch nobody can read is worse than a
+  readable one sitting left of centre.
+*/
+.rex-listhead > *:first-child {
+  grid-column: 2;
+  /*
+    The track absorbs leftover space — grid stretches `auto` tracks by default —
+    and a stretched item is a bordered box wider than the two labels in it, with
+    the gap opening between them. That is the shape reported on 2026-09-02. The
+    item keeps its own width; only the TRACK grows.
+  */
+  justify-self: center;
+}
+
+.rex-listhead-end {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 4px;
+}
+
+/*
+  The switch keeps the segmented control's own look — the track, the raised
+  chosen half — and only stops STRETCHING.
+
+  `.rex-segment.rex-tabs` carries `flex: 1` on itself and on its buttons,
+  written when it was the sidebar's full-width tab bar. Inherited here it split
+  the row in two and pushed the two labels to opposite ends, which is the shape
+  reported on 2026-09-02. Nothing else about the control changes.
+*/
+.rex-listhead .rex-segment.rex-tabs,
+.rex-listhead .rex-segment.rex-tabs button {
   flex: none;
-  align-self: stretch;
-  width: 1px;
-  margin: 3px 2px;
-  background: var(--rule);
+}
+
+/* §4.3 — the file name gives way, and says so with an ellipsis. The count does
+   not: a number that has been cut in half is worse than no number. */
+.rex-listhead .rex-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+  The make row — `New comment` and `New folder`, side by side, under the header.
+
+  The two used to be as far apart as the panel allows: one at the right edge of
+  the header, one at the foot below the list. Both answer *how do I add
+  something?*, so both are asked in one place, and a reviewer who has scrolled
+  the list is not scrolled away from either of them.
+
+  No bottom rule. The filter row below already draws one, and the header above
+  it does, so a third would cut a 34px band out of the panel and make the two
+  control rows read as two unrelated things instead of one block of chrome.
+
+  Shorter than the 40px rows either side of it: it holds two 22px buttons and
+  nothing that needs the height.
+*/
+.rex-makerow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 34px;
+  padding: 0 14px;
+}
+
+/*
+  Spec 30 §3.3 — the `＋` while a draft is standing.
+
+  A saved draft that cannot be found again is the failure §3.3 exists to
+  prevent, and this is the third of the three things that say where it went —
+  the row and the margin bar are the other two. The count beside the icon is the
+  one the Selection tab used to carry.
+*/
+.rex-new {
+  /* Its own positioning context, so a `data-tip` label hangs off THIS button.
+     It did not need one at the right edge of the header, where the tip landing
+     against the panel's edge was the right place anyway; at the left edge it
+     would have hung 350px away from the button that summoned it. */
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--raised);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rex-new:hover {
+  border-color: var(--faint);
+}
+
+.rex-new-standing {
+  border-color: var(--wash-ok-edge-on);
+  color: var(--link);
+}
+
+/*
+  Spec 30 §3 — the composer's own header, the same shape the card's is.
+
+  Both screens lead back to the list, so both say so the same way: a chevron at
+  the left edge, and the name of what you are looking at beside it.
+*/
+.rex-composer-head {
+  gap: 8px;
+}
+
+/*
+  Spec 30 §3.6 — the composer's heading IS its name box.
+
+  It is drawn as the heading it replaces and not as a form field: no border, no
+  ground, the same 12px semibold the card's title has. A comment is named the
+  way a file is — you type over the heading — and a bordered input up here would
+  read as one more control to fill in before anything can be done.
+
+  The border appears on focus, so the box says it can be typed in the moment it
+  is reached, and the placeholder carries the heading's old words until then.
+*/
+.rex-side-name {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.rex-side-name::placeholder {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.rex-side-name:hover {
+  border-color: var(--rule);
+}
+
+.rex-side-name:focus {
+  border-color: var(--wash-ok-edge-on);
+  background: var(--bg);
+  outline: none;
+}
+
+/* A name being typed is not a heading yet, so it stops impersonating one. */
+.rex-side-name:focus::placeholder {
+  color: var(--faint);
+  font-weight: 400;
 }
 
 .rex-chip-on {
@@ -2184,6 +2854,26 @@
 
 .rex-chip-on .rex-chip-count-resolved {
   background: var(--ok);
+}
+
+/* Spec 30 §6 — the two unsent lanes, in the colours their markers wear. */
+.rex-chip-on .rex-chip-count-draft {
+  background: var(--link);
+}
+
+/*
+  The count never gives way, only the label does — §4.3. It sits here rather
+  than beside the scope row's own rules so it comes AFTER the `.rex-chip-count`
+  it overrides: a more specific selector written earlier is what
+  `noDescendingSpecificity` catches, and the order is what makes the override
+  land.
+*/
+.rex-listhead .rex-segment .rex-chip-count {
+  flex: none;
+}
+
+.rex-chip-on .rex-chip-count-note {
+  background: var(--note);
 }
 
 /*
@@ -2274,11 +2964,6 @@
   color: var(--lost-text);
 }
 
-.rex-thread-moved {
-  border-color: var(--wash-moved-edge);
-  background: var(--wash-moved);
-}
-
 .rex-thread-orphaned {
   border-color: var(--wash-gone-edge);
   background: var(--wash-gone);
@@ -2294,10 +2979,6 @@
   border-color: var(--faint);
 }
 
-.rex-thread-moved:hover {
-  border-color: var(--wash-moved-edge-on);
-}
-
 .rex-thread-orphaned:hover {
   border-color: var(--wash-gone-edge-on);
 }
@@ -2311,11 +2992,6 @@
   border-color: var(--wash-ok-edge-on);
   background: var(--wash-ok-on);
   box-shadow: var(--lift);
-}
-
-.rex-thread-on.rex-thread-moved {
-  border-color: var(--wash-moved-edge-on);
-  background: var(--wash-moved-on);
 }
 
 .rex-thread-on.rex-thread-orphaned {
@@ -2347,27 +3023,124 @@
 }
 
 /*
-  Spec 05 §5.3 — the comment list is the workspace's, so every row names the
-  document or documents it is about. Monospace and faint: it is an address, and
-  it must never compete with the note above it.
+  Spec 33 §2.1 — the files, one chip each, wrapping.
+
+  Spec 05 §5.3 made the list the workspace's, so every row names the documents
+  it is about. The name keeps the monospace it had — it is an address — and is
+  a step brighter than the old line, because the marks after it are the row's
+  facts now, and a name too faint to read makes them facts about nothing.
 */
-.rex-thread-docs {
-  overflow: hidden;
-  color: var(--faint);
+.rex-thread-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+}
+
+/* `rex-thread-file`, not `rex-file`: that one is the diff dialog's file row. */
+.rex-thread-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--muted);
   font-family: var(--mono);
-  font-size: 9.5px;
+  font-size: 10px;
+  line-height: 16px;
+}
+
+.rex-thread-file-name {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.rex-thread-mark,
+.rex-place-lost {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--raised);
+  color: var(--fg-dim);
+  font-size: 9.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The whole file is a word, not a count. Outlined, so it is not read as one. */
+.rex-thread-mark-whole {
+  border: 1px solid var(--rule);
+  background: transparent;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* Spec 18 §3 — gone is grey, and this is the tree's `?` on the file it is gone
+   from. The only state a chip shows: a moved place gets no mark (§2.1). */
+.rex-thread-mark-lost,
+.rex-place-lost {
+  background: var(--wash-gone-on);
+  color: var(--gone-text);
+}
+
 /*
-  On the card the same line shares its row with `go to ›`, so it takes the
-  space that is left. After the rule it overrides, not beside the card's other
-  rules — the two differ only by source order.
+  Spec 33 §2.2 — the run. One wrapping group: the bars, then the numbers, then
+  the corner word. The numbers are a unit that never breaks inside itself; when
+  it does not fit beside the bars it moves under them, whole, and the word with
+  it. Measured at the sidebar's 300px minimum on a 72-step run.
 */
-.rex-card-docs .rex-thread-docs {
-  flex: 1;
+.rex-thread-run,
+.rex-card-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 10px;
   min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rex-run-nums {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  white-space: nowrap;
+}
+
+/*
+  Spec 38 §2.1 — the calls that ran and succeeded, as a check in the muted
+  grey: not green, because the bars beside it already are, and green in REX's
+  words means `resolved`. It comes first, so the three marks add up to the
+  count before them.
+*/
+.rex-run-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* A failed call and a refused one, as the trace's own two marks, in its red. */
+.rex-run-bad {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--lost-text);
+  font-weight: 500;
+}
+
+/* Spec 33 §2.3 — the corner: the one thing that is not the normal case. */
+.rex-run-word {
+  margin-left: auto;
+  flex: none;
+  white-space: nowrap;
 }
 
 .rex-thread-meta {
@@ -2379,9 +3152,11 @@
   font-size: 11px;
 }
 
-/* State is named in words as well as colour, so nothing rests on hue alone. */
+/* State is named in words as well as colour, so nothing rests on hue alone.
+   Spec 33 §3.2 — a moved place has no colour of its own anywhere; the words
+   stay, in the panel's own grey. */
 .rex-state-moved {
-  color: var(--moved);
+  color: var(--muted);
   font-weight: 500;
 }
 
@@ -2396,8 +3171,10 @@
 }
 
 /* Spec 17 §3.2 — the run this comment's reviewer ended. Red, so a list of
-   fourteen can be scanned for the one that did not finish. */
-.rex-state-stopped {
+   fourteen can be scanned for the one that did not finish. Spec 33 §2.3 — a
+   run that ended in an error, the same way and for the same reason. */
+.rex-state-stopped,
+.rex-state-error {
   color: var(--lost-text);
   font-weight: 500;
 }
@@ -2475,12 +3252,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.rex-token-moved {
-  background: var(--moved);
-  color: #2b2000;
-  font-weight: 700;
-}
-
 .rex-token-orphaned {
   background: var(--gone);
   color: var(--bg);
@@ -2526,36 +3297,73 @@
   were the two that were never on screen.
 */
 .rex-card-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
   flex: none;
-  padding: 14px;
-  border-bottom: 1px solid var(--rule-soft);
+  padding: 12px 14px 14px;
+  /* Spec 35 §2.6 — the well's ground, and a shadow onto the conversation. */
+  background: var(--well);
+  box-shadow:
+    0 1px 0 var(--rule-soft),
+    0 10px 16px -12px #000;
+  /* The place rows ask how wide the head is — spec 35 §2.3. */
+  container-type: inline-size;
 }
 
 .rex-card-head > * {
   flex: none;
 }
 
-/*
-  The list of places is the only part of the head that can grow, so it is the
-  only part that is capped and scrolls inside itself: a comment on eight places
-  would otherwise pin two thirds of the column and leave the answer a slot.
-
-  `vh` and not a percentage — the head sizes itself from its content, so a
-  percentage height inside it has nothing definite to resolve against. The
-  320px ceiling is for the tall window, where a quarter of the screen is more
-  pinned quotes than anyone reads before scrolling to the answer.
-*/
+/* Spec 35 §2.4 — the fold above the place list. */
 .rex-card-places {
-  max-height: min(24vh, 320px);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
 }
 
-/* A capped column flex box shrinks its rows; these must scroll past instead. */
-.rex-card-places > * {
-  flex: none;
+.rex-places-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.rex-places-toggle:hover {
+  color: var(--fg-dim);
+}
+
+.rex-places-count {
+  color: var(--faint);
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.rex-twisty {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--faint);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+
+.rex-twisty-open {
+  transform: none;
 }
 
 /*
@@ -2563,9 +3371,10 @@
 
   It is the one part of this column that scrolls, and a scrolling region that
   shares its surface with the fixed rows above and below it reads as one long
-  page that happens to move in the middle. So it is sunk to the app's own ground
-  — the deepest surface in the stepped set — and the head's rule and the reply
-  box then sit on it as edges rather than as more of the same.
+  page that happens to move in the middle. Spec 35 §2.6 steps the three
+  surfaces the other way round from spec 08: the pinned head is the darkest,
+  this scrolls on the panel's own ground under the head's shadow, and the reply
+  box keeps the panel with a rule above it.
 */
 .rex-card {
   display: flex;
@@ -2573,10 +3382,8 @@
   gap: 14px;
   flex: 1;
   min-height: 0;
-  padding: 14px;
-  background: var(--bg);
-  /* The well's own edge, under the head's rule: depth says "this part moves". */
-  box-shadow: inset 0 7px 8px -8px #000;
+  padding: 16px 14px 14px;
+  background: var(--panel);
   overflow-y: auto;
 }
 
@@ -2588,11 +3395,6 @@
   border: 1px solid var(--rule);
   border-radius: 2px;
   background: var(--sunk);
-}
-
-.rex-card-anchor.rex-thread-moved {
-  border-color: var(--wash-moved-edge);
-  background: var(--wash-moved);
 }
 
 .rex-card-anchor.rex-thread-orphaned {
@@ -2698,18 +3500,25 @@
 }
 
 .rex-sent-act {
-  background: #d9b23a;
+  background: var(--lost);
 }
 
 .rex-sent-note {
   background: var(--note);
 }
 
+/*
+  The trace sheet's answer block (`.rex-trace-answer`), on the card: the same
+  3px rule at the left in the action blue, the same brighter edge, the corners
+  rounded on the right only. The reviewer asked for the two to look the same
+  (2026-09-02), and they are the same thing — the agent's answer — drawn twice.
+*/
 .rex-turn-agent {
   gap: 8px;
   padding: 11px 12px;
-  border: 1px solid var(--rule-soft);
-  border-radius: 2px;
+  border: 1px solid var(--wash-ok-edge-on);
+  border-left: 3px solid var(--action);
+  border-radius: 0 2px 2px 0;
   background: var(--sunk);
 }
 
@@ -2741,19 +3550,6 @@
   letter-spacing: 0.06em;
 }
 
-/* §4.2 — the same fact, once, in the sheet's own head. */
-.rex-trace-mode-line {
-  flex: none;
-  color: var(--muted);
-  font-size: 10px;
-}
-
-.rex-trace-mode-line strong {
-  color: var(--fg-dim);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
 .rex-turn-error .rex-label,
 .rex-turn-error .rex-turn-text {
   color: var(--lost-text);
@@ -2772,6 +3568,38 @@
 .rex-turn-note .rex-turn-text {
   color: var(--muted);
   font-size: 12.5px;
+}
+
+/*
+  Spec 08 §5.3 — what the agent said on the way, and not the answer.
+
+  It takes the shape of REX's own notice — a rule on the left, muted, 12.5px —
+  and not the shape of the answer, because the answer is the one raised block on
+  the card and putting a second one above it is what caused the bug this voice
+  exists to fix.
+
+  **Blue, and the design system's own reason for it.** Colour names the voice
+  here — `YOU` and `ANSWER` are both blue because both are the conversation —
+  and rank is carried by intensity, never by a second hue. So the aside is the
+  conversation's blue at the deep end (`--action`, not the light `--link` the
+  answer's rule family uses) with a body that stays muted and small. Grey was
+  the first attempt and it was wrong in the one way that matters: grey is what
+  the tool blocks are drawn in, so the agent's own words read as machinery.
+
+  Not `--write-edge`, which is REX warning about something, and not `--lost`,
+  which is a stop. Nothing here is either. It is the agent, quietly.
+
+  The headings and the bold inside `.rex-prose` set `--fg` of their own, so they
+  are pulled back to the block's colour. Otherwise a one-line aside containing
+  three bold words is brighter than the answer under it.
+*/
+.rex-turn-aside {
+  padding-left: 10px;
+  border-left: 2px solid var(--action);
+}
+
+.rex-turn-aside .rex-label {
+  color: var(--link);
 }
 
 /*
@@ -2856,14 +3684,22 @@
   The most useful thing in a REX answer is a citation — `one/sample-document.md:32-42`
   — and it arrives as inline code. It gets a tint so it reads as a reference
   rather than as emphasis.
+
+  Spec 38 §3.7 — a TRANSLUCENT tint, a fraction of white over whatever ground
+  the prose sits on, and the voice's own colour for the text. It was the well
+  — the darkest colour REX has — with `--fg-dim` on it: a black chip on the
+  answer's ground that read as a warning (the reviewer, 2026-09-02: "anything
+  that is in the backticks has the black background and white text"), and on
+  an aside, which sits ON the well, no chip at all. One rule now reads the
+  same on the sheet's answer, the card's answer and an aside.
 */
 .rex-prose code {
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: 2px;
-  background: var(--well);
-  color: var(--fg-dim);
+  background: rgb(255 255 255 / 8%);
+  color: inherit;
   font-family: var(--mono);
-  font-size: 0.88em;
+  font-size: 0.86em;
 }
 
 .rex-prose pre {
@@ -2905,6 +3741,16 @@
   border-top: 1px solid var(--rule-soft);
 }
 
+/*
+  Spec 38 §3.7 — rules between the rows, and none between the columns.
+
+  Every cell had a `--rule-soft` hairline, and on the answer's ground the two
+  colours were one: the table had no lines at all (the reviewer, 2026-09-02:
+  "the table does not show the border correctly"). The rules are translucent
+  for the code chip's reason, and horizontal only because a grid of small
+  boxes turns a column that holds a paragraph into a form. A firmer rule under
+  the header and a whisper of fill on it are what say "header".
+*/
 .rex-prose table {
   display: block;
   margin: 9px 0;
@@ -2915,13 +3761,17 @@
 
 .rex-prose th,
 .rex-prose td {
-  padding: 3px 8px;
-  border: 1px solid var(--rule-soft);
+  padding: 5px 10px;
+  border: none;
+  border-bottom: 1px solid rgb(255 255 255 / 11%);
   text-align: left;
+  vertical-align: top;
 }
 
 .rex-prose th {
-  color: var(--fg-dim);
+  border-bottom-color: rgb(255 255 255 / 24%);
+  background: rgb(255 255 255 / 4%);
+  color: var(--fg);
   font-weight: 600;
 }
 
@@ -2932,38 +3782,30 @@
   color: var(--fg);
 }
 
-/* ── Tool steps ──────────────────────────────────────────── */
-
 /*
-  Machinery collapses to one row and keeps its own monospace register when
-  opened, so it can never be mistaken for the answer.
+  Spec 08 §5.3 — an aside is the same Markdown one rank down.
+
+  Here rather than beside `.rex-turn-aside`, because the headings and the bold
+  below set a colour of their own: a one-line aside with three bold words in it
+  would otherwise be brighter than the answer under it. Written after the rules
+  it pulls back, so specificity runs the way the sheet reads.
 */
-.rex-steps {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--rule);
-  border-radius: 2px;
-  background: var(--well);
-  overflow: hidden;
+.rex-turn-aside .rex-prose {
+  color: var(--muted);
+  font-size: 12.5px;
 }
 
-.rex-steps-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 30px;
-  padding: 0 11px;
-  border: none;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  /* One row, always. `32 steps` broken over two lines is not a strip. */
-  white-space: nowrap;
-  cursor: pointer;
+.rex-turn-aside .rex-prose strong,
+.rex-turn-aside .rex-prose h1,
+.rex-turn-aside .rex-prose h2,
+.rex-turn-aside .rex-prose h3,
+.rex-turn-aside .rex-prose h4,
+.rex-turn-aside .rex-prose h5,
+.rex-turn-aside .rex-prose h6 {
+  color: inherit;
 }
+
+/* ── Tool steps ──────────────────────────────────────────── */
 
 /*
   Spec 08 §5.4 — one bar per tool call, in order, so the shape of the run reads
@@ -2981,8 +3823,13 @@
   height: 12px;
 }
 
+/* 3px at rest, 1px at the narrowest — and never clipped: a truncated strip is
+   a picture of a shorter run, and the bar it drops may be the red one. Only
+   the list row (spec 33 §2.2) lets the container shrink; the card strip drops
+   bars that do not fit, and the trace head is a pane wide. */
 .rex-strip-bars i {
-  width: 3px;
+  flex: 0 1 3px;
+  min-width: 1px;
   height: 10px;
   border-radius: 1px;
   background: var(--rule);
@@ -2993,52 +3840,50 @@
   background: var(--lost);
 }
 
-.rex-strip-denied {
+/* A call that failed on its own. Red, and NOT taller: the extra height is the
+   gate's, and it is the only thing that separates the two at this size. */
+.rex-strip-bars i.rex-strip-fail {
+  background: var(--lost);
+}
+
+.rex-strip-denied,
+.rex-strip-failed {
   flex: none;
   color: var(--lost-text);
 }
 
-/* The strip while its trace is open: the same bars, now lit. */
-.rex-steps-on {
-  border-color: var(--action);
-  background: var(--wash-ok);
+/* Spec 33 §2.2 — on the list row the bars may shrink: it is the one place they
+   must fit a column the reviewer can drag narrow. The bar above carries the
+   minimum. After `.rex-strip-bars`, because it overrides its `flex`. */
+.rex-thread-run .rex-strip-bars,
+.rex-card-run .rex-strip-bars {
+  flex: 0 1 auto;
+  gap: 1px;
 }
 
-.rex-steps-on .rex-strip-bars i {
-  background: var(--faint);
-}
-
-.rex-steps-on .rex-strip-bars i.rex-strip-deny {
-  background: var(--lost);
-}
-
-.rex-steps-on .rex-steps-toggle {
-  color: var(--fg);
-}
-
-.rex-steps-open .rex-steps-toggle {
-  border-bottom: 1px solid var(--rule);
-}
-
-.rex-steps-toggle .rex-icon-solid {
+/* Spec 36 §2 — the whole chat's numbers, in the faint mono the answer's foot
+   used for them. One unit: it wraps under the bars whole, never inside. */
+.rex-card-totals {
+  flex: none;
   color: var(--faint);
-}
-
-.rex-steps-show {
-  margin-left: auto;
-  color: var(--link);
-  font-size: 11px;
-}
-
-.rex-steps-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  max-height: 15rem;
-  padding: 10px 11px;
-  overflow-y: auto;
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* Spec 35 §2.2 — the card's run ends in the trace, or `showing` while it is up. */
+.rex-card-trace {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.rex-card-trace:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 .rex-step {
@@ -3104,41 +3949,55 @@
   background: var(--panel);
 }
 
-/* The comment being audited, in one line. It is context, not the subject. */
-.rex-trace-note {
-  flex: 1;
-  min-width: 0;
+/*
+  Spec 38 §2 — the comment's NAME, the headline the list row and the card head
+  carry (spec 14 §3.4). It was the note's first line, which is the first `YOU`
+  block one scroll below; the reviewer's words: "I don't know what the text
+  means."
+
+  What the head gives up first, second and never. The bars go first — they
+  shrink four times as readily as anything else, down to the 1px a bar keeps
+  — then the numbers, and the name last, and never below ten characters.
+  Everything else in the bar is `flex: none`: the marks and the two controls
+  survive. The name had `flex: 1` at first, which is a basis of ZERO: on a
+  700px pane the bars took their full width and the name was drawn as nothing
+  at all — measured on 2026-09-02 on the isolated instance, the first time
+  the sheet was opened beside the explorer and the card.
+*/
+.rex-trace-name {
+  flex: 1 1 auto;
+  min-width: 10ch;
   overflow: hidden;
-  color: var(--fg-dim);
-  font-size: 12px;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 /*
-  What the head gives up first, second and never.
-
-  The note is `flex: 1` and goes first; this is second — `0 1 auto` with a
-  clipped overflow, so a narrow pane eats the cost line rather than the
-  controls. Everything else in the bar is `flex: none`, and before this rule the
-  head simply overflowed its pane and cut the `esc` cap in half. Measured on
-  2026-08-23 at a 470px document pane, which is one drag of the splitter away.
-
-  The order is the bar's own priority: what the comment says, then what it cost,
-  and a refusal and the two controls survive both.
-*/
-/*
-  The card's step strip, in the head of the sheet it opens. It follows the
-  summary's rule rather than the controls': a 32-step run is 160px of bars, and
-  on a narrow pane the shape is what can be clipped without losing a fact.
+  The card's run line, in the head of the sheet it opens (spec 38 §2). The bars
+  are the first thing to give: a 72-step run is 290px of bars, and on a narrow
+  pane the shape is what can be squeezed without losing a fact — each bar keeps
+  its 1px, as on the card. The marks beside them are `flex: none`: they ARE the
+  facts.
 */
 .rex-trace-bar .rex-strip-bars {
-  flex: 0 1 auto;
+  flex: 0 4 auto;
+  gap: 1px;
   overflow: hidden;
 }
 
+.rex-trace-bar .rex-run-nums {
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Spec 36 §2's numbers — the turns, the time, the cost — after the marks. The
+   second thing to give, after the bars and before the name. */
 .rex-trace-summary {
-  flex: 0 1 auto;
+  flex: 0 2 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--faint);
@@ -3257,6 +4116,40 @@
   font-variant-numeric: tabular-nums;
 }
 
+/*
+  Spec 38 §3.3 — the agent's own one-line account of a call, in the head after
+  the tool's name. Prose, not mono: it is a sentence about the command, and the
+  command is one row below in the mono the machinery wears.
+*/
+.rex-trace-what {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-dim);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+  Spec 38 §3.2 — the places a `YOU` block brought, under its text and above a
+  hairline, in the card head's own rows (`.rex-places`, `.rex-place`). The
+  reviewer's words: "only the selection IDs are not enough."
+*/
+.rex-trace-places {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.rex-trace-places-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* REX's own sentence about a step. Only a refusal has one, and it is never
    folded away — a refusal nobody unfolds is a refusal nobody reads. */
 .rex-trace-reason {
@@ -3273,45 +4166,164 @@
   overflow-wrap: anywhere;
 }
 
-/* A command, a path, a pattern. It scrolls rather than wrapping into mush. */
-.rex-trace-arg,
+/* A tool's output, opened. It scrolls rather than wrapping into mush. */
 .rex-trace-result {
   margin: 0;
   padding: 6px 10px;
   border-radius: 2px;
   background: var(--well);
-  color: var(--fg-dim);
+  color: var(--muted);
   font-family: var(--mono);
   font-size: 11.5px;
   line-height: 1.7;
-  overflow-x: auto;
-}
-
-.rex-trace-result {
   max-height: 22rem;
-  overflow-y: auto;
-  color: var(--muted);
+  overflow: auto;
 }
 
-/* Its own class, not the card's: two components sharing one selector is how a
-   test — and later a restyle — reaches the wrong element. */
-.rex-trace-more {
-  color: var(--link);
+/* ── The rows (spec 38 §3.3) ─────────────────────────────── */
+
+/*
+  Stacked, one per side of the call — INPUT, then CHANGE, then OUTPUT — where
+  spec 08 §6.3.1 put both folds on one row. The reviewer's words: "I would
+  prefer to see them stacked on top of each other rather than side by side."
+  A shut block is a head and one line per row, and the rows read down like the
+  fields of a form.
+*/
+.rex-trace-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.rex-trace-toggle {
+/*
+  The row's one line, and the whole of it is the button: a triangle, the word,
+  a preview of what is inside, and how much of it there is. The hairline on the
+  left is the row's edge, and it answers the mouse in the link's blue.
+*/
+.rex-trace-row-head {
   display: flex;
   align-items: center;
-  gap: 7px;
-  align-self: flex-start;
-  padding: 0 0 0 12px;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 0 3px 10px;
   border: none;
   border-left: 1px solid var(--rule);
   background: none;
   color: var(--muted);
   font: inherit;
   font-size: 11px;
+  text-align: left;
   cursor: pointer;
+}
+
+.rex-trace-row-head:hover {
+  border-left-color: var(--link);
+}
+
+/* The word: `INPUT`, `CHANGE`, `OUTPUT`. A fixed width, so the previews line up. */
+.rex-trace-row-label {
+  flex: none;
+  width: 54px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+}
+
+.rex-trace-row-head:hover .rex-trace-row-label {
+  color: var(--fg-dim);
+}
+
+/*
+  The preview — the command, the path, the first line of the output — cut with
+  an ellipsis and NOT `overflow-x: auto`: a scrollbar per row is thirty of them
+  down a run, none of which can be read without dragging, and the whole value
+  is one click away.
+*/
+.rex-trace-row-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* How much is behind the row. Quieter than the word — the count is what the
+   reviewer weighs, not what they click. At the right end, open or shut. */
+.rex-trace-count {
+  flex: none;
+  margin-left: auto;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Open: the content, indented to the word. */
+.rex-trace-row-body {
+  margin: 3px 0 4px 18px;
+}
+
+/*
+  Spec 38 §3.3 — an open INPUT: every field the tool was given, key and value,
+  in the mono well. Values WRAP: a 400-character command has to be readable,
+  and the fold was the whole reason a scrollbar was never the answer.
+*/
+.rex-trace-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 16px;
+  margin: 0;
+  padding: 7px 10px 8px;
+  border-radius: 2px;
+  background: var(--well);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.65;
+}
+
+.rex-trace-field {
+  display: contents;
+}
+
+.rex-trace-fields dt {
+  color: var(--faint);
+}
+
+.rex-trace-fields dd {
+  margin: 0;
+  color: var(--fg-dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/*
+  Spec 38 §3.4 — the change, line by line. The two colours are the diff
+  dialog's own: what went in the removed red, what came in the added green.
+*/
+.rex-trace-change {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 2px;
+  background: var(--well);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.rex-trace-del {
+  color: var(--removed-text);
+}
+
+.rex-trace-add {
+  color: var(--added);
 }
 
 /* ── The five kinds ──────────────────────────────────────── */
@@ -3330,10 +4342,17 @@
   background: var(--wash-ok);
 }
 
+/*
+  Spec 38 §3.7 — the card's ground, not the blue wash. The answer's rank comes
+  from the lit edge on all four sides and the bar on the left; the wash was a
+  third mark for the same fact, and the one that fought the prose — every
+  chip and rule in it was tuned against a neutral ground and drowned in blue.
+  The same answer sits on `--sunk` on the card, and now reads the same here.
+*/
 .rex-trace-answer {
   border-color: var(--wash-ok-edge-on);
   border-left-color: var(--action);
-  background: var(--wash-ok-on);
+  background: var(--sunk);
 }
 
 .rex-trace-you .rex-label,
@@ -3349,6 +4368,31 @@
 
 .rex-trace-answer .rex-trace-text {
   color: var(--fg);
+}
+
+/*
+  Spec 08 §5.3 — the agent spoke, worked, and spoke again. This is the first of
+  those, and the sheet ranks it the way the card does.
+
+  The left rule is the conversation's blue, because every tool block in this
+  sheet carries `--rule` grey on the same edge: without the blue the agent's own
+  words are one more machine step in a column of thirty. What it does NOT get is
+  the answer's lit border on all four sides, and its ground is the sunk well
+  rather than a wash — so the answer is still the block the eye lands on while
+  scrolling.
+*/
+.rex-trace-aside {
+  border-left-color: var(--action);
+  background: var(--well);
+}
+
+.rex-trace-aside .rex-label,
+.rex-trace-aside .rex-trace-icon {
+  color: var(--link);
+}
+
+.rex-trace-aside .rex-prose {
+  color: var(--muted);
 }
 
 /* Thinking is subordinate to the answer everywhere, and lives only here. */
@@ -3372,15 +4416,40 @@
 .rex-trace-denied .rex-label,
 .rex-trace-denied .rex-trace-icon,
 .rex-trace-denied .rex-trace-reason,
-.rex-trace-denied .rex-trace-arg,
+.rex-trace-denied .rex-trace-row-preview,
+.rex-trace-denied .rex-trace-fields dd,
 .rex-trace-denied .rex-trace-result {
   color: var(--lost-text);
 }
 
+/*
+  A tool that ran and failed — the icon and the output in red, and no box.
+
+  The box is what says "the gate", so a failure must not wear one: for a month
+  every failed shell line did, and a `grep` that matched nothing was read as REX
+  refusing to run it. The output is the only place the reason is written, so it
+  is the half that opens.
+
+  The LABEL stays neutral, unlike the denied block's. It is the tool's name now,
+  and the left column is read down as a list of tools — a red READ among white
+  BASHes says the state twice and the name less clearly. The red belongs on the
+  chip beside it, which is the word that IS the state.
+*/
+.rex-trace-failed .rex-trace-icon,
+.rex-trace-failed .rex-trace-result,
 .rex-trace-error .rex-label,
 .rex-trace-error .rex-trace-icon,
 .rex-trace-error .rex-trace-text {
   color: var(--lost-text);
+}
+
+/* `· FAILED`, `· DENIED` — the state, beside the tool that reached it. */
+.rex-trace-status {
+  flex: none;
+  color: var(--lost-text);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
 }
 
 .rex-trace-note .rex-trace-text {
@@ -3398,6 +4467,30 @@
 
 /* ── Reply box ───────────────────────────────────────────── */
 
+/*
+  The grab area on the reply box's top edge (asked for 2026-09-02). The
+  reasoning is in `ReplyGrip.tsx`; what is here is only how it is drawn.
+
+  Negative margins, so the handle costs the column no height at all: 7px of grab
+  area sitting ON the 1px rule below it. Without them the rule would move down
+  by 7px and every panel with a reply box would lose that much conversation.
+*/
+.rex-grip {
+  flex: none;
+  height: 7px;
+  margin: -3px 0 -4px;
+  cursor: row-resize;
+  /* Above both neighbours, so their content can never cover the grab area. */
+  z-index: 4;
+  touch-action: none;
+}
+
+.rex-grip:hover,
+.rex-grip:focus-visible {
+  background: var(--link);
+  outline: none;
+}
+
 .rex-reply {
   display: flex;
   flex-direction: column;
@@ -3409,52 +4502,12 @@
 }
 
 /*
-  The trace's own reply box — the same send, at the foot of the sheet.
-
-  A ROW, where the card stacks. The card's column is 384px wide, so its box and
-  its buttons have to stack; the sheet has the whole document pane, and stacking
-  there puts the button a long way below the last word typed. So the box grows
-  and the send sits beside it, baseline-aligned to the bottom of the textarea
-  the reviewer just finished in.
-
-  `.rex-input` is `width: 100%`, which is right in a column and wrong in a row —
-  it fixes the flex base at the full pane and the button gets squeezed out. The
-  override is the whole reason this rule reaches into it.
-
-  It WRAPS, and the 220px basis is what makes it wrap in time. The document pane
-  is not a fixed width — the explorer and the comments column are both draggable,
-  and at a 200px pane an unwrapped row squeezed the box down to two letters
-  beside a full-size Send. Measured on 2026-08-25 at that width. Below the
-  basis the send drops onto its own line and the box keeps the width it needs,
-  which is the card's stack arrived at from the other direction.
+  Spec 38 §4 — the sheet's foot is `.rex-reply` above, the card's, drawn by
+  the same component. The row that put Send beside the box (spec 08 §6) is
+  gone: the box, then the mode switch, the model, the style and the button
+  under it, as on the card. The reviewer's words: "the send button should be
+  below it, not next to it."
 */
-.rex-trace-reply {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 10px 12px;
-  flex: none;
-  padding: 12px 16px 14px;
-  border-top: 1px solid var(--rule-soft);
-  background: var(--well);
-}
-
-.rex-trace-reply .rex-input {
-  flex: 1 1 220px;
-  width: auto;
-  min-width: 0;
-}
-
-.rex-trace-send {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: none;
-  /* Right-hand end of its line, wrapped or not. */
-  margin-left: auto;
-  /* Level with the textarea's last line, not floating above it. */
-  padding-bottom: 2px;
-}
 
 /* ── Reference graph (spec 02 §5.6) ──────────────────────── */
 
@@ -3679,7 +4732,7 @@
 }
 
 .rex-stat-moved .rex-stat-n {
-  color: var(--moved);
+  color: var(--fg-dim);
 }
 
 .rex-stat-lost .rex-stat-n {
@@ -4022,6 +5075,35 @@
   flex-direction: column;
   gap: 4px;
   margin: 0;
+}
+
+/* Spec 19 §7.2 — the speaker notes, which the two pictures cannot show. */
+.rex-deck-notes {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.rex-deck-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+
+.rex-deck-note p {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  background: var(--sunk);
+  color: var(--fg-dim);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
 /* The frame inside is laid out in points at full size and scaled with a
@@ -4423,6 +5505,54 @@
 }
 
 /*
+  Spec 27 §4.1 — the paper's own two switches, at the HEAD of the pane.
+
+  Same rule as the strip at the foot, applied to a different pair: a control
+  belongs where it acts, and these act on the paper itself. Same `right: 72px`
+  as `.rex-modes`, so the two strips share one edge instead of being 4px apart
+  for no reason a reader could name.
+*/
+/*
+  Spec 28 §5.6 — no position of its own any more. The strip sits in
+  `.rex-corner` (below, with the find bar), which holds the `right: 72px;
+  top: 14px` spec 27 gave it, so its right edge has not moved.
+*/
+.rex-paper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/*
+  A switch that is ON.
+
+  Solid, because unlike `pick element` this is not a mode you are holding — it
+  is a state the page is in, and it has to be legible at a glance from across
+  the pane.
+
+  The BORDER is what makes it work on both grounds and is the one value here
+  worth defending. The fill is paper ink (`#211f1c`), which on the dark paper
+  (`#1b1a18`) is very nearly the ground itself — a fill alone would look like a
+  hole rather than a button. `#8a837a` is the same grey the resting pill's text
+  is, and it draws the pill's edge on either paper.
+*/
+.rex-mode-on {
+  border-color: #8a837a;
+  background: #211f1c;
+  color: #fbfaf8;
+}
+
+/*
+  Written out because `.rex-mode:hover` above is (0,2,0) and would otherwise
+  win over `.rex-mode-on` (0,1,0), putting near-black text on the near-black
+  fill the moment the pointer crossed it.
+*/
+.rex-mode-on:hover {
+  border-color: #b6ada0;
+  color: #fbfaf8;
+}
+
+/*
   Spec 16 §4.1 — what pick and pen answer on in the new-version pane, drawn as
   a box AROUND the two of them.
 
@@ -4480,6 +5610,9 @@
 }
 
 .rex-pathbar-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   flex: none;
   color: #8a837a;
   font-size: 9.5px;
@@ -4538,12 +5671,67 @@
   gap: 4px;
 }
 
+/* Spec 26 §4.1 — the label carries the focused place's number, in the colour
+   its outline draws (`--link`, the draft token) rather than the violet of a
+   place that has been sent. A bar wearing violet would claim the comment
+   exists. Absent under a hover, which is how the two states are told apart. */
+.rex-pathbar-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--link);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+/* `esc` was a label; spec 26 gives it something to do, because the bar now
+   outlives the mode that used to be the only way out of it. Styled as the
+   hints beside it, not as a button — it is the same affordance the key is. */
+.rex-pathbar-done {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.rex-pathbar-done:hover {
+  color: #6b655d;
+}
+
 .rex-key {
   padding: 1px 5px;
   border: 1px solid #d6d1c8;
   border-radius: 2px;
   background: #fff;
   font-family: var(--mono);
+}
+
+/*
+  Spec 27 §4.1 — the cap on a switch that is ON.
+
+  `.rex-key` above is white and states no colour of its own, so it takes the
+  button's — and on `.rex-mode-on`'s solid pill that is `#fbfaf8`. The `W` and
+  the `T` were white letters on a white cap: two blank boxes. Found in the
+  first live run and in no amount of reading the CSS.
+
+  It sits AFTER the base rule and not beside `.rex-mode-on`, because the other
+  order is a (0,1,0) selector following a (0,2,0) one for the same element —
+  which reads correctly today and silently stops doing so the moment either
+  rule moves. Biome's `noDescendingSpecificity` is the check.
+*/
+.rex-mode-on .rex-key {
+  color: #211f1c;
 }
 
 /*
@@ -4653,6 +5841,29 @@
   color: var(--lost-text);
 }
 
+/* Spec 26 §4.1 — the same meter on the 34px path bar: bars only, no plate, no
+   words. The tier colours still come from the three rules above, so `weak`
+   reads as weak here too; what goes is the padded background, which on a bar
+   that already has one would be a box inside a box. */
+.rex-strength-bare {
+  padding: 0;
+  background: none;
+  flex: none;
+}
+
+/* Kept for the screen reader when the words are not drawn. Not `display: none`
+   — that removes it from the accessibility tree as well, which is the one
+   thing this is for. */
+.rex-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ── The figure preview (spec 10 §2.3) ───────────────────── */
 
 /*
@@ -4721,7 +5932,25 @@
   transform-origin: center center;
   /* No transition. A wheel emits notches faster than any easing can follow, and
      an eased zoom lags behind the pointer it is supposed to be centred on. */
-  will-change: transform;
+
+  /*
+    NO `will-change: transform` HERE, AND IT MUST NOT COME BACK.
+
+    It reads as the obvious hint for an element whose transform changes on every
+    wheel notch, and it was here until 2026-08-31. What it actually does is give
+    the figure its own composited layer, and Chromium then draws that layer once
+    at the scale it had when the layer was made and stretches the finished
+    texture for every zoom after it. A Mermaid diagram is vector art with real
+    text in it, so the whole reason to open this — read the labels — was thrown
+    away at the moment the preview opened: at 442% the drawing was a 442%
+    enlargement of a 100% picture, exactly as if it had been a screenshot.
+
+    Without the hint the layer is re-drawn from the SVG at the new scale, so a
+    label is as sharp at 1200% as at 100%. Measured on 2026-08-31 against a
+    620×1277 flowchart: a 60-step drag at 1200% held a 6.1 ms median frame
+    either way, so the smoothness the hint was there to buy was not being
+    bought.
+  */
 }
 
 /*
@@ -4782,6 +6011,243 @@
   text-align: right;
 }
 
+/* ── Spec 29 §4.2 — the drawing and its source ─────────────── */
+
+/*
+  The split fills the window above the bar. The stage keeps its own
+  `position: absolute; inset: 0` and takes the half it is given, so `fit` and
+  `zoomAbout` measure a narrower stage and nothing else about them changes.
+*/
+.rex-lightbox-split {
+  position: absolute;
+  inset: 0 0 42px;
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
+.rex-lightbox-split-both {
+  grid-template-columns: 3fr 2fr;
+}
+
+.rex-lightbox-half {
+  position: relative;
+  min-width: 0;
+}
+
+/*
+  The half a view does not show is `hidden`, not unmounted (`Lightbox.tsx`).
+  The attribute alone is not enough: `.rex-lightbox-source` below sets
+  `display: flex`, and an author rule beats the browser's `[hidden] { display:
+  none }` — so `Drawing` showed the source pane stacked under the drawing.
+  Reported 2026-09-01. Stated here, after both rules, so it wins.
+*/
+.rex-lightbox-half[hidden],
+.rex-lightbox-source[hidden] {
+  display: none;
+}
+
+/*
+  The source pane: REX's own `<pre>` on the lightbox's ground. Plex Mono, the
+  code face the paper already loads, and the dark paper's ink — the ground here
+  is the scrim's near-black, and light text is what reads on it.
+*/
+.rex-lightbox-source {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-left: 1px solid var(--rule-soft);
+  background: var(--panel);
+}
+
+.rex-source-head {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rex-source-file {
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-source {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+
+.rex-source-body {
+  margin: 0;
+  padding: 10px 0 24px;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  tab-size: 2;
+  /* A drag down the gutter is a gesture, not a text selection. */
+  user-select: none;
+}
+
+/* One line: a gutter number, the text, and the place number when it has one. */
+.rex-source-line {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  padding: 0 14px 0 0;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  white-space: pre;
+}
+
+.rex-source-gutter {
+  flex: none;
+  width: 52px;
+  padding-right: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+
+.rex-source-text {
+  min-width: 0;
+  flex: 1;
+  color: var(--ink);
+}
+
+/*
+  The hover — violet, the thing being pointed at (spec 15 §8.4). A third
+  stronger than the first build's 22% and 10%, and the strong line gets the
+  violet in its left border too: the reviewer read the first version as too
+  quiet once the badge over the drawing was gone (2026-09-01).
+*/
+.rex-source-line:hover,
+.rex-source-line-strong {
+  border-left-color: #7a4fa3;
+  background: var(--wash-hover, rgb(122 79 163 / 34%));
+}
+
+.rex-source-line-light {
+  background: var(--wash-hover-light, rgb(122 79 163 / 16%));
+}
+
+/* A place taken — the selection's blue (spec 05 §6). */
+.rex-source-line-place {
+  border-left-color: var(--action);
+  background: rgb(47 93 168 / 16%);
+}
+
+.rex-source-line-drag {
+  background: rgb(47 93 168 / 28%);
+}
+
+/* A comment that already exists, in its state's colour (spec 18). */
+.rex-source-line-comment {
+  border-left-color: var(--action);
+}
+
+/* Spec 33 §3.2 — a moved place is an open comment's place, and wears its blue. */
+.rex-source-line-moved {
+  border-left-color: var(--action);
+}
+
+.rex-source-line-orphaned {
+  border-left-color: var(--gone);
+}
+
+.rex-source-number {
+  flex: none;
+  margin-left: 10px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--action);
+  color: #fff;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+/* The marks on the copied drawing — in the SVG's own units, so they zoom with it. */
+.rex-lightbox-marks .rex-dmark {
+  fill: none;
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.rex-lightbox-marks .rex-dmark-place {
+  stroke: var(--action);
+  stroke-dasharray: 4 3;
+}
+
+.rex-lightbox-marks .rex-dmark-hover {
+  fill: rgb(122 79 163 / 18%);
+  stroke: #7a4fa3;
+  stroke-width: 2.5px;
+}
+
+.rex-lightbox-marks .rex-dmark-ok {
+  stroke: var(--action);
+  stroke-opacity: 0.55;
+}
+
+.rex-lightbox-marks .rex-dmark-moved {
+  stroke: var(--action);
+}
+
+.rex-lightbox-marks .rex-dmark-orphaned {
+  stroke: var(--gone);
+}
+
+.rex-lightbox-marks .rex-dmark-number {
+  pointer-events: none;
+}
+
+.rex-lightbox-marks .rex-dmark-number circle {
+  fill: var(--action);
+}
+
+.rex-lightbox-marks .rex-dmark-number text {
+  fill: #fff;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.rex-lightbox-views {
+  flex: none;
+  margin-left: 12px;
+}
+
+.rex-lightbox-places {
+  flex: none;
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--action);
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rex-lightbox-places-none {
+  background: transparent;
+  color: var(--muted);
+}
+
 /* ── Spec 14 — the name, the order and the groups ─────────────── */
 
 /*
@@ -4821,14 +6287,147 @@
   color: var(--fg-dim);
 }
 
-/* The prompt under a renamed comment: what was asked, when the name no longer
-   says it. Dim and one line — the whole note is in the card. */
-.rex-thread-prompt {
-  overflow: hidden;
+/*
+  The tick, left of the pen. Same size, same corner, same reveal rule as the
+  other two — a third control that appeared by a different rule would read as a
+  different kind of thing.
+
+  Its hover carries the resolved colours rather than the pen's neutral ones,
+  because that is the state the click produces and it is the same green the
+  card, the chip and the row's own wash already use for it. Reopening keeps the
+  neutral hover: putting a comment back is not itself a completion.
+*/
+.rex-thread-resolve {
+  position: absolute;
+  z-index: 2;
+  top: 7px;
+  right: 55px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: none;
   color: var(--faint);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.rex-thread-wrap:hover .rex-thread-resolve,
+.rex-thread-resolve:focus-visible {
+  opacity: 1;
+}
+
+.rex-thread-resolve:hover {
+  background: var(--wash-done);
+  color: var(--ok);
+}
+
+/* Resolved already: the button reopens, so it stops promising the green. */
+.rex-thread-reopen:hover {
+  background: var(--sunk);
+  color: var(--fg-dim);
+}
+
+/*
+  A run is going, so the comment is not finished and cannot be ended yet — the
+  same rule the card's own Resolve button follows.
+
+  It stays visible and goes dim rather than disappearing on hover: a control
+  that vanishes exactly when the pointer arrives reads as a broken row, not as
+  a disabled button.
+*/
+.rex-thread-resolve:disabled {
+  cursor: default;
+}
+
+/*
+  What an icon does, in one word, under the pointer.
+
+  REX draws its own rather than leaving it to the `title` attribute, for two
+  reasons the reviewer met on 2026-09-01: the native tooltip waits about a
+  second, which is long enough to click the icon to find out instead; and the OS
+  draws it outside the page, so it carries none of this panel's type or colour.
+
+  `data-tip` IS the opt-in — any element that carries it gets the label, and
+  `title` comes off that element at the same time. Keeping both prints the same
+  sentence twice, one under the other, a second apart.
+
+  WHICH controls carry one: those whose whole face is an icon. A button with a
+  word on it — `Resolve`, `Stop`, `go to`, `new comment` — already says what it
+  does, and a label repeating the word is a second thing to read for nothing.
+  Those keep `title`, where the sentence adds what the word cannot: `Stop`'s
+  says nothing is deleted, and `Change`'s names the files it would write to.
+
+  The element must already be a positioning context. The three controls in a
+  comment row's corner are absolutely positioned, so they are; `rex-icon-button`,
+  `rex-row-pen`, `rex-row-bin` and `rex-selection-remove` are relative for this
+  reason, and any other button that wants a label needs the same.
+
+  Right-aligning is safe for a control in the RIGHT half of the panel, which
+  every label was until the make row put two buttons at the LEFT edge. Those get
+  the left-aligned variant below, right after this block so the override follows
+  what it overrides.
+*/
+[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  z-index: 4;
+  top: calc(100% + 5px);
+  /*
+    Right-aligned to the icon, so the label grows leftwards over the row's own
+    text. These sit in the row's top-right corner: a label that grew rightwards
+    would run off the panel, where it cannot be read at all.
+  */
+  right: 0;
+  padding: 3px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--raised);
+  color: var(--fg);
   font-size: 10.5px;
-  text-overflow: ellipsis;
+  font-weight: 500;
+  line-height: 1.4;
   white-space: nowrap;
+  opacity: 0;
+  /* It sits over the row's headline, and a label that ate the hover under it
+     would fight the very button that summoned it. */
+  pointer-events: none;
+  transition: opacity 90ms linear;
+}
+
+/*
+  The make row's two buttons are at the left edge, so their labels grow
+  rightwards into the panel. Right-aligned they would grow off the left edge and
+  be unreadable — the mirror image of why every other label is right-aligned.
+*/
+.rex-makerow [data-tip]::after {
+  right: auto;
+  left: 0;
+}
+
+/*
+  The wait is on the way IN only. Crossing three icons on the way to the trash
+  must not print three labels in a second — and leaving must clear the label at
+  once, because until it goes it covers the text underneath it.
+*/
+[data-tip]:hover::after,
+[data-tip]:focus-visible::after {
+  opacity: 1;
+  transition-delay: 350ms;
+}
+
+/* A control that cannot be pressed has nothing to promise. */
+[data-tip]:disabled::after {
+  content: none;
+}
+
+.rex-thread-resolve:disabled:hover {
+  background: none;
+  color: var(--faint);
 }
 
 /* ── The inline name box ─────────────────────────────────────── */
@@ -4864,7 +6463,8 @@
   align-items: center;
   gap: 6px;
   margin: 2px 0;
-  padding: 4px 6px;
+  /* No padding on the left: the twisty has to sit over its children's trunk. */
+  padding: 4px 6px 4px 0;
   border: 1px solid transparent;
   border-radius: 3px;
   color: var(--fg-dim);
@@ -4940,6 +6540,8 @@
 /* The group row's own three controls, on the same reveal rule as the pen. */
 .rex-row-pen,
 .rex-row-bin {
+  /* Positioning context for its `data-tip` label. */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4972,29 +6574,184 @@
   color: var(--lost-text);
 }
 
+/* ── Which rows are inside a folder ──────────────────────────── */
+
+/*
+  The tree, drawn the way `tree(1)` draws one: a cell per level of nesting, each
+  carrying one ancestor folder's trunk, and the deepest cell turning right into
+  the row — `├` while that folder has rows still to come, `└` on its last one.
+
+  An indent alone said it before, and 14px is nothing beside a card 340px wide:
+  reported 2026-09-02, the reviewer could not see where a folder's comments
+  ended. A bare vertical rail was the first answer and was not enough either —
+  a line beside a block of cards is decoration until it visibly ENTERS each one.
+
+  The tree sits outside the flow, absolutely positioned, so it can reach up
+  through the list's 8px gap and meet the trunk of the row above. Drawn inside
+  each row it would be a dashed line.
+
+  `branch` and not `tree`, which is taken: `.rex-tree` above is the EXPLORER's
+  file tree, and a second one by that name inherited its `flex-direction:
+  column` — every cell then had zero height and only the horizontal ticks drew.
+*/
+.rex-branch {
+  /* The token's middle, from the top of this box — 8px of which is the gap. */
+  --rex-elbow: 29px;
+
+  position: absolute;
+  top: -8px;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  pointer-events: none;
+}
+
+/* A folder row is 30px tall, so its elbow sits higher than a card's token. */
+.rex-branch-folder {
+  --rex-elbow: 25px;
+}
+
+.rex-branch-cell {
+  position: relative;
+  flex: none;
+  width: var(--rex-step);
+}
+
+/*
+  │ and ├ — the folder still has rows below this one, so the trunk runs the
+  whole height. 6px is the middle of the twisty on the folder row one level out,
+  which is what makes the trunk look like it hangs from that folder.
+*/
+.rex-branch-line::before,
+.rex-branch-tee::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 6px;
+  width: 1px;
+  background: var(--rule);
+  content: "";
+}
+
+/* A folder's own stem, hanging from its twisty down to its first row. */
+.rex-branch-stem::before {
+  position: absolute;
+  top: var(--rex-elbow);
+  bottom: 0;
+  left: 6px;
+  width: 1px;
+  background: var(--rule);
+  content: "";
+}
+
+/*
+  └ — the last row under a folder: one box with two borders and a rounded
+  corner, so the turn is a curve and not two lines crossing at a point.
+
+  `right: 0` puts the end of the turn exactly on the card's left edge. Stopping
+  short of it left a gap that read as a broken line rather than a margin.
+*/
+.rex-branch-end::before {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 6px;
+  height: var(--rex-elbow);
+  border-bottom: 1px solid var(--rule);
+  border-bottom-left-radius: 5px;
+  border-left: 1px solid var(--rule);
+  content: "";
+}
+
+/* ├ — the turn into a row whose folder has more rows after it. */
+.rex-branch-tee::after {
+  position: absolute;
+  top: var(--rex-elbow);
+  right: 0;
+  left: 6px;
+  height: 1px;
+  background: var(--rule);
+  content: "";
+}
+
+/*
+  The row that steps back OUT of a folder starts a new block, so it gets air.
+
+  The list is one flex column with an 8px gap, which put the same 8px between
+  "the last comment in a folder" and the row after it as between two comments in
+  the same folder — the boundary that matters most was the one drawn least.
+*/
+.rex-out {
+  margin-top: 12px;
+}
+
+/*
+  Where the folders end: the first comment that is in no folder.
+
+  Not every step out. A comment leaving a nested folder is still inside the
+  folder above it, and that folder's trunk is still running down the column — a
+  rule across it would cut a line that has not ended. This one is drawn where
+  the last trunk stops, so it says the one thing the reviewer scans for: above
+  it, comments in folders; below it, the rest.
+
+  Thick, edge to edge, with real room. Two quieter versions were reported on
+  2026-09-02 and the complaint was the same each time — *"it still looks like
+  the comments that are in no folder are inside the last folder"*. A 1px rule
+  inset with the cards reads as one more card border, and a card border is the
+  most common line on this panel. So: three pixels rather than one, out through
+  the pane's own padding so it spans the panel instead of the column of cards,
+  and 60px of clear space, which is what actually breaks the list in two. The
+  line only names the break that the space has already made.
+*/
+.rex-loose {
+  margin-top: 52px;
+}
+
+.rex-loose::before {
+  position: absolute;
+  /* Centred in the 60px the gap and the margin leave above the row. */
+  top: -31px;
+  /* Out through `.rex-side-scroll`'s 14px padding, so it reaches both edges. */
+  right: -14px;
+  left: -14px;
+  height: 3px;
+  background: var(--faint);
+  content: "";
+}
+
 /* ── The drop line ───────────────────────────────────────────── */
 
 /*
   Drawn on the row the pointer is over, at the indent of the parent it means.
   Without the indent the last line of a subgroup and the line before the next
   top-level row are the same pixel, and the two mean different parents.
+
+  Both halves use `::after`, leaving `::before` to the rail above. Only one of
+  the two classes is ever on a row — the drop mode is a single value — so they
+  cannot both want the pseudo-element at once.
+*/
+/*
+  The indent lives here and not on the row's contents, because the tree is
+  positioned against this box: an abspos child is laid out from the padding
+  box's edge, so the tree starts at 0 while the card starts one step in.
 */
 .rex-drop {
   position: relative;
+  padding-left: calc(var(--rex-rails, 0) * var(--rex-step));
 }
 
-.rex-drop-before::before,
+.rex-drop-before::after,
 .rex-drop-after::after {
   position: absolute;
   right: 0;
-  left: var(--rex-drop-indent, 0);
+  left: calc(var(--rex-rails, 0) * var(--rex-step));
   height: 2px;
   border-radius: 1px;
   background: var(--wash-ok-edge-on);
   content: "";
 }
 
-.rex-drop-before::before {
+.rex-drop-before::after {
   top: -1px;
 }
 
@@ -5007,8 +6764,15 @@
 .rex-card-title {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
+  gap: 8px;
+}
+
+/* Spec 35 §2.1 — the lane word, at the right of the title row. */
+.rex-card-word {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .rex-card-name {
@@ -5023,12 +6787,75 @@
   white-space: nowrap;
 }
 
+/* ── Spec 30 §6 — a draft: started, never sent ────────────────── */
+
+/*
+  A DASHED EDGE, not a seventh hue.
+
+  Spec 18 §3 called the colour axis full and it has not grown since — blue,
+  amber, grey, white, red, and the note's slate. Spec 18 took `gone` off the axis
+  by making it a `?`; this takes `draft` off it the same way. The argument is
+  that a draft IS an open comment that has not started, so it wears the open
+  comment's blue and says "unfinished" with the one convention every reviewer
+  already reads that way.
+
+  It is also what keeps it apart from the note below, which is the pair most at
+  risk of being confused: hollow is the note, dashed is the draft, and the word
+  in the meta line says which either way.
+*/
+.rex-thread-draft {
+  border-style: dashed;
+  border-color: var(--wash-ok-edge);
+  background: transparent;
+}
+
+.rex-thread-draft.rex-thread-on {
+  border-color: var(--wash-ok-edge-on);
+  background: var(--wash-ok);
+}
+
+.rex-token-draft {
+  border: 1px dashed var(--action);
+  background: transparent;
+  color: var(--link);
+}
+
+/*
+  The bar in the margin: a solid numbered head, then a dashed tail.
+
+  An 18px bar cannot show a dashed BORDER legibly, so the dash is a repeating
+  gradient down its length — the same "started, not finished" reading at the one
+  size the margin has to work at.
+
+  **The head has to stay solid, and that is not decoration.** Version 1 striped
+  the whole bar, so the number sat on the stripes and alternated white-on-blue
+  and white-on-paper every 5px — unreadable at 10px, which is the size the
+  number is. Reported 2026-09-02 against a document holding two drafts. The
+  number keeps its own solid patch, so a draft's bar is numbered exactly as
+  legibly as every other bar and the dash says what it says below it.
+*/
+.rex-margin-draft {
+  background: repeating-linear-gradient(to bottom, var(--action) 0 5px, transparent 5px 9px);
+}
+
+.rex-margin-draft .rex-margin-number {
+  border-radius: 3px;
+  background: var(--action);
+  color: #fff;
+}
+
+.rex-state-draft {
+  color: var(--link);
+  font-weight: 500;
+}
+
 /* ── A comment saved and sent to nobody ───────────────────────── */
 
 /*
-  The fourth wash, and the quietest. It fills the slot an ordinary open comment
-  left empty, so no card ever has to choose between this and a state colour —
-  `washClass` puts it last for exactly that reason.
+  The quietest wash. Spec 30 §6 moved it up `washClass`'s branch order — it was
+  last while it was a flag, so that it could never hide a state colour, and it
+  is second now because a note is a LANE and cannot also be resolved or moved.
+  Nothing about how it looks changed.
 */
 .rex-thread-unsent {
   border-color: var(--wash-note-edge);
@@ -5053,8 +6880,9 @@
   background: var(--note);
 }
 
+/* Dark on the yellow: white on `#d9b23a` does not read at 10px. */
 .rex-margin-unsent .rex-margin-number {
-  color: var(--note-text);
+  color: #2b2000;
 }
 
 .rex-state-unsent {
@@ -5082,4 +6910,285 @@
 .rex-button-note:hover:not(:disabled) {
   border-color: var(--note);
   background: var(--wash-note-edge);
+}
+
+/* ── Spec 28 — find in the page, and search across the workspace ── */
+
+/*
+  §5.6 — the corner the paper strip already sat in (spec 27 §4.1), as a
+  right-aligned row: the strip's right edge is where it was and the find bar
+  grows leftwards from it. Same 72px inset as `.rex-modes`, for the same
+  scrollbar arithmetic.
+*/
+.rex-corner {
+  position: absolute;
+  right: 72px;
+  top: 14px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/*
+  §4.1 — the bar, in the strip's own light pill. Paper-side colours and not
+  tokens: this sits ON the document, which is light whatever the chrome does,
+  and on the dark paper it reads as light chrome over dark paper — spec 27 §6
+  point 3's rule for the mode pills.
+*/
+.rex-find {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 26px;
+  padding: 0 2px 0 8px;
+  border: 1px solid #e2ded7;
+  border-radius: 2px;
+  background: #f0eee9;
+  color: #211f1c;
+  font-size: 11px;
+}
+
+.rex-find-field {
+  width: 200px;
+  height: 22px;
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: #211f1c;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.rex-find-field::placeholder {
+  color: #8a837a;
+}
+
+.rex-find-count {
+  flex: none;
+  min-width: 56px;
+  padding: 0 6px;
+  color: #8a837a;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Not red. Red keeps its jobs (spec 18 §3 note 3); an empty answer is quiet. */
+.rex-find-none {
+  font-style: italic;
+}
+
+.rex-find-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: transparent;
+  color: #6b655d;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.rex-find-button:hover:not(:disabled) {
+  background: #e4e0d8;
+  color: #211f1c;
+}
+
+.rex-find-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/*
+  §4.1.1 — the overview ruler. The strip takes no pointer events and every
+  mark does, so the frame's scrollbar under it keeps working wherever a mark
+  is not. Below `.rex-corner` in z-order and above the frame.
+*/
+.rex-ruler {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.rex-ruler-mark {
+  position: absolute;
+  right: 2px;
+  width: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 1px;
+  background: var(--find);
+  opacity: 0.85;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.rex-ruler-mark:hover {
+  opacity: 1;
+}
+
+/* The current match: the stronger yellow, and a pixel wider each side. */
+.rex-ruler-current {
+  right: 1px;
+  width: 8px;
+  background: var(--find-strong);
+  opacity: 1;
+}
+
+/* §4.2 — the Search view, under the explorer's second tab. */
+.rex-search {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.rex-search-field-row {
+  flex: none;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.rex-search-field {
+  width: 100%;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--well);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.rex-search-field::placeholder {
+  color: var(--faint);
+}
+
+.rex-search-field:focus {
+  border-color: var(--action);
+  outline: none;
+}
+
+.rex-search-summary {
+  margin: 0;
+  padding: 8px 12px 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rex-search-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 8px;
+}
+
+.rex-search-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0 12px 0 6px;
+  color: var(--fg-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.rex-search-file:hover,
+.rex-search-hit:hover {
+  background: var(--sunk);
+}
+
+.rex-search-file:focus-visible,
+.rex-search-hit:focus-visible {
+  outline: 1px solid var(--action);
+  outline-offset: -1px;
+}
+
+.rex-search-twisty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.rex-search-name {
+  flex: none;
+  color: var(--fg);
+}
+
+.rex-search-folder {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.rex-search-hit {
+  padding: 2px 12px 2px 28px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+/* §4.4 — the match, in the chrome's yellow on its own wash. */
+.rex-search-match {
+  padding: 0 1px;
+  border-radius: 2px;
+  background: var(--wash-find);
+  color: var(--find);
+  font-weight: 600;
+}
+
+.rex-search-more {
+  margin: 0;
+  padding: 2px 12px 6px 28px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.rex-search-skipped {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px 12px;
+  border-top: 1px solid var(--rule-soft);
+}
+
+.rex-search-skipped p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

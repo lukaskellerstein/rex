@@ -18,7 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import type { Shape, Slide } from "pptxtojson/dist/index.js";
-import { openPackage } from "../src/main/pptx/package.ts";
+import { openPackage } from "../src/main/ooxml/package.ts";
 import { reorderSlides } from "../src/main/pptx/slides.ts";
 import { slideHtml } from "../src/main/render/pptxSlides.ts";
 import { DECK_STYLESHEET } from "../src/main/render/pptxStylesheet.ts";

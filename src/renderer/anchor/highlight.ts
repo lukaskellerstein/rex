@@ -39,6 +39,15 @@ const HOVER_HIGHLIGHT = "rex-hover";
  * selection panel can be half-built at the same time, and its places are blue.
  */
 const ACTIVE_HIGHLIGHT = "rex-active";
+/**
+ * Spec 28 §4.4 — every match of a find, and the one the reviewer is on.
+ *
+ * Two names in the registry beside the two above, and neither touches them:
+ * `paintHighlights` replaces its own two wholesale and `paintFind` replaces
+ * these two, so a sweep and a keystroke never undo each other's paint.
+ */
+const FIND_HIGHLIGHT = "rex-find";
+const FIND_CURRENT_HIGHLIGHT = "rex-find-current";
 
 /**
  * The design draws the underline as `box-shadow: 0 1.5px 0`. A highlight
@@ -70,6 +79,16 @@ const HIGHLIGHT_CSS = `
 ::highlight(${HOVER_HIGHLIGHT}) {
   background-color: ${HIGHLIGHT.hoverBg};
   color: ${PAPER.ink};
+}
+::highlight(${FIND_HIGHLIGHT}) {
+  background-color: ${HIGHLIGHT.findBg};
+  color: ${PAPER.ink};
+}
+::highlight(${FIND_CURRENT_HIGHLIGHT}) {
+  background-color: ${HIGHLIGHT.findCurrentBg};
+  color: ${PAPER.ink};
+  text-decoration: underline 2px ${HIGHLIGHT.findRule};
+  text-underline-offset: 3px;
 }
 `;
 
@@ -131,9 +150,45 @@ export function paintHighlights(
   scope.CSS.highlights.set(HOVER_HIGHLIGHT, hovered);
 }
 
+/**
+ * Spec 28 §4.4 — paints every find match, with `current` in the stronger wash.
+ *
+ * The current match's highlight carries `priority` 2 and the rest 1, so a find
+ * inside the passage whose card is open reads over the violet rather than
+ * vanishing into it; the anchor highlights keep the default 0. `current` may
+ * be -1, which paints every match alike.
+ */
+export function paintFind(win: Window, ranges: Range[], current: number): void {
+  const scope = win as Window & typeof globalThis;
+  if (typeof scope.Highlight === "undefined" || typeof scope.CSS?.highlights === "undefined")
+    return;
+
+  ensureStylesheet(win);
+
+  const every = new scope.Highlight();
+  every.priority = 1;
+  const one = new scope.Highlight();
+  one.priority = 2;
+  ranges.forEach((range, at) => {
+    if (at === current) one.add(range);
+    else every.add(range);
+  });
+
+  scope.CSS.highlights.set(FIND_HIGHLIGHT, every);
+  scope.CSS.highlights.set(FIND_CURRENT_HIGHLIGHT, one);
+}
+
+/** Spec 28 §4.1 — `esc`: no yellow remains. */
+export function clearFind(win: Window): void {
+  const scope = win as Window & typeof globalThis;
+  scope.CSS?.highlights?.delete(FIND_HIGHLIGHT);
+  scope.CSS?.highlights?.delete(FIND_CURRENT_HIGHLIGHT);
+}
+
 /** Drops every REX highlight from `win`, leaving other registrations alone. */
 export function clearHighlights(win: Window): void {
   const scope = win as Window & typeof globalThis;
   scope.CSS?.highlights?.delete(ACTIVE_HIGHLIGHT);
   scope.CSS?.highlights?.delete(HOVER_HIGHLIGHT);
+  clearFind(win);
 }

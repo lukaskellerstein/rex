@@ -303,6 +303,7 @@ A turn is a block with a label, not another paragraph in a run.
 |:--|:--|
 | `YOU` | `.rex-label`, then the text at `var(--fg-dim)` with a 2px `var(--rule)` left rule and 10px padding |
 | `ANSWER` | `.rex-label`, a right-aligned `12.4s · $0.031` in mono, then body text at `var(--fg)`, full contrast, no chrome |
+| `ASIDE` | The agent, but not the answer — a 2px `var(--action)` left rule, a `var(--link)` label, body at `var(--muted)` 12.5px, no model and no cost |
 | `NOTE` | REX's own voice — a 2px `var(--write-edge)` rule, `var(--muted)`, 12.5px |
 | `ERROR` | The same block, in `var(--lost-text)` |
 
@@ -314,6 +315,37 @@ tint and no rule.
 The SDK emits an answer as several `text` rows, and labelling each of them
 `ANSWER` printed the word three times down one reply. The meta strip counts
 these runs, so `2 turns` means two voices spoke, not that two rows exist.
+
+**A turn also ends where the agent goes back to work.** The rule above is right
+for the SDK splitting one answer across several rows with nothing between them.
+It is wrong when tool calls sit between two `text` rows: the card drops every
+tool row before it merges, so a remark made *before* the work and the answer
+made *after* it became neighbours and were drawn as one block, under the
+remark's label, model and clock. Measured on 2026-09-01, thread `13a69052` —
+`text`, 19 tool rows, `text`. The reviewer read the remark, reported the answer
+as missing, and found it only in the trace sheet.
+
+So agent text followed by more agent text in the same run is an `ASIDE`: the
+same Markdown one rank down, and none of the answer's chrome. **The last thing
+the agent says in a run is the `ANSWER`** — including in a run that failed or
+was stopped, where a remark is the only answer there is. An `ASIDE` is the same
+voice speaking twice, so the meta strip does not count it: `2 turns` still means
+two voices spoke.
+
+**The aside is blue, and grey was measured to be wrong.** Spec 18's rule is that
+colour names the thing and rank is carried by intensity, never by a second hue —
+`YOU` and `ANSWER` are both blue because both are the conversation. The first
+build drew the aside in `var(--rule)` grey, which is the exact colour every tool
+block in the trace sheet carries on the same edge, so the agent's own words read
+as one more machine step in a column of thirty. So the aside takes the
+conversation's blue at its deep end (`--action`, not the `--link` the answer's
+own family uses), and keeps its rank by having no card, no glyph on the comment
+card, no model, no cost and a body one size down. Not `--write-edge`, which is
+REX warning about something, and not `--lost`, which is a stop.
+
+`aside.ts` holds the rule, and §6.5's trace sheet reads it from that same
+function. The sheet is the card's audit, so a block the card calls an aside can
+never be an `ANSWER` there.
 
 > [!warning]
 > **`system` is a third voice, and folding it into the answer inverts it.** A
@@ -397,7 +429,9 @@ assembles, and main writes the clipboard itself: Electron owns it, and a copy
 that depends on the renderer being focused fails exactly when somebody is trying
 to report a bug.
 
-The report is plain text, one `key  value` per line, and names: the thread with
+The report is plain text, one `key  value` per line. It opens with §6.2.2's
+`READ` block — the commands that put the conversation itself on the reader's
+screen — and then names: the thread with
 its kind, status and profile; the model; the SDK session id; the working
 directory; the database; when the thread was asked and last updated; the
 comment; each place
@@ -441,6 +475,36 @@ both were found by the first report this button ever produced (2026-08-23):
    answers `false`, and the reply replays the thread into a fresh session as
    §8.5 intends. Reproduced and re-tested.
 
+#### 6.2.2 `READ` — the block that makes the paste actionable
+
+Added 2026-08-31. The report named the thread and it named the database, and a
+reader holding both still had to be told *which table the conversation is in*.
+Spec 13 §4.2's `ATTACH` is the same idea for the app report, and this block
+leads for the same reason: the part that turns a paste into an instruction goes
+first, and the evidence follows it.
+
+```text
+READ
+  chat       sqlite3 ~/.rex/rex.db "PRAGMA query_only = 1" ".mode line" "SELECT seq, role, kind, tool_name, content FROM message WHERE thread_id = '…' ORDER BY seq"
+  words      same query with AND kind = 'text' before ORDER BY — the two sides' turns, no tool traffic
+  comment    sqlite3 ~/.rex/rex.db "PRAGMA query_only = 1" ".mode line" "SELECT * FROM thread WHERE id = '…'"
+  steps      the same run as the SDK recorded it is the `sdk log` file below
+```
+
+`.mode line` and not the default list mode: an answer is prose with newlines in
+it, and pipe-separated rows of it are unreadable exactly when the content is the
+thing being read.
+
+**`PRAGMA query_only = 1`, and never `sqlite3 -readonly`.** The obvious flag is
+a trap. `rex.db` is in WAL mode, and a WAL database opens read-only only while
+its `-shm` file exists — which it does while REX runs and does not once REX has
+quit. So `-readonly` works for whoever writes the command and fails with
+`unable to open database file (14)` for whoever reads the paste, which is the
+later moment and the only one that matters. The pragma refuses every write on a
+connection that opened normally: same guarantee, no trap. `test/debug.spec.ts`
+runs the printed command against a **closed** database for this reason — the
+state that catches it is the state the reader is in.
+
 ### 6.3 The entries
 
 One block per message, in `seq` order. Each has a 3px left edge, a 16px icon, a
@@ -450,18 +514,48 @@ label, its body, and a right-aligned duration.
 |:--|:--|:--|:--|
 | `YOU` | `var(--action)` | `var(--wash-ok)` | The note, full contrast |
 | `THINKING` | `var(--rule)` | `var(--well)` | Italic, `var(--muted)` |
-| Tool call | `var(--rule)` | `var(--panel)` | The tool's own argument in a mono block on `var(--well)` |
+| Tool call | `var(--rule)` | `var(--panel)` | ONE line of the tool's own argument in a mono block on `var(--well)`, and two folds |
+| `DIFF` | `var(--rule)` | `var(--panel)` | The file path on one line, and the patch behind a `change` fold |
 | `DENIED` | `var(--lost)` | `var(--write-bg)` | The refusal, in `var(--lost-text)` |
 | `ANSWER` | `var(--action)` | `var(--wash-ok)` | Body text, full contrast |
 
 A tool call renders **the argument that matters for that tool** — a command for
-`Bash`, a path for `Read`, a pattern for `Grep`. Its result is collapsed to a
-summary (`4 matches in 2 files`) with a `show` / `hide` control; it is opened
-only when the answer looks wrong, which is the one time its height earns itself.
+`Bash`, a path for `Read`, a pattern for `Grep`.
 
-**The denied block is open by default**, and it is the only one that is. Nobody
-should have to unfold the gate firing: it is the whole safety story of the read
-profile made visible.
+#### 6.3.1 Both sides of a call are folded
+
+**A block whose body is machinery shows ONE line and folds the rest.** That line
+is the first line of the argument — the path, the command, the pattern — cut
+with an ellipsis at 96 characters and never given a horizontal scrollbar: a
+scrollbar per block is thirteen of them down a run, none of which can be read
+without dragging, and the whole value is one click away.
+
+Under it sits a row of folds, **shut**, one per side of the call:
+
+| Fold | Holds | On |
+|:--|:--|:--|
+| `input` | the argument in full | a tool call, and a refusal |
+| `change` | the patch — the `+` and `-` lines | a `DIFF` block |
+| `output` | what the tool returned | any block that has a result |
+
+Each says what is behind it and how much: `input · 98 chars`, `output · 89
+lines`. Lines until there is only one, then characters — `1 line` is what a
+400-character Bash command and a ten-character path both say, and the count
+exists so the reviewer can weigh the height before spending it.
+
+A fold is drawn only when it has something the concise line does not already
+show. `grep -n "LUKAS" user-interaction-flow.md` is 46 characters and gets an
+`output` fold and no `input` fold.
+
+Why, measured on 2026-09-01: a thirteen-step run printed every argument and
+every diff in full, and a single `Write` of a 90-line file filled the sheet
+twice over. The calls around it could not be seen at all, which defeats the one
+thing the sheet is for — finding the call that went wrong.
+
+**The denied block is the exception and opens its `input`**, and it is the only
+one that opens itself. Nobody should have to unfold the gate firing: it is the
+whole safety story of the read profile made visible. Its reason line is above
+the fold and is always drawn.
 
 ### 6.4 Colour
 
@@ -746,6 +840,9 @@ src/renderer/overlay/
 ├── Sidebar.tsx             §3.3 the comments tab
 ├── SelectionPanel.tsx      §3.2 — loses the 34vh cap, gains the clear row
 ├── CommentCard.tsx         §5 — anchor card, meta strip, turns, step strip
+├── aside.ts                NEW — §5.3, which agent text is an ASIDE and which
+│                           message may not merge upward. Read by the card and
+│                           by trace.ts, so the two cannot disagree
 ├── PlaceRows.tsx           NEW — §7.2
 ├── TraceSheet.tsx          NEW — §6
 ├── trace.ts                NEW — §6.5, the unfiltered selector and the per-tool argument
@@ -799,6 +896,10 @@ The meta strip, the turn blocks and the step strip.
 - [ ] Every value in the meta strip matches the database for that thread.
 - [ ] A denied write shows as a taller red bar in the strip and `· 1 denied`.
 - [ ] The answer is the only block at full contrast.
+- [ ] A thread whose agent spoke before its tool calls draws that text as an
+      `ASIDE`, and the `ANSWER` block starts with the closing answer.
+- [ ] A thread whose answer is one `text` row draws one `ANSWER` and no `ASIDE`.
+- [ ] The cost footer sits on the `ANSWER`, and its turn count ignores asides.
 
 ### Milestone 3 — the trace sheet
 
@@ -808,6 +909,9 @@ The meta strip, the turn blocks and the step strip.
 - [ ] The comment card stays beside it and the reply box still works.
 - [ ] `esc` closes it.
 - [ ] Thinking appears here and nowhere else.
+- [ ] Every tool and `DIFF` block opens shut, showing one line and its folds.
+- [ ] No block scrolls sideways: the concise line is cut, never scrolled.
+- [ ] `input` and `output` open one at a time, each reporting its own size.
 - [ ] The denied block is open without being asked.
 - [ ] `debug` copies a report whose `sdk log` path **exists on disk** — the one
       check that cannot be made by reading the code, because a path that is

@@ -1,53 +1,52 @@
 #!/usr/bin/env python3
-"""SessionEnd hook: close the Playwright browser windows this session spawned.
+"""SessionEnd hook: close what this session opened, and nothing else.
 
-"This session" is taken literally. Several Claude Code sessions run side by
-side on this machine, each with its own Playwright MCP server, and every one of
-them shares the desktop -- so a cleanup that closed *every* Playwright browser
-closed the other sessions' browsers mid-task (measured 2026-08-18). A browser
-is closed here only if its process ancestry leads back to this session's Claude
-Code process, or if it is abandoned: nothing above it is still holding it and no
-live MCP server is attached to its port, so no session can be driving it.
-Hand-opened browsers and other sessions' browsers survive.
+Several sessions share this desktop, so "this session" is literal: a window is
+closed only if it is proven automated AND it either descends from this
+session's Claude process or is abandoned (nothing holding it, nothing driving
+it). Hand-opened windows and other sessions' browsers survive.
 
-In practice Claude Code shuts its MCP servers down *before* SessionEnd fires,
-and playwright-mcp takes its browser with it, so on a normal exit there is
-usually nothing of our own left to close -- the abandoned case is what remains
-after a session that did not get to exit normally.
+Automation has two proofs, either enough:
+  - argv markers (pw.was_automated) — Playwright's own browser builds;
+  - the ` [agent]` title tag — an agent-mode app. Its argv shows neither a
+    Playwright path nor a debugging port (the app sets the port from inside
+    its main process), so the title the app tagged itself with is the signal
+    that survives.
 
-That second case is the whole reason the scratch space filled up. Ancestry is
-the only thing the first case can read, and `--cdp-endpoint` severs it: the
-browser belongs to a dev server, which belongs to whatever shell started it, and
-Claude Code is nowhere in the chain. Measured 2026-08-22 -- four browsers parked
-on the scratch space, exactly one of them (an app a Bash call had launched in the
-foreground) closable. `wm.is_abandoned_browser` is what reaches the other three
-once nothing is driving them.
-
-On macOS the scratch space is destroyed afterwards if this hook created it and
-nothing else moved in.
+The permanent `playwright` desktop is NOT destroyed — it is machine config,
+not session state, and the next session is born onto it. Consent grants this
+session collected are dropped, so a later session must ask again.
 """
 
 import sys
 
-import wm
+import pw
 
 
-def main() -> None:
-    manager = wm.detect()
-    if manager.name == "none":
+def main():
+    if not pw.yabai_ok():
         sys.exit(0)
 
-    session = wm.session_pid()
-    for window in manager.browser_windows():
+    session = pw.session_pid()
+    for window in pw.browser_windows():
         pid = window["pid"]
-        if not wm.was_automated(pid):
-            continue  # opened by hand -- never ours to close
-        if wm.is_owned_by(pid, session) or wm.is_abandoned_browser(pid):
-            manager.close(window)
+        automated = pw.was_automated(pid) or window["title"].endswith(pw.AGENT_TITLE_TAG)
+        if not automated:
+            continue  # opened by hand — never ours to close
+        if pw.is_owned_by(pid, session) or pw.is_abandoned(pid):
+            pw.close_window(window)
 
-    manager.release_scratch()
+    if session is not None:
+        for path in pw.STATE_DIR.glob(f"consent-*-{session}"):
+            path.unlink(missing_ok=True)
+
     sys.exit(0)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception:
+        sys.exit(0)

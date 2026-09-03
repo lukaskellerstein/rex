@@ -143,6 +143,18 @@ export function renderMarkdown(source: string): string {
 }
 
 /**
+ * Spec 35 §3 — how many lines the file has, as `data-src-line` counts them.
+ *
+ * `data-src-line` says where a block STARTS, so the only thing that knows where
+ * the last block ends is the file's own length; this is what the page carries
+ * for it. A trailing newline ends the last line rather than starting another,
+ * which is how every editor counts and how `token.map` counts.
+ */
+export function sourceLineCount(source: string): number {
+  return source.replace(/\r?\n$/, "").split(/\r?\n/).length;
+}
+
+/**
  * Spec 02 §5.1 — every link in the document, with the source line it sits on.
  *
  * The token stream rather than a regular expression, because it already knows

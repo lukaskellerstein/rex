@@ -11,10 +11,12 @@
 // under review, and nothing typed against it ever edits it.
 
 import type { ThreadWithMessages } from "../../shared/types.ts";
-import type { ScopeRect } from "../anchor/pick.ts";
+import { inflateRect, type ScopeRect } from "../anchor/pick.ts";
 import type { ResolvedThread } from "./anchoring.ts";
+import { hugOf } from "./hug.ts";
 import { Trash } from "./Icons.tsx";
 import { MarginBars } from "./MarginBars.tsx";
+import { MARK_REACH } from "./marginLane.ts";
 
 /** One place the selection panel is holding, as this pane draws it. */
 export interface DraftMark {
@@ -22,6 +24,12 @@ export interface DraftMark {
   /** Its row's number in the panel, so nine cells and nine rows can be paired. */
   number: number;
   box: ScopeRect;
+  /**
+   * The lines of a passage, when the place is one. The outline is drawn to
+   * follow them; `box` is where the two buttons hang, which keeps them in the
+   * margins rather than over the prose whatever shape the passage has.
+   */
+  lines: ScopeRect[] | null;
 }
 
 interface Props {
@@ -35,6 +43,8 @@ interface Props {
   scrollY: number;
   onHoverItem: (id: string | null) => void;
   onRemoveItem: (id: string) => void;
+  /** Spec 26 §4.5 — put this place on the path bar, so ↑ ↓ move it. */
+  onFocusItem: (id: string) => void;
   onSelectMarker: (threadId: string) => void;
   onHoverThread: (threadId: string | null) => void;
 }
@@ -66,39 +76,80 @@ export function PaneMarks(props: Props): React.JSX.Element {
         Drawn from the rect captured at the click, so no anchor has to be
         resolved before the comment exists.
       */}
-      {props.marks.map((mark) => (
-        <div
-          key={mark.id}
-          className={`rex-draft-outline${
-            props.hoveredItemId === mark.id ? " rex-draft-outline-lit" : ""
-          }`}
-          style={{
-            left: mark.box.x - props.scrollX,
-            top: mark.box.y - props.scrollY,
-            width: mark.box.w,
-            height: mark.box.h,
-          }}
-          onMouseEnter={() => props.onHoverItem(mark.id)}
-          onMouseLeave={() => props.onHoverItem(null)}
-        >
-          <span className="rex-draft-index">{mark.number}</span>
-          {/*
+      {props.marks.map((mark) => {
+        // A passage is drawn as the shape of its own lines; a table, a figure
+        // or a region keeps the plain box, because there the box IS the thing.
+        const hug = mark.lines ? hugOf(mark.lines) : null;
+        return (
+          <div
+            key={mark.id}
+            className={`rex-draft-outline${hug ? " rex-draft-outline-hug" : ""}${
+              props.hoveredItemId === mark.id ? " rex-draft-outline-lit" : ""
+            }`}
+            style={{
+              left: mark.box.x - props.scrollX,
+              top: mark.box.y - props.scrollY,
+              width: mark.box.w,
+              height: mark.box.h,
+            }}
+            onMouseEnter={() => props.onHoverItem(mark.id)}
+            onMouseLeave={() => props.onHoverItem(null)}
+          >
+            {/*
+            The outline itself, when the place is a passage. Its geometry is in
+            `hug.ts`; all this does is put it where the lines were measured.
+            `aria-hidden`, because the shape says nothing the panel's own row
+            does not say in words.
+          */}
+            {hug ? (
+              <svg
+                className="rex-draft-shape"
+                aria-hidden="true"
+                width={hug.box.w}
+                height={hug.box.h}
+                viewBox={`0 0 ${hug.box.w} ${hug.box.h}`}
+                style={{ left: hug.box.x - mark.box.x, top: hug.box.y - mark.box.y }}
+              >
+                {hug.paths.map((path) => (
+                  <path key={path} d={path} />
+                ))}
+              </svg>
+            ) : null}
+
+            {/*
+            Spec 26 §4.5 — the badge takes the bar to this place. It is the
+            shortest route to "not that, the section" while the reviewer is
+            looking at the page rather than at the sidebar, and it costs no new
+            affordance: the badge was already the one part of the outline that
+            takes the mouse.
+          */}
+            <button
+              type="button"
+              className="rex-draft-index"
+              aria-label={`Widen or narrow place ${mark.number}`}
+              title="Widen or narrow this place — ↑ ↓, or the crumbs at the foot"
+              onClick={() => props.onFocusItem(mark.id)}
+            >
+              {mark.number}
+            </button>
+            {/*
             Dropping a place without going to find its row in the panel. It
             mirrors the number badge across the box — badge left, trash right —
             and like the badge it is the only other part of the outline that
             takes the mouse, sitting in the margin rather than over the prose.
           */}
-          <button
-            type="button"
-            className="rex-draft-remove"
-            aria-label={`Remove place ${mark.number} from the selection`}
-            title="Remove this place"
-            onClick={() => props.onRemoveItem(mark.id)}
-          >
-            <Trash size={11} />
-          </button>
-        </div>
-      ))}
+            <button
+              type="button"
+              className="rex-draft-remove"
+              aria-label={`Remove place ${mark.number} from the selection`}
+              title="Remove this place"
+              onClick={() => props.onRemoveItem(mark.id)}
+            >
+              <Trash size={11} />
+            </button>
+          </div>
+        );
+      })}
 
       {/*
         An anchor on a whole element or a region of one is an outline, not a
@@ -106,20 +157,27 @@ export function PaneMarks(props: Props): React.JSX.Element {
         paint here — and drawing it as an overlay box keeps the promise that
         REX never touches the document's own tree.
       */}
-      {blocks.map(({ entry, check, box, run }) => (
-        <div
-          key={`${entry.threadId}-${check.position}`}
-          className={`rex-block-outline${check.state === "moved" ? " rex-block-moved" : ""}${
-            props.activeId === entry.threadId ? " rex-block-active" : ""
-          }${run ? " rex-block-run" : ""}`}
-          style={{
-            left: box.x - props.scrollX,
-            top: box.y - props.scrollY,
-            width: box.w,
-            height: box.h,
-          }}
-        />
-      ))}
+      {blocks.map(({ entry, check, box, run }) => {
+        // §6.4 — the ring is drawn OUTSIDE the block, not on it. Drawn on the
+        // box its border ran down the first column of pixels of every line and
+        // read as touching the letters. `MARK_REACH` is what the bar lane is
+        // told to clear, so the two marks cannot grow into each other.
+        const ring = inflateRect(box, MARK_REACH);
+        return (
+          <div
+            key={`${entry.threadId}-${check.position}`}
+            className={`rex-block-outline${check.state === "moved" ? " rex-block-moved" : ""}${
+              props.activeId === entry.threadId ? " rex-block-active" : ""
+            }${run ? " rex-block-run" : ""}`}
+            style={{
+              left: ring.x - props.scrollX,
+              top: ring.y - props.scrollY,
+              width: ring.w,
+              height: ring.h,
+            }}
+          />
+        );
+      })}
 
       {/*
         Spec 15 §8 — one bar per comment, in the lane beside its block, with the

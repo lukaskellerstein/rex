@@ -12,10 +12,10 @@
 // every time it is edited and nothing about it looks wrong. §7.8 checks for it,
 // so a missed sweep fails the run rather than shipping.
 
+import type { OoxmlPackage } from "../ooxml/package.ts";
+import { escapeXml, firstElement, scanElements, splice } from "../ooxml/xml.ts";
 import { type DeckMap, PRESENTATION_PART, relsPathFor, resolveTarget } from "./deck.ts";
-import type { DeckPackage } from "./package.ts";
 import { sweepOrphanMedia } from "./parts.ts";
-import { escapeXml, firstElement, scanElements, splice } from "./xml.ts";
 
 const CONTENT_TYPES = "[Content_Types].xml";
 const SLIDE_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.slide+xml";
@@ -31,7 +31,7 @@ const NOTES_REL_TYPE =
  * meaning depends on what else moved, and a full permutation cannot be
  * ambiguous.
  */
-export async function reorderSlides(pkg: DeckPackage, order: readonly number[]): Promise<void> {
+export async function reorderSlides(pkg: OoxmlPackage, order: readonly number[]): Promise<void> {
   const xml = await pkg.readText(PRESENTATION_PART);
   const list = firstElement(xml, "p:sldIdLst");
   if (!list) throw new Error("This deck has no slide list.");
@@ -52,7 +52,7 @@ export async function reorderSlides(pkg: DeckPackage, order: readonly number[]):
 }
 
 /** A part path in `directory` that nothing in the package uses yet. */
-function freePart(pkg: DeckPackage, directory: string, stem: string, extension: string): string {
+function freePart(pkg: OoxmlPackage, directory: string, stem: string, extension: string): string {
   const taken = new Set(pkg.paths());
   for (let n = 1; ; n++) {
     const candidate = `${directory}/${stem}${n}.${extension}`;
@@ -99,7 +99,7 @@ export interface DuplicateOutcome {
  * a worse result.
  */
 export async function duplicateSlide(
-  pkg: DeckPackage,
+  pkg: OoxmlPackage,
   map: DeckMap,
   position: number,
 ): Promise<DuplicateOutcome> {
@@ -183,7 +183,7 @@ export interface DeleteOutcome {
 
 /** §7.6.3 — remove a slide, and everything that was only there for it. */
 export async function deleteSlide(
-  pkg: DeckPackage,
+  pkg: OoxmlPackage,
   map: DeckMap,
   position: number,
 ): Promise<DeleteOutcome> {

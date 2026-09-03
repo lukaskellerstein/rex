@@ -1,22 +1,30 @@
-// Spec 08 §6.2 — the refusals in the debug report, paired with their commands.
+// Spec 08 §6.2 — the steps that went wrong in the debug report, paired with
+// their commands.
 //
 // This is the one piece of the report that is not a lookup. Everything else is
-// an id, a path or a sum; a denial has to be matched back to the call it
-// refused, and §4's `Message` carries no `tool_use_id` to match on. So the
+// an id, a path or a sum; a bad step has to be matched back to the call it
+// belongs to, and §4's `Message` carries no `tool_use_id` to match on. So the
 // pairing is rebuilt from order, and what it rebuilds is the single line
-// somebody debugging a refusal will read first — the command.
+// somebody debugging will read first — the command.
 //
 // Getting it wrong is quiet: a mispaired command is a plausible command, and it
-// sends the reader after the wrong call in a session file of hundreds.
+// sends the reader after the wrong call in a session file of hundreds. Calling a
+// failure a refusal is quiet the same way, and is what the `denied` flag is for.
 //
 // Run: npm run test:debug
 
 import { strict as assert } from "node:assert";
+import { execSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import Database from "better-sqlite3";
 import { chooseCdpPort, DEFAULT_CDP_PORT } from "../src/main/cdp.ts";
-import { type AppFacts, appReport, denialsOf } from "../src/main/debug.ts";
+import { appendMessage, createThread, upsertDocument } from "../src/main/db/queries.ts";
+import { type AppFacts, appReport, badStepsOf, debugReport } from "../src/main/debug.ts";
 import { entries, record, resetLog } from "../src/main/log.ts";
-import type { Message, MessageKind, MessageRole, ViewState } from "../src/shared/types.ts";
+import type { Anchor, Message, MessageKind, MessageRole, ViewState } from "../src/shared/types.ts";
 
 let seq = 0;
 
@@ -28,10 +36,13 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
     role,
     kind,
     mode: null,
+    model: null,
+    style: null,
     content: null,
     toolName: null,
     toolInput: null,
     isError: false,
+    denied: false,
     costUsd: null,
     durationMs: null,
     inputTokens: null,
@@ -44,33 +55,61 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
 const call = (toolName: string, input: unknown): Message =>
   message("tool_call", "assistant", { toolName, toolInput: input });
 
-const result = (toolName: string, content: string, isError = false): Message =>
-  message("tool_result", "user", { toolName, content, isError });
+const result = (toolName: string, content: string): Message =>
+  message("tool_result", "user", { toolName, content });
+
+/** The gate refused it: an error, and denied. Both flags, as the runner writes them. */
+const refused = (toolName: string, content: string): Message =>
+  message("tool_result", "user", { toolName, content, isError: true, denied: true });
+
+/** It ran and did not succeed. An error, and nobody refused anything. */
+const failed = (toolName: string, content: string): Message =>
+  message("tool_result", "user", { toolName, content, isError: true });
 
 test("a refusal carries the whole command, not the clipped one in its reason", () => {
   const command = `ls -la ${"/some/very/long/path".repeat(4)} 2>&1`;
-  const denials = denialsOf([
+  const steps = badStepsOf([
     message("text", "user", { content: "do you see these?" }),
     call("Bash", { command }),
-    result("Bash", "Bash in a read session may not redirect, background or substitute — '…'", true),
+    refused("Bash", "Bash in a read session may not redirect, background or substitute — '…'"),
   ]);
 
-  assert.equal(denials.length, 1);
-  assert.equal(denials[0].toolName, "Bash");
-  assert.equal(denials[0].command, command);
-  assert.match(denials[0].reason, /may not redirect/);
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].toolName, "Bash");
+  assert.equal(steps[0].command, command);
+  assert.equal(steps[0].denied, true);
+  assert.match(steps[0].reason, /may not redirect/);
 });
 
-test("an allowed call is not a denial, and does not consume the next one's result", () => {
-  const denials = denialsOf([
+test("a command that exited non-zero is a failure, and is never called a refusal", () => {
+  // The bug this whole split exists for. Measured on 2026-09-01, thread
+  // `f5e79775`: two zsh errors in a read session where the gate never fired,
+  // both printed under DENIED. `zsh` expands `===` to a lookup for a command
+  // named `==`, and `--include=*.md` with no `.md` beside it aborts the line —
+  // neither has anything to do with REX.
+  const steps = badStepsOf([
+    call("Bash", { command: "echo ===" }),
+    failed("Bash", "Exit code 1\n(eval):1: == not found"),
+  ]);
+
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].denied, false);
+  assert.equal(steps[0].command, "echo ===");
+  // On one line: the report gives a step one line, and a raw newline here put
+  // the second half of the output where the command belongs.
+  assert.equal(steps[0].reason, "Exit code 1 (eval):1: == not found");
+});
+
+test("an allowed call is not a bad step, and does not consume the next one's result", () => {
+  const steps = badStepsOf([
     call("Read", { file_path: "/docs/one.md" }),
     result("Read", "1\t# Tilecat"),
     call("Bash", { command: "rm -rf /tmp/x" }),
-    result("Bash", "'rm' is not on the allowlist", true),
+    refused("Bash", "'rm' is not on the allowlist"),
   ]);
 
   assert.deepEqual(
-    denials.map((denial) => denial.command),
+    steps.map((step) => step.command),
     ["rm -rf /tmp/x"],
   );
 });
@@ -80,50 +119,53 @@ test("two calls in flight at once are paired by tool, not by recency", () => {
   // in one turn. Pairing on "the most recent call still unanswered" hands the
   // Bash result the Grep call, and the report then names a search as the thing
   // the gate refused.
-  const denials = denialsOf([
+  const steps = badStepsOf([
     call("Bash", { command: "cat a.md > b.md" }),
     call("Grep", { pattern: "retry|backoff" }),
     result("Grep", "3 matches"),
-    result("Bash", "Bash in a read session may not redirect", true),
+    refused("Bash", "Bash in a read session may not redirect"),
   ]);
 
   assert.deepEqual(
-    denials.map((denial) => denial.command),
+    steps.map((step) => step.command),
     ["cat a.md > b.md"],
   );
 });
 
-test("two refusals from the same tool keep their own commands, in order", () => {
-  const denials = denialsOf([
+test("a refusal and a failure in one run keep their own commands and their own names", () => {
+  const steps = badStepsOf([
     call("Bash", { command: "tee out.txt" }),
-    result("Bash", "'tee' is not on the allowlist", true),
-    call("Bash", { command: "find . -delete" }),
-    result("Bash", "find may walk a tree in a read session but not act on it", true),
+    refused("Bash", "'tee' is not on the allowlist"),
+    call("Bash", { command: "ls docs/review" }),
+    failed("Bash", "Exit code 1\nls: docs/review: No such file or directory"),
   ]);
 
   assert.deepEqual(
-    denials.map((denial) => denial.command),
-    ["tee out.txt", "find . -delete"],
+    steps.map((step) => [step.command, step.denied]),
+    [
+      ["tee out.txt", true],
+      ["ls docs/review", false],
+    ],
   );
 });
 
 test("a tool with no command argument reports whatever it was given", () => {
-  const denials = denialsOf([
+  const steps = badStepsOf([
     call("mcp__playwright__browser_click", { element: "Save", ref: "e12" }),
-    result("mcp__playwright__browser_click", "MCP tools are deny-by-default", true),
+    refused("mcp__playwright__browser_click", "MCP tools are deny-by-default"),
   ]);
 
-  assert.equal(denials[0].command, '{"element":"Save","ref":"e12"}');
+  assert.equal(steps[0].command, '{"element":"Save","ref":"e12"}');
 });
 
 test("a result whose call is missing is reported rather than dropped", () => {
   // A transcript can be truncated — `tool_result` content is clipped to 4000
   // chars on the way in, and a thread deleted mid-run keeps whatever arrived.
   // The refusal is still the interesting half, so it survives without a call.
-  const denials = denialsOf([result("Bash", "'curl' is not on the allowlist", true)]);
+  const steps = badStepsOf([refused("Bash", "'curl' is not on the allowlist")]);
 
-  assert.equal(denials.length, 1);
-  assert.match(denials[0].command, /not in the transcript/);
+  assert.equal(steps.length, 1);
+  assert.match(steps[0].command, /not in the transcript/);
 });
 
 // ── Spec 13 — the port, the ring and the app report ───────────
@@ -300,6 +342,193 @@ test("a document squeezed to a strip is called out, not left to be inferred", ()
 test("an empty RECENT says nothing was recorded, not that nothing went wrong", () => {
   const report = appReport(FACTS, VIEW, []);
   assert.match(report, /RECENT \(0\)\n {2}nothing was recorded this run/);
+});
+
+// ── Spec 08 §6.2 — READ, the block that makes the paste actionable ──
+//
+// The report has always named the thread and the database. Naming them is not
+// the same as being able to read the conversation, and the gap showed up the
+// first time a report was pasted into a fresh session: it held the id, and had
+// to be told which table to look in.
+//
+// So these tests do not check that a command was PRINTED. They run it. A SQL
+// string nobody executed is exactly the kind of instruction that reads fine and
+// fails on the machine it was pasted into.
+
+const SCHEMA = readFileSync(join(import.meta.dirname, "..", "src/main/db/schema.sql"), "utf8");
+
+const QUOTE: Anchor = {
+  quote: { exact: "WMS Adapter", prefix: "", suffix: "" },
+  position: null,
+  element: null,
+  region: null,
+  source: null,
+};
+
+function draft(kind: MessageKind, role: MessageRole, fields: Partial<Message> = {}) {
+  return {
+    role,
+    kind,
+    content: null,
+    toolName: null,
+    toolInput: null,
+    isError: false,
+    costUsd: null,
+    durationMs: null,
+    inputTokens: null,
+    outputTokens: null,
+    ...fields,
+  };
+}
+
+/** A real database on disk, because the command under test is a real `sqlite3`. */
+function threadOnDisk(file: string): { db: Database.Database; threadId: string } {
+  const db = new Database(file);
+  db.exec(SCHEMA);
+
+  const { record: document } = upsertDocument(
+    db,
+    { kind: "file", value: "/w/components.md" },
+    "Components",
+    null,
+  );
+  const thread = createThread(db, {
+    kind: "anchored",
+    targets: [{ documentId: document.id, anchor: QUOTE }],
+    note: "What exactly is the role of the WMS adapter?",
+    profile: "read",
+  });
+
+  const question = "Why do we need the WMS at all?";
+  appendMessage(db, thread.id, draft("text", "user", { content: question }));
+  appendMessage(
+    db,
+    thread.id,
+    draft("tool_call", "assistant", { toolName: "Read", toolInput: { file_path: "/w/x.md" } }),
+  );
+  appendMessage(
+    db,
+    thread.id,
+    draft("text", "assistant", { content: "It owns the work items the prototype consumes." }),
+  );
+  return { db, threadId: thread.id };
+}
+
+/** The `chat` line as a shell command, pointed at this test's database. */
+function chatCommand(report: string, file: string): string {
+  const line = report.split("\n").find((candidate) => candidate.startsWith("  chat "));
+  assert.ok(line, "the report has no chat line");
+  return line
+    .trim()
+    .replace(/^chat\s+/, "")
+    .replace(/(sqlite3 )\S+/, `$1${file}`);
+}
+
+test("the report leads with a command that reads this comment's chat", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "rex-debug-"));
+  const file = join(directory, "rex.db");
+  const { db, threadId } = threadOnDisk(file);
+
+  try {
+    const report = await debugReport(db, threadId, "0.1.0");
+
+    // READ before RUN, for spec 13 §4.2's reason: the block that turns the
+    // paste into an instruction goes first, and the evidence follows it.
+    assert.ok(report.indexOf("\nREAD\n") < report.indexOf("\nRUN\n"));
+    assert.match(report, new RegExp(`FROM message WHERE thread_id = '${threadId}' ORDER BY seq`));
+
+    // Closing leaves the database exactly as a REX that has quit leaves it: no
+    // `-shm` file. That is the state `sqlite3 -readonly` cannot open, and the
+    // state every pasted report is read in, so it is the state to test in.
+    db.close();
+    assert.doesNotMatch(report, /-readonly/);
+
+    const chat = chatCommand(report, file);
+    const output = execSync(chat, { encoding: "utf8" });
+
+    assert.match(output, /Why do we need the WMS at all\?/);
+    assert.match(output, /It owns the work items the prototype consumes\./);
+    assert.match(output, /kind = tool_call/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the words-only hint is a change the reader can actually make", async () => {
+  // `words` tells the reader to add one clause before ORDER BY. If that
+  // sentence does not describe the command above it, it is worse than absent —
+  // it hands them a syntax error while they are already debugging something.
+  const directory = mkdtempSync(join(tmpdir(), "rex-debug-words-"));
+  const file = join(directory, "rex.db");
+  const { db, threadId } = threadOnDisk(file);
+
+  try {
+    const report = await debugReport(db, threadId, "0.1.0");
+    db.close();
+
+    const chat = chatCommand(report, file);
+    const words = chat.replace("ORDER BY seq", "AND kind = 'text' ORDER BY seq");
+    const output = execSync(words, { encoding: "utf8" });
+
+    assert.match(output, /Why do we need the WMS at all\?/);
+    assert.doesNotMatch(output, /tool_call/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the report puts a refusal and a failure under different headings", async () => {
+  // The report a reviewer pastes into a fresh session. Both facts were printed
+  // under DENIED until 2026-09-01, so the session that received it started by
+  // investigating a gate that had never fired.
+  const directory = mkdtempSync(join(tmpdir(), "rex-debug-denied-"));
+  const file = join(directory, "rex.db");
+  const { db, threadId } = threadOnDisk(file);
+
+  try {
+    const gate = "A read session cannot change any file: 'rm' is not on the allowlist.";
+    appendMessage(
+      db,
+      threadId,
+      draft("tool_call", "assistant", { toolName: "Bash", toolInput: { command: "rm -rf out" } }),
+    );
+    appendMessage(
+      db,
+      threadId,
+      draft("tool_result", "user", {
+        toolName: "Bash",
+        content: gate,
+        isError: true,
+        denied: true,
+      }),
+    );
+    appendMessage(
+      db,
+      threadId,
+      draft("tool_call", "assistant", { toolName: "Bash", toolInput: { command: "echo ===" } }),
+    );
+    appendMessage(
+      db,
+      threadId,
+      draft("tool_result", "user", {
+        toolName: "Bash",
+        content: "Exit code 1\n(eval):1: == not found",
+        isError: true,
+      }),
+    );
+
+    const report = await debugReport(db, threadId, "0.1.0");
+    db.close();
+
+    assert.match(report, /1 denied · 1 failed/);
+    assert.match(report, /DENIED — the gate refused these \(1\)\n {2}1 Bash · A read session/);
+    assert.match(report, /FAILED — these ran and did not succeed \(1\)\n {2}1 Bash · Exit code 1/);
+    // Each command under its own heading, and never both under DENIED.
+    assert.ok(report.indexOf("rm -rf out") < report.indexOf("FAILED —"));
+    assert.ok(report.indexOf("echo ===") > report.indexOf("FAILED —"));
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("the report survives a renderer that never answered", () => {

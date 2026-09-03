@@ -3,6 +3,7 @@
 // and never a lost comment (§6.6).
 
 import diff_match_patch from "diff-match-patch";
+import { findPart, fingerprintSource } from "../../shared/diagram.ts";
 import {
   type Anchor,
   type AnchorExtent,
@@ -11,6 +12,7 @@ import {
   type TextPosition,
 } from "../../shared/types.ts";
 import { fingerprintElement, isStableId } from "./create.ts";
+import { elementForPart, fenceLineOf, partsOf, sourceOf } from "./diagram.ts";
 import { blockOf, resolveGap } from "./gap.ts";
 import {
   closestHeading,
@@ -50,7 +52,19 @@ function matchKindOf(css: string): ElementMatch {
 
 export type Resolution =
   | { kind: "range"; range: Range; layer: AnchorLayer }
-  | { kind: "element"; element: Element; layer: AnchorLayer; matchedBy: ElementMatch }
+  | {
+      kind: "element";
+      element: Element;
+      layer: AnchorLayer;
+      matchedBy: ElementMatch;
+      /**
+       * Spec 29 §5.4 — the source line the place is on NOW, when the resolver
+       * knows better than the nearest `data-src-line` stamp. A diagram part
+       * sits inside a `<pre>` stamped with the fence's opening line; the part
+       * itself is some lines below it, and this says how many.
+       */
+      line?: number;
+    }
   /**
    * Spec 06 §4.4 — a run of sibling blocks: a section, or a whole document.
    *
@@ -415,8 +429,73 @@ function resolveNeighbour(index: TextIndex, side: Anchor): Element | null {
   return found && found.matchedBy !== "path" ? (blockOf(found.element) ?? found.element) : null;
 }
 
+/**
+ * Spec 29 §5.4 — a part of a Mermaid diagram, found in the fence's source.
+ *
+ * Step 1 finds the diagram: every drawn fence whose source has the stored
+ * fingerprint; else the `<pre>` the element ref names, if it still holds the
+ * part's text; else the one fence anywhere that does. Step 2 finds the part in
+ * that source by what names it — an id, two ends, a run of text — and never by
+ * a line number alone. Step 3 hands back the part's SVG element from the map,
+ * or the `<pre>` when the map has none for it: a drawing detail never orphans
+ * a comment about the text.
+ *
+ * The layer says how sure the find was, and `anchorStateFor` reads it as it
+ * reads every other anchor's: an untouched fence is 1 and `ok`; a changed fence
+ * whose part is still named is 3 and `ok` — a node whose label was edited two
+ * lines away is the same node; a `lines` part found by its text in a changed
+ * fence, or any part found only by searching every fence, is 2 and `moved`.
+ */
+function resolveDiagram(index: TextIndex, anchor: Anchor): Resolution | null {
+  const ref = anchor.diagram;
+  if (!ref) return null;
+  const blocks = [...index.doc.querySelectorAll<HTMLElement>("pre.rex-mermaid")];
+  if (blocks.length === 0) return null;
+
+  // The element ref names the `<pre>` — a hint, since its id moves with the
+  // fence (§1.2). It is read once here and consulted twice below.
+  const named = resolveElement(index, anchor)?.element ?? null;
+  const holds = (b: HTMLElement) => findPart(partsOf(b), ref);
+
+  let block: HTMLElement | null = null;
+  let layer: AnchorLayer = 1;
+  const same = blocks.filter((b) => fingerprintSource(sourceOf(b)) === ref.fingerprint);
+  if (same.length > 0) {
+    // Two identical diagrams: the one the ref names, if it is among them.
+    block = same.find((b) => b === named) ?? same[0];
+  } else {
+    if (named && blocks.includes(named as HTMLElement) && holds(named as HTMLElement)) {
+      block = named as HTMLElement;
+      layer = 3;
+    } else {
+      const holding = blocks.filter((b) => holds(b) !== null);
+      if (holding.length !== 1) return null;
+      block = holding[0];
+      layer = 2;
+    }
+    // A `lines` part is named by nothing but its text, and the text now sits
+    // among different neighbours: found, and `moved`.
+    if (ref.part.kind === "lines") layer = 2;
+  }
+
+  const found = holds(block);
+  if (!found) return null;
+  const fenceLine = fenceLineOf(block);
+  return {
+    kind: "element",
+    element: elementForPart(block, found.part) ?? block,
+    layer,
+    matchedBy: "identity",
+    ...(fenceLine === null ? {} : { line: fenceLine + found.lines.from }),
+  };
+}
+
 /** SPEC.md §6.5 — run the layers in order, stop at the first success. */
 export function resolveAnchor(index: TextIndex, anchor: Anchor): Resolution | null {
+  // Spec 29 §5.4 — first of all, before even a gap: a diagram part is narrower
+  // than any extent and never has one, and the thing it names is not on the
+  // page as text.
+  if (anchor.diagram) return resolveDiagram(index, anchor);
   // Spec 16 §6.3 — read before the four layers, beside `region` and `extent`.
   // A gap names no text and no element of its own, so none of them applies.
   if (anchor.gap) {

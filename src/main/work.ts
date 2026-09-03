@@ -1,8 +1,16 @@
 // Spec 15 §3 — the working copy.
 //
-// The agent never edits the reviewer's file. REX forks a copy the first time a
-// document is changed, every ACT run after that edits the copy, and the file is
-// replaced only when the whole new version is approved (§7.2).
+// The agent never edits the reviewer's file. REX makes a copy the first time an
+// agent is pointed at a document, every run after that reads and edits the
+// copy, and the file is replaced only when the whole new version is approved
+// (§7.2).
+//
+// Spec 34 §2 — the copy is permanent. Once it exists it stays at one path for
+// good: approve and discard move bytes between the file and the copy, and
+// nothing deletes the directory. An agent that learned where the document is
+// on its first turn is right on every turn after. "Is there a change waiting?"
+// is a different question — `isPending`, a hash comparison — and it is the one
+// every consumer that used to ask "does a copy exist?" actually meant.
 //
 // A directory and not a table, deliberately (§9). It has to survive a database
 // that was deleted and a REX that was killed, and the one thing that must never
@@ -22,6 +30,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
+import { movedPath } from "../shared/paths.ts";
 import { sha256 } from "./render/html.ts";
 
 /** One ACT run's result, kept so §3.3's undo is a step back and not a loss. */
@@ -37,7 +46,11 @@ export interface WorkingMeta {
   documentId: string;
   /** The reviewer's file. Absolute. */
   path: string;
-  /** The file's hash at the fork. §7.3 compares it again before approving. */
+  /**
+   * The file's hash when the copy was last made to agree with it — at the
+   * fork, and after every approve, discard and sync since (spec 34 §3.2). §7.3
+   * compares it again before approving.
+   */
   baseSha256: string;
   forkedAt: string;
   revisions: WorkingRevision[];
@@ -91,14 +104,15 @@ export function basePath(meta: WorkingMeta): string {
 }
 
 /**
- * What the right-hand pane shows, and the one file the agent may edit.
+ * What the right-hand pane shows, and the one file the agent reads and edits.
  *
- * `.new`, in the words the pane above it already uses: the reviewer is looking
- * at `ORIGINAL` beside `NEW VERSION`, and the two files are named after the two
- * things they are.
+ * Spec 34 §3.1 — the document's own name, with no infix. The copy IS the
+ * document's current version on every turn and in every mode, so
+ * `lukas-feedback.md:31` is a true sentence in both panes. `.original` and
+ * `.v<n>` keep their infixes: they are not the document, they are what it was.
  */
 export function currentPath(meta: WorkingMeta): string {
-  return join(workDir(meta.documentId), `${stem(meta)}.new${suffix(meta)}`);
+  return join(workDir(meta.documentId), `${stem(meta)}${suffix(meta)}`);
 }
 
 /** One ACT run's output, kept so §3.3's undo is a step back and not a loss. */
@@ -158,6 +172,10 @@ export function listWorkingCopies(): WorkingMeta[] {
  * nothing to move, and a rename that cannot be made is left alone — the old
  * file is still the reviewer's only copy of work they have not approved, so
  * this never removes one.
+ *
+ * Spec 34 §3.4 — a third generation of names. `current.md` became
+ * `<name>.new.md` under spec 15 §3.1 and is now `<name>.md`; both older names
+ * move to the newest one directly.
  */
 export function migrateWorkingCopyNames(): void {
   for (const meta of listWorkingCopies()) {
@@ -166,6 +184,7 @@ export function migrateWorkingCopyNames(): void {
     const moves: Array<[string, string]> = [
       [join(dir, `base${ext}`), basePath(meta)],
       [join(dir, `current${ext}`), currentPath(meta)],
+      [join(dir, `${stem(meta)}.new${ext}`), currentPath(meta)],
       ...meta.revisions.map((revision): [string, string] => [
         join(dir, `rev-${revision.n}${ext}`),
         revisionPath(meta, revision.n),
@@ -187,15 +206,64 @@ export function migrateWorkingCopyNames(): void {
 }
 
 /**
- * §3.3 — forked from the file, once. Calling it again returns what exists.
+ * Spec 23 §4.1 — an unapproved working copy follows the file it forked from.
  *
- * Idempotent because every ACT run calls it and only the first one forks. A
- * second fork would throw away every revision before it, which is the one thing
- * this directory exists to prevent.
+ * Two things move, and missing the second is the trap. `meta.path` is where
+ * `approveWorkingCopy` writes, so without it the reviewer's change would land
+ * back on the old name. But every file in the directory is *named after* that
+ * path (`stem`, `suffix`), so changing it alone leaves `base`, `.new` and every
+ * revision under names nothing looks for — an empty pane, and work that is on
+ * disk but unreachable.
+ *
+ * Best effort per file, like `migrateWorkingCopyNames`: a rename that cannot be
+ * made leaves the old file where it is. Losing the bytes is the only outcome
+ * worse than a pane that comes up empty.
  */
-export function forkWorkingCopy(documentId: string, path: string): WorkingMeta {
+export function moveWorkingCopies(from: string, to: string): void {
+  for (const meta of listWorkingCopies()) {
+    const path = movedPath(meta.path, from, to);
+    if (path === null) continue;
+
+    const next: WorkingMeta = { ...meta, path };
+    const moves: Array<[string, string]> = [
+      [basePath(meta), basePath(next)],
+      [currentPath(meta), currentPath(next)],
+      ...meta.revisions.map((revision): [string, string] => [
+        revisionPath(meta, revision.n),
+        revisionPath(next, revision.n),
+      ]),
+    ];
+
+    for (const [before, after] of moves) {
+      if (before === after || !existsSync(before) || existsSync(after)) continue;
+      try {
+        renameSync(before, after);
+      } catch {
+        // As above: the old name stays, and the meta below still moves. The
+        // pane is empty and visible; the bytes are not lost.
+      }
+    }
+
+    writeMeta(next);
+  }
+}
+
+/**
+ * Spec 34 §3.3 — the one entry point that hands a copy to an agent.
+ *
+ * Made once, from the file, and kept for good (§2). Calling it again returns
+ * what exists: every run calls it, and a second copy would throw away every
+ * revision before it, which is the one thing this directory exists to prevent.
+ *
+ * One thing it does on the way. When nothing is pending and the reviewer edited
+ * the file in their own editor, the copy is stale, and this is the only moment
+ * anybody needs it fresh — so the copy follows the file. A pending change is
+ * never touched: if the file moved under one, that is §7.3's conflict, and
+ * approve refuses until the reviewer discards.
+ */
+export function ensureWorkingCopy(documentId: string, path: string): WorkingMeta {
   const existing = readMeta(documentId);
-  if (existing) return existing;
+  if (existing) return isPending(existing) ? existing : followFile(existing);
 
   const bytes = readFileSync(path);
   const meta: WorkingMeta = {
@@ -213,6 +281,47 @@ export function forkWorkingCopy(documentId: string, path: string): WorkingMeta {
   return meta;
 }
 
+/** Spec 34 §3.3 step 2 — nothing pending, so the copy takes the file's bytes if they moved. */
+function followFile(meta: WorkingMeta): WorkingMeta {
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(meta.path);
+  } catch {
+    // Gone, or unreadable. The copy still equals `base`, which is the last
+    // thing the file was, and nothing truer exists to hand out.
+    return meta;
+  }
+  if (sha256(bytes) === meta.baseSha256) return meta;
+  return rebase(meta, bytes);
+}
+
+/**
+ * Spec 22 §3 — a file the agent edited in place, held as a working copy after
+ * the fact.
+ *
+ * The order is the whole mechanism. The caller has already put the reviewer's
+ * bytes back on disk, so `ensureWorkingCopy` takes them as `base` — a fresh
+ * copy does, and so does a stale one, through spec 34 §3.3's sync — exactly as
+ * a copy made before the run would have; the agent's bytes then go over the
+ * copy and become a revision of this run. From here on the copy is
+ * indistinguishable from the one the anchored document gets — the same panes,
+ * approve and discard.
+ *
+ * Over runs it behaves as every run does: a pending copy keeps its `base` and
+ * its revisions, and this run's bytes are one more.
+ */
+export function adoptWorkingCopy(
+  documentId: string,
+  path: string,
+  agentBytes: Buffer,
+  run: { applyRunId: string; threadId: string },
+): WorkingMeta {
+  const meta = ensureWorkingCopy(documentId, path);
+  const before = currentHash(meta);
+  writeFileSync(currentPath(meta), agentBytes);
+  return saveRevision(meta, { ...run, before }) ?? meta;
+}
+
 /** The hash of `current` right now — what §4.2 compares before and after a run. */
 export function currentHash(meta: WorkingMeta): string {
   try {
@@ -223,6 +332,42 @@ export function currentHash(meta: WorkingMeta): string {
 }
 
 /**
+ * Whether `current` holds exactly the bytes the fork took from the file.
+ *
+ * This, and not the revision count, is the test for "is there a change". A run
+ * that fails mid-edit leaves its edit in `current` with no revision on record;
+ * a second run that takes back everything the first one wrote leaves two
+ * revisions and no difference. Only the bytes answer both. An unreadable
+ * `current` hashes to "", which never equals a real hash, so a copy REX cannot
+ * read is kept rather than removed.
+ */
+export function matchesBase(meta: WorkingMeta): boolean {
+  return currentHash(meta) === meta.baseSha256;
+}
+
+/**
+ * Spec 34 §2 — a change is waiting for the reviewer.
+ *
+ * `matchesBase` read the right way round, and the question every consumer that
+ * used to ask "does a copy exist?" actually meant. Under spec 15 §4.2 the two
+ * were one question, because the directory went the moment the bytes agreed;
+ * now the directory stays and only the bytes say.
+ */
+export function isPending(meta: WorkingMeta): boolean {
+  return !matchesBase(meta);
+}
+
+/** Every pending copy on this machine — what `work:list` and `Approve all` see. */
+export function pendingCopies(): WorkingMeta[] {
+  return listWorkingCopies().filter(isPending);
+}
+
+/** The pending copy of the document at `path`, or null — what `doc:open` asks. */
+export function pendingCopy(path: string): WorkingMeta | null {
+  return listWorkingCopies().find((meta) => meta.path === path && isPending(meta)) ?? null;
+}
+
+/**
  * §3.3 — the agent changed `current`, so keep it as a revision.
  *
  * Returns null when the content did not move: §4.2's rule is that a file is
@@ -230,9 +375,14 @@ export function currentHash(meta: WorkingMeta): string {
  * anybody needs to be able to undo.
  */
 export function saveRevision(
-  meta: WorkingMeta,
+  stale: WorkingMeta,
   run: { applyRunId: string; threadId: string; before: string },
 ): WorkingMeta | null {
+  // Spec 34 §5.5 — two runs may share one copy, so the list on disk is the
+  // truth and the caller's meta is what it read when it started. Measured in
+  // milestone 4: two runs ending on one copy each appended to an empty list,
+  // and the second wrote `v1` over the first's, leaving one revision of two.
+  const meta = readMeta(stale.documentId) ?? stale;
   const after = currentHash(meta);
   if (after === run.before) return null;
 
@@ -316,14 +466,48 @@ export function approveWorkingCopy(documentId: string): ApproveResult {
     };
   }
 
-  writeFileSync(meta.path, readFileSync(currentPath(meta)));
-  discardWorkingCopy(documentId);
+  const approved = readFileSync(currentPath(meta));
+  writeFileSync(meta.path, approved);
+  // Spec 34 §3.2 — the copy stays. The file now holds it, so it is the new
+  // base: nothing is pending, and the revisions have nothing left to undo.
+  rebase(meta, approved);
   return { ok: true };
 }
 
-/** §3.3 — the file was never touched, so there is nothing else to undo. */
+/**
+ * §3.3 and spec 34 §3.2 — the change is thrown away and the copy stays.
+ *
+ * The copy takes the file's bytes, so the two agree again and nothing is
+ * pending. The directory is kept because an agent may hold its path (§2). A
+ * file that cannot be read any more — deleted outside REX — leaves the copy on
+ * `base`, which is the last thing the file was; nothing truer exists.
+ */
 export function discardWorkingCopy(documentId: string): void {
-  rmSync(workDir(documentId), { recursive: true, force: true });
+  const meta = readMeta(documentId);
+  if (!meta) return;
+  let bytes: Buffer;
+  try {
+    bytes = readFileSync(meta.path);
+  } catch {
+    bytes = readFileSync(basePath(meta));
+  }
+  rebase(meta, bytes);
+}
+
+/**
+ * Spec 34 §3.2 — `base` and the copy both become `bytes`, and the revision list
+ * is cleared with its files. The one write that changes what "pending" means
+ * for a document, and every caller has just made the file and the copy agree.
+ */
+function rebase(meta: WorkingMeta, bytes: Buffer): WorkingMeta {
+  for (const revision of meta.revisions) {
+    rmSync(revisionPath(meta, revision.n), { force: true });
+  }
+  writeFileSync(basePath(meta), bytes);
+  writeFileSync(currentPath(meta), bytes);
+  const next: WorkingMeta = { ...meta, baseSha256: sha256(bytes), revisions: [], current: 0 };
+  writeMeta(next);
+  return next;
 }
 
 // ── The before-set (§3.4) ───────────────────────────────────────
@@ -404,7 +588,7 @@ function megabytes(bytes: number): string {
  * `~/.rex/work/_restored/<applyRunId>/`, and the message names the directory.
  */
 export function restoreFromBeforeSet(set: BeforeSet, path: string, applyRunId: string): boolean {
-  stash(applyRunId, path);
+  stashFound(applyRunId, path);
   const bytes = set.contents.get(path);
   if (bytes === undefined) {
     // It was not there before the run, so the agent created it. Removing it is
@@ -424,7 +608,14 @@ export function restoredDir(applyRunId: string): string {
   return join(workRoot(), "_restored", applyRunId);
 }
 
-function stash(applyRunId: string, path: string): void {
+/**
+ * Keep what was found, before anything replaces it.
+ *
+ * Exported because spec 21 §2.3 added a second way to put a file back — `git
+ * checkout` for a tracked file the before-set does not hold — and it owes the
+ * reviewer the same copy the before-set route has always made.
+ */
+export function stashFound(applyRunId: string, path: string): void {
   try {
     const bytes = readFileSync(path);
     const dir = restoredDir(applyRunId);

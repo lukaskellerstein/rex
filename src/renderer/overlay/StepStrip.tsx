@@ -4,18 +4,20 @@
 // without opening anything: four quick reads look nothing like one long search.
 //
 // The bars are neutral ON PURPOSE. Colour means state in this design, and
-// "which tool ran" is not a state. The single exception is a denied write —
-// taller, and in the same red the write-capable agent wears everywhere else —
-// because the gate firing is the one step worth seeing at a glance.
+// "which tool ran" is not a state. A step that went wrong is a state, and there
+// are two of those: a denied write — taller, and in the same red the
+// write-capable agent wears everywhere else — because the gate firing is the one
+// step worth seeing at a glance, and a call that failed, red at the ordinary
+// height. The height is what keeps them apart at a glance; the marks beside the
+// bars are what keep them apart exactly.
 //
-// It lives in its own file because two views draw it: the comment card, where
-// the whole row is the button that opens the trace, and the trace's own head,
-// where the bars sit beside the numbers they are the shape of. One strip, one
-// rule for what a bar means.
+// It lives in its own file because three views draw it: the list row and the
+// card head, where the bars and the numbers make one line (spec 33 §2.2, spec
+// 35 §2.2), and the trace's own head, where the bars sit beside the numbers
+// they are the shape of. One strip, one rule for what a bar means.
 
-import { useLayoutEffect, useRef, useState } from "react";
 import type { Message, ThreadWithMessages } from "../../shared/types.ts";
-import { ChevronRight } from "./Icons.tsx";
+import { Blocked, Check, Warning } from "./Icons.tsx";
 import { argumentOf } from "./trace.ts";
 
 export interface Step {
@@ -23,6 +25,8 @@ export interface Step {
   name: string;
   detail: string;
   denied: boolean;
+  /** It ran and did not succeed. Never true at the same time as `denied`. */
+  failed: boolean;
 }
 
 /**
@@ -33,10 +37,13 @@ export interface Step {
  * calls and disagree with the meta strip beside it, which counts calls. So an
  * error result marks the call it belongs to instead of adding to the list: a
  * result follows its own call in `seq` order, so the most recent step that is
- * not already denied is that call.
+ * not already marked is that call.
  *
  * The refusal is kept, not dropped. `deny` in red is how the read profile's
- * gate becomes visible, and that is worth a whole design rule.
+ * gate becomes visible, and that is worth a whole design rule. A FAILED call is
+ * marked too and marked differently: it is red as well — spec 18 §3 gives an
+ * error the same red — but it is not the gate, so it does not get the gate's
+ * extra height and it is never counted with the refusals.
  */
 export function stepsOf(thread: ThreadWithMessages): Step[] {
   const steps: Step[] = [];
@@ -47,15 +54,18 @@ export function stepsOf(thread: ThreadWithMessages): Step[] {
         name: message.toolName ?? "tool",
         detail: argumentOf(message),
         denied: false,
+        failed: false,
       });
       continue;
     }
     if (message.kind !== "tool_result" || !message.isError) continue;
 
-    const call = steps.findLast((step) => !step.denied);
+    const call = steps.findLast((step) => !step.denied && !step.failed);
     if (call) {
-      call.denied = true;
-      call.detail = `${call.detail} — ${message.content ?? "refused"}`;
+      if (message.denied) call.denied = true;
+      else call.failed = true;
+      const what = message.denied ? "refused" : "failed";
+      call.detail = `${call.detail} — ${message.content ?? what}`;
     }
   }
   return steps;
@@ -68,7 +78,7 @@ export function StepBars({ steps }: { steps: Step[] }): React.JSX.Element {
       {steps.map((step) => (
         <i
           key={step.id}
-          className={step.denied ? "rex-strip-deny" : ""}
+          className={step.denied ? "rex-strip-deny" : step.failed ? "rex-strip-fail" : ""}
           title={`${step.name} · ${step.detail}`}
         />
       ))}
@@ -81,65 +91,47 @@ export function stepCount(steps: number): string {
   return `${steps} step${steps === 1 ? "" : "s"}`;
 }
 
-/** One bar and the gap after it — `.rex-strip-bars` in the stylesheet. */
-const BAR_PITCH = 5;
-
 /**
- * How much of the row the shape may take before it is dropped.
+ * Spec 33 §2.2 — the numbers beside the bars: the count, and the two failure
+ * kinds as the trace's own marks — a circled `!` for a call that failed, a
+ * barred circle for one the gate refused — each with its number, in red.
  *
- * The words are the fact and the bars are the picture, so when both cannot fit
- * the picture goes. A third leaves room for `32 steps · 2 denied` and
- * `show trace ›` at every width the splitter allows, and those must never wrap:
- * a strip that wraps to three lines is a paragraph, and the whole point of it
- * is being one row you take in without reading.
+ * Marks and not words, because `72 steps · 2 failed · 1 denied` broke inside
+ * itself at the sidebar's 300px minimum and put `denied` on a line of its own.
+ * One non-wrapping unit, drawn by the list row, the card head (spec 35 §2.2)
+ * and the trace head (spec 38 §2) so the three cannot count differently.
+ * Hover has the words.
+ *
+ * Spec 38 §2.1 — the calls that ran and succeeded come first, as a check in
+ * the muted grey, so the marks add up to the count beside them. The reviewer's
+ * words: *"show not only how many failed but how many succeeded as well."*
  */
-const BAR_SHARE = 0.35;
-
-/**
- * The whole row, on the comment card.
- *
- * It opens the trace (§6), which takes the document pane. It does not open a
- * list in place any more: a bash line, a path or a diff is wide, and 384px
- * wraps all three into mush.
- *
- * The bars are drawn only while ALL of them fit. Never a clipped run: a
- * truncated strip is a picture of a shorter run, and the bar it drops may be
- * the red one. The count and the refusals stay whichever way it goes, and the
- * trace's own head — a whole pane wide — always has the full shape.
- */
-export function StepStrip({
-  steps,
-  tracing,
-  onShowTrace,
-}: {
-  steps: Step[];
-  tracing: boolean;
-  onShowTrace: () => void;
-}): React.JSX.Element {
+export function RunNums({ steps }: { steps: Step[] }): React.JSX.Element {
   const denied = steps.filter((step) => step.denied).length;
-  const row = useRef<HTMLButtonElement>(null);
-  /** The row's content box, watched: the reviewer drags this column's width. */
-  const [room, setRoom] = useState(0);
-
-  useLayoutEffect(() => {
-    const box = row.current;
-    if (!box) return;
-    const watch = new ResizeObserver(([entry]) => setRoom(entry.contentRect.width));
-    watch.observe(box);
-    return () => watch.disconnect();
-  }, []);
-
+  const failed = steps.filter((step) => step.failed).length;
+  const ok = steps.length - denied - failed;
   return (
-    <div className={tracing ? "rex-steps rex-steps-on" : "rex-steps"}>
-      <button type="button" className="rex-steps-toggle" ref={row} onClick={onShowTrace}>
-        {steps.length * BAR_PITCH <= room * BAR_SHARE ? <StepBars steps={steps} /> : null}
-        {stepCount(steps.length)}
-        {denied > 0 ? <span className="rex-strip-denied">· {denied} denied</span> : null}
-        <span className="rex-steps-show">
-          {tracing ? "showing" : "show trace"}
-          {tracing ? null : <ChevronRight />}
+    <span className="rex-run-nums">
+      <span>{stepCount(steps.length)}</span>
+      <span className="rex-run-ok" title={`${ok} call${ok === 1 ? "" : "s"} ran and succeeded`}>
+        <Check size={12} />
+        {ok}
+      </span>
+      {failed > 0 ? (
+        <span className="rex-run-bad" title={`${failed} call${failed === 1 ? "" : "s"} failed`}>
+          <Warning size={12} />
+          {failed}
         </span>
-      </button>
-    </div>
+      ) : null}
+      {denied > 0 ? (
+        <span
+          className="rex-run-bad"
+          title={`${denied} call${denied === 1 ? "" : "s"} refused by the gate`}
+        >
+          <Blocked size={12} />
+          {denied}
+        </span>
+      ) : null}
+    </span>
   );
 }

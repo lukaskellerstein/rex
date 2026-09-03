@@ -16,8 +16,11 @@ import {
   dropMove,
   flattenRows,
   type GroupNode,
+  startsLooseBlock,
   totalsById,
+  treeCells,
 } from "../../shared/commentTree.ts";
+import { tallyPlaces, threadState } from "../../shared/targets.ts";
 import type {
   AnchorState,
   CommentGroup,
@@ -26,14 +29,41 @@ import type {
   ThreadWithMessages,
 } from "../../shared/types.ts";
 import { GroupRow } from "./GroupRow.tsx";
-import { FolderClosed, Lines } from "./Icons.tsx";
+import { FolderClosed, Lines, Plus } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
+import { ListMenu } from "./ListMenu.tsx";
+import { LANE_LABEL, LANES, type Lane, laneOf } from "./lanes.ts";
+import { Tabs } from "./Tabs.tsx";
 import { ThreadRow } from "./ThreadRow.tsx";
-
-type Filter = "open" | "resolved" | "orphaned";
 
 interface Props {
   threads: ThreadWithMessages[];
+  /**
+   * Spec 30 §5.5 — the lane being shown, and it is App's, not the panel's.
+   *
+   * It used to be this component's own `useState`, and that was two faults in
+   * one line. The paper could not see it, so §1.1's whole complaint — the pills
+   * narrowing the list and not the document — was structural. And `Sidebar`
+   * unmounts whenever a comment card opens, so reading a comment and pressing
+   * back put the row back to `open`.
+   */
+  lane: Lane;
+  onLane: (lane: Lane) => void;
+  /** Narrowed to the open document. Off by default: the list is the workspace's. */
+  onlyThisFile: boolean;
+  onOnlyThisFile: (only: boolean) => void;
+  /**
+   * Spec 30 §3.3 — how many places the standing draft holds, or 0 for none.
+   *
+   * It is what stops a saved draft from being unfindable: the `＋` button reads
+   * as "back to what you were writing" while this is above zero, and the count
+   * is the one the Selection tab used to carry (§4.2).
+   */
+  draftPlaces: number;
+  /** Spec 30 §3.1 — opens the composer. The document is the other door. */
+  onNewComment: () => void;
+  /** Removes every comment in the workspace. The `⋮` menu confirms first. */
+  onDeleteAll: () => void;
   /** Spec 14 §5 — every group in this workspace, at every depth. */
   groups: CommentGroup[];
   /** Null when no workspace is open: there is no root to hang a folder on. */
@@ -47,9 +77,15 @@ interface Props {
    * open, and then the chip is not offered rather than offered and meaningless.
    */
   openDocument: { id: string; name: string } | null;
-  /** Null means no target of this thread has been checked yet — §5.4. */
-  stateById: Map<string, AnchorState | null>;
-  labelById: Map<string, string | null>;
+  /**
+   * Spec 33 §2.1 — the state of each comment's places, in target order.
+   *
+   * Per place rather than the tally, because a row's chips count the lost
+   * places PER FILE, and a count summed over the comment cannot be split back
+   * out. The lane is summed from it here. A comment absent from the map has no
+   * places anyone has looked at (spec 05 §5.4).
+   */
+  statesById: Map<string, Array<AnchorState | null>>;
   busyThreads: string[];
   onSelect: (threadId: string) => void;
   /** Hovering a row lights that comment's passages on the paper. */
@@ -57,6 +93,8 @@ interface Props {
   onSynthesise: (refThreadIds: string[], note: string) => void;
   /** Removes a comment for good. The row confirms first. */
   onDelete: (threadId: string) => void;
+  /** Ends a comment, or puts it back — the same act as the card's own button. */
+  onResolve: (threadId: string, resolved: boolean) => void;
   /** Spec 14 §3 — null puts the note back. */
   onRename: (threadId: string, title: string | null) => void;
   /** Returns the new group's id, so the panel can open its name box (§7.4). */
@@ -67,35 +105,44 @@ interface Props {
   onMove: (move: CommentMove) => void;
 }
 
-const FILTERS: Filter[] = ["open", "resolved", "orphaned"];
-
-/**
- * Spec 18 §3 — the lane is called **gone** everywhere a person reads it.
- *
- * `orphaned` stays the key, because it is the anchor state's own name and it
- * reaches the database, the types and the IPC payloads. It was also the chip's
- * label, and that was two mistakes in one word: the tree's tooltip already said
- * "comments whose text is gone", so the two surfaces named one lane twice; and
- * `orphaned` is the widest word in the row, which is what pushed `this file`
- * onto a second line at the default sidebar width. Measured 2026-08-26 — the
- * four chips needed 389px of a 384px row, and `gone` gives back 26px.
- */
-const LABEL: Record<Filter, string> = {
-  open: "open",
-  resolved: "resolved",
-  orphaned: "gone",
-};
-
 /** Which row a drag is over, and what dropping there would mean. */
 interface Hover {
   rowId: string;
   mode: DropMode;
 }
 
+/**
+ * The `│ ├ └` beside a row, as elements: one cell per level of nesting.
+ *
+ * `treeCells` decides the shape and lives in `shared/`, where the test can
+ * exercise it — a tree drawn one column wrong looks deliberate, so it is not a
+ * thing to leave to the eye. This turns its answer into markup and nothing else.
+ */
+function RowTree<T>({
+  rows,
+  index,
+  folder,
+}: {
+  rows: Array<CommentRow<T>>;
+  index: number;
+  folder: boolean;
+}): React.JSX.Element {
+  return (
+    <span className={`rex-branch${folder ? " rex-branch-folder" : ""}`} aria-hidden="true">
+      {treeCells(rows, index).map((cell, level) => (
+        // The cells ARE their positions — outermost folder first — so the level
+        // is the identity here, not a stand-in for one.
+        <span
+          key={`${level}:${cell}`}
+          className={cell ? `rex-branch-cell rex-branch-${cell}` : "rex-branch-cell"}
+        />
+      ))}
+    </span>
+  );
+}
+
 export function Sidebar(props: Props): React.JSX.Element {
-  const [filter, setFilter] = useState<Filter>("open");
-  /** Narrowed to the open document. Off by default: the list is the workspace's. */
-  const [onlyThisFile, setOnlyThisFile] = useState(false);
+  const { lane: filter, onlyThisFile } = props;
   const [selecting, setSelecting] = useState(false);
   const [chosen, setChosen] = useState<string[]>([]);
   const [note, setNote] = useState("");
@@ -113,22 +160,18 @@ export function Sidebar(props: Props): React.JSX.Element {
   };
 
   /**
-   * One rule, used for both the chip counts and the list.
+   * One rule, used for the five counts and for the list — and for the marks on
+   * the paper, which read the same `laneOf` in `App.tsx`.
    *
-   * Spec 18 §2 — the orphaned lane is **open-only**, because `resolved` is
-   * terminal. A comment that was dealt with and whose text was later removed
-   * stays resolved: the orphan lane exists so a reviewer does not lose a
-   * question they asked, and an answered question cannot be lost. Without the
-   * status test it was pulled out of `resolved` and flagged all over again.
+   * It was a per-lane predicate until spec 30, which is a shape that lets one
+   * comment answer yes to two lanes. `lanes.ts` decides once and the answer is
+   * a single lane, so that cannot happen.
    */
-  const belongsTo = useMemo(() => {
-    const state = props.stateById;
-    return (thread: ThreadWithMessages, which: Filter): boolean => {
-      const orphaned = state.get(thread.id) === "orphaned" && thread.status === "open";
-      if (which === "orphaned") return orphaned;
-      return !orphaned && thread.status === which;
-    };
-  }, [props.stateById]);
+  const laneFor = useMemo(() => {
+    const states = props.statesById;
+    return (thread: ThreadWithMessages): Lane =>
+      laneOf(thread.status, threadState(tallyPlaces(states.get(thread.id) ?? [])));
+  }, [props.statesById]);
 
   const numbers = new Map(props.threads.map((thread, position) => [thread.id, position + 1]));
 
@@ -151,13 +194,10 @@ export function Sidebar(props: Props): React.JSX.Element {
   // each other. Every count below is what pressing that chip would leave.
   const listed = onlyThisFile ? props.threads.filter(aboutOpenDocument) : props.threads;
   const counts = Object.fromEntries(
-    FILTERS.map((which) => [which, listed.filter((t) => belongsTo(t, which)).length]),
-  ) as Record<Filter, number>;
-  const fileCount = props.threads.filter(
-    (thread) => aboutOpenDocument(thread) && belongsTo(thread, filter),
-  ).length;
+    LANES.map((which) => [which, listed.filter((t) => laneFor(t) === which).length]),
+  ) as Record<Lane, number>;
 
-  const visible = listed.filter((thread) => belongsTo(thread, filter));
+  const visible = listed.filter((thread) => laneFor(thread) === filter);
 
   /**
    * Two trees, and both are needed.
@@ -333,54 +373,150 @@ export function Sidebar(props: Props): React.JSX.Element {
       hover?.rowId === row.id && hover.mode === "after" ? "rex-drop-after" : "",
     ]
       .filter(Boolean)
-      .join(" "),
-    // The line carries the indent of the parent it means, so the last line of a
-    // subgroup and the line before the next top-level row are not one pixel.
-    style: { "--rex-drop-indent": `${row.depth * 14}px` } as React.CSSProperties,
+      .join(" ")
+      .trim(),
+    // How deep the row is, in levels. It sets the row's indent, and the drop
+    // line reads it too — the line carries the indent of the parent it means,
+    // so the last line of a subgroup and the line before the next top-level row
+    // are not one pixel.
+    style: { "--rex-rails": String(row.depth) } as React.CSSProperties,
   });
 
   return (
     <>
+      {/*
+        Spec 30 §4.1 — ROW ONE is the list's header. It says which list this is,
+        and it is where the commands that act on the whole list live.
+
+        The scope was a fourth pill in the row below until spec 30, split off by
+        a hairline, and the hairline was not a sentence: four identical pills
+        read as four states. It is drawn as a segmented control now because the
+        two questions are different in KIND — §5.1, the pills below narrow the
+        list AND the paper, and this narrows only the list, since a document can
+        never show another file's comments anyway.
+
+        `Tabs` and not a private copy: REX has one control that means "pick one
+        of these", and spec 28 §5.7 already lifted it out for the explorer.
+      */}
+      <nav className="rex-side-head rex-listhead">
+        {props.openDocument ? (
+          <Tabs
+            tabs={[
+              {
+                id: "all",
+                label: "All files",
+                count: props.threads.length,
+                title: "Every comment in this workspace",
+              },
+              {
+                id: "file",
+                label: props.openDocument.name,
+                count: props.threads.filter(aboutOpenDocument).length,
+                // §4.3 — the whole name, since this is the label that truncates.
+                title: `Only the comments about ${props.openDocument.name}`,
+              },
+            ]}
+            on={onlyThisFile ? "file" : "all"}
+            onTab={(which) => props.onOnlyThisFile(which === "file")}
+          />
+        ) : (
+          // With nothing open there is no second scope to offer, so the row
+          // says what the list is instead of drawing a switch with one side.
+          <span className="rex-meta">All comments {props.threads.length}</span>
+        )}
+
+        {/*
+          The menu is lifted OUT of the flow, not merely pushed right. Left in
+          it it takes real width after the switch, so `margin: 0 auto` centres
+          the switch in what it leaves rather than on the row.
+        */}
+        <span className="rex-listhead-end">
+          <ListMenu commentCount={props.threads.length} onDeleteAllComments={props.onDeleteAll} />
+        </span>
+      </nav>
+
+      {/*
+        ROW TWO — the two things a reviewer can MAKE, side by side.
+
+        They were in two different places: `New` at the right edge of the header
+        above, `New folder` at the foot of the panel, thirty rows of list apart.
+        Both answer the same question — *how do I add something?* — so both are
+        asked in one place. Reported 2026-09-02.
+
+        A row of their own rather than back in the header: two labelled buttons
+        plus the scope switch do not fit a 384px sidebar, and the labels are the
+        point. Moving them out also gives the header its width back — the switch
+        now has the row minus two 24px columns, so nothing truncates at any
+        width the panel can be dragged to.
+      */}
+      <nav className="rex-makerow">
+        {/*
+          Spec 30 §3.1 — the second door into the composer.
+
+          The document is the main one and stays so: picking a place opens the
+          composer by itself. This button is for the two cases the document
+          cannot serve — starting a comment about the whole document, and
+          GETTING BACK TO A DRAFT that is standing.
+
+          §3.4 — offered whether or not a document is open. With nothing open
+          nothing can be picked and back discards, and that is a better answer
+          than a button whose meaning changes with the screen.
+
+          A WORD, not a bare `＋`. An icon alone says "add", and in a panel of
+          comments the first guess is "add what — a folder?" Beside a button
+          that really does make a folder, the word has to say which of the two
+          this is, so it reads `New comment` rather than `New`.
+        */}
+        <button
+          type="button"
+          className={`rex-new${props.draftPlaces > 0 ? " rex-new-standing" : ""}`}
+          aria-label="Start a new comment"
+          data-tip={
+            props.draftPlaces > 0
+              ? `Back to the comment you are writing — ${props.draftPlaces} place${props.draftPlaces === 1 ? "" : "s"}`
+              : "Start a new comment"
+          }
+          onClick={props.onNewComment}
+        >
+          <Plus size={11} />
+          New comment
+          {/* §4.2 — the selection count moved here from the tab that carried it. */}
+          {props.draftPlaces > 0 ? (
+            <span className="rex-chip-count">{props.draftPlaces}</span>
+          ) : null}
+        </button>
+
+        {/*
+          Spec 14 §5.3 — with no workspace open there is no root to hang a group
+          on, so the control is not offered rather than offered and failing.
+        */}
+        {props.root ? (
+          <button
+            type="button"
+            className="rex-new"
+            aria-label="Make a folder at the top level"
+            data-tip="Make a folder at the top level"
+            onClick={() => void addGroup(null)}
+          >
+            <FolderClosed size={12} />
+            New folder
+          </button>
+        ) : null}
+      </nav>
+
+      {/* ROW THREE is the filter, and nothing else. Spec 30 §4.4 — five pills. */}
       <nav className="rex-side-head rex-filters">
-        {FILTERS.map((option) => (
+        {LANES.map((option) => (
           <button
             key={option}
             type="button"
             className={`rex-chip ${filter === option ? "rex-chip-on" : ""}`}
-            onClick={() => setFilter(option)}
+            onClick={() => props.onLane(option)}
           >
-            {LABEL[option]}
+            {LANE_LABEL[option]}
             <span className={`rex-chip-count rex-chip-count-${option}`}>{counts[option]}</span>
           </button>
         ))}
-
-        {/*
-          A second question, and drawn as one.
-
-          The three chips beside it are one state each and only ever one at a
-          time. This one is not a fourth state — it is *what the comment is
-          about* — so it toggles on its own and narrows whichever of the three
-          is on. The rule down its left edge is what says the row has two halves
-          rather than four choices. Reported on 2026-08-26.
-
-          One word, and the rule and the tooltip carry the rest. `this file` was
-          the widest label in the row after `orphaned`, and the two together put
-          it 54px over a 356px row — so it wrapped its own text inside its pill.
-        */}
-        {props.openDocument ? (
-          <>
-            <span className="rex-filter-split" aria-hidden="true" />
-            <button
-              type="button"
-              className={`rex-chip ${onlyThisFile ? "rex-chip-on" : ""}`}
-              title={`Show only the comments about ${props.openDocument.name}`}
-              onClick={() => setOnlyThisFile(!onlyThisFile)}
-            >
-              file
-              <span className="rex-chip-count">{fileCount}</span>
-            </button>
-          </>
-        ) : null}
       </nav>
 
       {/*
@@ -399,27 +535,46 @@ export function Sidebar(props: Props): React.JSX.Element {
         {filter === "orphaned" && visible.length > 0 ? (
           // §6.6 — REX's own Apply creates orphans, so this is normal operation
           // rather than an error path, and the panel says so plainly.
+          //
+          // Spec 30 §5.4 — and the second sentence is new, because the filter
+          // reaches the paper now. An orphan has no place in the document by
+          // definition (spec 15 §8.5), so this is the one lane that fills the
+          // list and leaves the page bare. That is correct, and it looks broken
+          // the first time, so the panel says which it is.
           <p className="rex-orphan-note">
-            The text these were written against is gone. Nothing is lost — each keeps the quote it
-            was written on, and REX's own Apply is a normal way to create one.
+            The text these were written against is gone, so none of them is marked on the page.
+            Nothing is lost — each keeps the quote it was written on, and REX's own Apply is a
+            normal way to create one.
           </p>
         ) : null}
 
         {rows.length === 0 ? (
           // Which of the two filters emptied it, so the way back is obvious.
           <p className="rex-meta">
-            No {filter} comments
+            No {LANE_LABEL[filter]} comments
             {onlyThisFile && props.openDocument ? ` about ${props.openDocument.name}` : ""}.
           </p>
         ) : (
-          rows.map((row) =>
-            row.kind === "group" ? (
-              <div key={`g:${row.id}`} {...dragProps(row)}>
+          rows.map((row, index) => {
+            // The row that steps back out of a folder — the row above it is
+            // deeper — is where that folder's block ends. It gets the air.
+            const out = row.depth < (rows[index - 1]?.depth ?? row.depth);
+            // And the FIRST comment that is in no folder gets the rule, because
+            // that is the one boundary the reviewer scans for: folders above
+            // it, everything else below. A comment stepping out of a nested
+            // folder is still in a folder, so it gets the air and no rule.
+            const loose = startsLooseBlock(rows, index);
+            // `rex-out` and `rex-loose` both set the space above the row, so a
+            // row never carries both — the bigger one would depend on which
+            // rule the stylesheet happened to declare last.
+            const air = loose ? "rex-loose" : out ? "rex-out" : "";
+            return row.kind === "group" ? (
+              <div key={`g:${row.id}`} {...dragProps(row, air)}>
+                <RowTree rows={rows} index={index} folder />
                 <GroupRow
                   name={row.node.group.name}
                   count={row.node.total}
                   collapsed={collapsedIds.has(row.id)}
-                  depth={row.depth}
                   dropInside={hover?.rowId === row.id && hover.mode === "inside"}
                   renaming={renaming === row.id}
                   onToggle={() => props.onGroupCollapse(row.id, !collapsedIds.has(row.id))}
@@ -444,7 +599,8 @@ export function Sidebar(props: Props): React.JSX.Element {
                 />
               </div>
             ) : (
-              <div key={row.id} {...dragProps(row, "rex-row")}>
+              <div key={row.id} {...dragProps(row, `rex-row ${air}`)}>
+                <RowTree rows={rows} index={index} folder={false} />
                 {selecting ? (
                   <input
                     type="checkbox"
@@ -456,11 +612,9 @@ export function Sidebar(props: Props): React.JSX.Element {
                 <ThreadRow
                   thread={row.thread}
                   number={numbers.get(row.id) ?? 0}
-                  state={props.stateById.get(row.id) ?? null}
-                  label={props.labelById.get(row.id) ?? null}
+                  states={props.statesById.get(row.id) ?? []}
                   selected={false}
                   busy={props.busyThreads.includes(row.id)}
-                  depth={row.depth}
                   renaming={renaming === row.id}
                   onRename={() => setRenaming(row.id)}
                   onName={(title) => {
@@ -471,10 +625,11 @@ export function Sidebar(props: Props): React.JSX.Element {
                   onSelect={() => props.onSelect(row.id)}
                   onHover={(isOver) => props.onHover(isOver ? row.id : null)}
                   onDelete={() => props.onDelete(row.id)}
+                  onResolve={(resolved) => props.onResolve(row.id, resolved)}
                 />
               </div>
-            ),
-          )
+            );
+          })
         )}
       </div>
 
@@ -509,6 +664,12 @@ export function Sidebar(props: Props): React.JSX.Element {
           </>
         ) : (
           <>
+            {/*
+              `New folder` used to stand here beside it, and it has moved up to
+              the make row under the header — the two commands that MAKE
+              something are in one place now. The foot keeps the one command
+              that is about comments that already exist.
+            */}
             <div className="rex-row">
               <button
                 type="button"
@@ -519,22 +680,6 @@ export function Sidebar(props: Props): React.JSX.Element {
                 <Lines />
                 Synthesis thread…
               </button>
-              {/*
-                Spec 14 §5.3 — with no workspace open there is no root to hang a
-                group on, so the control is not offered rather than offered and
-                failing.
-              */}
-              {props.root ? (
-                <button
-                  type="button"
-                  className="rex-button"
-                  title="Make a folder at the top level"
-                  onClick={() => void addGroup(null)}
-                >
-                  <FolderClosed />
-                  New folder
-                </button>
-              ) : null}
             </div>
             <span className="rex-meta">
               {props.root

@@ -10,7 +10,7 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { beginRun, endRun, stopRun } from "../src/main/agent/runs.ts";
+import { beginRun, endRun, isHeld, stopRun } from "../src/main/agent/runs.ts";
 
 test("a registered run is stopped, and its signal says so", () => {
   const controller = beginRun("thread-a");
@@ -97,4 +97,51 @@ test("threads are stopped independently", () => {
 
   endRun("thread-g", one);
   endRun("thread-h", two);
+});
+
+/**
+ * Spec 34 §5.1 — a run holds the documents its prompt named, from `beginRun`
+ * to `endRun`. This is what stops approve, discard and undo from replacing a
+ * working copy under a running agent (§1.1's incident).
+ */
+test("a run holds its documents until it ends", () => {
+  assert.equal(isHeld("doc-x"), false);
+  const controller = beginRun("thread-i", ["doc-x", "doc-y"]);
+  assert.equal(isHeld("doc-x"), true);
+  assert.equal(isHeld("doc-y"), true);
+  assert.equal(isHeld("doc-z"), false, "only what the prompt named");
+
+  endRun("thread-i", controller);
+  assert.equal(isHeld("doc-x"), false);
+  assert.equal(isHeld("doc-y"), false);
+});
+
+test("two runs on one document hold it until the last one ends", () => {
+  // §5.5 — several agents on one document is the case the spec exists for, so
+  // the hold is a count and not a flag.
+  const first = beginRun("thread-j", ["doc-shared"]);
+  const second = beginRun("thread-k", ["doc-shared"]);
+
+  endRun("thread-j", first);
+  assert.equal(isHeld("doc-shared"), true, "the second run still holds it");
+
+  endRun("thread-k", second);
+  assert.equal(isHeld("doc-shared"), false);
+});
+
+test("a stopped run releases its documents when it ends, not when it is stopped", () => {
+  // Stop aborts; the run's `finally` is what ends it — and until then the
+  // agent may still be writing, so the copy must not be replaced yet.
+  const controller = beginRun("thread-l", ["doc-stopped"]);
+  stopRun("thread-l");
+  assert.equal(isHeld("doc-stopped"), true);
+
+  endRun("thread-l", controller);
+  assert.equal(isHeld("doc-stopped"), false);
+});
+
+test("a run with no documents holds nothing, and the old calls still work", () => {
+  const controller = beginRun("thread-m");
+  assert.equal(stopRun("thread-m"), 1);
+  endRun("thread-m", controller);
 });

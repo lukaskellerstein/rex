@@ -20,6 +20,8 @@
 // The recurring half of every intent check is the one that matters: not only
 // that the change happened, but that **nothing else did**.
 
+import { type OoxmlPackage, openPackage } from "../ooxml/package.ts";
+import { attributeOf, scanElements } from "../ooxml/xml.ts";
 import { parseDeck, slideTexts } from "../render/pptxText.ts";
 import {
   type DeckMap,
@@ -29,9 +31,8 @@ import {
   resolveTarget,
   shapesOf,
 } from "./deck.ts";
-import type { DeckPackage } from "./package.ts";
+import { readNotes } from "./notes.ts";
 import type { EditPlan, Operation } from "./plan.ts";
-import { attributeOf, scanElements } from "./xml.ts";
 
 const CONTENT_TYPES = "[Content_Types].xml";
 const LAYOUT_REL_TYPE =
@@ -54,7 +55,7 @@ function relationshipIdsIn(xml: string): Set<string> {
 }
 
 async function contentTypeIndex(
-  pkg: DeckPackage,
+  pkg: OoxmlPackage,
 ): Promise<{ defaults: Set<string>; overrides: Set<string> }> {
   const xml = await pkg.readText(CONTENT_TYPES);
   const defaults = new Set(
@@ -75,7 +76,7 @@ async function contentTypeIndex(
  * the corruptions REX's own operations can cause, each of which produces a file
  * PowerPoint offers to repair rather than one it refuses outright.
  */
-export async function structuralProblems(pkg: DeckPackage): Promise<Problem[]> {
+export async function structuralProblems(pkg: OoxmlPackage): Promise<Problem[]> {
   const problems: Problem[] = [];
   const parts = pkg.paths();
   const present = new Set(parts);
@@ -196,7 +197,10 @@ export async function structuralProblems(pkg: DeckPackage): Promise<Problem[]> {
  * is valid, because many real decks are not, but it can prove it did not break
  * anything that was working.
  */
-export async function newProblems(original: DeckPackage, edited: DeckPackage): Promise<Problem[]> {
+export async function newProblems(
+  original: OoxmlPackage,
+  edited: OoxmlPackage,
+): Promise<Problem[]> {
   const before = new Set((await structuralProblems(original)).map((problem) => problem.key));
   return (await structuralProblems(edited)).filter((problem) => !before.has(problem.key));
 }
@@ -370,7 +374,10 @@ export async function intentProblems(
  * inferred from the file opening: **a missing `p14:media` extension opens
  * fine and never plays.** So all six are looked for by name.
  */
-export async function videoProblems(pkg: DeckPackage, slidePart: string): Promise<IntentProblem[]> {
+export async function videoProblems(
+  pkg: OoxmlPackage,
+  slidePart: string,
+): Promise<IntentProblem[]> {
   const problems: IntentProblem[] = [];
   const xml = await pkg.readText(slidePart);
 
@@ -505,6 +512,65 @@ function clip(value: string): string {
 }
 
 /** Slides a plan claims to affect, for the preview (§7.7). */
+/**
+ * Spec 19 §7.3 — a `setNotes` changed the notes, **and the slide did not**.
+ *
+ * Its own pass, like `videoProblems`, because it is the one check whose failure
+ * is invisible everywhere else: the preview draws the slide, a note is not on
+ * the slide, and every existing check compares shape text on slides. A
+ * `setNotes` that wrote into the slide instead of the notes would look
+ * completely correct until somebody opened PowerPoint.
+ */
+export async function notesProblems(
+  originalBytes: Buffer,
+  editedBytes: Buffer,
+  plan: EditPlan,
+): Promise<IntentProblem[]> {
+  const operations = plan.operations.filter((operation) => operation.op === "setNotes");
+  if (operations.length === 0) return [];
+
+  const problems: IntentProblem[] = [];
+  const before = await openPackage(originalBytes);
+  const after = await openPackage(editedBytes);
+  const beforeMap = await readDeckMap(before);
+  const afterMap = await readDeckMap(after);
+
+  for (const operation of operations) {
+    const part = afterMap.slides[operation.slide - 1];
+    if (!part) {
+      problems.push({
+        operation: "setNotes",
+        message: `Slide ${operation.slide} is not in the edited deck.`,
+      });
+      continue;
+    }
+
+    const now = (await readNotes(after, part)).replace(/\s+/g, " ").trim();
+    const wanted = operation.to.replace(/\s+/g, " ").trim();
+    if (now !== wanted) {
+      problems.push({
+        operation: "setNotes",
+        message: `Slide ${operation.slide}'s notes say '${clip(now)}' and the plan said they would say '${clip(wanted)}'.`,
+      });
+    }
+
+    // The half that matters. A note is not drawn on the slide, so nothing else
+    // would ever notice this.
+    const originalPart = beforeMap.slides[operation.slide - 1];
+    if (originalPart && before.has(originalPart) && after.has(part)) {
+      const was = await before.read(originalPart);
+      const is = await after.read(part);
+      if (!was.equals(is)) {
+        problems.push({
+          operation: "setNotes",
+          message: `Slide ${operation.slide} itself was changed, and setNotes must only change its notes.`,
+        });
+      }
+    }
+  }
+  return problems;
+}
+
 export function affectedSlides(plan: EditPlan, map: DeckMap): number[] {
   const slides = new Set<number>();
   for (const operation of plan.operations) {

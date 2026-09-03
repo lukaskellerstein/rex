@@ -13,9 +13,9 @@
 // staged on the in-memory package, which the caller throws away whole if any
 // later check fails.
 
+import type { OoxmlPackage } from "../ooxml/package.ts";
+import { escapeXml, firstElement, scanElements, splice } from "../ooxml/xml.ts";
 import { parseRelationships, relsPathFor, resolveTarget, shapesOf } from "./deck.ts";
-import type { DeckPackage } from "./package.ts";
-import { escapeXml, firstElement, scanElements, splice } from "./xml.ts";
 
 const CONTENT_TYPES = "[Content_Types].xml";
 
@@ -30,7 +30,7 @@ export const VIDEO_REL_TYPE =
  * Named for what it is: a clip called `rex-image1.mp4` is a small lie that
  * anyone unzipping the deck later has to see through.
  */
-export function freeMediaPart(pkg: DeckPackage, extension: string, kind = "image"): string {
+export function freeMediaPart(pkg: OoxmlPackage, extension: string, kind = "image"): string {
   const taken = new Set(pkg.paths());
   for (let n = 1; ; n++) {
     const candidate = `ppt/media/rex-${kind}${n}.${extension}`;
@@ -40,7 +40,7 @@ export function freeMediaPart(pkg: DeckPackage, extension: string, kind = "image
 
 /** Place 2 — a relationship id free in this part's own `.rels`. */
 export async function addRelationship(
-  pkg: DeckPackage,
+  pkg: OoxmlPackage,
   ownerPart: string,
   type: string,
   targetPart: string,
@@ -86,7 +86,7 @@ function relativeTarget(fromDir: string, target: string): string {
  * writes for media, so one entry serves every picture of the same kind.
  */
 export async function declareContentType(
-  pkg: DeckPackage,
+  pkg: OoxmlPackage,
   extension: string,
   contentType: string,
 ): Promise<void> {
@@ -135,7 +135,7 @@ export function pictureXml(input: {
  * looks wrong. §7.8 checks for exactly this, so a missed sweep fails the run
  * rather than shipping.
  */
-export async function sweepOrphanMedia(pkg: DeckPackage): Promise<string[]> {
+export async function sweepOrphanMedia(pkg: OoxmlPackage): Promise<string[]> {
   const referenced = new Set<string>();
   for (const part of pkg.paths()) {
     if (!part.endsWith(".rels")) continue;

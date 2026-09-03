@@ -5,13 +5,24 @@
 // replaces the source with the drawn SVG. On failure the source stays on
 // screen, which is §4.2 rule 3: failing loudly and readably beats an empty box.
 
+/**
+ * Which of Mermaid's own themes a diagram is drawn in.
+ *
+ * Spec 27 §4.5 — a Mermaid diagram is REX's drawing rather than the author's
+ * picture, so REX may draw it again to match the paper. An image never is, and
+ * keeps a light card instead.
+ */
+export type DiagramTheme = "neutral" | "dark";
+
 /** One place decides how a REX diagram looks, whichever half of the app drew it. */
-const MERMAID_CONFIG = {
-  startOnLoad: false,
-  securityLevel: "strict",
-  theme: "neutral",
-  fontFamily: '"DM Sans", system-ui, sans-serif',
-} as const;
+function mermaidConfig(theme: DiagramTheme) {
+  return {
+    startOnLoad: false,
+    securityLevel: "strict",
+    theme,
+    fontFamily: '"DM Sans", system-ui, sans-serif',
+  } as const;
+}
 
 /**
  * Spec 11 §7.4.2 — the second entry point: Mermaid source in, a PNG out.
@@ -27,7 +38,9 @@ const MERMAID_CONFIG = {
  */
 export async function drawDiagramPng(source: string, scale = 2): Promise<Uint8Array> {
   const { default: mermaid } = await import("mermaid");
-  mermaid.initialize(MERMAID_CONFIG);
+  // Spec 27 §4.5 — `neutral`, whatever the reviewer's paper is doing. A slide
+  // is a light ground and the deck is not their screen.
+  mermaid.initialize(mermaidConfig("neutral"));
 
   const renderId = `rex-plan-diagram-${Math.random().toString(36).slice(2)}`;
   let svg: string;
@@ -170,18 +183,33 @@ function base64Of(value: string): string {
  * main, and why the id handed to `render` must not collide with anything on
  * REX's own page — hence the `-svg` suffix on an id that is already unique.
  */
-export async function mermaidPass(doc: Document): Promise<void> {
+export async function mermaidPass(doc: Document, theme: DiagramTheme = "neutral"): Promise<void> {
   const blocks = [...doc.querySelectorAll<HTMLElement>("pre.rex-mermaid")];
   // A document with no diagram never pays for roughly three megabytes.
   if (blocks.length === 0) return;
 
   const { default: mermaid } = await import("mermaid");
-  mermaid.initialize(MERMAID_CONFIG);
+  mermaid.initialize(mermaidConfig(theme));
 
   for (const block of blocks) {
     const renderId = `${block.id}-svg`;
     try {
-      const { svg } = await mermaid.render(renderId, block.textContent ?? "");
+      /*
+        Spec 27 §4.5 — the SOURCE is kept, and this is the line the second run
+        depends on.
+
+        The render below replaces the block's text with the drawn SVG, so after
+        the first pass there is nothing left to draw again: switching the paper
+        to dark would have an SVG to re-render and no diagram to render it
+        from. It is stashed on the element the first time through and read from
+        there on every run after that.
+
+        A `data-` attribute is not text content, so the anchor text index never
+        sees it and no comment moves — which is the only reason this is safe to
+        do to a document under review.
+      */
+      block.dataset.source ??= block.textContent ?? "";
+      const { svg } = await mermaid.render(renderId, block.dataset.source);
       block.innerHTML = svg;
       // The <pre> keeps `white-space: pre` and a monospace font otherwise, and
       // the SVG inherits both and draws wrong. The stylesheet resets them on

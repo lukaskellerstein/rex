@@ -18,9 +18,24 @@ interface Props {
    * back (§3.1). False for a group, which has no note to fall back to (§7.1).
    */
   allowEmpty: boolean;
+  /**
+   * Spec 23 §5.2 — how much of the name the box opens selected.
+   *
+   * `all` for a comment or a group, whose name is prose. `stem` for a file,
+   * where the extension is not part of what is being renamed: every file
+   * manager selects `components` and leaves `.md`, and typing over the dot is
+   * how a document silently stops being one REX can open.
+   */
+  selection?: "all" | "stem";
   /** Null only ever reaches this when `allowEmpty` is true. */
   onSave: (name: string | null) => void;
   onCancel: () => void;
+}
+
+/** The last dot that is not the first character — `.gitignore` has no stem. */
+function stemEnd(name: string): number {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? dot : name.length;
 }
 
 export function NameBox(props: Props): React.JSX.Element {
@@ -31,8 +46,9 @@ export function NameBox(props: Props): React.JSX.Element {
   // keystroke; clearing 97 characters by hand is not.
   useEffect(() => {
     input.current?.focus();
-    input.current?.select();
-  }, []);
+    if (props.selection === "stem") input.current?.setSelectionRange(0, stemEnd(props.value));
+    else input.current?.select();
+  }, [props.selection, props.value]);
 
   /**
    * Enter and Escape both close the box, and closing it blurs the input — so

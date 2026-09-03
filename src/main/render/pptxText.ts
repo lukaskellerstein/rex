@@ -11,8 +11,8 @@ import { join } from "node:path";
 import { decodeHTML } from "entities";
 import type { Element as DeckElement, Slide } from "pptxtojson/dist/index.js";
 import { parse } from "pptxtojson/dist/index.js";
+import { openPackage } from "../ooxml/package.ts";
 import { readDeckMap } from "../pptx/deck.ts";
-import { openPackage } from "../pptx/package.ts";
 
 export type ParsedDeck = Awaited<ReturnType<typeof parse>>;
 

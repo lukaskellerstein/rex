@@ -24,23 +24,31 @@ one. They are written as checks, not opinions.
 
 ## 4b. Test
 
-**UI changes** — drive the running REX window with Playwright. This is an
-Electron app, so the MCP server **attaches** to the app over CDP rather than
-launching its own browser:
+**UI changes** — drive a REX window with Playwright. This is an Electron app,
+so the MCP server **attaches** to the app over CDP rather than launching its
+own browser:
 
-1. Confirm the app is up and exposing its debugger:
-   `curl -s http://localhost:9334/json/version`. If it is not, launch REX with
-   `--remote-debugging-port=9334` and wait for that endpoint to answer.
-2. Drive it via `mcp__playwright-rex__browser_navigate` and the other
+1. Check who holds the port: `curl -s http://localhost:9334/json/version`.
+   `pw-agent` in the `User-Agent` means an agent instance — attach to it. No
+   marker means the instance is Lukas's own: the PreToolUse gate denies every
+   `browser_*` call on it, and step 2 is how you get your own.
+2. If nothing answers, start your own instance **only** through
+   `.claude/hooks/playwright-launch.sh npm run dev` — never bare. The wrapper
+   sets `PW_AGENT=1`, so the window is born on the `playwright` desktop with
+   the title `REX [agent]` (spec 20) and never appears on Lukas's screen.
+3. Drive it via `mcp__playwright-rex__browser_navigate` and the other
    `browser_*` tools, and verify the change is visible **and** functional — take
    a snapshot, don't just assert the page loaded.
-3. **Close the browser when done.**
+4. **Close the browser when done.**
 
 > [!important]
-> **If 9334 already answers, that REX is very probably Lukas's own**, started
-> with `npm run dev` — spec 13 §2.1 gives every run the port, so an answering
-> endpoint is no longer evidence that an agent left one behind. Attach to it;
-> do not quit it, restart it, or start a second one beside it. Ask first.
+> **A 9334 answer without `pw-agent` is Lukas's own REX**, started with
+> `npm run dev` — spec 13 §2.1 gives every run the port. Do not quit it,
+> restart it, or drive it. The gate denies `browser_*` calls on it and the
+> wrapper refuses a busy port; to proceed, either ask Lukas (the denial
+> message names the consent command) or test on a second instance's own port —
+> `REX_CDP_PORT=9444 .claude/hooks/playwright-launch.sh npm run dev` — knowing
+> the MCP is pinned to 9334, so a second instance is reachable only by raw CDP.
 >
 > Two things follow from spec 13 and are worth knowing before debugging blind:
 >
@@ -52,12 +60,12 @@ launching its own browser:
 >   not paste one, ask for it before guessing.
 >
 > A second REX cannot have the port — Chromium fails to bind it and runs on
-> with no debugger, silently. `REX_CDP_PORT=9444 npm run dev` is how a second
-> one gets its own.
+> with no debugger, silently. That is why the wrapper refuses a busy port
+> instead of launching into it.
 
-> The browser opens on its own desktop/space and is closed automatically at
-> session end by `.claude/hooks/`. That is a safety net, not a substitute for
-> closing it yourself when the test is finished.
+> An agent window is born on the `playwright` desktop (spec 20) and is closed
+> automatically at session end by `.claude/hooks/`. That is a safety net, not a
+> substitute for closing it yourself when the test is finished.
 
 **Anchoring changes** — anchoring is the one component that **fails silently**,
 so a green run proves nothing unless it includes the hostile documents:

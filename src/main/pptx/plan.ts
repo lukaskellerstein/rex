@@ -80,7 +80,9 @@ export type Operation =
   | { op: "reorderSlides"; order: number[] }
   | { op: "duplicateSlide"; slide: number }
   | { op: "deleteSlide"; slide: number; from: string }
-  | { op: "setThemeFont"; major: string; minor: string };
+  | { op: "setThemeFont"; major: string; minor: string }
+  /** Spec 19 §7.1 — the thirteenth. `from` may be empty: no notes yet. */
+  | { op: "setNotes"; slide: number; from: string; to: string };
 
 export type OperationKind = Operation["op"];
 
@@ -90,7 +92,12 @@ export interface EditPlan {
   operations: Operation[];
 }
 
-/** §7.2.1 — the twelve, grouped as the spec groups them. */
+/**
+ * §7.2.1 — the twelve, grouped as the spec groups them, plus spec 19 §7's
+ * thirteenth. `setNotes` is here rather than in a module of its own because the
+ * plan is one contract with the agent, and a deck operation the agent cannot
+ * see in this list does not exist.
+ */
 export const OPERATIONS: readonly OperationKind[] = [
   "setText",
   "insertTextBox",
@@ -104,6 +111,7 @@ export const OPERATIONS: readonly OperationKind[] = [
   "duplicateSlide",
   "deleteSlide",
   "setThemeFont",
+  "setNotes",
 ];
 
 /**
@@ -121,6 +129,7 @@ const NEEDS_FROM = new Set<OperationKind>([
   "deleteShape",
   "replaceImage",
   "deleteSlide",
+  "setNotes",
 ]);
 
 /** Operations that change slide order or slide count. */
@@ -385,6 +394,15 @@ function parseOperation(raw: unknown, at: number): Operation {
         op,
         major: requireString(raw.major, `${where}.major`),
         minor: requireString(raw.minor, `${where}.minor`),
+      };
+    case "setNotes":
+      return {
+        op,
+        slide: requirePosition(raw.slide, `${where}.slide`),
+        // Empty is a legitimate expectation here and means "this slide has no
+        // notes yet", which is 39 of the 72 decks on this machine (§2.5).
+        from: typeof raw.from === "string" ? raw.from : fail(`${where}.from must be a string.`),
+        to: typeof raw.to === "string" ? raw.to : fail(`${where}.to must be a string.`),
       };
   }
 }

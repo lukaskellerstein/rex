@@ -12,7 +12,7 @@ import { DB_PATH } from "../main/db/location.ts";
 import { listThreadsInDocument } from "../main/db/queries.ts";
 import { withDetail } from "../main/threads.ts";
 import { commentName } from "../shared/names.ts";
-import { worstState } from "../shared/targets.ts";
+import { type PlaceTally, tallyPlaces } from "../shared/targets.ts";
 import type { ThreadWithMessages } from "../shared/types.ts";
 
 interface Options {
@@ -48,11 +48,24 @@ function demoteHeadings(markdown: string): string {
   return markdown.replace(/^(#{1,4}) /gm, (_match, hashes: string) => `${hashes}## `);
 }
 
-const STATE_LABEL: Record<string, string> = {
-  ok: "anchored",
-  moved: "anchor moved — the text changed since this was written",
-  orphaned: "orphaned — the text this was written against is gone",
-};
+/**
+ * Spec 32 §2.2 — one comment's places, in a sentence.
+ *
+ * The export is read away from REX, with no place list beside it, so it says the
+ * count out loud rather than picking a verdict for the whole comment: "3 of 4
+ * places anchored" is the fact, and "orphaned" about the same comment was not.
+ */
+function stateLine(tally: PlaceTally): string | null {
+  const { checked, ok, moved, orphaned } = tally;
+  if (checked === 0) return null;
+  if (ok === checked) return "anchored";
+  if (orphaned === checked) return "orphaned — the text this was written against is gone";
+  const parts: string[] = [];
+  if (ok > 0) parts.push(`${ok} anchored`);
+  if (moved > 0) parts.push(`${moved} moved`);
+  if (orphaned > 0) parts.push(`${orphaned} orphaned`);
+  return `${parts.join(", ")} of ${checked} places`;
+}
 
 /**
  * Spec 14 §5 — a comment's group, as a path: `Blocking / Auth flow`.
@@ -100,12 +113,12 @@ function toMarkdown(
     lines.push(`## ${position + 1}. ${commentName(thread)}`, "");
 
     const primary = thread.targets[0]?.anchor ?? null;
-    const state = worstState(thread.targets.map((target) => target.state));
+    const state = stateLine(tallyPlaces(thread.targets.map((target) => target.state)));
 
     const facts = [`status: ${thread.status}`];
     const group = thread.groupId ? groupNames.get(thread.groupId) : null;
     if (group) facts.push(`group: ${group}`);
-    if (state) facts.push(STATE_LABEL[state] ?? state);
+    if (state) facts.push(state);
     if (primary?.source) facts.push(`source line ${primary.source.line}`);
     // A comment about several documents says so here rather than pretending the
     // export it appears in is the whole of it.

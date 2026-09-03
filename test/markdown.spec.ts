@@ -13,7 +13,7 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { renderMarkdown } from "../src/main/render/markdown.ts";
+import { renderMarkdown, sourceLineCount } from "../src/main/render/markdown.ts";
 import { MARKDOWN_STYLESHEET } from "../src/main/render/stylesheet.ts";
 
 // ── The stylesheet's one hard rule ──────────────────────────────
@@ -244,4 +244,15 @@ test("tables, nested lists and inline HTML are unchanged", () => {
   assert.match(html, /<table[^>]*data-src-line="1"/);
   assert.match(html, /style="text-align:right"/, "column alignment survives");
   assert.match(html, /<sub>small<\/sub>/, "inline HTML survives");
+});
+
+// ── Spec 35 §3 — the file's own length, for the last block ──────
+
+test("sourceLineCount counts lines the way data-src-line does", () => {
+  assert.equal(sourceLineCount("one"), 1);
+  assert.equal(sourceLineCount("one\ntwo"), 2);
+  // A trailing newline ends the last line; it does not start another.
+  assert.equal(sourceLineCount("one\ntwo\n"), 2);
+  assert.equal(sourceLineCount("one\r\ntwo\r\n"), 2);
+  assert.equal(sourceLineCount(""), 1);
 });

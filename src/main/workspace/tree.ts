@@ -6,27 +6,14 @@
 
 import { type Dirent, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { documentsIn } from "../../shared/tree.ts";
 import type { Exclusion, TreeEntry, WorkspaceTree } from "../../shared/types.ts";
 import type { Db } from "../db/database.ts";
 import { commentCountsByDocument, workspaceRules } from "../db/queries.ts";
 import { isDocumentPath, unopenableReason } from "../render/formats.ts";
-
-/** Build output and dependency trees are never review material (§4.2). */
-const SKIP_DIRECTORIES = new Set([
-  ".git",
-  "node_modules",
-  "out",
-  "dist",
-  "build",
-  ".vite",
-  ".next",
-  "target",
-  "__pycache__",
-  ".venv",
-  "venv",
-  "release",
-  "releases",
-]);
+// §4.2's skip list, shared with spec 21 §3 — which refuses to keep a created
+// file anywhere this scan would not draw it.
+import { SKIP_DIRECTORIES } from "./created.ts";
 
 const MAX_DEPTH = 12;
 const MAX_ENTRIES = 5000;
@@ -169,17 +156,5 @@ export function scanWorkspace(db: Db, root: string, options: ScanOptions = {}): 
 
 /** Every document path in the tree, depth first — what the graph starts from. */
 export function documentPaths(tree: WorkspaceTree): string[] {
-  const paths: string[] = [];
-  const visit = (entries: TreeEntry[]): void => {
-    for (const entry of entries) {
-      // A revealed row is shown so it can be un-excluded, never so it can be
-      // acted on. The graph asks this question of a scan that reveals nothing,
-      // so the guard costs a comparison and closes the case where it does not.
-      if (entry.exclusion !== null) continue;
-      if (entry.kind === "document") paths.push(entry.path);
-      else if (entry.kind === "directory") visit(entry.children);
-    }
-  };
-  visit(tree.entries);
-  return paths;
+  return documentsIn(tree.entries);
 }

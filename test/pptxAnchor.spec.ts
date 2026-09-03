@@ -24,6 +24,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 import { chromium, type Page } from "playwright";
+import { type OoxmlPackage, openPackage } from "../src/main/ooxml/package.ts";
 import { slidePartAt } from "../src/main/pptx/deck.ts";
 import {
   applyPlanToPackage,
@@ -31,7 +32,6 @@ import {
   openContext,
   textBoxXml,
 } from "../src/main/pptx/edit.ts";
-import { type DeckPackage, openPackage } from "../src/main/pptx/package.ts";
 import { parsePlan } from "../src/main/pptx/plan.ts";
 import { slideHtml } from "../src/main/render/pptxSlides.ts";
 import { DECK_STYLESHEET } from "../src/main/render/pptxStylesheet.ts";
@@ -298,7 +298,7 @@ async function rewordedDeck(source: Buffer): Promise<Buffer> {
  * reports success.
  */
 async function deckWithInsertedShape(source: Buffer): Promise<Buffer> {
-  const pkg: DeckPackage = await openPackage(source);
+  const pkg: OoxmlPackage = await openPackage(source);
   const context = await openContext(pkg);
   const part = slidePartAt(context.map, 4);
   const xml = await pkg.readText(part);

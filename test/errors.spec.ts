@@ -14,7 +14,8 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { classifyError } from "../src/main/agent/runner.ts";
+import type { Denial } from "../src/main/agent/gate.ts";
+import { classifyError, deniedBy } from "../src/main/agent/runner.ts";
 
 test("the original error always survives", () => {
   for (const text of [
@@ -81,4 +82,60 @@ test("a timeout is still recognised", () => {
 
 test("a thrown non-Error is stringified rather than dropped", () => {
   assert.ok(classifyError("plain string failure").includes("plain string failure"));
+});
+
+// ── `deniedBy` — refused, or merely failed ────────────────────
+//
+// The second measured wrong diagnosis in this file's subject, and the same
+// shape as the first. On 2026-09-01 thread `f5e79775` reported two DENIED
+// steps in a session where the gate never fired: both were `zsh` errors, and
+// `is_error` was the whole basis for the word. A reader who trusts REX about
+// its own gate then goes looking for a safety bug that does not exist.
+//
+// This is where the two are told apart, and the flag it returns is what every
+// view and the debug report read afterwards.
+
+const GATE = "A read session cannot change any file, so Bash may not redirect — 'ls > out.txt'.";
+const REFUSAL: Denial[] = [{ toolName: "Bash", reason: GATE }];
+
+test("the gate's own sentence, handed back by the SDK, is a refusal", () => {
+  assert.equal(deniedBy(REFUSAL, "Bash", GATE), true);
+});
+
+test("a command that exited non-zero in the same run is not", () => {
+  // The run really did have a refusal in it — that is the case that made the
+  // old rule look right. Every other failure in it is still just a failure.
+  assert.equal(deniedBy(REFUSAL, "Bash", "Exit code 1\n(eval):1: == not found"), false);
+  assert.equal(
+    deniedBy(REFUSAL, "Bash", "Exit code 1\nls: docs/review: No such file or directory"),
+    false,
+  );
+});
+
+test("a refusal recorded for one tool does not mark another tool's failure", () => {
+  assert.equal(deniedBy(REFUSAL, "Read", GATE), false);
+});
+
+test("the SDK's own refusal is a refusal, with nothing recorded by the gate", () => {
+  assert.equal(
+    deniedBy([], "Bash", "Permission to use Bash with command find . -type f has been denied."),
+    true,
+  );
+});
+
+test("output that merely quotes that sentence is not a refusal", () => {
+  // A `grep` of REX's own log does exactly this. Matched loosely, REX would
+  // report a gate that fired because somebody searched for the words.
+  assert.equal(
+    deniedBy(
+      [],
+      "Bash",
+      "Exit code 1\nrex.log:41:Permission to use Bash with command find . has been denied.",
+    ),
+    false,
+  );
+});
+
+test("nothing refused and nothing quoted is simply a failure", () => {
+  assert.equal(deniedBy([], "Bash", "Exit code 2\ngrep: docs: Is a directory"), false);
 });

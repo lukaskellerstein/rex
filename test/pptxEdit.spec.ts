@@ -13,6 +13,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { openPackage } from "../src/main/ooxml/package.ts";
 import { applyPlanToPackage } from "../src/main/pptx/edit.ts";
 import {
   describeSource,
@@ -20,7 +21,6 @@ import {
   MAX_VIDEO_BYTES,
   sniffMediaType,
 } from "../src/main/pptx/media.ts";
-import { openPackage } from "../src/main/pptx/package.ts";
 import {
   type EditPlan,
   PlanError,

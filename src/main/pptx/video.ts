@@ -25,7 +25,7 @@
 // Step 5 fails silently, so §7.8 checks for it explicitly rather than inferring
 // it from the file opening.
 
-import { escapeXml, firstElement, splice } from "./xml.ts";
+import { escapeXml, firstElement, splice } from "../ooxml/xml.ts";
 
 /** The `p:ext` uri PowerPoint uses for the media extension. Not ours to choose. */
 const MEDIA_EXT_URI = "{DAA4B4D4-6D71-4841-9C94-3DE7FCFB9230}";

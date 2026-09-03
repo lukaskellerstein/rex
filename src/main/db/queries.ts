@@ -4,6 +4,7 @@
 import { v4 as uuidv4 } from "uuid";
 import type { ThreadListRequest } from "../../shared/channels.ts";
 import { buildCommentTree, walkOrder } from "../../shared/commentTree.ts";
+import { movedPath } from "../../shared/paths.ts";
 import type {
   Anchor,
   AnchorState,
@@ -18,8 +19,10 @@ import type {
   MessageRole,
   Profile,
   SendMode,
+  TargetDraft,
   Thread,
   ThreadKind,
+  ThreadStatus,
 } from "../../shared/types.ts";
 import type { Db } from "./database.ts";
 import { listGroups, nextThreadPosition } from "./groups.ts";
@@ -47,7 +50,7 @@ interface ThreadRow {
   id: string;
   document_id: string;
   kind: ThreadKind;
-  status: "open" | "resolved";
+  status: ThreadStatus;
   note: string;
   /** Spec 14 §3.1. NULL means "named by the note", which is not the same as unnamed. */
   title: string | null;
@@ -55,12 +58,13 @@ interface ThreadRow {
   group_id: string | null;
   /** Spec 14 §4.1. Rank among the comments sharing `group_id`. */
   position: number;
-  /** 1 for a comment saved and never sent. Cleared when it IS sent. */
+  /** Spec 30 §7.2 — RETIRED. The lane in `status` carries this now. */
   is_note: number;
   /** Spec 06 §5.4. NULL for every comment that was not drawn. */
   session_id: string | null;
   profile: Profile;
-  model: string | null;
+  /** Spec 31 §2.1 — the style this chat is having. NULL is the CLI's default. */
+  style: string | null;
   created_at: string;
   updated_at: string;
   resolved_at: string | null;
@@ -70,6 +74,8 @@ interface TargetRow {
   document_id: string;
   anchor_json: string;
   anchor_state: AnchorState | null;
+  /** Spec 24 §5.2. NULL for a place the comment was created with. */
+  message_id: string | null;
 }
 
 interface MessageRow {
@@ -79,10 +85,13 @@ interface MessageRow {
   role: MessageRole;
   kind: MessageKind;
   mode: SendMode | null;
+  model: string | null;
+  style: string | null;
   content: string | null;
   tool_name: string | null;
   tool_input_json: string | null;
   is_error: number;
+  denied: number;
   cost_usd: number | null;
   duration_ms: number | null;
   input_tokens: number | null;
@@ -121,10 +130,9 @@ function toThread(row: ThreadRow, refThreadIds: string[], targets: AnchorTarget[
     title: row.title,
     groupId: row.group_id,
     position: row.position,
-    isNote: row.is_note !== 0,
     sessionId: row.session_id,
     profile: row.profile,
-    model: row.model,
+    style: row.style,
     refThreadIds,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -141,10 +149,18 @@ function toMessage(row: MessageRow): Message {
     role: row.role,
     kind: row.kind,
     mode: row.mode,
+    model: row.model,
+    style: row.style,
     content: row.content,
     toolName: row.tool_name,
     toolInput: row.tool_input_json ? JSON.parse(row.tool_input_json) : null,
     isError: row.is_error !== 0,
+    // `?? 0` for the one shape SQLite can hand back that the type cannot say: a
+    // row from a database the migration has not reached yet, where the column is
+    // absent and the value is `undefined`. Written as `!== 0` alone that reads
+    // as true, and EVERY message in the thread comes back denied — the exact
+    // lie this column was added to end.
+    denied: (row.denied ?? 0) !== 0,
     costUsd: row.cost_usd,
     durationMs: row.duration_ms,
     inputTokens: row.input_tokens,
@@ -202,6 +218,18 @@ export function upsertDocument(
   };
 }
 
+/**
+ * Spec 22 §3 step 2 — the row for a path, if REX has seen the file. Never
+ * writes: `upsertDocument` overwrites the title, and a file adopted at the end
+ * of a run has no title to offer, so asking first is what keeps the one it has.
+ */
+export function findDocument(db: Db, ref: DocumentRef): DocumentRecord | null {
+  const row = db
+    .prepare<[string, string], DocumentRow>("SELECT * FROM document WHERE kind = ? AND value = ?")
+    .get(ref.kind, ref.value);
+  return row ? toDocument(row) : null;
+}
+
 export function getDocument(db: Db, documentId: string): DocumentRecord | null {
   const row = db
     .prepare<[string], DocumentRow>("SELECT * FROM document WHERE id = ?")
@@ -211,6 +239,74 @@ export function getDocument(db: Db, documentId: string): DocumentRecord | null {
 
 export function setDocumentHash(db: Db, documentId: string, contentHash: string | null): void {
   db.prepare("UPDATE document SET content_hash = ? WHERE id = ?").run(contentHash, documentId);
+}
+
+/**
+ * Spec 23 §4.2 — the rows a rename would land on, whether or not a file is
+ * there.
+ *
+ * `document` carries `UNIQUE (kind, value)`, so a row already at the target
+ * name makes the update in §4.1 throw — after the disk rename has happened.
+ * This is how that is found out first, and it is why the refusal can say how
+ * many comments are in the way.
+ *
+ * Answers for the path itself and for everything under it, so a folder rename
+ * is asked the same question as a file one.
+ */
+export function documentsUnder(db: Db, path: string): DocumentRecord[] {
+  return db
+    .prepare<[], DocumentRow>("SELECT * FROM document")
+    .all()
+    .filter((row) => row.value === path || row.value.startsWith(`${path}/`))
+    .map(toDocument);
+}
+
+/**
+ * Spec 23 §4.1 — the document rows follow the file.
+ *
+ * Every `thread`, `thread_target` and `message` comes with them for free: they
+ * key on `document.id`, which a rename never changes. That is the whole reason
+ * this is one UPDATE per row rather than a walk of the comments.
+ *
+ * Matched in TypeScript rather than with `LIKE`: a path can hold `%` and `_`,
+ * which `LIKE` reads as wildcards, and the escape clause needed to stop it is a
+ * trap for whoever changes this next. The table holds one row per document REX
+ * has ever opened, so the scan is nothing.
+ *
+ * Returns how many rows moved.
+ */
+export function moveDocumentPaths(db: Db, from: string, to: string): number {
+  const update = db.prepare("UPDATE document SET value = ? WHERE id = ?");
+  let moved = 0;
+  for (const document of documentsUnder(db, from)) {
+    const next = movedPath(document.ref.value, from, to);
+    if (next === null) continue;
+    update.run(next, document.id);
+    moved++;
+  }
+  return moved;
+}
+
+/**
+ * Spec 23 §4.1 — an exclusion the reviewer wrote is about a file, not a name.
+ *
+ * Scoped to one root, because that is the table's key: the same folder opened
+ * inside two workspaces carries two rules, and renaming it in one of them says
+ * nothing about the other.
+ */
+export function moveWorkspaceRulePaths(db: Db, root: string, from: string, to: string): number {
+  const rows = db
+    .prepare<[string], { path: string }>("SELECT path FROM workspace_rule WHERE root = ?")
+    .all(root);
+  const update = db.prepare("UPDATE workspace_rule SET path = ? WHERE root = ? AND path = ?");
+  let moved = 0;
+  for (const row of rows) {
+    const next = movedPath(row.path, from, to);
+    if (next === null) continue;
+    update.run(next, root, row.path);
+    moved++;
+  }
+  return moved;
 }
 
 // ── Threads ─────────────────────────────────────────────────────
@@ -228,14 +324,62 @@ function refThreadIds(db: Db, threadId: string): string[] {
 function targetsFor(db: Db, threadId: string): AnchorTarget[] {
   return db
     .prepare<[string], TargetRow>(
-      "SELECT document_id, anchor_json, anchor_state FROM thread_target WHERE thread_id = ? ORDER BY position",
+      "SELECT document_id, anchor_json, anchor_state, message_id FROM thread_target WHERE thread_id = ? ORDER BY position",
     )
     .all(threadId)
-    .map((row) => ({
-      documentId: row.document_id,
-      anchor: JSON.parse(row.anchor_json) as Anchor,
-      state: row.anchor_state,
-    }));
+    .map(toTarget);
+}
+
+function toTarget(row: TargetRow): AnchorTarget {
+  return {
+    documentId: row.document_id,
+    anchor: JSON.parse(row.anchor_json) as Anchor,
+    state: row.anchor_state,
+    messageId: row.message_id,
+  };
+}
+
+/**
+ * Spec 24 §4 — more places for a comment that already exists, after the ones
+ * it has, each tagged with the user message that brought it.
+ *
+ * Positions continue from the last one rather than being renumbered: the
+ * number is what the reviewer saw on the chip and on the outline, what the
+ * prompt names, and what `anchor:restate` addresses. `anchor_state` is NULL
+ * for the reason `createThread` gives — nobody has looked yet. One
+ * transaction, so a comment never half-grows.
+ *
+ * Returns the whole list as it now stands, in position order.
+ */
+export function appendTargets(
+  db: Db,
+  threadId: string,
+  messageId: string,
+  targets: readonly TargetDraft[],
+): AnchorTarget[] {
+  if (targets.length === 0) return targetsFor(db, threadId);
+
+  const append = db.transaction(() => {
+    const last = db
+      .prepare<[string], { last: number | null }>(
+        "SELECT MAX(position) AS last FROM thread_target WHERE thread_id = ?",
+      )
+      .get(threadId);
+    let position = (last?.last ?? -1) + 1;
+
+    const insert = db.prepare(
+      `INSERT INTO thread_target (thread_id, position, document_id, anchor_json, anchor_state, message_id)
+       VALUES (?, ?, ?, ?, NULL, ?)`,
+    );
+    for (const entry of targets) {
+      insert.run(threadId, position, entry.documentId, JSON.stringify(entry.anchor), messageId);
+      position += 1;
+    }
+    db.prepare("UPDATE thread SET updated_at = ? WHERE id = ?").run(now(), threadId);
+  });
+  append();
+
+  return targetsFor(db, threadId);
 }
 
 function hydrate(db: Db, row: ThreadRow): Thread {
@@ -247,14 +391,27 @@ export function createThread(
   input: {
     kind: ThreadKind;
     /** Panel order. `targets[0]` decides the thread's own document. */
-    targets: Array<{ documentId: string; anchor: Anchor }>;
+    targets: readonly TargetDraft[];
     /** Only for a synthesis thread, which has no targets to take it from. */
     documentId?: string;
     note: string;
     profile: Profile;
     refThreadIds?: string[];
-    /** True for NOTE mode: save it, send it to nobody. */
-    isNote?: boolean;
+    /**
+     * Spec 30 §2 — the lane it is born in. Defaults to `open`, which is every
+     * comment that is created and then sent in one gesture.
+     *
+     * `draft` is a comment the reviewer walked away from (§3.2) and `note` one
+     * they chose to send to nobody. Both replace the `isNote` flag this argument
+     * used to be.
+     */
+    status?: ThreadStatus;
+    /**
+     * Spec 30 §3.6 — the name typed in the composer. Null, and absent, both
+     * mean "named by the note" (spec 14 §3.1), which is what every comment made
+     * before the composer had a name box was.
+     */
+    title?: string | null;
   },
 ): Thread {
   const documentId = input.targets[0]?.documentId ?? input.documentId;
@@ -269,18 +426,27 @@ export function createThread(
   // changed; only where the list keeps it is now written down.
   const position = nextThreadPosition(db, null);
 
+  const status: ThreadStatus = input.status ?? "open";
+  // Spec 14 §3.1 — an empty name is not a name. NULL is "named by the note",
+  // and writing "" instead would give the comment a blank headline everywhere.
+  const title = input.title?.trim() ? input.title.trim() : null;
+
   const insert = db.transaction(() => {
     db.prepare(
-      `INSERT INTO thread (id, document_id, kind, status, note, title, group_id, position, is_note,
-                           session_id, profile, model, created_at, updated_at, resolved_at)
-       VALUES (?, ?, ?, 'open', ?, NULL, NULL, ?, ?, NULL, ?, NULL, ?, ?, NULL)`,
+      // `model` and `is_note` are not named: spec 25 §4.3 retired the first and
+      // spec 30 §7.2 the second. Both are nullable or defaulted, so a row simply
+      // does not carry them any more.
+      `INSERT INTO thread (id, document_id, kind, status, note, title, group_id, position,
+                           session_id, profile, created_at, updated_at, resolved_at)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, NULL)`,
     ).run(
       id,
       documentId,
       input.kind,
+      status,
       input.note,
+      title,
       position,
-      input.isNote ? 1 : 0,
       input.profile,
       timestamp,
       timestamp,
@@ -308,16 +474,18 @@ export function createThread(
     id,
     documentId,
     kind: input.kind,
-    status: "open",
-    targets: input.targets.map((entry) => ({ ...entry, state: null })),
+    status,
+    // Spec 24 §5.1 — `messageId` is null for every place a comment starts with.
+    targets: input.targets.map((entry) => ({ ...entry, state: null, messageId: null })),
     note: input.note,
-    title: null,
+    title,
     groupId: null,
     position,
-    isNote: input.isNote === true,
     sessionId: null,
     profile: input.profile,
-    model: null,
+    // Spec 31 §7.3 — a new comment starts on the CLI's own default. The first
+    // send writes whatever the composer was set to (§4.1).
+    style: null,
     refThreadIds: input.refThreadIds ?? [],
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -331,7 +499,7 @@ export function getThread(db: Db, threadId: string): Thread | null {
 }
 
 /**
- * Spec 05 §5.3 — every comment in the workspace, not one document's.
+ * Spec 05 §5.3 — the comments a `ThreadListRequest` is asking about, as a CTE.
  *
  * A comment about two documents is one row, seen from either of them, which is
  * what a comment about two documents is. The scope is every document under
@@ -341,44 +509,61 @@ export function getThread(db: Db, threadId: string): Thread | null {
  * `substr` rather than `LIKE`: a path containing `%` or `_` is legal on every
  * filesystem, and escaping them correctly is a trap this does not need to walk
  * into. The trailing separator is what stops `/docs` matching `/docs-old`.
+ *
+ * IT IS A CONSTANT BECAUSE TWO COMMANDS SHARE IT. `thread:list` draws this set
+ * and `thread:delete-all` destroys it, and the second one is only safe while
+ * the two cannot disagree. A copied CTE is how "delete all the comments" ends
+ * up taking one the panel never showed.
  */
-export function listThreads(db: Db, request: ThreadListRequest): Thread[] {
-  const prefix = request.root === null ? null : withSeparator(request.root);
+const SCOPE_CTE = `WITH scope AS (
+     SELECT id FROM document
+      WHERE id = :documentId
+         OR (kind = 'file' AND :prefix IS NOT NULL
+             AND substr(value, 1, :prefixLength) = :prefix)
+   ),
+   anchored AS (
+     SELECT DISTINCT thread_id AS id FROM thread_target
+      WHERE document_id IN (SELECT id FROM scope)
+   ),
+   included AS (
+     SELECT id FROM anchored
+     UNION
+     -- Every synthesis comment that references one of them, and every
+     -- comment with no targets that was written on a document in scope.
+     -- A synthesis comment has nothing to anchor, so it can be found only
+     -- through what it is about or where it was made.
+     SELECT thread_id FROM thread_ref
+      WHERE ref_thread_id IN (SELECT id FROM anchored)
+     UNION
+     SELECT t.id FROM thread t
+      WHERE t.document_id IN (SELECT id FROM scope)
+        AND NOT EXISTS (SELECT 1 FROM thread_target x WHERE x.thread_id = t.id)
+   )`;
 
+/** The three values `SCOPE_CTE` binds, from the request the panel sent. */
+interface ScopeParams {
+  documentId: string | null;
+  prefix: string | null;
+  prefixLength: number;
+}
+
+function scopeParams(request: ThreadListRequest): ScopeParams {
+  const prefix = request.root === null ? null : withSeparator(request.root);
+  return {
+    documentId: request.documentId,
+    prefix,
+    prefixLength: prefix?.length ?? 0,
+  };
+}
+
+/** Spec 05 §5.3 — every comment in the workspace, not one document's. */
+export function listThreads(db: Db, request: ThreadListRequest): Thread[] {
   const rows = db
-    .prepare<
-      { documentId: string | null; prefix: string | null; prefixLength: number },
-      ThreadRow
-    >(`WITH scope AS (
-           SELECT id FROM document
-            WHERE id = :documentId
-               OR (kind = 'file' AND :prefix IS NOT NULL
-                   AND substr(value, 1, :prefixLength) = :prefix)
-         ),
-         anchored AS (
-           SELECT DISTINCT thread_id AS id FROM thread_target
-            WHERE document_id IN (SELECT id FROM scope)
-         ),
-         included AS (
-           SELECT id FROM anchored
-           UNION
-           -- Every synthesis comment that references one of them, and every
-           -- comment with no targets that was written on a document in scope.
-           -- A synthesis comment has nothing to anchor, so it can be found only
-           -- through what it is about or where it was made.
-           SELECT thread_id FROM thread_ref
-            WHERE ref_thread_id IN (SELECT id FROM anchored)
-           UNION
-           SELECT t.id FROM thread t
-            WHERE t.document_id IN (SELECT id FROM scope)
-              AND NOT EXISTS (SELECT 1 FROM thread_target x WHERE x.thread_id = t.id)
-         )
-         SELECT * FROM thread WHERE id IN (SELECT id FROM included) ORDER BY position, created_at`)
-    .all({
-      documentId: request.documentId,
-      prefix,
-      prefixLength: prefix?.length ?? 0,
-    });
+    .prepare<ScopeParams, ThreadRow>(
+      `${SCOPE_CTE}
+       SELECT * FROM thread WHERE id IN (SELECT id FROM included) ORDER BY position, created_at`,
+    )
+    .all(scopeParams(request));
 
   const threads = rows.map((row) => hydrate(db, row));
 
@@ -431,15 +616,107 @@ export function renameThread(db: Db, threadId: string, title: string | null): vo
 }
 
 /**
- * The comment has been sent, so it is not a note any more.
+ * Spec 30 §2.2 — the comment has been sent, so it leaves the unsent lanes.
  *
  * Called on every path that reaches an agent — ASK, ACT and the synthesis
- * fan-out. Idempotent, and a no-op for the ordinary comment that was never a
- * note. Keeping the flag set after a send would leave the panel drawing a
- * "saved, sent to nobody" colour on a comment with an answer in it.
+ * fan-out. Idempotent, and a no-op for a comment that was already `open` or
+ * `resolved`. It was `clearNoteFlag` and cleared `is_note`; the flag is a lane
+ * now, so clearing it is a move.
+ *
+ * **`resolved` is never touched**, which is why the WHERE names the two lanes
+ * rather than testing for "not open". Spec 18 §2 — resolved is terminal, and
+ * replying to a resolved comment must not quietly reopen it.
  */
-export function clearNoteFlag(db: Db, threadId: string): void {
-  db.prepare("UPDATE thread SET is_note = 0 WHERE id = ? AND is_note = 1").run(threadId);
+export function markThreadSent(db: Db, threadId: string): void {
+  db.prepare(
+    "UPDATE thread SET status = 'open', updated_at = ? WHERE id = ? AND status IN ('draft','note')",
+  ).run(now(), threadId);
+}
+
+/**
+ * Spec 30 §2.2 — **Save**: the comment is written down and sent to nobody.
+ *
+ * Only from `draft`. An `open` comment that gets a NOTE message keeps its lane —
+ * spec 24 §4.3 lets a reviewer note something on a comment that already has an
+ * answer, and that comment has still been sent.
+ */
+export function markThreadNoted(db: Db, threadId: string): void {
+  db.prepare(
+    "UPDATE thread SET status = 'note', updated_at = ? WHERE id = ? AND status = 'draft'",
+  ).run(now(), threadId);
+}
+
+/**
+ * Spec 30 §3.5 — **Turn into a comment**: a note becomes a draft.
+ *
+ * Only from `note`, so the button cannot be replayed onto a comment that has
+ * already been sent. Returns whether it moved one.
+ */
+export function markThreadDraft(db: Db, threadId: string): boolean {
+  const done = db
+    .prepare("UPDATE thread SET status = 'draft', updated_at = ? WHERE id = ? AND status = 'note'")
+    .run(now(), threadId);
+  return done.changes > 0;
+}
+
+/**
+ * Spec 30 §3.2 — a draft's places and its question, replaced wholesale.
+ *
+ * **Only a draft, and the guard is the point.** Spec 24 §5.2 gave every place a
+ * `message_id` naming the user message that added it; a draft has no messages,
+ * so all of its places carry NULL and nothing points at them. On a comment that
+ * has been sent, deleting the rows would cut a message loose from the places it
+ * was about — so this refuses rather than checking whether it happens to be
+ * safe this time.
+ *
+ * The whole thing is one transaction: a draft that lost its places and did not
+ * get the new ones would be a comment about nothing, which §2.4 says cannot
+ * exist.
+ */
+export function saveDraft(
+  db: Db,
+  threadId: string,
+  targets: readonly TargetDraft[],
+  note: string,
+  /** The lane it lands in. `draft` — the default — is what pressing back does. */
+  status: ThreadStatus = "draft",
+  /** Spec 30 §3.6 — the name from the composer. Null is "named by the note". */
+  title: string | null = null,
+): void {
+  const row = db
+    .prepare<[string], { status: ThreadStatus }>("SELECT status FROM thread WHERE id = ?")
+    .get(threadId);
+  if (!row) throw new Error(`No such thread: ${threadId}`);
+  if (row.status !== "draft") throw new Error("Only a draft's places can be replaced.");
+  if (targets.length === 0) throw new Error("A comment needs at least one place.");
+
+  const write = db.transaction(() => {
+    db.prepare("DELETE FROM thread_target WHERE thread_id = ?").run(threadId);
+    const target = db.prepare(
+      `INSERT INTO thread_target (thread_id, position, document_id, anchor_json, anchor_state)
+       VALUES (?, ?, ?, ?, NULL)`,
+    );
+    // NULL state, for spec 05 §5.4's reason: a state is what the last sweep
+    // found, and these places have not been swept since they moved.
+    for (const [position, entry] of targets.entries()) {
+      target.run(threadId, position, entry.documentId, JSON.stringify(entry.anchor));
+    }
+    // `targets[0]` decides the thread's own document, exactly as it does at
+    // creation — a draft whose only place moved to another file belongs to that
+    // file now.
+    db.prepare(
+      "UPDATE thread SET document_id = ?, note = ?, title = ?, status = ?, updated_at = ? WHERE id = ?",
+    ).run(
+      targets[0]?.documentId,
+      note,
+      // Spec 14 §3.1 — an empty name is not a name, it is NULL.
+      title?.trim() ? title.trim() : null,
+      status,
+      now(),
+      threadId,
+    );
+  });
+  write();
 }
 
 export function setThreadStatus(db: Db, threadId: string, resolved: boolean): void {
@@ -470,17 +747,44 @@ export function deleteThread(db: Db, threadId: string): void {
   db.prepare("DELETE FROM thread WHERE id = ?").run(threadId);
 }
 
+/**
+ * Every comment `listThreads` would return, gone, and how many that was.
+ *
+ * One statement rather than a loop over ids: the set is decided and destroyed
+ * inside the same statement, so a comment created while this runs is either
+ * wholly in it or wholly outside it. §9's cascades take the messages, the
+ * targets and the references with each row.
+ *
+ * GROUPS SURVIVE, and that is the point of doing it here rather than dropping
+ * the rows by root. A folder is the reviewer's own arrangement, not a comment;
+ * `group:delete` never destroys a comment, and this is the same rule read the
+ * other way round. The folders are left empty for them to remove or refill.
+ */
+export function deleteThreadsInScope(db: Db, request: ThreadListRequest): number {
+  const result = db
+    .prepare<ScopeParams>(`${SCOPE_CTE} DELETE FROM thread WHERE id IN (SELECT id FROM included)`)
+    .run(scopeParams(request));
+  return result.changes;
+}
+
+/**
+ * Spec 31 §4.1 — the chat remembers what it was last sent under.
+ *
+ * Written on every send and read only when the composer is painted. It is
+ * deliberately NOT what the run reads: spec 25 §4.3's rule holds, and a field
+ * read at run time is mutable state no send owns.
+ *
+ * `updated_at` is left alone. A style is not a change to the comment — nothing
+ * about the review moved — and touching it would reorder a list that sorts by
+ * it and make a comment look edited when it was not.
+ */
+export function setThreadStyle(db: Db, threadId: string, style: string | null): void {
+  db.prepare("UPDATE thread SET style = ? WHERE id = ?").run(style, threadId);
+}
+
 export function setThreadSession(db: Db, threadId: string, sessionId: string): void {
   db.prepare("UPDATE thread SET session_id = ?, updated_at = ? WHERE id = ?").run(
     sessionId,
-    now(),
-    threadId,
-  );
-}
-
-export function setThreadModel(db: Db, threadId: string, model: string | null): void {
-  db.prepare("UPDATE thread SET model = ?, updated_at = ? WHERE id = ?").run(
-    model,
     now(),
     threadId,
   );
@@ -516,9 +820,29 @@ export function setTargetState(
  * an answer, a tool call or a notice from REX. Making it optional keeps those
  * sites saying nothing rather than each writing `mode: null` to mean "not
  * mine".
+ *
+ * Spec 25 §5 — `model` is optional for a different reason. Every draft a run
+ * produces has one, but no draft site knows it: the runner emits blocks and the
+ * model is the send's, so the one place that knows stamps them all on the way
+ * past (`ipc.ts`, `record`). A site that leaves it out is saying "not mine to
+ * fill in", and a NOTE is the one send where that is the final answer.
  */
-export type MessageDraft = Omit<Message, "id" | "threadId" | "seq" | "createdAt" | "mode"> & {
+export type MessageDraft = Omit<
+  Message,
+  "id" | "threadId" | "seq" | "createdAt" | "mode" | "model" | "style" | "denied"
+> & {
   mode?: SendMode | null;
+  model?: string | null;
+  /** Spec 31 §5 — optional for `model`'s reason: one site knows it, none else. */
+  style?: string | null;
+  /**
+   * Optional for the reason `mode` is: one site knows it and the rest do not.
+   * The gate is the only thing that can refuse a call, so the runner is the only
+   * draft site that ever sets this, and every other one leaving it out is
+   * saying "nothing refused this" — which is the truth for a diff, a note, an
+   * answer and a tool that simply ran.
+   */
+  denied?: boolean;
 };
 
 /**
@@ -537,9 +861,10 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
   const seq = seqRow?.next ?? 0;
 
   db.prepare(
-    `INSERT INTO message (id, thread_id, seq, role, kind, mode, content, tool_name, tool_input_json,
-                          is_error, cost_usd, duration_ms, input_tokens, output_tokens, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO message (id, thread_id, seq, role, kind, mode, model, style, content, tool_name,
+                          tool_input_json, is_error, denied, cost_usd, duration_ms, input_tokens,
+                          output_tokens, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     threadId,
@@ -547,12 +872,15 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     draft.role,
     draft.kind,
     draft.mode ?? null,
+    draft.model ?? null,
+    draft.style ?? null,
     draft.content,
     draft.toolName,
     draft.toolInput === null || draft.toolInput === undefined
       ? null
       : JSON.stringify(draft.toolInput),
     draft.isError ? 1 : 0,
+    draft.denied ? 1 : 0,
     draft.costUsd,
     draft.durationMs,
     draft.inputTokens,
@@ -560,9 +888,20 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     createdAt,
   );
 
-  // `mode` is normalised rather than spread: the draft may leave it out, and
-  // what went into the row was null, so what comes back has to say null too.
-  return { ...draft, mode: draft.mode ?? null, id, threadId, seq, createdAt };
+  // `mode`, `model` and `denied` are normalised rather than spread: the draft
+  // may leave any of them out, and what went into the row was null or 0, so what
+  // comes back has to say the same.
+  return {
+    ...draft,
+    mode: draft.mode ?? null,
+    model: draft.model ?? null,
+    style: draft.style ?? null,
+    denied: draft.denied ?? false,
+    id,
+    threadId,
+    seq,
+    createdAt,
+  };
 }
 
 export function listMessages(db: Db, threadId: string): Message[] {
@@ -588,27 +927,39 @@ export function commentCountsByDocument(db: Db): Map<string, CommentCounts> {
       // Spec 05 §5.7 — a document mentioned by a comment written elsewhere is
       // not a document with no comments, so this counts *targets*' documents.
       //
-      // The inner query collapses a thread's targets in one document to one row
-      // carrying their worst state, which is what keeps a comment with three
-      // targets in one file from counting three times. NULL is absent from the
-      // CASE on purpose: MAX ignores it, so "nobody looked" never becomes
-      // orphaned — written as `!= 'ok'` it would have, which is the mistake §5.7
-      // names.
+      // The inner query collapses a thread's targets in one document to one row,
+      // which is what keeps a comment with three targets in one file from
+      // counting three times. NULL is absent from the CASE on purpose: MIN
+      // ignores it, so "nobody looked" never becomes orphaned — written as
+      // `!= 'ok'` it would have, which is the mistake §5.7 names.
       // Spec 18 §2 — the three are disjoint, and `resolved` is terminal. Written
-      // as a bare `worst = 2` the orphaned count also caught resolved comments,
+      // as a bare `best = 2` the orphaned count also caught resolved comments,
       // so one comment was counted twice here and put in the `orphaned` lane by
       // the sidebar — the two surfaces disagreed about the same comment.
+      //
+      // Spec 32 §4 — TWO things here are the new rule, and both are needed or
+      // the tree and the sidebar disagree about one comment again:
+      //
+      //   1. MIN, not MAX. `MAX(rank) = 2` is "some place is gone"; `MIN(rank)
+      //      = 2` is "every place is gone", which is what gone now means.
+      //   2. The verdict is over the WHOLE comment, so the subquery is not
+      //      restricted to this document. Grouped per document, a comment with a
+      //      dead place in `a.md` and a live one in `b.md` was gone for `a.md`
+      //      and open for `b.md`. One comment gets one verdict, counted against
+      //      every file it names.
       `SELECT value,
-              SUM(CASE WHEN status = 'open' AND COALESCE(worst, 0) < 2 THEN 1 ELSE 0 END) AS open,
+              SUM(CASE WHEN status = 'open' AND COALESCE(best, 0) < 2 THEN 1 ELSE 0 END) AS open,
               SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS resolved,
-              SUM(CASE WHEN status = 'open' AND worst = 2 THEN 1 ELSE 0 END) AS orphaned
+              SUM(CASE WHEN status = 'open' AND best = 2 THEN 1 ELSE 0 END) AS orphaned
          FROM (
            SELECT d.value AS value, t.id AS id, t.status AS status,
-                  MAX(CASE tt.anchor_state
-                        WHEN 'orphaned' THEN 2
-                        WHEN 'moved' THEN 1
-                        WHEN 'ok' THEN 0
-                      END) AS worst
+                  (SELECT MIN(CASE a.anchor_state
+                                WHEN 'orphaned' THEN 2
+                                WHEN 'moved' THEN 1
+                                WHEN 'ok' THEN 0
+                              END)
+                     FROM thread_target a
+                    WHERE a.thread_id = t.id) AS best
              FROM thread_target tt
              JOIN thread t ON t.id = tt.thread_id
              JOIN document d ON d.id = tt.document_id

@@ -48,12 +48,20 @@ description: Project configuration — architecture, paths, dev environment
 
 ## Ports
 
-REX itself listens on nothing — that is invariant I3. The one port in this repo's
-config belongs to Electron's debugger, not to the app:
+REX itself listens on nothing — that is invariant I3. The two ports in this
+repo's config belong to Electron's debugger and to the dev-time bundler, not to
+the app. The built app opens neither:
 
 | Port | What | Where |
 |:--|:--|:--|
 | 9334 | Electron remote debugging (CDP), for the Playwright MCP to attach to | `.mcp.json`; **every run opens it** — spec 13 §2.1, `src/main/cdp.ts` |
+| 5334 | The Vite dev server that serves the renderer during `npm run dev` | `electron.vite.config.ts`, `renderer.server.port` |
+
+5334 replaces Vite's default 5173, which every other Vite project on this
+machine also wants. The digits mirror 9334 on purpose. `strictPort` is off, so a
+second REX slides to 5335 rather than failing, and the main process follows
+either way — it reads the URL from `ELECTRON_RENDERER_URL`
+(`src/main/index.ts:108`) and never hardcodes a port.
 
 Since spec 13 no flag is needed: `npm run dev` opens 9334 on its own, so the
 window a reviewer is looking at can always be attached to. An explicit

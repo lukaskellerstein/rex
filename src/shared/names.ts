@@ -11,6 +11,19 @@ interface Nameable {
 }
 
 /**
+ * Spec 30 §3.6 — the last resort, for a comment with neither a name nor words.
+ *
+ * Unreachable until spec 30: every comment was created by a send, and a send
+ * needs a question, so the note was never empty. A draft is saved by walking
+ * away, and walking away immediately is allowed — so a comment with nothing to
+ * be named by exists now, and it drew a blank headline until this.
+ *
+ * "Named by the note" (spec 14 §3.1) is still the rule; this is what it says
+ * when there is no note to be named by.
+ */
+const UNNAMED = "Untitled";
+
+/**
  * The name to show: the typed title, else the note's first line.
  *
  * No length cut. The panel clips with CSS, which respects the column's real
@@ -27,7 +40,7 @@ export function commentName(thread: Nameable): string {
   if (title) return title;
 
   const line = thread.note.split("\n").find((candidate) => candidate.trim().length > 0);
-  return (line ?? thread.note).trim().replace(/\s+/g, " ");
+  return (line ?? thread.note).trim().replace(/\s+/g, " ") || UNNAMED;
 }
 
 /**

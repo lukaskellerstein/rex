@@ -27,6 +27,46 @@ export const PAPER = {
   link: "#2f5da8",
 } as const;
 
+/**
+ * Spec 27 §4.4 — the same paper, at night.
+ *
+ * Every value is its light counterpart at the **same hue** and the mirrored
+ * lightness. That rule is not a style preference: spec 18 gives each colour in
+ * REX a meaning, and a meaning that changed with the mode would be a second
+ * vocabulary. Hue is the meaning; lightness is the mode.
+ *
+ * The ground is WARM, and that is the one value worth defending. REX's chrome
+ * is `--bg: #0e1012` with `--panel: #191c1f`, both cool near-blacks. A cool
+ * paper on cool chrome is one surface; a warm paper on cool chrome is still a
+ * sheet lying on a desk, which is the whole picture spec 03 §5 started from.
+ *
+ * **`#24221f` and not the `#1b1a18` this was first written as.** That value
+ * measured 1.10:1 against the shell's ground and 1.02:1 against the sidebar it
+ * sits beside — a document that stopped being a separate surface at all. It was
+ * caught by the assertion in `test/paper.spec.ts` and not by looking, which is
+ * the whole argument for measuring two dark greys instead of choosing them.
+ *
+ * Nothing reads this unless the reviewer pressed the switch. REX never follows
+ * `prefers-color-scheme` for its own paper — spec 27 §8, and the reason the
+ * comment at the top of `render/stylesheet.ts` was right to refuse it.
+ */
+export const PAPER_DARK = {
+  bg: "#24221f",
+  ink: "#f4f2ee",
+  inkBody: "#dbd7d0",
+  inkMuted: "#9b948a",
+  rule: "#3f3b35",
+  /** A shade off the paper — which in the dark means one step *up*. */
+  wash: "#2c2a26",
+  link: "#7fa8e8",
+} as const;
+
+/** Spec 27 §4.4 — the text selection, on each ground. */
+export const SELECT = {
+  light: "#b6d0f2",
+  dark: "#2f4a6d",
+} as const;
+
 /** The document measure. Applies only to Markdown REX renders itself (§5.3). */
 export const MEASURE = {
   width: "620px",
@@ -52,6 +92,22 @@ export const ALERT = {
 } as const;
 
 /**
+ * Spec 27 §4.4 — the same five callouts on the dark paper.
+ *
+ * Same hue, mirrored lightness, and no label: a callout's word is the same word
+ * on either ground, so it stays in `ALERT` and is read from there. Five kinds,
+ * exactly the five above — `test/paper.spec.ts` asserts that the two tables can
+ * never drift apart.
+ */
+export const ALERT_DARK = {
+  note: { rule: "#7fa8e8", bg: "#172032" },
+  tip: { rule: "#6cbb9c", bg: "#142320" },
+  important: { rule: "#b389d6", bg: "#201a2b" },
+  warning: { rule: "#d9ac3c", bg: "#2a2213" },
+  caution: { rule: "#e0796a", bg: "#2b1a17" },
+} as const;
+
+/**
  * Syntax colours for highlight.js's classes (spec 03 §5.7).
  *
  * Mapped onto the paper palette rather than shipping one of highlight.js's own
@@ -67,6 +123,17 @@ export const CODE = {
   title: PAPER.link,
   attr: "#8a6d1f",
   meta: PAPER.inkMuted,
+} as const;
+
+/** Spec 27 §4.4 — the same seven classes on the dark paper. */
+export const CODE_DARK = {
+  keyword: "#b389d6",
+  string: "#6cbb9c",
+  comment: PAPER_DARK.inkMuted,
+  number: "#e0796a",
+  title: PAPER_DARK.link,
+  attr: "#cba94f",
+  meta: PAPER_DARK.inkMuted,
 } as const;
 
 /**
@@ -115,4 +182,16 @@ export const HIGHLIGHT = {
    * places agreeing about what steel and amber mean.
    */
   hoverBg: "#f4eefb",
+  /**
+   * Spec 28 §4.4 — the reviewer's question: every match of a find, in lemon.
+   *
+   * A third family beside spec 18's two. Yellow because nothing amber has been
+   * painted on text since spec 15 §8.4, and because it is what every editor
+   * paints a find in. Lemon and not gold: `--moved` is `#d9b23a`, and a find
+   * wash beside a moved pill must not read as the same thing.
+   */
+  findBg: "#fff1a8",
+  /** The match the reviewer is on — the same yellow, stronger, with a rule. */
+  findCurrentBg: "#ffd21f",
+  findRule: "#8a6a00",
 } as const;

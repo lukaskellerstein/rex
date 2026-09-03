@@ -21,7 +21,12 @@
 // is passed.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LineRange, OpenedDocument, ThreadWithMessages } from "../../shared/types.ts";
+import type {
+  LineRange,
+  OpenedDocument,
+  PaperView,
+  ThreadWithMessages,
+} from "../../shared/types.ts";
 import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
 import {
@@ -32,6 +37,7 @@ import {
 } from "./anchoring.ts";
 import { enrichDocument } from "./enrich.ts";
 import {
+  applyPaperView,
   applyZoom,
   forwardKeysToParent,
   jumpToFragmentsInsteadOfNavigating,
@@ -39,7 +45,9 @@ import {
   zoomFromInside,
 } from "./frame.ts";
 import { ModeStrip } from "./ModeStrip.tsx";
+import { mermaidPass } from "./mermaid.ts";
 import { type DraftMark, PaneMarks } from "./PaneMarks.tsx";
+import { PathBar } from "./PathBar.tsx";
 import { PenLayer } from "./PenLayer.tsx";
 import { PickLayer } from "./PickLayer.tsx";
 import { addPaperFonts } from "./paperFonts.ts";
@@ -49,6 +57,21 @@ interface Props {
   /** §6.2 — line ranges only the original has. */
   removed: LineRange[];
   zoom: number;
+  /**
+   * Spec 27 §4.6 — the paper, which both panes share.
+   *
+   * No strip here. One switch governs the pair, because two grounds in one
+   * comparison is the exact fault the old "light only" comment warned about,
+   * arriving from the inside.
+   */
+  paper: PaperView;
+  /**
+   * Spec 28 §5.6 — the find bar and the overview ruler, when this is the pane
+   * being read (the pane control on `Original`). Null otherwise; the strip
+   * never comes with them, because one strip governs both panes (spec 27 §4.6).
+   */
+  corner: React.ReactNode;
+  ruler: React.ReactNode;
   /**
    * Handed the frame once it is drawn, so the right-hand pane can keep this one
    * level with it (§6.2). Called again with null when the document goes.
@@ -66,19 +89,27 @@ interface Props {
   hoveredItemId: string | null;
   onHoverItem: (id: string | null) => void;
   onRemoveItem: (id: string) => void;
+  /** Spec 26 §4.5 — the number badge puts its place on the path bar. */
+  onFocusItem: (id: string) => void;
   onSelectMarker: (threadId: string) => void;
   onHoverThread: (threadId: string | null) => void;
 
   /** The two modes, exactly as the right-hand pane offers them (§4). */
   picking: boolean;
-  pickScopes: PickScope[] | null;
-  pickActive: number;
+  /** Spec 26 §2 — the chain on the bar, already filtered to this pane. */
+  pathScopes: PickScope[] | null;
+  pathActive: number;
+  /** Spec 26 §4.1 — the focused place's number, or null under a hover. */
+  pathNumber: number | null;
+  onPathScope: (index: number) => void;
+  onPathDone: () => void;
   arming: boolean;
   penning: boolean;
   onTogglePick: () => void;
   onTogglePen: () => void;
-  onProbe: (x: number, y: number) => void;
-  onPickActive: (index: number) => void;
+  onProbe: (x: number, y: number, cause: "move" | "scroll") => void;
+  /** Spec 26 §4.4 — ⌥ with the wheel. Positive widens. */
+  onWiden: (by: number) => void;
   onPickCommit: (index: number) => void;
   onPickCommitAt: (x: number, y: number) => void;
   onPickCancel: () => void;
@@ -124,6 +155,12 @@ export function OriginalPane(props: Props): React.JSX.Element {
   const zoomCommands = useRef({ by: props.onZoomBy, reset: props.onZoomReset });
   zoomRef.current = zoom;
   zoomCommands.current = { by: props.onZoomBy, reset: props.onZoomReset };
+  /** Spec 27 §5.2 — read through a ref, so a switch never rewrites `srcdoc`. */
+  const paperRef = useRef(props.paper);
+  paperRef.current = props.paper;
+  /** Spec 26 §5.4 — the overlay holds ↑ ↓, so this frame must not scroll on them. */
+  const wantsArrows = useRef(false);
+  wantsArrows.current = (props.pathScopes?.length ?? 0) > 0;
 
   const contentOrigin = useCallback((): { x: number; y: number } => {
     const frame = frameRef.current;
@@ -155,12 +192,15 @@ export function OriginalPane(props: Props): React.JSX.Element {
       inner.addEventListener("mouseup", onSelectionChanged);
       jumpToFragmentsInsteadOfNavigating(inner);
       zoomFromInside(inner, zoomCommands);
-      forwardKeysToParent(inner);
+      forwardKeysToParent(inner, wantsArrows);
 
       await addPaperFonts(view).catch(() => undefined);
       if (!live) return;
       applyZoom(inner, zoomRef.current);
-      await enrichDocument(inner, doc);
+      // Spec 27 §4.6 — the same paper as the pane beside it, applied before the
+      // enrichment so the diagrams are drawn once, in the theme they will keep.
+      applyPaperView(inner, paperRef.current);
+      await enrichDocument(inner, doc, paperRef.current.dark ? "dark" : "neutral");
       if (!live) return;
 
       measure(frame, JSON.parse(ranges) as LineRange[]);
@@ -192,6 +232,38 @@ export function OriginalPane(props: Props): React.JSX.Element {
     applyZoom(frame.contentDocument, zoom);
     measure(frame, JSON.parse(ranges) as LineRange[]);
   }, [zoom, ranges, measure]);
+
+  /**
+   * Spec 27 §4.6 — the paper changed, so this pane changes with it.
+   *
+   * The removed-block tints are geometry, exactly as they are under a zoom, so
+   * a width change has to re-measure them. The sweep that re-resolves every
+   * anchor is `DocumentView`'s to fire — it owns `onReflowed` and covers both
+   * surfaces — and this effect is only about the boxes this pane draws itself.
+   */
+  const { paper } = props;
+  const paperDrawn = useRef(false);
+  useEffect(() => {
+    const frame = frameRef.current;
+    const inner = frame?.contentDocument ?? null;
+    if (!frame || !inner) return;
+    applyPaperView(inner, paper);
+    if (!paperDrawn.current) {
+      paperDrawn.current = true;
+      return;
+    }
+
+    let live = true;
+    void (async () => {
+      await mermaidPass(inner, paper.dark ? "dark" : "neutral").catch((error: unknown) =>
+        console.warn("[rex] the original's diagrams were not redrawn", error),
+      );
+      if (live) measure(frame, JSON.parse(ranges) as LineRange[]);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [paper, ranges, measure]);
 
   /**
    * A resize re-measures, because a removed-block tint is geometry.
@@ -237,6 +309,8 @@ export function OriginalPane(props: Props): React.JSX.Element {
           title="The document as it is on disk"
           sandbox="allow-same-origin"
         />
+        {props.corner ? <div className="rex-corner">{props.corner}</div> : null}
+        {props.ruler}
         {boxes.map((box, at) => (
           <div
             // By position, for the same reason `changeBoxes` is — a hidden pane
@@ -263,6 +337,7 @@ export function OriginalPane(props: Props): React.JSX.Element {
           scrollY={scroll.y}
           onHoverItem={props.onHoverItem}
           onRemoveItem={props.onRemoveItem}
+          onFocusItem={props.onFocusItem}
           onSelectMarker={props.onSelectMarker}
           onHoverThread={props.onHoverThread}
         />
@@ -280,13 +355,13 @@ export function OriginalPane(props: Props): React.JSX.Element {
 
         {props.picking ? (
           <PickLayer
-            scopes={props.pickScopes}
-            active={props.pickActive}
+            scopes={props.pathScopes}
+            active={props.pathActive}
             scrollX={scroll.x}
             scrollY={scroll.y}
             arming={props.arming}
             onProbe={props.onProbe}
-            onActive={props.onPickActive}
+            onWiden={props.onWiden}
             onCommit={props.onPickCommit}
             onCommitAt={props.onPickCommitAt}
             onRegion={props.onRegion}
@@ -300,8 +375,20 @@ export function OriginalPane(props: Props): React.JSX.Element {
           §4 — the same two modes as the right-hand pane, and §6.4 — Add is the
           one gesture the original never gets: you cannot add to a version that
           is already fixed.
+
+          Spec 26 §4.7 — a place taken from THIS pane widens in this pane, so
+          the path bar is drawn here too. `pathScopes` arrives already filtered
+          to the original, so its presence is the whole test.
         */}
-        {!props.picking && !props.penning ? (
+        {props.pathScopes && props.pathScopes.length > 0 && !props.penning ? (
+          <PathBar
+            scopes={props.pathScopes}
+            active={props.pathActive}
+            number={props.pathNumber}
+            onScope={props.onPathScope}
+            onDone={props.onPathDone}
+          />
+        ) : !props.picking && !props.penning ? (
           <ModeStrip
             canPick
             canAdd={false}

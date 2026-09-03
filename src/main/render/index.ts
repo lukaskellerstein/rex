@@ -16,7 +16,7 @@ import {
   isPptxPath,
 } from "./formats.ts";
 import { loadHtmlFile, sha256 } from "./html.ts";
-import { markdownTitle, renderMarkdown } from "./markdown.ts";
+import { markdownTitle, renderMarkdown, sourceLineCount } from "./markdown.ts";
 import { renderPptx } from "./pptx.ts";
 import { MARKDOWN_STYLESHEET } from "./stylesheet.ts";
 
@@ -77,11 +77,18 @@ let pdfAssets: string | null = null;
 /** Resolved once: the path cannot change while the process is running. */
 let katexUrl: string | null = null;
 
-function markdownPage(title: string, body: string): string {
+/**
+ * `lines` — spec 35 §3 — is the source file's line count, for a document that
+ * has one. It rides on `<body>` as `data-src-lines`, beside the `data-src-line`
+ * stamps on the blocks, so the sweep can say where the LAST block ends. A DOCX
+ * page passes none: its blocks carry no stamp either.
+ */
+function markdownPage(title: string, body: string, lines?: number): string {
   katexUrl ??= katexStylesheetUrl();
   // `data-rex-paper` says REX wrote this page's stylesheet, so the renderer may
   // load REX's own font into it. Sanitised author HTML carries no such mark and
   // keeps its own type — see `renderer/overlay/paperFonts.ts`.
+  const count = lines === undefined ? "" : ` data-src-lines="${lines}"`;
   return `<!doctype html>
 <html lang="en" data-rex-paper>
 <head>
@@ -90,7 +97,7 @@ function markdownPage(title: string, body: string): string {
 <link rel="stylesheet" href="${katexUrl}">
 <style>${MARKDOWN_STYLESHEET}</style>
 </head>
-<body>
+<body${count}>
 ${body}
 </body>
 </html>`;
@@ -128,7 +135,10 @@ export async function renderDocument(
     const source = bytes.toString("utf8");
     const title = markdownTitle(source) ?? basename(ref.value);
     return {
-      presentation: { kind: "html", html: markdownPage(title, renderMarkdown(source)) },
+      presentation: {
+        kind: "html",
+        html: markdownPage(title, renderMarkdown(source), sourceLineCount(source)),
+      },
       contentHash: sha256(bytes),
       title,
       baseDir: dirname(ref.value),

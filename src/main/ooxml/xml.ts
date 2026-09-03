@@ -1,5 +1,9 @@
 // Spec 11 §7.3 — the XML primitives every edit operation is built from.
 //
+// Spec 19 §3.1 moved this out of `pptx/`: WordprocessingML needs exactly the
+// same scanners, for exactly the same reason, so a deck and a Word file share
+// them. Nothing here names a slide.
+//
 // String surgery, deliberately. Parsing a slide part with a DOM and serialising
 // it back rewrites the whole file — attribute order, namespace declarations,
 // self-closing style, entity choices — and a deck REX changed one sentence in

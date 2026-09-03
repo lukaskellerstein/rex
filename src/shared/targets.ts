@@ -1,26 +1,96 @@
 // The one rule that reads a thread's targets, shared by both processes.
 //
-// Spec 05 §5.4: a thread is as good as its worst target, and `null` — "that
-// document has not been open, so nobody looked" — is not one of the states it
-// competes with. Written once, here, because getting it wrong in either process
-// turns "not checked" into "orphaned", which is the difference between a comment
-// that is waiting and a comment that is lost.
+// Spec 32 §2: a comment is lost only when EVERY place it has is lost. It was
+// the opposite until then — the worst place decided, so one renamed heading
+// filed a comment with three live places in the `gone` lane and took it out of
+// the `open` filter. Written once, here, because the sidebar, the paper, the
+// tree and the export all answer it and must answer it the same way.
+//
+// `null` — "that document has not been open, so nobody looked" — competes in
+// neither direction (spec 05 §5.4). It cannot lose a comment and it cannot save
+// one. Getting that wrong turns "not checked" into "orphaned", which is the
+// difference between a comment that is waiting and a comment that is lost.
 //
 // No DOM, no database, no Electron: `node --test` imports this directly.
 
 import type { AnchorState, DocumentRef } from "./types.ts";
 
-/** `orphaned` beats `moved` beats `ok`. */
-const RANK: Record<AnchorState, number> = { ok: 0, moved: 1, orphaned: 2 };
+/**
+ * Spec 32 §5 — how a comment's places came out.
+ *
+ * A count and not a single state, because a single state cannot describe four
+ * places. `checked` is `ok + moved + orphaned`: the places somebody has actually
+ * looked at, and the only ones any rule below reads.
+ */
+export interface PlaceTally {
+  ok: number;
+  moved: number;
+  orphaned: number;
+  /** Nobody looked — spec 05 §5.4. Never counted as lost, never counted as found. */
+  unchecked: number;
+  checked: number;
+}
 
-/** The worst of `states`, ignoring nulls. Null when every state is null. */
-export function worstState(states: ReadonlyArray<AnchorState | null>): AnchorState | null {
-  let worst: AnchorState | null = null;
+/** A comment with no places at all, and what every `get` on a tally map falls back to. */
+export const NO_PLACES: PlaceTally = { ok: 0, moved: 0, orphaned: 0, unchecked: 0, checked: 0 };
+
+export function tallyPlaces(states: ReadonlyArray<AnchorState | null>): PlaceTally {
+  const tally: PlaceTally = { ok: 0, moved: 0, orphaned: 0, unchecked: 0, checked: 0 };
   for (const state of states) {
-    if (state === null) continue;
-    if (worst === null || RANK[state] > RANK[worst]) worst = state;
+    if (state === null) {
+      tally.unchecked++;
+      continue;
+    }
+    tally[state]++;
+    tally.checked++;
   }
-  return worst;
+  return tally;
+}
+
+/**
+ * Spec 32 §2 — the comment's own state, from its places.
+ *
+ * Three rules, in this order, and the first is the whole spec:
+ *
+ * - **`orphaned` needs every checked place**, not one of them. A comment with a
+ *   place still on the paper can be reached by pointing at it, and `laneOf`
+ *   reads this answer to decide whether it leaves the `open` filter.
+ * - **`moved` takes the leftover** (§2.1). Not gone, not clean — one amber wash
+ *   for "something under this comment changed, look". `moved` is not a lane
+ *   (spec 18 §2.1), so nothing is filed anywhere by it.
+ * - **Null when nobody looked at any place.** Not `ok`: REX cannot report a
+ *   document it has never opened as fine.
+ */
+export function threadState(tally: PlaceTally): AnchorState | null {
+  if (tally.checked === 0) return null;
+  if (tally.orphaned === tally.checked) return "orphaned";
+  if (tally.orphaned > 0 || tally.moved > 0) return "moved";
+  return "ok";
+}
+
+/**
+ * Spec 32 §2.2 — the word a summary prints, and which colour it wears.
+ *
+ * A count wherever the places disagree, because "anchor lost" on a comment with
+ * three live places is the sentence this spec exists to delete. The denominator
+ * is `checked` and never `states.length`: a place in a file nobody has opened is
+ * not evidence in either direction, so counting it would make the fraction a
+ * claim about a file nobody read.
+ *
+ * The tone is not the same decision as the wash. A part-lost comment washes
+ * amber — it is open, and `threadState` says `moved` — while this word reads
+ * grey, because what happened to that one place is absence. Spec 18 §3 gives
+ * grey to absence and amber to a thing that shifted, and a part-lost comment
+ * genuinely has one of each.
+ */
+export function placesWord(tally: PlaceTally): { text: string; tone: "lost" | "moved" } | null {
+  const { checked, orphaned, moved } = tally;
+  if (checked === 0) return null;
+  if (orphaned === checked) return { text: "anchor lost", tone: "lost" };
+  if (orphaned > 0) return { text: `${orphaned} of ${checked} lost`, tone: "lost" };
+  if (moved === checked) return { text: "text moved", tone: "moved" };
+  if (moved > 0) return { text: `${moved} of ${checked} moved`, tone: "moved" };
+  return null;
 }
 
 /** `path` is `root` itself, or sits under it. Never `/docs-old` under `/docs`. */

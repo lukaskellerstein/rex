@@ -16,17 +16,51 @@
 
 import { useState } from "react";
 import type { ApplyReadyEvent, DeckPreview, DeckSlidePreview } from "../../shared/channels.ts";
-import type { AnchorState, ThreadWithMessages } from "../../shared/types.ts";
+import { type PlaceTally, placesWord, threadState } from "../../shared/targets.ts";
+import type { ThreadStatus, ThreadWithMessages } from "../../shared/types.ts";
 import { Pencil, Warning } from "./Icons.tsx";
-import { StateWord, washClass } from "./ThreadRow.tsx";
-import { tokenClass } from "./wash.ts";
+import { tokenClass, washClass } from "./wash.ts";
+
+/**
+ * The comment's state, in words, for the sentence under the diff.
+ *
+ * It was the list row's word until spec 33 took the words off the row — a lost
+ * place is a mark on a file chip there now. This sentence still wants one:
+ * "the comment this patch answers" needs its subject named, and the lane and
+ * the count are what name it.
+ *
+ * Spec 32 §2.2 — below the lanes, the word is a COUNT and not a verdict.
+ * `anchor lost` on a comment with three live places is the sentence that spec
+ * exists to delete, and `1 of 4 lost` is what it says instead.
+ */
+function StateWord({
+  status,
+  tally,
+}: {
+  status: ThreadStatus;
+  tally: PlaceTally;
+}): React.JSX.Element | null {
+  if (status === "draft") return <span className="rex-state-draft">draft</span>;
+  if (status === "note") return <span className="rex-state-unsent">note</span>;
+  if (status === "resolved") return <span className="rex-state-resolved">resolved</span>;
+  const word = placesWord(tally);
+  if (!word) return null;
+  const tone = word.tone === "lost" ? "rex-state-orphaned" : "rex-state-moved";
+  return <span className={tone}>{word.text}</span>;
+}
 
 interface Props {
   event: ApplyReadyEvent;
   /** The comment this patch answers, so the change is never read out of context. */
   thread: ThreadWithMessages | null;
   number: number;
-  anchorState: AnchorState | null;
+  /**
+   * Spec 32 §5 — how that comment's places came out, counted.
+   *
+   * `places` and not `tally`, which this file already spends on the diff's own
+   * added/removed line counts. One word, one meaning.
+   */
+  places: PlaceTally;
   /** How many sections are outlined in the document on screen right now. */
   outlined: number;
   openDocumentPath: string | null;
@@ -176,6 +210,24 @@ function SlidePair(props: { preview: DeckSlidePreview }): React.JSX.Element {
     </figure>
   );
 
+  // Spec 19 §7.2 — a notes change does not appear on the slide, so two
+  // identical pictures would be the rubber stamp §7.7 exists to prevent. The
+  // words go underneath the pictures, and only for the slides whose notes this
+  // run actually named.
+  const notes =
+    preview.notesBefore === null && preview.notesAfter === null ? null : (
+      <div className="rex-deck-notes">
+        <figure className="rex-deck-note">
+          <figcaption className="rex-meta">notes, before</figcaption>
+          <p>{preview.notesBefore?.length ? preview.notesBefore : "— none —"}</p>
+        </figure>
+        <figure className="rex-deck-note">
+          <figcaption className="rex-meta">notes, after</figcaption>
+          <p>{preview.notesAfter?.length ? preview.notesAfter : "— none —"}</p>
+        </figure>
+      </div>
+    );
+
   return (
     <div className="rex-deck-slide">
       <span className="rex-deck-slide-number">Slide {preview.slide}</span>
@@ -183,6 +235,7 @@ function SlidePair(props: { preview: DeckSlidePreview }): React.JSX.Element {
         {frame(preview.before, "before")}
         {frame(preview.after, "after")}
       </div>
+      {notes}
     </div>
   );
 }
@@ -288,7 +341,15 @@ export function DiffDialog(props: Props): React.JSX.Element {
 
       <div className="rex-review-files">
         {event.files.length === 0 ? (
-          <span className="rex-meta">The agent changed no files.</span>
+          <span className="rex-meta">
+            {/*
+              True in two cases, and worded for both: the agent wrote nothing,
+              or it wrote and then took every line back. Either way each
+              document is the same bytes it was, so its working copy is gone
+              (`apply.ts`, `dropIfUnchanged`) and there is nothing to approve.
+            */}
+            Every document is as it was. There is nothing to approve.
+          </span>
         ) : (
           event.files.map((file) => {
             const tally = tallyFor(counts, file);
@@ -341,14 +402,18 @@ export function DiffDialog(props: Props): React.JSX.Element {
       {showDiff && !isDeck ? (
         <>
           {thread ? (
-            <div className={`rex-card-anchor ${washClass(thread.status, props.anchorState)}`}>
+            <div
+              className={`rex-card-anchor ${washClass(thread.status, threadState(props.places))}`}
+            >
               <div className="rex-card-anchor-head">
-                <span className={`rex-token ${tokenClass(thread.status, props.anchorState)}`}>
+                <span
+                  className={`rex-token ${tokenClass(thread.status, threadState(props.places))}`}
+                >
                   {props.number}
                 </span>
                 <span className="rex-meta">
-                  <StateWord status={thread.status} state={props.anchorState} /> the comment this
-                  patch answers
+                  <StateWord status={thread.status} tally={props.places} /> the comment this patch
+                  answers
                 </span>
               </div>
               <p className="rex-card-note">{thread.note}</p>
