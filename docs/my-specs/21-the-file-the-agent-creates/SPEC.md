@@ -339,8 +339,8 @@ against the shipped feature, and §13 is its whole account.
 
 ### 9.1 How it was tested
 
-**Not** against ProtoBot — it is read-only for every agent working in this repo,
-and §1's incident is the argument for not pointing a create-files feature at a
+**Not** against a reviewed repository — every one is read-only for an agent
+working on REX, and §1's incident is the argument for not pointing a create-files feature at a
 repository nobody may write to. A throwaway git repository was used instead, so
 the write agent could run without any real document at risk.
 
@@ -525,7 +525,7 @@ no files"* — true, and the least useful of the two sentences on screen.
 
 ### 13.6 How it was tested
 
-Not against ProtoBot (§9.1). The same throwaway git repository, an isolated
+Not against a reviewed repository (§9.1). The same throwaway git repository, an isolated
 database and store (`REX_DB_PATH`, `REX_WORK_PATH`), on its own CDP port
 (`REX_CDP_PORT=9455`), so the reviewer's instance on 9334 was never driven.
 

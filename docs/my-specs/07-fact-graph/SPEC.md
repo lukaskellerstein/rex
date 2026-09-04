@@ -1414,8 +1414,8 @@ human's documents, and overstating it is the way it becomes useless.
 **A standalone script. No Electron, no database, no UI.**
 
 Point it at
-`~/Projects/Github/redhat/ProtoBot/docs/architecture/components.md` (1,063
-lines) and have it extract claims from 10 chunks through the gateway.
+`~/Projects/Github/lukaskellerstein/documentation-sample/two/sample-report.md`
+(349 lines) and have it extract claims from 10 chunks through the gateway.
 
 Accept when:
 

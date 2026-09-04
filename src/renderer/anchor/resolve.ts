@@ -9,6 +9,7 @@ import {
   type AnchorExtent,
   type AnchorState,
   ELEMENT_QUOTE_MAX,
+  type ElementRef,
   type TextPosition,
 } from "../../shared/types.ts";
 import { fingerprintElement, isStableId } from "./create.ts";
@@ -352,6 +353,32 @@ function isStillTheBlock(index: TextIndex, block: Element, stored: string): bool
 }
 
 /**
+ * The kind of block an element ref names — `h2`, `li`, `table` — or null when
+ * the ref does not say, in which case nothing is checked and nothing changes.
+ *
+ * `ElementRef.tag` says it outright on every anchor made since 2026-09-04. An
+ * older ref may still say it through its CSS path, whose last segment is a tag
+ * unless a stable id replaced the whole path with `#id` — and then it is null.
+ *
+ * Measured on 2026-09-04 against `documentation-sample/one/sample-document.md`:
+ * the gap below the last roadmap item resolved its lower neighbour — the
+ * deleted `<h2 id="faq">FAQ</h2>` — onto the table of contents entry
+ * `<li>FAQ</li>`, two hundred lines higher up, and the gap reported `ok`.
+ * `isStillTheBlock` was satisfied, correctly: an `<li>` reading "FAQ" is a
+ * block whose entire text is "FAQ". The quote cannot tell a heading from the
+ * entry that points at it, and the path could not either, because the stable
+ * id had reduced it to `#faq`. The tag can, so the ref now carries it.
+ */
+function kindNamed(ref: ElementRef | null | undefined): string | null {
+  if (ref?.tag) return ref.tag.toLowerCase();
+  const css = ref?.css;
+  if (!css) return null;
+  const last = css.split(">").pop()?.trim() ?? "";
+  const tag = /^([a-z][a-z0-9-]*)/i.exec(last);
+  return tag ? tag[1].toLowerCase() : null;
+}
+
+/**
  * The block a quote match turns out to be a pick OF, rather than a passage IN.
  *
  * Two anchors reach the quote layer and they mean different things. A text
@@ -422,7 +449,12 @@ function resolveNeighbour(index: TextIndex, side: Anchor): Element | null {
     const quoted = resolveQuote(index, side);
     if (!quoted) return null;
     const block = blockOf(quoted.range.commonAncestorContainer);
-    return block && isStillTheBlock(index, block, stored) ? block : null;
+    if (!block || !isStillTheBlock(index, block, stored)) return null;
+    //  · And it has to be the same KIND of block. `isStillTheBlock` asks
+    //    whether the whole block reads as the stored quote, and a table of
+    //    contents entry reads exactly as the heading it points at.
+    const kind = kindNamed(side.element);
+    return kind === null || block.tagName.toLowerCase() === kind ? block : null;
   }
 
   const found = resolveElement(index, side);

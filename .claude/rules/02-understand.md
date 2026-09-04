@@ -17,12 +17,14 @@ description: "Step 1: Understand — read code, ask questions, identify gaps bef
 - Ask clarifying questions if requirements are ambiguous
 - Identify gaps in the current design and opportunities for improvement
 - Understand the requirement completely before proceeding
-- **`SPEC.md` at the repo root is the authority on what REX is.** Read the
-  relevant section before designing anything — it is a complete implementation
-  spec, not a sketch, and §12 lists what was deliberately rejected. If your plan
-  contradicts it, say so explicitly rather than quietly diverging.
-- **For bug reports**: reproduce the issue first (launch the app, open one of the
-  test documents in `~/Projects/Github/redhat/ProtoBot/docs/`, and drive it to the
+- **The specs are the authority on what REX is.** `SPEC.md` in these files is
+  `docs/my-specs/01-initial/SPEC.md`; every later decision is a numbered spec
+  beside it, and a later spec says what it changes in an earlier one. Read the
+  relevant section before designing anything — they are complete implementation
+  specs, not sketches, and spec 01 §12 lists what was deliberately rejected. If
+  your plan contradicts a spec, say so explicitly rather than quietly diverging.
+- **For bug reports**: reproduce the issue first (launch the app, open
+  `~/Projects/Github/lukaskellerstein/documentation-sample`, and drive it to the
   failing state) to confirm the problem before attempting a fix. Anchoring bugs
-  reproduce against those two documents specifically — `SPEC.md` §2 records why
-  they are the hostile cases.
+  reproduce against `one/sample-document.md` and `two/sample-report.md` there —
+  [`06-testing.md`](06-testing.md) lists what makes each of them hard.

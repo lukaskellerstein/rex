@@ -29,8 +29,8 @@ be anchored to it. It can *create* the file. It cannot *change it again*.
 
 ### 1.1 The report, from the database
 
-Thread `cd76280b`, 2026-08-31, on `docs/architecture/components.md` in the
-ProtoBot repository. The `message` table, times in UTC:
+Thread `cd76280b`, 2026-08-31, on `docs/architecture/components.md` in a
+reviewed repository. The `message` table, times in UTC:
 
 | Time | Mode | The reviewer | The agent |
 |:--|:--|:--|:--|
@@ -383,8 +383,8 @@ answers, and each moved something:
 Two factual errors in 1.0 are also corrected. It claimed an untracked file
 changed by Bash could not be undone; the before-set holds every file `git
 status` lists, so it can, and only a gitignored file cannot (§3.1). And its test
-named the ProtoBot repository, which is a reviewed repository and never a test
-fixture; §9.1 uses `my-ecommerce`.
+named a reviewed repository, which is never a test fixture; §9.1 uses
+`my-ecommerce`.
 
 ---
 

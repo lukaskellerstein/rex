@@ -8,18 +8,43 @@ description: "Reference: Technology stack — Electron + React + TypeScript, SQL
      so this file describes what the spec fixes; update it from the manifest the
      day one exists. -->
 
-**TypeScript only.** No Python runtime, no second language — `SPEC.md` §12 lists
-a bundled Python runtime as an explicit non-goal, and §1.2 records the Vex → REX
-change from "TypeScript + Python" to "TypeScript only".
+**Two languages, one boundary.** The app is TypeScript. The agent library is
+Python — `agent-gateway/`, spec 42 — and it runs as one child of the main
+process that speaks JSON lines over stdin and stdout. `SPEC.md` §12's "bundled
+Python runtime" row was retired by spec 42 §1.1 on 2026-09-04. The rows beside
+it — no broker, no HTTP server, no listening port — stand, and the pipe is how
+they are kept. Spec 42 §15.1 records why Vex's shape (NATS plus uvicorn) is
+not the one being repeated.
 
 ## Main process
 
 - **Runtime**: Electron
 - **Data**: SQLite via `better-sqlite3`, at `~/.rex/rex.db` — outside every
   repository. Native module: needs `electron-rebuild` in the build.
-- **Agents**: `@anthropic-ai/claude-agent-sdk`
+- **Agents**: none directly once spec 42 is built — `src/main/agent/service.ts`
+  spawns `agent-gateway/` and `bridge.ts` maps its events; until then,
+  `@anthropic-ai/claude-agent-sdk` in `src/main/agent/runner.ts`
 - **Document rendering**: `markdown-it` (needs `token.map` for `data-src-line`),
   `dompurify` for HTML sanitising
+
+## The agent library (Python, spec 42)
+
+- **Where**: `agent-gateway/` at the repo root, module `agent_gateway`,
+  Python 3.12 pinned in `.python-version`. A sibling of `src/`, never inside it.
+- **Tooling**: `uv` only — `uv sync`, `uv add`, `uv run pytest`. Never `pip`.
+- **The contract**: Pydantic models in `protocol.py`, camelCase on the wire;
+  `src/shared/agent-protocol.ts` is generated from them and never edited by
+  hand — `test/protocol.spec.ts` fails when the two drift.
+- **SDKs**: `claude-agent-sdk` (spec 42), `openai-codex` (44), an own `httpx`
+  client for OpenCode's server (45), `deepagents` with `langchain-openai` and
+  `langchain-anthropic` (46). **Only `agent-gateway/` imports an agent SDK.**
+- **The gate stays in TypeScript.** The library asks `gate.ts` over the pipe
+  before every tool call (spec 42 §8); no answer within thirty seconds is a
+  deny.
+- **Lint and types**: `ruff.toml` and `pyrightconfig.json` inside the package
+  are the markers `nvim-tools` gates `ruff` and `basedpyright` on.
+- **What it must never contain**: an HTTP server, a NATS client, a socket
+  listener, a database, or an import of anything in REX.
 
 ## Renderer
 
@@ -40,14 +65,16 @@ change from "TypeScript + Python" to "TypeScript only".
 `SPEC.md` §3.2 and §12 forbid these outright — each was considered and rejected:
 
 - any NATS client or other message broker
-- any HTTP server framework, SSE, or listening port
+- any HTTP server framework, SSE, or listening port — in the app **or** in the
+  agent library
 - `nats.ws`
-- any Python runtime
+- a second client of the agent library, or any transport to it but the pipe
 - JSON or JSONL as the store (SQLite; `rex export` is how files are produced)
 
 ## Scripting & Automation
 
-- Default: TypeScript for scripts, consistent with the rest of the stack
+- Default: TypeScript for scripts, consistent with the rest of the app
+- Python only inside `agent-gateway/`
 - Shell scripts only for trivial one-liners
 
 ## Conventions this machine imposes

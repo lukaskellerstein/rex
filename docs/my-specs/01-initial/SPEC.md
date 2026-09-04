@@ -88,16 +88,27 @@ machine; adjust if yours differ.
 | Transcript parser | `vex/agent-orchestrator/src/agent_orchestrator/services/transcript_parser.py` | Port for the session-replay path (§8.5) |
 | Plugin marketplace | `~/Projects/Github/lukaskellerstein/claude-my-marketplace` | Supplies the `lsp-*` plugins (§8.3) |
 | Agent SDK docs | `https://code.claude.com/docs/en/agent-sdk` | **Authoritative** for every TypeScript binding |
-| Test documents | `~/Projects/Github/redhat/ProtoBot/docs/` | Real Markdown and HTML to test anchoring against |
+| Test documents | `~/Projects/Github/lukaskellerstein/documentation-sample` | Real Markdown, DOCX, PDF and PPTX to test anchoring against. **Read-only.** |
 
-**Test document properties**, measured 2026-08-20 — use these in milestone 0:
+**Test document properties**, measured 2026-09-04 — use these in milestone 0.
+(The spike first ran, on 2026-08-20, against another repository's HTML and
+Markdown; on 2026-09-04 the author replaced the test documents with this
+repository, and every check names it from then on.)
 
-- `docs/review/2026-08-20-architecture-explained.html` — 920 lines, 4 `id`
-  attributes, 4 inline SVG diagrams, custom light/dark stylesheet.
-- `docs/architecture/components.md` — 1,063 lines of Markdown.
+- `one/sample-document.md` — 263 lines, 15 headings, a badge row of linked
+  images, a Mermaid fence, 4 images, 19 table rows, links to files that do not
+  exist.
+- `two/sample-report.md` — 349 lines, YAML front matter, an HTML `<table>`
+  inside the Markdown, 18 headings, a Mermaid fence, 68 table rows.
+- `one/sample-document.docx` — a different document from the Markdown beside
+  it: a quarterly business review, 45 blocks, 4 images, 4 tables. Through
+  mammoth (§5.5) it is HTML with no `data-src-line` and no `id` at all.
+- `two/sample-report.docx` — the same report as the Markdown, through mammoth.
 
-These are deliberately hostile: almost no stable `id` attributes, and real
-diagrams. If anchoring works here it will work generally.
+These are hostile in different ways: repeated phrases across tables, headings
+that gain ids only from their text, a diagram that is drawn at view time, and a
+DOCX whose structure is whatever mammoth makes of it. If anchoring works here
+it will work generally.
 
 ---
 
@@ -1039,8 +1050,9 @@ Each ends with something runnable. Acceptance criteria are checks, not opinions.
 
 Standalone script, roughly 150 lines. No Electron, no database, no UI.
 
-1. Load `~/Projects/Github/redhat/ProtoBot/docs/review/2026-08-20-architecture-explained.html`
-   in a headless browser.
+1. Load `one/sample-document.md` from
+   `~/Projects/Github/lukaskellerstein/documentation-sample`, rendered by
+   §5.3, and its DOCX twin rendered by §5.5, in a headless browser.
 2. Build the text index (§6.3). Create 10 anchors spread through the document,
    including one on an inline SVG.
 3. Serialise them to a JSON file.

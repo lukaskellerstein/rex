@@ -1,7 +1,8 @@
 # REX 02 — workspace explorer and reference graph
 
 **Version:** 1.0 · 2026-08-20
-**Status:** implemented and verified against `~/Projects/Github/redhat/ProtoBot/docs`
+**Status:** implemented and verified (2026-08-20). The workspace to open for a
+check is `~/Projects/Github/lukaskellerstein/documentation-sample`.
 **Depends on:** [`01-initial/SPEC.md`](../01-initial/SPEC.md), which is implemented and passing.
 
 > [!note]
@@ -442,9 +443,9 @@ Open a directory, render the tree, swap documents from it.
 
 **Accept when:**
 
-1. Opening `~/Projects/Github/redhat/ProtoBot/docs` shows all 8 documents
-   under `architecture/` and `review/`, and `.git` and `node_modules` are
-   absent from the tree.
+1. Opening `~/Projects/Github/lukaskellerstein/documentation-sample` shows
+   every document under `one/`, `two/` and `three/`, and `.git` and `.claude`
+   are absent from the tree.
 2. A document with threads shows its open / resolved / orphaned counts, and
    those counts match `SELECT` on the database.
 3. Clicking a document opens it, its comments load, and its anchors resolve —

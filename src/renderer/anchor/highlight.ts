@@ -60,7 +60,7 @@ const FIND_CURRENT_HIGHLIGHT = "rex-find-current";
  * which is the ground for the Markdown REX renders itself. A local HTML file is
  * rendered untouched (spec 01 §5.4 point 3), so one that themes itself dark
  * keeps its own near-white body text — and near-white text on a near-white wash
- * is a passage nobody can read. Measured on 2026-08-26 on the three ProtoBot
+ * is a passage nobody can read. Measured on 2026-08-26 on three hand-written HTML
  * review documents, which theme themselves with `prefers-color-scheme` alone.
  *
  * Stating the ink is the fix that needs nothing else. The alternative was to

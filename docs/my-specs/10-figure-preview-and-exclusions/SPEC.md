@@ -142,7 +142,7 @@ diagram and a wrong one.
 **Its appearance.** A drawing lifted out of its document loses its document's
 stylesheet, and for SVG that is not cosmetic: `fill` falls back to black, so a
 figure of outlined boxes becomes a figure of solid black rectangles. Measured
-against ProtoBot's architecture page, whose diagrams are drawn with classes
+against a reviewed architecture page, whose diagrams are drawn with classes
 (`.d-box-in { fill: var(--paper) }`) rather than presentation attributes. So the
 **computed** value of ~38 presentation properties is copied onto a detached
 clone before it leaves. Computed is the trick: it has already resolved the
@@ -362,7 +362,7 @@ scrollbar. **It was wrong and is removed.** It is recorded here because the idea
 is an attractive one and will occur to whoever reads this next.
 
 `color-scheme` on an embedder decides what `prefers-color-scheme` resolves to
-*inside* the frame. All three ProtoBot review documents theme themselves with
+*inside* the frame. All three HTML review documents this was measured on theme themselves with
 exactly that media query and carry no theme script — and the sandbox runs none
 (spec 01 §5.4 step 2), so the media query is the only theme they have. Setting
 the property therefore does not describe the document, it **overrides** it.

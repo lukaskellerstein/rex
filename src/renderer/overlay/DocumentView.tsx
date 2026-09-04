@@ -538,7 +538,7 @@ export function DocumentView(props: Props): React.JSX.Element {
       // `color-scheme` on the iframe, to give a dark document a dark scrollbar.
       // It broke rendering. `color-scheme` on the embedder decides what
       // `prefers-color-scheme` resolves to *inside* the frame, and the three
-      // ProtoBot review documents theme themselves with exactly that media
+      // The HTML review documents this was measured on theme themselves with exactly that media
       // query and no script — the sandbox runs none (spec 01 §5.4 step 2), so
       // the media query is the only theme they have. Worse, the value stuck to
       // the element across loads: open a Markdown file, then one of those, and

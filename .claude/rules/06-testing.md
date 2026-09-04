@@ -68,13 +68,23 @@ own browser:
 > substitute for closing it yourself when the test is finished.
 
 **Anchoring changes** — anchoring is the one component that **fails silently**,
-so a green run proves nothing unless it includes the hostile documents:
+so a green run proves nothing unless it includes the sample documents in
+`~/Projects/Github/lukaskellerstein/documentation-sample`:
 
-- `~/Projects/Github/redhat/ProtoBot/docs/review/2026-08-20-architecture-explained.html`
-  — 920 lines, only 4 `id` attributes, 4 inline SVG diagrams
-- `~/Projects/Github/redhat/ProtoBot/docs/architecture/components.md` — 1,063 lines
+- `one/sample-document.md` — 263 lines, 15 headings, a badge row of linked
+  images, a Mermaid fence, 4 images, 19 table rows, and links to files that do
+  not exist (`CONTRIBUTING.md`, `LICENSE`)
+- `two/sample-report.md` — 349 lines, YAML front matter, an HTML `<table>`
+  inside the Markdown, 18 headings, a Mermaid fence, 68 table rows
+- `one/sample-document.docx` — a **different** document from the Markdown
+  beside it: a quarterly business review, 45 blocks, 4 images as data URIs,
+  4 tables, h1 and h2 headings. Through mammoth it is HTML with **no**
+  `data-src-line` and no ids — the hand-written-HTML shape, where every anchor
+  falls back to text and structure, and the shape the region gate runs on
+- `two/sample-report.docx` — the same report as `two/sample-report.md`,
+  through mammoth
 
-Both are read-only. The acceptance bar from `SPEC.md` §13 Milestone 0: every
+All are read-only. The acceptance bar from `SPEC.md` §13 Milestone 0: every
 anchor must report `ok`, `moved` or `orphaned`, and each classification must be
 correct by inspection. **A reworded passage must be `moved` or `orphaned` — never
 silently resolved to the wrong place.** A wrong-place resolution that reports
@@ -91,9 +101,12 @@ Anything changed is a bug in the gate. Surface it, do not merely log it.
 `SPEC.md` §13 Milestone 3 also requires a deliberate attempt to make the agent
 write a file, and that attempt must be denied.
 
-**Project test suite** — there is **no suite yet**; `package.json` does not
-exist. Milestone 0 is a standalone script (`test/anchor.spec.ts`). Once a test
-command exists, run it before anything else and replace this paragraph with it.
+**Project test suite** — one script per file: `npm run test:<name>` runs
+`node --test test/<name>.spec.ts`. There are 39, and there is no `npm test`.
+Run the ones that cover what you touched, and `npm run test:anchor` for
+anything near the resolver. Once spec 42 is built, `agent-gateway/` adds
+`uv run pytest` and `npm run test:library`, and a change on either side of the
+pipe runs both.
 
 **Every code change** — repo-wide lint / format / type check:
 
@@ -105,8 +118,9 @@ Your change must not add findings, measured against the baseline you took in the
 Understand step. How to read the output (including `gated-off`), and why this
 never replaces the project's own suite: [`machine-tools.md`](machine-tools.md).
 
-Expect `gated-off` for the type checker until `tsconfig.json` exists — that is
-the repo missing a marker, not the CLI failing. See
+`tsc` runs, because `tsconfig.json` exists. `ruff` and `basedpyright` are
+`gated-off` until `agent-gateway/` carries `ruff.toml` and `pyrightconfig.json`
+(spec 42 §12) — that is the repo missing a marker, not the CLI failing. See
 [`09-code-quality.md`](09-code-quality.md).
 
 **Non-testable changes** (docs, config, IaC only): explicitly state why no
