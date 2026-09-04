@@ -9,13 +9,16 @@ import Database from "better-sqlite3";
 import { DB_PATH } from "./location.ts";
 import {
   migrateCommentOrder,
+  migrateGateways,
   migrateMessageDenied,
   migrateMessageMode,
   migrateMessageModel,
+  migrateMessageRoute,
   migrateMessageStyle,
   migrateNoteFlag,
   migrateTargetMessage,
   migrateThreadLanes,
+  migrateThreadSessions,
   migrateThreadStroke,
   migrateThreadStyle,
   migrateThreadTargets,
@@ -66,6 +69,13 @@ export function openDatabase(): Db {
   // Spec 24 §5.2 — which message added a place. After `migrateThreadTargets`,
   // because that is what creates the table on a database old enough to lack it.
   migrateTargetMessage(db);
+  // Spec 43 §12 — gateways, then the sessions and messages that reference one.
+  // `PRAGMA foreign_keys` is ON, so `agent_gateway` and its `Original` row exist
+  // before `thread_session` can name them. `migrateMessageRoute` is after
+  // `migrateMessageMode` because it reads `mode` to leave a NOTE alone.
+  migrateGateways(db);
+  migrateThreadSessions(db);
+  migrateMessageRoute(db);
   // Spec 30 §7.1 — the `draft` and `note` lanes. LAST, and it must stay last:
   // it rebuilds `thread` from whatever columns the table has at that moment, so
   // every `ALTER TABLE` above has to have run first or the rebuilt table loses

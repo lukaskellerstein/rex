@@ -86,6 +86,16 @@ export interface TraceEntry {
   model: string | null;
   style: string | null;
   /**
+   * Spec 43 §5.3 — and the gateway that produced it, with the URL it used.
+   *
+   * The sheet drew neither until 2026-09-04, so an answer here could not say
+   * where it came from while the card beside it could. The reviewer's report:
+   * *"In the trace view I'm missing, in the answer, information about what
+   * gateway it came from."* Both feet are one component now.
+   */
+  gatewayName: string | null;
+  baseUrl: string | null;
+  /**
    * Spec 38 §3.3 — the agent's own one-line account of a call, when the input
    * carries one: `Bash` sends a `description` beside every command. It is the
    * head's text, and nothing else from the input reaches the head.
@@ -281,6 +291,8 @@ function entry(message: Message, kind: TraceKind, label: string, body: string): 
     sent: message.mode,
     model: message.model,
     style: message.style,
+    gatewayName: message.gatewayName,
+    baseUrl: message.baseUrl,
     what: null,
     fields: [],
     change: null,

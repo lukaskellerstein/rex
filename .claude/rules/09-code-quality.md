@@ -51,8 +51,15 @@ This repo carries `biome.jsonc` (the JS/TS family — formatter *and* live linte
 `tsconfig.json` (tsc), `.editorconfig` (shfmt) and `.markdownlint-cli2.yaml`
 (markdown). `nvim-tools` gates each tool on its file — `tsc` on `tsconfig.json`
 exactly as it gates `basedpyright` on `pyrightconfig.json` and `ruff` on
-`ruff.toml`, which `agent-gateway/` carries from spec 42 on. Until then a Python
-finding can never appear, and that is the gate working, not a tool missing.
+`ruff.toml`, and since spec 42 `agent-gateway/` carries both of those, so a
+Python finding is a finding like any other.
+
+One file is deliberately outside biome: `src/shared/agent-protocol.ts` is
+generated from `agent-gateway/src/agent_gateway/protocol.py` and compared byte
+for byte by `test/protocol.spec.ts`, so a formatter rewrapping it would break
+that test for a reason nobody could act on. The generator keeps it inside
+`lineWidth` itself. `agent-gateway/schema.json` and `catalogue.json` are
+excluded for the same reason.
 
 The file must stay `biome.jsonc`, not `biome.json`: biome silently ignores a
 `.json` config containing comments and falls back to its full defaults, which

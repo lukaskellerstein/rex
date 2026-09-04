@@ -15,7 +15,7 @@
 // on screen at once agree.
 
 import { type RefObject, useRef, useState } from "react";
-import type { AgentChoices, ThreadWithMessages } from "../../shared/types.ts";
+import type { AgentChoices, ModelChoice, ThreadWithMessages } from "../../shared/types.ts";
 import { DEFAULT_STYLE } from "../../shared/types.ts";
 import { ChevronRight, Pencil, Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
@@ -24,6 +24,21 @@ import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
 import type { Mode } from "./mode.ts";
 import { ReplyGrip } from "./ReplyGrip.tsx";
 import type { SelectionItem } from "./selection.ts";
+
+/**
+ * Spec 43 §4 — the gateway rows, and why each unusable one is still drawn.
+ *
+ * `rows` is every gateway REX has; `blocked` says why one of them cannot answer
+ * for the chosen agent. **Impossible combinations are shown, not hidden**
+ * (§4.2): a greyed row with the reason on hover says "this is configuration you
+ * have not done", where an absent row says "REX cannot do this".
+ */
+export interface GatewayChoice {
+  rows: ModelChoice[];
+  blocked: (gatewayId: string) => string | null;
+  /** §5.2's warning, or null when this combination has already seen the thread. */
+  replayNotice: string | null;
+}
 
 interface Props {
   thread: ThreadWithMessages;
@@ -36,6 +51,19 @@ interface Props {
   models: AgentChoices;
   model: string | null;
   onModel: (model: string | null) => void;
+  /**
+   * Spec 43 §4 — the gateway, to the LEFT of the model.
+   *
+   * Left because §4.1's cascade runs left to right: changing the gateway
+   * rebuilds the model list, and a control that rebuilds another one sits
+   * before it. Spec 44 adds the agent control to the left of this, and the row
+   * reads agent · gateway · model from then on.
+   */
+  gateways: GatewayChoice;
+  gateway: string;
+  onGateway: (gatewayId: string) => void;
+  /** §4.5 — the door to `Manage gateways…`, at the foot of the gateway menu. */
+  onManageGateways: () => void;
   /** Spec 31 §2.1 — the output style this chat is having. Never null. */
   style: string;
   onStyle: (style: string) => void;
@@ -283,6 +311,32 @@ export function Composer(props: Props): React.JSX.Element {
             together instead of the button dropping to the left on its own.
           */}
           <span className="rex-row-end">
+            {/*
+              Spec 43 §4 — the gateway, first in the group and to the left of
+              the model it rebuilds. A note is not drawn one for the reason it
+              is drawn no model: a note runs nothing, so it runs nowhere.
+            */}
+            {noteLane ? null : (
+              <ModelPick
+                models={props.gateways.rows}
+                value={props.gateway}
+                fallback={props.gateway}
+                allowDefault={false}
+                disabled={
+                  props.mode === "note" ? "A note runs nothing, so it uses no gateway." : null
+                }
+                error={null}
+                rowDisabled={props.gateways.blocked}
+                action={{
+                  label: "Manage gateways…",
+                  title: "Add, edit or remove a gateway. Old answers keep their own record.",
+                  onPick: props.onManageGateways,
+                }}
+                onPick={(value) => {
+                  if (value !== null) props.onGateway(value);
+                }}
+              />
+            )}
             {noteLane ? null : (
               <ModelPick
                 models={props.models.models}
@@ -359,6 +413,20 @@ export function Composer(props: Props): React.JSX.Element {
             This edits {thread.documentNames.join(", ")}. You see every change, in each document,
             before anything is kept.
           </span>
+        ) : null}
+
+        {/*
+          Spec 43 §5.2 — said BEFORE the button is pressed, for the reason the
+          sentence above it is: the first send to a new combination replays the
+          whole thread, and on a local model measured at about 100 tokens per
+          second that is minutes. A cost the reviewer learns about by waiting is
+          a cost they had no chance to decline.
+
+          One sentence, once per combination. It disappears the moment that
+          gateway has answered this comment even once.
+        */}
+        {!noteLane && props.mode !== "note" && props.gateways.replayNotice ? (
+          <span className="rex-meta">{props.gateways.replayNotice}</span>
         ) : null}
       </div>
     </>

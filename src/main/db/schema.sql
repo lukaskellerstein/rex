@@ -146,6 +146,23 @@ CREATE TABLE IF NOT EXISTS message (
   -- the send and on everything the run produced, NULL for a NOTE and for every
   -- row written before it. Recorded and not drawn; the debug report reads it.
   style           TEXT,
+  -- Spec 43 §5.3 — the rest of the evidence: which agent, through which
+  -- gateway, at which URL. With `model` and `style` above, a row records the
+  -- whole answer.
+  --
+  -- **These are COPIES, not foreign keys**, and that is the point. Re-point a
+  -- gateway at another host and a `gateway_id` reference would make every
+  -- answer it ever produced start claiming the new URL — history rewritten by
+  -- an edit nobody thought of as editing history. Four short strings on the row
+  -- make that impossible by construction, which is why this spec needs no
+  -- gateway revisioning and no retirement.
+  --
+  -- NULL for a NOTE, which runs nothing, and for every row written before these
+  -- columns existed. `base_url` is NULL for `Original`, which is the honest
+  -- record of "the SDK's own endpoint" and not a missing value.
+  sdk             TEXT,
+  gateway_name    TEXT,
+  base_url        TEXT,
   content         TEXT,
   tool_name       TEXT,
   tool_input_json TEXT,
@@ -164,6 +181,72 @@ CREATE TABLE IF NOT EXISTS message (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_message_seq
   ON message(thread_id, seq);
+
+-- Spec 43 §2.2 — a gateway is a named set of routes, not one URL.
+--
+-- Two tables, because `routes` is a map and SQLite is not a document store. The
+-- base URL is a function of the gateway AND the SDK: each SDK speaks a
+-- different wire protocol, and a gateway serves each protocol at a different
+-- path — LiteLLM puts Anthropic Messages at its root, Envoy under a prefix.
+--
+-- These tables are created here AND by `migrateGateways`, and both are needed:
+-- this file runs on every open and makes them on a fresh database, and the
+-- migration seeds the `Original` row that everything else references.
+CREATE TABLE IF NOT EXISTS agent_gateway (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  kind        TEXT NOT NULL
+                CHECK (kind IN ('original','litellm','envoy','custom')),
+  created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gateway_route (
+  gateway_id      TEXT NOT NULL REFERENCES agent_gateway(id) ON DELETE CASCADE,
+  -- All four SDK names from spec 42 on, so specs 44 to 46 add rows and no
+  -- migration. In spec 43 only `claude-agent` rows are ever run.
+  sdk             TEXT NOT NULL
+                    CHECK (sdk IN ('claude-agent','codex','opencode','deep-agents')),
+  base_url        TEXT,
+  auth            TEXT NOT NULL
+                    CHECK (auth IN ('inherit','none','environment')),
+  -- The NAME of an environment variable. **Never a value** (§2.6 rule 4): no
+  -- credential enters SQLite, IPC, a message, the log or a debug report.
+  credential_env  TEXT,
+  -- Newline-separated, not JSON. It is displayed as typed and never queried by
+  -- element, and a text column keeps `sqlite3 ~/.rex/rex.db "select * from
+  -- gateway_route"` readable — which is how every gateway problem in §15 was
+  -- actually diagnosed.
+  models          TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (gateway_id, sdk),
+  CHECK (
+    (auth = 'environment' AND credential_env IS NOT NULL) OR
+    (auth <> 'environment' AND credential_env IS NULL)
+  ),
+  -- §4.5 — "No authentication" needs an explicit URL. In the table, not only in
+  -- the validator: a row that cannot run must not be creatable by any route,
+  -- and `sqlite3 ~/.rex/rex.db` is a route.
+  CHECK (auth <> 'none' OR base_url IS NOT NULL)
+);
+
+-- Spec 43 §5.2 — one session per (thread, SDK, gateway).
+--
+-- **The conversation is REX's, and it lives in `message`.** An SDK session is a
+-- cache one harness keeps of part of it, so a thread keeps as many as it needs
+-- and losing one costs a replay rather than the thread.
+--
+-- `base_url` is on the ROW and not merely on the gateway, and that is case 2b:
+-- edit a gateway's host and resuming would ask a DIFFERENT server to continue
+-- state it has never seen. Comparing the URL the session was really created
+-- against is what makes that impossible.
+CREATE TABLE IF NOT EXISTS thread_session (
+  thread_id   TEXT NOT NULL REFERENCES thread(id) ON DELETE CASCADE,
+  sdk         TEXT NOT NULL,
+  gateway_id  TEXT NOT NULL REFERENCES agent_gateway(id) ON DELETE CASCADE,
+  base_url    TEXT,
+  session_id  TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (thread_id, sdk, gateway_id)
+);
 
 CREATE TABLE IF NOT EXISTS thread_ref (
   thread_id      TEXT NOT NULL REFERENCES thread(id) ON DELETE CASCADE,

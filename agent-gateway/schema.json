@@ -1,0 +1,2109 @@
+{
+  "$defs": {
+    "AgentGateway": {
+      "additionalProperties": false,
+      "description": "A named set of routes. The library defines the shape and never stores one.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "original",
+            "litellm",
+            "envoy",
+            "custom"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "routes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/GatewayRoute"
+          },
+          "propertyNames": {
+            "enum": [
+              "claude-agent",
+              "codex",
+              "opencode",
+              "deep-agents"
+            ]
+          },
+          "title": "Routes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "kind",
+        "routes"
+      ],
+      "title": "AgentGateway",
+      "type": "object"
+    },
+    "CapabilitiesMessage": {
+      "additionalProperties": false,
+      "description": "What this route offers. The library probes; the host caches (\u00a79.4).",
+      "properties": {
+        "cwd": {
+          "title": "Cwd",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/ResolvedRoute"
+        },
+        "type": {
+          "const": "capabilities",
+          "default": "capabilities",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "route",
+        "cwd"
+      ],
+      "title": "CapabilitiesMessage",
+      "type": "object"
+    },
+    "CapabilitiesValue": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/RouteCapabilities"
+        },
+        "kind": {
+          "const": "capabilities",
+          "default": "capabilities",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capabilities"
+      ],
+      "title": "CapabilitiesValue",
+      "type": "object"
+    },
+    "Completed": {
+      "additionalProperties": false,
+      "properties": {
+        "costUsd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Costusd"
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Durationms"
+        },
+        "inputTokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inputtokens"
+        },
+        "outputTokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outputtokens"
+        },
+        "type": {
+          "const": "completed",
+          "default": "completed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "Completed",
+      "type": "object"
+    },
+    "ConfigField": {
+      "additionalProperties": false,
+      "description": "One control the host draws, and one value it sends back.",
+      "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "help": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Help"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "url",
+            "text",
+            "textarea",
+            "select",
+            "env-var"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "options": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Option"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Options"
+        },
+        "placeholder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Placeholder"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key",
+        "label",
+        "kind"
+      ],
+      "title": "ConfigField",
+      "type": "object"
+    },
+    "Denial": {
+      "additionalProperties": false,
+      "description": "One call the host's policy refused, and why.",
+      "properties": {
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "subagentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subagentid"
+        },
+        "toolName": {
+          "title": "Toolname",
+          "type": "string"
+        }
+      },
+      "required": [
+        "toolName",
+        "reason"
+      ],
+      "title": "Denial",
+      "type": "object"
+    },
+    "DeniedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "subagentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subagentid"
+        },
+        "type": {
+          "const": "denied",
+          "default": "denied",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "reason"
+      ],
+      "title": "DeniedEvent",
+      "type": "object"
+    },
+    "DescribeMessage": {
+      "additionalProperties": false,
+      "description": "What SDKs are real, and what gateway kinds can be configured (\u00a710).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "describe",
+          "default": "describe",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "DescribeMessage",
+      "type": "object"
+    },
+    "DescribeResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kinds": {
+          "items": {
+            "$ref": "#/$defs/KindDescriptor"
+          },
+          "title": "Kinds",
+          "type": "array"
+        },
+        "sdks": {
+          "items": {
+            "$ref": "#/$defs/SdkDescriptor"
+          },
+          "title": "Sdks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sdks",
+        "kinds"
+      ],
+      "title": "DescribeResult",
+      "type": "object"
+    },
+    "DescribeValue": {
+      "additionalProperties": false,
+      "properties": {
+        "describe": {
+          "$ref": "#/$defs/DescribeResult"
+        },
+        "kind": {
+          "const": "describe",
+          "default": "describe",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "describe"
+      ],
+      "title": "DescribeValue",
+      "type": "object"
+    },
+    "Diff": {
+      "additionalProperties": false,
+      "description": "A change to one file, as the change itself rather than as a tool call.\n\n`before = None` is a whole new file: there is no old text, and a host draws\nonly additions. `before = \"\"` is an edit whose old text was empty, which is\na different thing and draws one empty removed line.",
+      "properties": {
+        "after": {
+          "title": "After",
+          "type": "string"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "type": {
+          "const": "diff",
+          "default": "diff",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "after"
+      ],
+      "title": "Diff",
+      "type": "object"
+    },
+    "ErrorEvent": {
+      "additionalProperties": false,
+      "description": "The run failed, and this is what it said.\n\nA failed turn still costs money and still took time, so both are carried:\na host that draws a cost on the row would otherwise show nothing for the one\nkind of run whose cost is most worth seeing.",
+      "properties": {
+        "costUsd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Costusd"
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Durationms"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "error",
+          "default": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "ErrorEvent",
+      "type": "object"
+    },
+    "EventMessage": {
+      "additionalProperties": false,
+      "description": "One thing happened in a run (\u00a77).",
+      "properties": {
+        "event": {
+          "discriminator": {
+            "mapping": {
+              "completed": "#/$defs/Completed",
+              "denied": "#/$defs/DeniedEvent",
+              "diff": "#/$defs/Diff",
+              "error": "#/$defs/ErrorEvent",
+              "started": "#/$defs/Started",
+              "stopped": "#/$defs/StoppedEvent",
+              "text": "#/$defs/Text",
+              "thinking": "#/$defs/Thinking",
+              "tool_call": "#/$defs/ToolCallEvent",
+              "tool_result": "#/$defs/ToolResultEvent",
+              "wrote": "#/$defs/Wrote"
+            },
+            "propertyName": "type"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Started"
+            },
+            {
+              "$ref": "#/$defs/Text"
+            },
+            {
+              "$ref": "#/$defs/Thinking"
+            },
+            {
+              "$ref": "#/$defs/ToolCallEvent"
+            },
+            {
+              "$ref": "#/$defs/ToolResultEvent"
+            },
+            {
+              "$ref": "#/$defs/Diff"
+            },
+            {
+              "$ref": "#/$defs/Wrote"
+            },
+            {
+              "$ref": "#/$defs/DeniedEvent"
+            },
+            {
+              "$ref": "#/$defs/ErrorEvent"
+            },
+            {
+              "$ref": "#/$defs/StoppedEvent"
+            },
+            {
+              "$ref": "#/$defs/Completed"
+            }
+          ],
+          "title": "Event"
+        },
+        "runId": {
+          "title": "Runid",
+          "type": "string"
+        },
+        "type": {
+          "const": "event",
+          "default": "event",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "event"
+      ],
+      "title": "EventMessage",
+      "type": "object"
+    },
+    "ExistsValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "exists",
+          "default": "exists",
+          "title": "Kind",
+          "type": "string"
+        },
+        "session": {
+          "$ref": "#/$defs/SessionState"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "title": "ExistsValue",
+      "type": "object"
+    },
+    "FieldError": {
+      "additionalProperties": false,
+      "description": "One answer the reviewer must fix before the gateway can be saved.",
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "message"
+      ],
+      "title": "FieldError",
+      "type": "object"
+    },
+    "GatewayRoute": {
+      "additionalProperties": false,
+      "description": "How one SDK reaches one gateway.\n\nA gateway holds one route **per SDK**, because the base URL is a function of\nthe gateway *and* the SDK: each SDK speaks a different wire protocol, and a\ngateway serves each protocol at a different path. A gateway with no route\nfor an SDK does not offer that SDK.",
+      "properties": {
+        "auth": {
+          "default": "inherit",
+          "enum": [
+            "inherit",
+            "none",
+            "environment"
+          ],
+          "title": "Auth",
+          "type": "string"
+        },
+        "baseUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseurl"
+        },
+        "credentialEnv": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credentialenv"
+        },
+        "models": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Models",
+          "type": "array"
+        }
+      },
+      "title": "GatewayRoute",
+      "type": "object"
+    },
+    "KindDescriptor": {
+      "additionalProperties": false,
+      "description": "One gateway kind: what to ask the reviewer, and what each SDK gets.",
+      "properties": {
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/ConfigField"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "id": {
+          "enum": [
+            "original",
+            "litellm",
+            "envoy",
+            "custom"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "routes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RouteNote"
+          },
+          "propertyNames": {
+            "enum": [
+              "claude-agent",
+              "codex",
+              "opencode",
+              "deep-agents"
+            ]
+          },
+          "title": "Routes",
+          "type": "object"
+        },
+        "unverified": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unverified"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "KindDescriptor",
+      "type": "object"
+    },
+    "LogMessage": {
+      "additionalProperties": false,
+      "description": "A line for the host's log. **Never a credential** (\u00a74.4).",
+      "properties": {
+        "level": {
+          "enum": [
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "log",
+          "default": "log",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "level",
+        "text"
+      ],
+      "title": "LogMessage",
+      "type": "object"
+    },
+    "ModelChoice": {
+      "additionalProperties": false,
+      "description": "One row of a model picker, named by the adapter that knows the SDK.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "displayName": {
+          "title": "Displayname",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "displayName",
+        "description"
+      ],
+      "title": "ModelChoice",
+      "type": "object"
+    },
+    "NewSession": {
+      "additionalProperties": false,
+      "description": "Start a session and let the SDK name it. The id comes back in `RunResult`.",
+      "properties": {
+        "mode": {
+          "const": "new",
+          "default": "new",
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "title": "NewSession",
+      "type": "object"
+    },
+    "Option": {
+      "additionalProperties": false,
+      "description": "One choice in a `select` field.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "title": "Option",
+      "type": "object"
+    },
+    "PolicyMessage": {
+      "additionalProperties": false,
+      "description": "Judge this tool call before it runs (\u00a78).\n\n**No answer within thirty seconds is a deny.** A policy the host does not\nanswer is a bug in the host, and a bug in the host must never become a write.",
+      "properties": {
+        "call": {
+          "$ref": "#/$defs/ToolCall"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "runId": {
+          "title": "Runid",
+          "type": "string"
+        },
+        "type": {
+          "const": "policy",
+          "default": "policy",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "runId",
+        "call"
+      ],
+      "title": "PolicyMessage",
+      "type": "object"
+    },
+    "PolicyReplyMessage": {
+      "additionalProperties": false,
+      "description": "The host's answer about one tool call. None allows; a string refuses.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "type": {
+          "const": "policy_reply",
+          "default": "policy_reply",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "PolicyReplyMessage",
+      "type": "object"
+    },
+    "ReadyMessage": {
+      "additionalProperties": false,
+      "description": "The loop is up. Sent once, first, and it is the only health check there is.",
+      "properties": {
+        "library": {
+          "title": "Library",
+          "type": "string"
+        },
+        "python": {
+          "title": "Python",
+          "type": "string"
+        },
+        "sdks": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Sdks",
+          "type": "object"
+        },
+        "type": {
+          "const": "ready",
+          "default": "ready",
+          "title": "Type",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "python",
+        "library",
+        "sdks"
+      ],
+      "title": "ReadyMessage",
+      "type": "object"
+    },
+    "ReplyMessage": {
+      "additionalProperties": false,
+      "description": "Answers `describe`, `capabilities` and `session_exists`, by echoed id.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "type": {
+          "const": "reply",
+          "default": "reply",
+          "title": "Type",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "capabilities": "#/$defs/CapabilitiesValue",
+                  "describe": "#/$defs/DescribeValue",
+                  "exists": "#/$defs/ExistsValue",
+                  "verify": "#/$defs/VerifyValue"
+                },
+                "propertyName": "kind"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/DescribeValue"
+                },
+                {
+                  "$ref": "#/$defs/CapabilitiesValue"
+                },
+                {
+                  "$ref": "#/$defs/ExistsValue"
+                },
+                {
+                  "$ref": "#/$defs/VerifyValue"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "id",
+        "ok"
+      ],
+      "title": "ReplyMessage",
+      "type": "object"
+    },
+    "ResolvedRoute": {
+      "additionalProperties": false,
+      "description": "\u00a75.3 \u2014 what a run is actually given. Built by the host, never stored here.",
+      "properties": {
+        "auth": {
+          "default": "inherit",
+          "enum": [
+            "inherit",
+            "none",
+            "environment"
+          ],
+          "title": "Auth",
+          "type": "string"
+        },
+        "baseUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseurl"
+        },
+        "gatewayName": {
+          "title": "Gatewayname",
+          "type": "string"
+        },
+        "sdk": {
+          "enum": [
+            "claude-agent",
+            "codex",
+            "opencode",
+            "deep-agents"
+          ],
+          "title": "Sdk",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token"
+        }
+      },
+      "required": [
+        "sdk",
+        "gatewayName"
+      ],
+      "title": "ResolvedRoute",
+      "type": "object"
+    },
+    "ResultMessage": {
+      "additionalProperties": false,
+      "description": "The run is over. Nothing more will arrive for this `run_id`.",
+      "properties": {
+        "result": {
+          "$ref": "#/$defs/RunResult"
+        },
+        "runId": {
+          "title": "Runid",
+          "type": "string"
+        },
+        "type": {
+          "const": "result",
+          "default": "result",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "result"
+      ],
+      "title": "ResultMessage",
+      "type": "object"
+    },
+    "ResumeSession": {
+      "additionalProperties": false,
+      "description": "Continue the session this id names.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "mode": {
+          "const": "resume",
+          "default": "resume",
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ResumeSession",
+      "type": "object"
+    },
+    "RouteCapabilities": {
+      "additionalProperties": false,
+      "description": "What this SDK, through this gateway, can actually offer.\n\n`error` is not a failure of the probe's caller: a route that cannot be asked\nstill has to render, and a host draws the sentence rather than an empty\npicker.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "models": {
+          "items": {
+            "$ref": "#/$defs/ModelChoice"
+          },
+          "title": "Models",
+          "type": "array"
+        },
+        "styles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Styles",
+          "type": "array"
+        },
+        "supportsAct": {
+          "default": false,
+          "title": "Supportsact",
+          "type": "boolean"
+        },
+        "supportsAsk": {
+          "default": false,
+          "title": "Supportsask",
+          "type": "boolean"
+        },
+        "supportsCost": {
+          "default": false,
+          "title": "Supportscost",
+          "type": "boolean"
+        },
+        "supportsPlugins": {
+          "default": false,
+          "title": "Supportsplugins",
+          "type": "boolean"
+        },
+        "supportsResume": {
+          "default": false,
+          "title": "Supportsresume",
+          "type": "boolean"
+        },
+        "supportsStyles": {
+          "default": false,
+          "title": "Supportsstyles",
+          "type": "boolean"
+        }
+      },
+      "title": "RouteCapabilities",
+      "type": "object"
+    },
+    "RouteNote": {
+      "additionalProperties": false,
+      "description": "What one kind offers one SDK \u2014 described, and as a template.\n\n`protocol` and `note` are for the host to show. The three template fields\nare how `build_routes()` turns the reviewer's answers into a `GatewayRoute`:\na `{key}` in `base_url` or `credential_env` is replaced by the value of the\nfield with that key, or by that field's `default` when the host sent none.\n\n**A template that resolves to nothing offers no route.** `base_url=None`\nmeans \"this SDK uses its own endpoint\" \u2014 the `original` kind \u2014 and is a\nroute. `base_url=\"{claudeUrl}\"` with no `claudeUrl` answered means the\nreviewer did not configure this SDK, and `build_routes()` leaves it out\nrather than inventing a gateway that addresses nothing.",
+      "properties": {
+        "appends": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Appends"
+        },
+        "auth": {
+          "default": "inherit",
+          "enum": [
+            "inherit",
+            "none",
+            "environment"
+          ],
+          "title": "Auth",
+          "type": "string"
+        },
+        "baseUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseurl"
+        },
+        "credentialEnv": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Credentialenv"
+        },
+        "note": {
+          "title": "Note",
+          "type": "string"
+        },
+        "protocol": {
+          "title": "Protocol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocol",
+        "note"
+      ],
+      "title": "RouteNote",
+      "type": "object"
+    },
+    "RunMessage": {
+      "additionalProperties": false,
+      "description": "Start a run. **It has no reply**: its acknowledgement is its first event,\nand its completion is its `result`.",
+      "properties": {
+        "cwd": {
+          "title": "Cwd",
+          "type": "string"
+        },
+        "disallowed": {
+          "items": {
+            "enum": [
+              "read",
+              "list",
+              "search",
+              "fetch",
+              "write",
+              "edit",
+              "shell",
+              "mcp",
+              "task"
+            ],
+            "type": "string"
+          },
+          "title": "Disallowed",
+          "type": "array"
+        },
+        "maxTurns": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxturns"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "plugins": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Plugins",
+          "type": "array"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/ResolvedRoute"
+        },
+        "runId": {
+          "title": "Runid",
+          "type": "string"
+        },
+        "session": {
+          "discriminator": {
+            "mapping": {
+              "new": "#/$defs/NewSession",
+              "resume": "#/$defs/ResumeSession",
+              "seed": "#/$defs/SeedSession"
+            },
+            "propertyName": "mode"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SeedSession"
+            },
+            {
+              "$ref": "#/$defs/ResumeSession"
+            },
+            {
+              "$ref": "#/$defs/NewSession"
+            }
+          ],
+          "title": "Session"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Style"
+        },
+        "systemPrompt": {
+          "default": "",
+          "title": "Systemprompt",
+          "type": "string"
+        },
+        "type": {
+          "const": "run",
+          "default": "run",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "route",
+        "cwd",
+        "prompt",
+        "session"
+      ],
+      "title": "RunMessage",
+      "type": "object"
+    },
+    "RunRequest": {
+      "additionalProperties": false,
+      "description": "Everything a run needs, and nothing that names an SDK.\n\nThree inputs are named for what they MEAN rather than for what one SDK calls\nthem, and that is the whole difference between this and an SDK call:\n\n* `system_prompt` is text. How an adapter installs it is its own business.\n* `disallowed` is a list of common tools. The adapter turns them into its\n  SDK's own names.\n* `plugins` are absolute directories, opaque here. The adapter wraps them in\n  whatever shape its SDK wants, and refuses them if it has no such shape.",
+      "properties": {
+        "cwd": {
+          "title": "Cwd",
+          "type": "string"
+        },
+        "disallowed": {
+          "items": {
+            "enum": [
+              "read",
+              "list",
+              "search",
+              "fetch",
+              "write",
+              "edit",
+              "shell",
+              "mcp",
+              "task"
+            ],
+            "type": "string"
+          },
+          "title": "Disallowed",
+          "type": "array"
+        },
+        "maxTurns": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maxturns"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "plugins": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Plugins",
+          "type": "array"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/ResolvedRoute"
+        },
+        "runId": {
+          "title": "Runid",
+          "type": "string"
+        },
+        "session": {
+          "discriminator": {
+            "mapping": {
+              "new": "#/$defs/NewSession",
+              "resume": "#/$defs/ResumeSession",
+              "seed": "#/$defs/SeedSession"
+            },
+            "propertyName": "mode"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/SeedSession"
+            },
+            {
+              "$ref": "#/$defs/ResumeSession"
+            },
+            {
+              "$ref": "#/$defs/NewSession"
+            }
+          ],
+          "title": "Session"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Style"
+        },
+        "systemPrompt": {
+          "default": "",
+          "title": "Systemprompt",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "route",
+        "cwd",
+        "prompt",
+        "session"
+      ],
+      "title": "RunRequest",
+      "type": "object"
+    },
+    "RunResult": {
+      "additionalProperties": false,
+      "description": "The run is over. Nothing more will arrive for this `run_id`.",
+      "properties": {
+        "costUsd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Costusd"
+        },
+        "denials": {
+          "items": {
+            "$ref": "#/$defs/Denial"
+          },
+          "title": "Denials",
+          "type": "array"
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Durationms"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "sessionId": {
+          "title": "Sessionid",
+          "type": "string"
+        },
+        "stopped": {
+          "default": false,
+          "title": "Stopped",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "title": "RunResult",
+      "type": "object"
+    },
+    "SdkDescriptor": {
+      "additionalProperties": false,
+      "description": "One SDK a host may offer. Only SDKs with an adapter are listed.",
+      "properties": {
+        "id": {
+          "enum": [
+            "claude-agent",
+            "codex",
+            "opencode",
+            "deep-agents"
+          ],
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "supportsStyles": {
+          "default": false,
+          "title": "Supportsstyles",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ],
+      "title": "SdkDescriptor",
+      "type": "object"
+    },
+    "SeedSession": {
+      "additionalProperties": false,
+      "description": "Start a session, and use this id. The host computed it and will store it.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "mode": {
+          "const": "seed",
+          "default": "seed",
+          "title": "Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SeedSession",
+      "type": "object"
+    },
+    "SessionExistsMessage": {
+      "additionalProperties": false,
+      "description": "Whether the SDK can still resume this session (\u00a79.3).",
+      "properties": {
+        "cwd": {
+          "title": "Cwd",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/ResolvedRoute"
+        },
+        "sessionId": {
+          "title": "Sessionid",
+          "type": "string"
+        },
+        "type": {
+          "const": "session_exists",
+          "default": "session_exists",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "route",
+        "cwd",
+        "sessionId"
+      ],
+      "title": "SessionExistsMessage",
+      "type": "object"
+    },
+    "SessionState": {
+      "additionalProperties": false,
+      "description": "What the SDK knows about one session, and what is on disk for it.\n\nThe record and the file are reported **separately**, and that separation is\nthe point: they can disagree, and every way they disagree is a different\nbug. A record with no file means the store moved. A file with no record\nmeans the SDK will refuse to resume it and the host's own replay is what\nwill actually happen. Collapsing the two into one \"resumable: yes\" is what\nhid both.",
+      "properties": {
+        "exists": {
+          "title": "Exists",
+          "type": "boolean"
+        },
+        "lastModified": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lastmodified"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Summary"
+        }
+      },
+      "required": [
+        "exists"
+      ],
+      "title": "SessionState",
+      "type": "object"
+    },
+    "ShutdownMessage": {
+      "additionalProperties": false,
+      "description": "Finish the open runs and exit 0.",
+      "properties": {
+        "type": {
+          "const": "shutdown",
+          "default": "shutdown",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "ShutdownMessage",
+      "type": "object"
+    },
+    "Started": {
+      "additionalProperties": false,
+      "description": "The SDK is up, and these are the values it RESOLVED.\n\nNot what the host asked for \u2014 what the SDK will actually use, so a\ndisagreement shows up as a disagreement rather than as a silent pass.",
+      "properties": {
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "plugins": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Plugins",
+          "type": "array"
+        },
+        "sessionId": {
+          "title": "Sessionid",
+          "type": "string"
+        },
+        "style": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Style"
+        },
+        "tools": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tools"
+        },
+        "type": {
+          "const": "started",
+          "default": "started",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "title": "Started",
+      "type": "object"
+    },
+    "StopMessage": {
+      "additionalProperties": false,
+      "description": "End this run. It finishes with a `stopped` event and a `result`.",
+      "properties": {
+        "runId": {
+          "title": "Runid",
+          "type": "string"
+        },
+        "type": {
+          "const": "stop",
+          "default": "stop",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId"
+      ],
+      "title": "StopMessage",
+      "type": "object"
+    },
+    "StoppedEvent": {
+      "additionalProperties": false,
+      "description": "A person ended this run. Never a fault, and never an error.\n\nIt carries what the run had spent when it was ended, for the same reason\n`ErrorEvent` does.",
+      "properties": {
+        "costUsd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Costusd"
+        },
+        "durationMs": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Durationms"
+        },
+        "type": {
+          "const": "stopped",
+          "default": "stopped",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "StoppedEvent",
+      "type": "object"
+    },
+    "Text": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "text",
+          "default": "text",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Text",
+      "type": "object"
+    },
+    "Thinking": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "thinking",
+          "default": "thinking",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Thinking",
+      "type": "object"
+    },
+    "ToolCall": {
+      "additionalProperties": false,
+      "description": "One tool call, on its way to the host's policy.",
+      "properties": {
+        "common": {
+          "anyOf": [
+            {
+              "enum": [
+                "read",
+                "list",
+                "search",
+                "fetch",
+                "write",
+                "edit",
+                "shell",
+                "mcp",
+                "task"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Common"
+        },
+        "input": {
+          "default": null,
+          "title": "Input"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "subagentId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subagentid"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ToolCall",
+      "type": "object"
+    },
+    "ToolCallEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "common": {
+          "anyOf": [
+            {
+              "enum": [
+                "read",
+                "list",
+                "search",
+                "fetch",
+                "write",
+                "edit",
+                "shell",
+                "mcp",
+                "task"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Common"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "input": {
+          "default": null,
+          "title": "Input"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_call",
+          "default": "tool_call",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "ToolCallEvent",
+      "type": "object"
+    },
+    "ToolResultEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "denied": {
+          "default": false,
+          "title": "Denied",
+          "type": "boolean"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "isError": {
+          "default": false,
+          "title": "Iserror",
+          "type": "boolean"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_result",
+          "default": "tool_result",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "title": "ToolResultEvent",
+      "type": "object"
+    },
+    "VerifyMessage": {
+      "additionalProperties": false,
+      "description": "Spec 43 \u00a72.4 \u2014 what this server publishes, checked against this route.\n\n**It writes nothing and returns no URL.** Discovery verifies a judgement\nalready made in `catalogue.py`; it never makes one.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "route": {
+          "$ref": "#/$defs/ResolvedRoute"
+        },
+        "type": {
+          "const": "verify",
+          "default": "verify",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "route"
+      ],
+      "title": "VerifyMessage",
+      "type": "object"
+    },
+    "VerifyResult": {
+      "additionalProperties": false,
+      "description": "What one server said about itself, and whether it named this route's path.",
+      "properties": {
+        "baseUrl": {
+          "title": "Baseurl",
+          "type": "string"
+        },
+        "document": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Document"
+        },
+        "expected": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "note": {
+          "title": "Note",
+          "type": "string"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "published": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Published",
+          "type": "array"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "required": [
+        "ok",
+        "baseUrl",
+        "note"
+      ],
+      "title": "VerifyResult",
+      "type": "object"
+    },
+    "VerifyValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "verify",
+          "default": "verify",
+          "title": "Kind",
+          "type": "string"
+        },
+        "verify": {
+          "$ref": "#/$defs/VerifyResult"
+        }
+      },
+      "required": [
+        "verify"
+      ],
+      "title": "VerifyValue",
+      "type": "object"
+    },
+    "Wrote": {
+      "additionalProperties": false,
+      "description": "A write tool named this path. The primary source for \"what did this touch\".",
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "type": {
+          "const": "wrote",
+          "default": "wrote",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "Wrote",
+      "type": "object"
+    }
+  },
+  "title": "agent-gateway protocol"
+}

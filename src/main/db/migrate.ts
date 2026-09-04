@@ -418,6 +418,186 @@ export function migrateThreadLanes(db: Db): boolean {
   return true;
 }
 
+// ── Spec 43 — gateways, sessions and the record ─────────────────
+//
+// Four steps, in this order, because `PRAGMA foreign_keys` is ON: `agent_gateway`
+// and its `Original` row exist before anything references them.
+//
+// Every step is idempotent and additive, the way the eleven above are. A
+// database made after this spec sees a no-op; one made before it is filled in
+// once. **With only `Original` configured, REX behaves exactly as it did before
+// spec 43**, and `test/gateways.spec.ts` asserts that property.
+
+/** §2.5 — the row that cannot be edited or deleted, and its id. */
+export const ORIGINAL_GATEWAY_ID = "rex-original";
+export const ORIGINAL_GATEWAY_NAME = "Original";
+
+/** Spec 42 §5.1's four SDK names, so specs 44 to 46 add rows and no migration. */
+const EVERY_SDK = ["claude-agent", "codex", "opencode", "deep-agents"] as const;
+
+function hasTable(db: Db, name: string): boolean {
+  return (
+    db
+      .prepare<[string], { name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+      )
+      .get(name) !== undefined
+  );
+}
+
+function hasColumn(db: Db, table: string, column: string): boolean {
+  return db
+    .prepare<[], { name: string }>(`PRAGMA table_info(${table})`)
+    .all()
+    .some((row) => row.name === column);
+}
+
+/**
+ * Spec 43 §12 — the two gateway tables, and the one row REX starts with.
+ *
+ * `schema.sql` creates the tables too, on a fresh database. This creates them
+ * again for a database made before this spec, where that file's
+ * `CREATE TABLE IF NOT EXISTS` ran long ago against a different definition and
+ * will not add a table it did not have — the two are the same statements on
+ * purpose, and running both is a no-op on either kind of file.
+ *
+ * `Original` is inserted here and not in `schema.sql` because it is data, and
+ * because `thread_session` and `gateway_route` reference it. Returns true when
+ * it created the row.
+ */
+export function migrateGateways(db: Db): boolean {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_gateway (
+      id          TEXT PRIMARY KEY,
+      name        TEXT NOT NULL,
+      kind        TEXT NOT NULL
+                    CHECK (kind IN ('original','litellm','envoy','custom')),
+      created_at  TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS gateway_route (
+      gateway_id      TEXT NOT NULL REFERENCES agent_gateway(id) ON DELETE CASCADE,
+      sdk             TEXT NOT NULL
+                        CHECK (sdk IN ('claude-agent','codex','opencode','deep-agents')),
+      base_url        TEXT,
+      auth            TEXT NOT NULL
+                        CHECK (auth IN ('inherit','none','environment')),
+      credential_env  TEXT,
+      models          TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (gateway_id, sdk),
+      CHECK (
+        (auth = 'environment' AND credential_env IS NOT NULL) OR
+        (auth <> 'environment' AND credential_env IS NULL)
+      ),
+      CHECK (auth <> 'none' OR base_url IS NOT NULL)
+    );
+  `);
+
+  const already = db
+    .prepare<[string], { id: string }>("SELECT id FROM agent_gateway WHERE id = ?")
+    .get(ORIGINAL_GATEWAY_ID);
+  if (already) return false;
+
+  const at = new Date().toISOString();
+  db.transaction(() => {
+    db.prepare(
+      "INSERT INTO agent_gateway (id, name, kind, created_at) VALUES (?, ?, 'original', ?)",
+    ).run(ORIGINAL_GATEWAY_ID, ORIGINAL_GATEWAY_NAME, at);
+    const route = db.prepare(
+      `INSERT INTO gateway_route (gateway_id, sdk, base_url, auth, credential_env, models)
+       VALUES (?, ?, NULL, 'inherit', NULL, '')`,
+    );
+    // A route for every SDK, with no URL on any of them: each uses its own
+    // official endpoint and the credential the reviewer already has installed.
+    for (const sdk of EVERY_SDK) route.run(ORIGINAL_GATEWAY_ID, sdk);
+  })();
+  return true;
+}
+
+/**
+ * Spec 43 §12 — `thread.session_id` becomes a `thread_session` row.
+ *
+ * Keyed `(thread_id, 'claude-agent', 'rex-original')` with a null `base_url`,
+ * because that is what every session in an existing database actually is: the
+ * Claude SDK, on the reviewer's own subscription, at the SDK's own endpoint.
+ *
+ * **`thread.session_id` is retired in place, not dropped.** Dropping a column
+ * rewrites the table, exactly as `thread.model` and `thread.anchor_json` are
+ * left. It stops being read; nothing else about it changes.
+ *
+ * Returns the number of sessions it moved. A second run returns 0, because
+ * `INSERT OR IGNORE` and the `NOT EXISTS` both refuse a row that is there.
+ */
+export function migrateThreadSessions(db: Db): number {
+  if (!hasTable(db, "thread_session")) return 0;
+  if (!hasColumn(db, "thread", "session_id")) return 0;
+
+  const legacy = db
+    .prepare<[string, string], { id: string; session_id: string }>(
+      `SELECT t.id, t.session_id
+         FROM thread t
+        WHERE t.session_id IS NOT NULL
+          AND NOT EXISTS (
+                SELECT 1 FROM thread_session s
+                 WHERE s.thread_id = t.id AND s.sdk = ? AND s.gateway_id = ?
+              )`,
+    )
+    .all("claude-agent", ORIGINAL_GATEWAY_ID);
+  if (legacy.length === 0) return 0;
+
+  const at = new Date().toISOString();
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO thread_session (thread_id, sdk, gateway_id, base_url, session_id, created_at)
+     VALUES (?, 'claude-agent', ?, NULL, ?, ?)`,
+  );
+  db.transaction((rows: Array<{ id: string; session_id: string }>): void => {
+    for (const row of rows) insert.run(row.id, ORIGINAL_GATEWAY_ID, row.session_id, at);
+  })(legacy);
+
+  return legacy.length;
+}
+
+/**
+ * Spec 43 §5.3 — `message.sdk`, `message.gateway_name` and `message.base_url`.
+ *
+ * Guarded and idempotent like the others. **Every existing message is
+ * backfilled**, and that is the difference between this and `migrateMessageModel`,
+ * which left NULL: nobody recorded a model before spec 25, but every message in
+ * an existing database really was produced by the Claude Agent SDK through the
+ * `Original` gateway. Writing that down is a fact, not a guess.
+ *
+ * A NULL `base_url` stays NULL for the same reason it always will: `Original`
+ * has no URL, and that is the honest record of "the SDK's own endpoint".
+ *
+ * The three ALTERs and the backfill are one transaction, so a crash between
+ * them cannot leave a database that has the columns, will never fill them, and
+ * reports every historical answer as having come from nowhere.
+ *
+ * Returns the number of rows it stamped.
+ */
+export function migrateMessageRoute(db: Db): number {
+  if (hasColumn(db, "message", "sdk")) return 0;
+
+  let stamped = 0;
+  db.transaction(() => {
+    // No CHECK constraints here, unlike `schema.sql`. SQLite cannot add one
+    // with ALTER TABLE, and the writer is the only thing that fills them.
+    db.exec("ALTER TABLE message ADD COLUMN sdk TEXT");
+    db.exec("ALTER TABLE message ADD COLUMN gateway_name TEXT");
+    db.exec("ALTER TABLE message ADD COLUMN base_url TEXT");
+    // Only rows that a run produced or a send started. A NOTE recorded no model
+    // because it ran nothing, and it names no agent and no gateway either —
+    // §5.4, and NULL is the honest record of that.
+    stamped = db
+      .prepare(
+        `UPDATE message
+            SET sdk = 'claude-agent', gateway_name = ?
+          WHERE mode IS NULL OR mode <> 'note'`,
+      )
+      .run(ORIGINAL_GATEWAY_NAME).changes;
+  })();
+  return stamped;
+}
+
 /**
  * The primary anchor, then the extras.
  *

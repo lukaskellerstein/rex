@@ -3,8 +3,10 @@
 // panel's items (spec 05 §3.5).
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ApplyReadyEvent } from "../../shared/channels.ts";
+import type { DescribeResult } from "../../shared/agent-protocol.ts";
+import type { ApplyReadyEvent, GatewayListResponse } from "../../shared/channels.ts";
 import { isMarkdownPath } from "../../shared/formats.ts";
+import { buildRoutes, validateGateway } from "../../shared/gateways.ts";
 import { movedPath } from "../../shared/paths.ts";
 import {
   NO_PLACES,
@@ -29,6 +31,7 @@ import type {
   PaneMode,
   PaperView,
   ReferenceGraph,
+  SendChoices,
   ThreadWithMessages,
   ViewState,
   WorkingCopyView,
@@ -55,6 +58,7 @@ import {
   type Selected,
 } from "./anchoring.ts";
 import { CommentCard } from "./CommentCard.tsx";
+import type { GatewayChoice } from "./Composer.tsx";
 import { DiffDialog } from "./DiffDialog.tsx";
 import { DocumentView } from "./DocumentView.tsx";
 import { diagramCommentsFor, diagramPlacesFor } from "./diagramPlaces.ts";
@@ -63,9 +67,17 @@ import { FindBar } from "./FindBar.tsx";
 import { FindRuler } from "./FindRuler.tsx";
 import { type FindDeps, useFind } from "./find.ts";
 import { GraphView } from "./GraphView.tsx";
+import {
+  gatewayRows,
+  lastGatewayId,
+  ORIGINAL_GATEWAY_ID,
+  replayNotice,
+  unusableReason,
+} from "./gatewayChoices.ts";
 import { ChevronLeft } from "./Icons.tsx";
 import { Lightbox } from "./Lightbox.tsx";
 import { type Lane, laneOf } from "./lanes.ts";
+import { ManageGateways } from "./ManageGateways.tsx";
 import { drawDiagramPng, posterFramePng } from "./mermaid.ts";
 import type { Mode } from "./mode.ts";
 import type { PlaceFacts } from "./placeLine.ts";
@@ -84,6 +96,21 @@ import {
 import { TopBar } from "./TopBar.tsx";
 import { TraceSheet } from "./TraceSheet.tsx";
 import { tokenClass } from "./wash.ts";
+
+/**
+ * Spec 43 §4.3 — what a picker draws before its gateway has answered.
+ *
+ * Not an empty object: `AgentChoices` promises `models` and `styles` are always
+ * arrays, and `styleRows(undefined)` throwing inside a render is what emptied
+ * the whole window on 2026-09-02. The default's own name is the truth here —
+ * nothing else is known yet.
+ */
+const EMPTY_CHOICES: AgentChoices = {
+  models: [],
+  chosen: DEFAULT_MODEL,
+  styles: [DEFAULT_STYLE],
+  error: null,
+};
 
 /** What the middle of the window is showing. */
 type Centre = "document" | "graph";
@@ -324,11 +351,84 @@ export function App(): React.JSX.Element {
    */
   const [selectionStyle, setSelectionStyle] = useState<string>(DEFAULT_STYLE);
 
+  // ── Spec 43 — the gateway, to the left of the model ──────────
+  //
+  // Three controls, chosen per message, and each answer records all three. The
+  // gateway is state of exactly the kind the model already is: keyed by thread,
+  // in the renderer, because it is what the NEXT send will do. What survives a
+  // restart is `message.gatewayName`, which is a different fact — what a send
+  // that already happened DID.
+
+  const [gateways, setGateways] = useState<GatewayListResponse | null>(null);
+  const [gatewayByThread, setGatewayByThread] = useState<Record<string, string>>({});
+  /**
+   * §4.0 — the gateway a comment that does not exist yet will be created with.
+   *
+   * Null until the reviewer picks one, and then it is theirs for the session —
+   * the same memory `selectionStyle` keeps, for the same reason: a reviewer who
+   * pointed the panel at LiteLLM meant the next comment too.
+   */
+  const [selectionGateway, setSelectionGateway] = useState<string | null>(null);
+  const [gatewaysOpen, setGatewaysOpen] = useState(false);
+  /** §4.5 — the descriptor, fetched once. The sheet renders itself from it. */
+  const [descriptor, setDescriptor] = useState<DescribeResult | null>(null);
+  /**
+   * §4.3 — one model list per gateway, because the list follows the gateway.
+   *
+   * A cache and not a single object: switching back to a gateway must not pay
+   * for the probe again, and §4.1's cascade has to be able to rebuild the menu
+   * the instant the control moves rather than after a round trip.
+   */
+  const [choicesByGateway, setChoicesByGateway] = useState<Record<string, AgentChoices>>({});
+
+  const defaultGateway = gateways?.defaults.gatewayId ?? ORIGINAL_GATEWAY_ID;
+
+  /** What the selection panel will send with, before there is a comment. */
+  const panelGateway = selectionGateway ?? defaultGateway;
+
+  /**
+   * A gateway was saved, deleted or made the default: take the new list, and
+   * forget every model list, because §4.1's cascade has to rebuild them.
+   *
+   * All of them and not just the one that changed: `Use as default` moves which
+   * model `Original` starts on, and a delete moves what a comment falls back to.
+   * Re-asking three cached lists costs three IPC round trips against a probe
+   * main has already made.
+   */
+  const refreshGateways = (next: GatewayListResponse): void => {
+    setGateways(next);
+    setChoicesByGateway({});
+  };
+
+  /**
+   * §4.0 — a NEW comment reads the settings; one already sent starts on what it
+   * last used.
+   *
+   * The order is deliberate: an explicit pick in this session wins, then what
+   * the comment's own newest answer ran through, then the app-wide default.
+   * A reply usually continues the conversation it is in.
+   */
+  const gatewayOf = (threadId: string): string => {
+    const picked = gatewayByThread[threadId];
+    if (picked) return picked;
+    const thread = threadsRef.current.find((one) => one.id === threadId);
+    const last = thread ? lastGatewayId(thread.messages, gateways?.gateways ?? []) : null;
+    return last ?? defaultGateway;
+  };
+
+  const setGateway = (threadId: string, gatewayId: string): void =>
+    setGatewayByThread((current) => ({ ...current, [threadId]: gatewayId }));
+
+  /** The model list for one gateway, and the empty one while it is being asked. */
+  const choicesFor = (gatewayId: string): AgentChoices =>
+    choicesByGateway[gatewayId] ?? EMPTY_CHOICES;
+
   /** Null means "follow the default", which is what most comments do. */
   const modelOf = (threadId: string): string | null => modelByThread[threadId] ?? null;
 
   /** What actually goes on the wire: the pick, or the default it follows. */
-  const modelFor = (threadId: string): string => modelOf(threadId) ?? modelList.chosen;
+  const modelFor = (threadId: string): string =>
+    modelOf(threadId) ?? choicesFor(gatewayOf(threadId)).chosen;
 
   const setModel = (threadId: string, model: string | null): void =>
     setModelByThread((current) => {
@@ -338,9 +438,59 @@ export function App(): React.JSX.Element {
       return next;
     });
 
+  /**
+   * Spec 43 §4 — the gateway rows one control draws, and the two things it must
+   * say about them.
+   *
+   * Built here rather than in the components, because both surfaces need the
+   * same answer and the rule for a combination that cannot run (§4.2) is the
+   * spec's, not the layout's.
+   */
+  const gatewayChoice = (gatewayId: string, messages: readonly Message[]): GatewayChoice => {
+    const views = gateways?.gateways ?? [];
+    const sdk = gateways?.defaults.sdk ?? "claude-agent";
+    const label = descriptor?.sdks.find((one) => one.id === sdk)?.label ?? "this agent";
+    const chosen = views.find((view) => view.gateway.id === gatewayId);
+    return {
+      rows: gatewayRows(views, sdk),
+      blocked: (id) => {
+        const view = views.find((one) => one.gateway.id === id);
+        return view ? unusableReason(view, sdk, label) : null;
+      },
+      replayNotice: chosen ? replayNotice(messages, chosen.gateway.name, sdk) : null,
+    };
+  };
+
+  /** The four fields a send carries (§2.1), for one comment. */
+  const choicesOf = (threadId: string): SendChoices => ({
+    sdk: gateways?.defaults.sdk ?? "claude-agent",
+    gatewayId: gatewayOf(threadId),
+    model: modelFor(threadId),
+    style: styleOf(threadId),
+  });
+
   useEffect(() => {
     void window.rex.modelList().then(setModelList);
+    void window.rex.gatewayDescribe().then(setDescriptor);
+    void window.rex.gatewayList().then(setGateways);
   }, []);
+
+  /**
+   * §4.1's cascade — the gateway moved, so the model list is rebuilt from it.
+   *
+   * Every gateway on screen is asked once. A route the reviewer never opens
+   * costs one probe and nothing else; the alternative is a menu that is empty
+   * for a second every time the control moves.
+   */
+  useEffect(() => {
+    for (const view of gateways?.gateways ?? []) {
+      const id = view.gateway.id;
+      if (id in choicesByGateway) continue;
+      void window.rex
+        .modelList(id)
+        .then((answer) => setChoicesByGateway((was) => ({ ...was, [id]: answer })));
+    }
+  }, [gateways, choicesByGateway]);
 
   const [notice, setNotice] = useState<string | null>(null);
   // Spec 02: the workspace is a view of a folder, independent of which
@@ -378,6 +528,21 @@ export function App(): React.JSX.Element {
    * database.
    */
   const [showSkipped, setShowSkipped] = useState(false);
+  /**
+   * Whether each side panel is on screen.
+   *
+   * View state and not stored, like `showSkipped` above and unlike spec 27's
+   * paper switches: hiding a panel is how you give one document the whole
+   * window for a minute, not a way of working. Both come back on the next
+   * launch, which is also the only state a reviewer can be sure of finding.
+   *
+   * The panels are HIDDEN, never unmounted — `.rex-pane-hidden` is
+   * `display: none`. Unmounting the comments column would drop a reply
+   * half-written, and unmounting the explorer would drop the tree's open
+   * folders and make coming back a second scroll.
+   */
+  const [explorerShown, setExplorerShown] = useState(true);
+  const [commentsShown, setCommentsShown] = useState(true);
   /** Spec 10 §2 — the figure being read at a real size, if any. */
   const [preview, setPreview] = useState<PreviewFigure | null>(null);
 
@@ -2610,14 +2775,23 @@ export function App(): React.JSX.Element {
       // Spec 31 §2.2 — and the panel's style, which the first send then writes
       // to the comment so it is still there tomorrow.
       setStyle(thread.id, selectionStyle);
+      // Spec 43 §4 — and the panel's gateway, for the same reason: a reviewer
+      // who pointed the panel at LiteLLM meant this comment.
+      setGateway(thread.id, panelGateway);
 
       // NOTE stops here, and that is the whole feature: the comment is written
       // down, nothing runs, nothing is spent. No `withBusy` either — there is
       // no work to be busy with, and a spinner over an instant save is a lie.
       if (mode === "note") return;
 
-      const model = selectionModel ?? modelList.chosen;
-      const style = selectionStyle;
+      // Spec 43 §2.1 — all four, as the panel had them. The comment did not
+      // exist a moment ago, so there is nothing it "last used" to fall back to.
+      const choices: SendChoices = {
+        sdk: gateways?.defaults.sdk ?? "claude-agent",
+        gatewayId: panelGateway,
+        model: selectionModel ?? choicesFor(panelGateway).chosen,
+        style: selectionStyle,
+      };
       await withBusy(thread.id, async () => {
         // Spec 21 §3 — the open workspace, so a file the agent creates can be
         // scoped to somewhere the reviewer will actually see it.
@@ -2626,10 +2800,9 @@ export function App(): React.JSX.Element {
             threadId: thread.id,
             note,
             root: workspaceRef.current?.root ?? null,
-            model,
-            style,
+            ...choices,
           });
-        else await window.rex.threadAsk(thread.id, model, style);
+        else await window.rex.threadAsk({ threadId: thread.id, ...choices });
       });
     });
   }, [
@@ -2934,7 +3107,10 @@ export function App(): React.JSX.Element {
     await Promise.all(
       unanswered.map((thread) =>
         withBusy(thread.id, () =>
-          window.rex.threadAsk(thread.id, modelFor(thread.id), styleOf(thread.id)),
+          // Spec 43 §4.0 — each comment on its own combination: the one it was
+          // set to, or the one it last used, or the default. "Ask all" is not a
+          // place to make a choice, so it makes none.
+          window.rex.threadAsk({ threadId: thread.id, ...choicesOf(thread.id) }),
         ),
       ),
     );
@@ -3704,6 +3880,28 @@ export function App(): React.JSX.Element {
           if (!canPaper) return;
           togglePaperDark();
           break;
+        /*
+          The two panels, from the keyboard. `[` is the one on the left and `]`
+          the one on the right, so the position is the whole mnemonic and the
+          pair is learnt as one fact rather than two.
+
+          Not `E` and `C`: those name the panels, but the two letters have
+          nothing to do with each other, so a hand that knows one is no closer
+          to the other. Not ⌘B either, which is what VS Code uses — bare `b` is
+          already the debug report here, and every other shortcut in REX is a
+          bare letter, so a chord would be the only one of its kind.
+
+          Neither can cost anything, so neither needs a modifier.
+        */
+        case "[":
+          // Nothing to hide until a folder is open, and the button is not
+          // drawn then either.
+          if (tree === null) return;
+          setExplorerShown((on) => !on);
+          break;
+        case "]":
+          setCommentsShown((on) => !on);
+          break;
         default:
           return;
       }
@@ -3797,6 +3995,7 @@ export function App(): React.JSX.Element {
     showCentre,
     togglePaperDark,
     togglePaperWide,
+    tree,
     widenBy,
     workspace,
     zoomBy,
@@ -3904,10 +4103,9 @@ export function App(): React.JSX.Element {
       }
     };
 
-    // Spec 25 §4.1 — the comment's own model, or the default it follows.
-    const model = modelFor(threadId);
-    // Spec 31 §2.1 — and the style this chat is having.
-    const style = styleOf(threadId);
+    // Spec 25 §4.1, spec 31 §2.1 and spec 43 §2.1 — the comment's own agent,
+    // gateway, model and style, or the ones it last used, or the defaults.
+    const choices = choicesOf(threadId);
 
     if (mode === "act") {
       void withBusy(threadId, () =>
@@ -3917,8 +4115,7 @@ export function App(): React.JSX.Element {
             note: text,
             root: workspaceRef.current?.root ?? null,
             targets,
-            model,
-            style,
+            ...choices,
           }),
         ),
       );
@@ -3929,14 +4126,26 @@ export function App(): React.JSX.Element {
     // because `guard` is where that lives.
     if (mode === "note") {
       void guard(async () => {
-        // §2.3 — a NOTE runs nothing, so it names no model.
-        await sent(window.rex.threadNote({ threadId, text, targets, model: null, style: null }));
+        // §2.3 and spec 43 §5.4 — a NOTE runs nothing, so it names no agent,
+        // no gateway, no model and no style. Null in all four is the honest
+        // record of a message no agent ever saw.
+        await sent(
+          window.rex.threadNote({
+            threadId,
+            text,
+            targets,
+            sdk: null,
+            gatewayId: null,
+            model: null,
+            style: null,
+          }),
+        );
         await refreshThreads();
       });
       return;
     }
     void withBusy(threadId, () =>
-      sent(window.rex.threadReply({ threadId, text, targets, model, style })),
+      sent(window.rex.threadReply({ threadId, text, targets, ...choices })),
     );
   };
 
@@ -3991,10 +4200,18 @@ export function App(): React.JSX.Element {
     ? (threads.find((thread) => thread.id === pendingApply.threadId) ?? null)
     : null;
 
-  // §3.3 — the comments column is hidden behind the graph, but never while the
-  // panel holds something. Losing sight of a half-built selection because you
-  // went to look at the graph is the same fault as losing it to a stray click.
-  const sideHidden = centre !== "document" && selection.length === 0;
+  /*
+    Two reasons to hide the comments column, and they are a union.
+
+    §3.3 — it is hidden behind the graph, but never while the panel holds
+    something. Losing sight of a half-built selection because you went to look
+    at the graph is the same fault as losing it to a stray click.
+
+    The reviewer's own switch is the second reason, and it is only ever a reason
+    to HIDE. It cannot pull the column back out from behind the graph, because
+    that rule is about there being nothing to show, not about preference.
+  */
+  const sideHidden = !commentsShown || (centre !== "document" && selection.length === 0);
 
   // Spec 28 — the bar while it is open, the ruler while there is a mark to
   // draw. Both go to the pane being read; `DocumentView` decides which.
@@ -4028,15 +4245,10 @@ export function App(): React.JSX.Element {
         onOpenFile={pick}
         onOpenFolder={pickFolder}
         onDebug={copyDebug}
-        models={modelList}
-        onModel={(value) => {
-          // Spec 25 §6 — optimistic. The write is one row in REX's own
-          // database and cannot fail in a way the reviewer could act on;
-          // waiting would leave the button showing the old name for a round
-          // trip.
-          setModelList((current) => ({ ...current, chosen: value }));
-          void window.rex.modelDefault(value);
-        }}
+        explorerShown={tree === null ? null : explorerShown}
+        onExplorer={() => setExplorerShown((on) => !on)}
+        commentsShown={commentsShown}
+        onComments={() => setCommentsShown((on) => !on)}
       />
 
       {notice ? (
@@ -4055,6 +4267,7 @@ export function App(): React.JSX.Element {
             <Explorer
               tree={tree}
               width={explorerWidth}
+              hidden={!explorerShown}
               activePath={selectedPath}
               changes={changeCounts}
               showSkipped={showSkipped}
@@ -4084,14 +4297,21 @@ export function App(): React.JSX.Element {
                 onOpen: (path, hit) => void guard(() => find.openHit(path, hit)),
               }}
             />
-            <Splitter
-              width={explorerWidth}
-              min={200}
-              max={640}
-              direction={1}
-              label="the explorer"
-              onChange={setExplorerWidth}
-            />
+            {/*
+              The handle goes with the panel. Left behind, it is a 5px strip of
+              `col-resize` cursor in the middle of the window that resizes
+              something nobody can see.
+            */}
+            {explorerShown ? (
+              <Splitter
+                width={explorerWidth}
+                min={200}
+                max={640}
+                direction={1}
+                label="the explorer"
+                onChange={setExplorerWidth}
+              />
+            ) : null}
           </>
         ) : null}
 
@@ -4224,9 +4444,13 @@ export function App(): React.JSX.Element {
               // what the next send does.
               mode={active.status === "note" ? "note" : modeOf(active.id)}
               onMode={(mode) => setMode(active.id, mode)}
-              models={modelList}
+              models={choicesFor(gatewayOf(active.id))}
               model={modelOf(active.id)}
               onModel={(model) => setModel(active.id, model)}
+              gateways={gatewayChoice(gatewayOf(active.id), active.messages)}
+              gateway={gatewayOf(active.id)}
+              onGateway={(id) => setGateway(active.id, id)}
+              onManageGateways={() => setGatewaysOpen(true)}
               style={styleOf(active.id)}
               onStyle={(style) => setStyle(active.id, style)}
               pending={pending}
@@ -4352,9 +4576,13 @@ export function App(): React.JSX.Element {
                 hoveredId={hoveredItemId}
                 mode={selectionMode}
                 onMode={setSelectionMode}
-                models={modelList}
+                models={choicesFor(panelGateway)}
                 model={selectionModel}
                 onModel={setSelectionModel}
+                gateways={gatewayChoice(panelGateway, [])}
+                gateway={panelGateway}
+                onGateway={setSelectionGateway}
+                onManageGateways={() => setGatewaysOpen(true)}
                 style={selectionStyle}
                 onStyle={setSelectionStyle}
                 onNote={setSelectionNote}
@@ -4386,9 +4614,13 @@ export function App(): React.JSX.Element {
               mode={active.status === "note" ? "note" : modeOf(active.id)}
               onMode={(mode) => setMode(active.id, mode)}
               onPromote={() => promoteNote(active.id)}
-              models={modelList}
+              models={choicesFor(gatewayOf(active.id))}
               model={modelOf(active.id)}
               onModel={(model) => setModel(active.id, model)}
+              gateways={gatewayChoice(gatewayOf(active.id), active.messages)}
+              gateway={gatewayOf(active.id)}
+              onGateway={(id) => setGateway(active.id, id)}
+              onManageGateways={() => setGatewaysOpen(true)}
               style={styleOf(active.id)}
               onStyle={(style) => setStyle(active.id, style)}
               tracing={traceId === active.id}
@@ -4457,7 +4689,13 @@ export function App(): React.JSX.Element {
                   // Spec 25 — a synthesis comment is made and sent in one act,
                   // so it has no composer to have picked from: the default.
                   await withBusy(thread.id, () =>
-                    window.rex.threadAsk(thread.id, modelList.chosen, DEFAULT_STYLE),
+                    window.rex.threadAsk({
+                      threadId: thread.id,
+                      sdk: gateways?.defaults.sdk ?? "claude-agent",
+                      gatewayId: defaultGateway,
+                      model: choicesFor(defaultGateway).chosen,
+                      style: DEFAULT_STYLE,
+                    }),
                   );
                 })
               }
@@ -4465,6 +4703,44 @@ export function App(): React.JSX.Element {
           )}
         </aside>
       </div>
+
+      {/*
+        Spec 43 §4.5 — the sheet, over everything, because it is configuration
+        about REX rather than about the document. It renders itself from the
+        descriptor and knows the name of no gateway.
+      */}
+      {gatewaysOpen && descriptor && gateways ? (
+        <ManageGateways
+          descriptor={descriptor}
+          list={gateways}
+          built={descriptor.sdks.map((sdk) => sdk.id)}
+          buildRoutes={buildRoutes}
+          validate={validateGateway}
+          onSave={(draft) =>
+            guard(async () => refreshGateways(await window.rex.gatewaySave(draft)))
+          }
+          onDelete={(gatewayId) =>
+            guard(async () => refreshGateways(await window.rex.gatewayDelete(gatewayId)))
+          }
+          // §4.5 — the target is a saved gateway or the sheet's own answers, and
+          // main rebuilds the route either way. The SDK is Claude until spec 44
+          // makes it a choice.
+          onVerify={(target) => window.rex.gatewayVerify({ ...target, sdk: "claude-agent" })}
+          onTest={(target, model) =>
+            window.rex.gatewayTest({ ...target, sdk: "claude-agent", model })
+          }
+          onDefault={async (gatewayId) => {
+            await window.rex.gatewayDefault({
+              sdk: gateways.defaults.sdk,
+              gatewayId,
+              model: choicesFor(gatewayId).chosen,
+            });
+            refreshGateways(await window.rex.gatewayList());
+          }}
+          onHasEnv={(name) => window.rex.gatewayHasEnv(name)}
+          onClose={() => setGatewaysOpen(false)}
+        />
+      ) : null}
 
       {pendingApply ? (
         <DiffDialog

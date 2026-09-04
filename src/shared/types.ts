@@ -1,5 +1,15 @@
 // The single source of truth for every shape crossing the process boundary.
 // SPEC.md §4 — copied verbatim; extend here and nowhere else.
+//
+// One exception, and it is spec 42's: the SDK and gateway vocabulary is
+// GENERATED from `agent-gateway/src/agent_gateway/protocol.py` into
+// `agent-protocol.ts` beside this file, and a shape that exists there is
+// imported rather than restated. `test/protocol.spec.ts` fails when the two
+// sides of that contract drift, which a hand-written copy here would defeat.
+
+import type { AgentSdk } from "./agent-protocol.ts";
+
+export type { AgentSdk };
 
 // ── Documents ───────────────────────────────────────────────
 
@@ -460,6 +470,22 @@ export interface Message {
    * debugging question, which is where it is answered.
    */
   style: string | null;
+  /**
+   * Spec 43 §5.3 — the agent, the gateway and the URL that produced this row.
+   *
+   * `model` and `style` above say what was asked for; these three say what
+   * answered. Together they are the whole record of one turn, and every one of
+   * them is a **copy** — editing, renaming or deleting a gateway changes no
+   * message, which is exactly what the reviewer asked for on 2026-09-03 and is
+   * why this spec has no gateway revisioning at all.
+   *
+   * Null for a NOTE, which runs nothing, and for every row written before these
+   * columns existed. `baseUrl` is null for `Original` too, and there it means
+   * "the SDK's own endpoint" rather than "nobody recorded it".
+   */
+  sdk: AgentSdk | null;
+  gatewayName: string | null;
+  baseUrl: string | null;
   content: string | null;
   toolName: string | null;
   toolInput: unknown | null;
@@ -522,18 +548,48 @@ export interface AgentChoices {
 }
 
 /**
- * Spec 31 §4 — the two things a send chooses, carried as one.
+ * Spec 43 §2.1 — what one send picks. All four are recorded on the message it
+ * produces.
  *
- * They travel together through every layer of main: the send records them, the
- * run is stamped with them, and each notice a run produces carries them. Spec
- * 25 threaded the model alone through five signatures; a second parameter
- * beside it in all five would have been the moment to notice they are one
- * thing. Null in either means "REX says nothing, so the CLI decides", which is
- * what every run did before the spec that added it.
+ * Spec 31 carried two of these, and the reason they travel as one object rather
+ * than as parameters is the reason there are now four: spec 25 threaded the
+ * model alone through five signatures, and a second beside it in all five would
+ * have been the moment to notice they are one thing.
+ *
+ * **None of the four is a property of the thread.** Every send picks again
+ * (§2.6 rule 1), which is what makes a comment answerable by a local model and
+ * then continued on the official API without losing the conversation.
+ *
+ * Null in `model` or `style` means "REX says nothing, so the SDK decides".
+ * `threadNote` sends nulls in all four, and that is the honest record of a
+ * message no agent ever saw (§5.4).
  */
 export interface SendChoices {
+  /**
+   * Spec 43 §2.1 — `claude-agent` in this spec. Spec 44 makes it a choice, and
+   * everything the schema records already has room for four.
+   */
+  sdk: AgentSdk | null;
+  /** The gateway row this send runs through. `rex-original` is the default. */
+  gatewayId: string | null;
   model: string | null;
   style: string | null;
+}
+
+/**
+ * Spec 43 §5.3 — the evidence copied onto a message, beside its model and style.
+ *
+ * **Copies, not foreign keys.** The reviewer's requirement, 2026-09-03: *"If I
+ * change the config of gateways, it does not affect that historical
+ * evidence."* A `gatewayId` reference would not satisfy it — re-point a gateway
+ * at another host and every answer it ever produced would start claiming the
+ * new URL.
+ */
+export interface SendEvidence {
+  sdk: AgentSdk | null;
+  gatewayName: string | null;
+  /** Sanitised, and null for `Original` — "the SDK's own endpoint", not missing. */
+  baseUrl: string | null;
 }
 
 /** The SDK's own first row, and what "REX said nothing" resolves to. */

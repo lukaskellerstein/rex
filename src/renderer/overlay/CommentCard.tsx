@@ -8,7 +8,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { commentName } from "../../shared/names.ts";
 import { type PlaceTally, threadState } from "../../shared/targets.ts";
-import { totalsOf } from "../../shared/totals.ts";
+import { type RunStats, runStatsOf, spentText, totalsOf } from "../../shared/totals.ts";
 import type {
   AgentChoices,
   AnchorState,
@@ -17,12 +17,24 @@ import type {
   SendMode,
   ThreadWithMessages,
 } from "../../shared/types.ts";
+import { AnswerFoot } from "./AnswerFoot.tsx";
 import { agentText } from "./aside.ts";
-import { Composer } from "./Composer.tsx";
+import { Composer, type GatewayChoice } from "./Composer.tsx";
 import { CopyText } from "./CopyText.tsx";
 import { DebugCopy } from "./DebugCopy.tsx";
-import { Bubble, ChevronLeft, ChevronRight, Pencil, Sparkle, StopSquare, Trash } from "./Icons.tsx";
-import { modelLabel } from "./ModelPick.tsx";
+import { Elapsed } from "./Elapsed.tsx";
+import {
+  Bubble,
+  Bulb,
+  ChevronLeft,
+  ChevronRight,
+  MESSAGE_ICON,
+  MESSAGE_ICON_SOLID,
+  Pencil,
+  Sparkle,
+  StopSquare,
+  Trash,
+} from "./Icons.tsx";
 import { MODE_LABEL, type Mode } from "./mode.ts";
 import { NameBox } from "./NameBox.tsx";
 import { PlaceRow } from "./PlaceRow.tsx";
@@ -33,6 +45,9 @@ import type { SelectionItem } from "./selection.ts";
 import { cornerWord } from "./ThreadRow.tsx";
 import { ToolRow } from "./ToolRow.tsx";
 import { toolRowsOf } from "./toolRows.ts";
+// Spec 38 §3.3's own fold count — `12 lines`, `43 chars` — so the folded
+// thought on the card and the folded rows in the trace say size the same way.
+import { foldSize } from "./trace.ts";
 import { tokenClass, washClass } from "./wash.ts";
 
 interface Props {
@@ -69,13 +84,18 @@ interface Props {
   /**
    * Spec 25 §7.1 — the models on offer, and this comment's own pick.
    *
-   * `model: null` is "follow the default in the top bar", and it is what every
+   * `model: null` is "follow the app-wide default", and it is what every
    * comment does until the reviewer changes it here. Renderer state, like the
    * mode: it is what the NEXT send will do.
    */
   models: AgentChoices;
   model: string | null;
   onModel: (model: string | null) => void;
+  /** Spec 43 §4 — the gateway control, passed straight through to the composer. */
+  gateways: GatewayChoice;
+  gateway: string;
+  onGateway: (gatewayId: string) => void;
+  onManageGateways: () => void;
   /**
    * Spec 31 §2.1 — the output style this chat is having, and it is a plain
    * string, never null: a chat is always having one, and `default` is its name.
@@ -128,7 +148,12 @@ interface Props {
 // Spec 34 §6.1 — and the reviewer's approve, discard or undo, which is a fact
 // about the document the conversation is about. A system row, so it wears the
 // NOTE mark like every other thing REX reports.
-const IN_CONVERSATION = new Set<Message["kind"]>(["text", "error", "stopped", "event"]);
+// Spec 38 §3 — and the agent's thinking, since 2026-09-04. It was drawn in the
+// trace and nowhere else, so the card could not say WHY an answer took four
+// minutes and a reader had to leave the conversation to find out. It arrives
+// folded (`TurnBlock`), which is what makes it affordable here: one line saying
+// the agent stopped to think, and the whole of it on a click.
+const IN_CONVERSATION = new Set<Message["kind"]>(["text", "thinking", "error", "stopped", "event"]);
 
 function conversation(thread: ThreadWithMessages): Message[] {
   return thread.messages.filter((message) => IN_CONVERSATION.has(message.kind) && message.content);
@@ -158,7 +183,7 @@ function conversation(thread: ThreadWithMessages): Message[] {
  * what it says is not the answer: it spoke, worked, and spoke again. `aside.ts`
  * carries the rule and what it cost to find.
  */
-type Voice = "you" | "agent" | "aside" | "note" | "stopped";
+type Voice = "you" | "agent" | "aside" | "thinking" | "note" | "stopped";
 
 interface Turn {
   id: string;
@@ -184,6 +209,18 @@ interface Turn {
   /** Spec 31 §5 — and the output style it was written in. Null, the same way. */
   style: string | null;
   /**
+   * Spec 43 §5.3 — the gateway that produced this turn, and the URL it used.
+   *
+   * The model's neighbours in every way, including this one: neither can change
+   * inside a turn, because every message a run produces is stamped with that
+   * run's own five fields.
+   *
+   * Null for a turn no agent was in — a NOTE, a notice from REX — and for every
+   * message written before the columns existed.
+   */
+  gatewayName: string | null;
+  baseUrl: string | null;
+  /**
    * Spec 24 §3.4 — the messages this turn is made of, so the places that
    * arrived with any of them can be drawn under it. A `YOU` turn is usually one
    * message; two sends with no answer between them are one turn and two ids.
@@ -193,6 +230,10 @@ interface Turn {
 
 function voiceOf(message: Message, asides: Set<string>): Voice {
   if (message.kind === "stopped") return "stopped";
+  // The sixth voice, and the one that is not addressed to the reviewer at all.
+  // Tested before the role, because a thought is the assistant's row and would
+  // otherwise be read as the answer.
+  if (message.kind === "thinking") return "thinking";
   if (message.role === "user") return "you";
   if (message.role === "system") return "note";
   return asides.has(message.id) ? "aside" : "agent";
@@ -203,9 +244,15 @@ function voiceOf(message: Message, asides: Set<string>): Voice {
  * speaking twice in one run, so counting it would report a thread as longer
  * than the reader can see it is. The card's run line and the trace head (spec
  * 38 §2) both say this number, from here, so they cannot disagree.
+ *
+ * A thought is not counted either, and for a stronger reason than an aside: it
+ * was never said to anybody. `turns` answers "how long is this conversation",
+ * and the agent reasoning to itself did not lengthen it.
  */
+const UNSPOKEN = new Set<Voice>(["aside", "thinking"]);
+
 export function spokenTurnsOf(thread: ThreadWithMessages): number {
-  return turnsOf(thread).filter((turn) => turn.voice !== "aside").length;
+  return turnsOf(thread).filter((turn) => !UNSPOKEN.has(turn.voice)).length;
 }
 
 function turnsOf(thread: ThreadWithMessages): Turn[] {
@@ -257,15 +304,13 @@ function turnsOf(thread: ThreadWithMessages): Turn[] {
       // Spec 31 §5 — like the model, it cannot change inside a turn: every
       // message a run produces is stamped with the run's own style.
       style: message.style,
+      // Spec 43 §5.3 — and the rest of the evidence, for the same reason.
+      gatewayName: message.gatewayName,
+      baseUrl: message.baseUrl,
       messageIds: [message.id],
     });
   }
   return turns;
-}
-
-/** Seconds at one decimal below a minute, then whole minutes. */
-function seconds(ms: number): string {
-  return ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 60_000)}m`;
 }
 
 /** 24-hour: the line is tabular mono and `03:34 PM` overflows its column. */
@@ -299,6 +344,7 @@ const VOICE_LABEL: Record<Voice, string> = {
   you: "YOU",
   agent: "ANSWER",
   aside: "ASIDE",
+  thinking: "THINKING",
   note: "NOTE",
   stopped: "STOPPED",
 };
@@ -313,6 +359,7 @@ const VOICE_THING: Record<Voice, string> = {
   you: "question",
   agent: "answer",
   aside: "remark",
+  thinking: "thought",
   note: "notice",
   stopped: "stop",
 };
@@ -344,6 +391,7 @@ function TurnBlock({
   turn,
   places,
   models,
+  stats,
   onGoToPlace,
 }: {
   turn: Turn;
@@ -351,12 +399,30 @@ function TurnBlock({
   places: PlaceChip[];
   /** Spec 25 §7.3 — to turn the stored value into the name it was picked by. */
   models: ModelChoice[];
+  /** What the run that ended in this turn spent, or null if it ended in another. */
+  stats: RunStats | null;
   onGoToPlace: (position: number) => void;
 }): React.JSX.Element {
   const answer = turn.voice === "agent" && !turn.failed;
+  /**
+   * The agent's reasoning, folded shut.
+   *
+   * Shut is the only state it can start in. A thought is longer than the answer
+   * it produced surprisingly often, and a conversation that opens with three
+   * screens of the agent talking to itself buries the reply the reviewer opened
+   * the comment to read. Open is one click, and the state is per block: opening
+   * one thought is not a decision about the next.
+   */
+  const [thoughtOpen, setThoughtOpen] = useState(false);
+  const thinking = turn.voice === "thinking";
   // An aside is the agent's own words too, so it is Markdown and is rendered as
   // Markdown. What it is not is the answer, so it gets none of the answer's
   // chrome: no card, no sparkle, no model, no cost.
+  //
+  // A thought is NOT Markdown, and the trace has never drawn it as Markdown
+  // either: it is the model's private working, complete with half-written
+  // lists, and reinterpreting its markers would dress up something that was
+  // never written to be read.
   const markdown = answer || turn.voice === "aside";
   const tone = turn.failed ? "error" : turn.voice;
   // §3.3 — the reviewer's own turn wears its mode's colour, the same three the
@@ -371,26 +437,59 @@ function TurnBlock({
   return (
     <div className={`rex-turn rex-turn-${tone}`}>
       <div className="rex-turn-head">
-        {answer ? (
-          <Sparkle />
-        ) : turn.voice === "you" ? (
-          <Bubble size={12} />
-        ) : turn.voice === "stopped" ? (
-          <StopSquare size={8} />
-        ) : null}
-        <span className="rex-label">{turn.failed ? "ERROR" : VOICE_LABEL[turn.voice]}</span>
-        {sent ? <span className={`rex-sent rex-sent-${sent}`}>{MODE_LABEL[sent]}</span> : null}
+        {/*
+          A thought's whole head is the fold. The twisty, the bulb and the word
+          are one button — three separate targets on a line this small is a
+          click that misses — and it stays inside the head so the clock and the
+          copy glyph keep the column every other block puts them in.
+
+          The count is the trace's own idiom (`43 chars`, `2 fields`, spec 38
+          §3.3): the reviewer decides whether to pay the height before it is
+          spent. It is the SIZE of the thought and never a preview of it.
+        */}
+        {thinking ? (
+          <button
+            type="button"
+            className="rex-think-toggle"
+            aria-expanded={thoughtOpen}
+            title={thoughtOpen ? "Fold the agent's thinking" : "Show the agent's thinking"}
+            onClick={() => setThoughtOpen(!thoughtOpen)}
+          >
+            <span className={thoughtOpen ? "rex-twisty rex-twisty-open" : "rex-twisty"} />
+            <Bulb size={MESSAGE_ICON} />
+            <span className="rex-label">{VOICE_LABEL.thinking}</span>
+            <span className="rex-think-size">{foldSize(text)}</span>
+          </button>
+        ) : (
+          <>
+            {answer ? (
+              <Sparkle size={MESSAGE_ICON_SOLID} />
+            ) : turn.voice === "you" ? (
+              <Bubble size={MESSAGE_ICON} />
+            ) : turn.voice === "stopped" ? (
+              // A filled square is the heaviest mark in the set, so it is set
+              // smaller again than the other solid — see `MESSAGE_ICON_SOLID`.
+              <StopSquare size={10} />
+            ) : null}
+            <span className="rex-label">{turn.failed ? "ERROR" : VOICE_LABEL[turn.voice]}</span>
+            {sent ? <span className={`rex-sent rex-sent-${sent}`}>{MODE_LABEL[sent]}</span> : null}
+          </>
+        )}
         <span className="rex-spacer" />
         <span className="rex-turn-spent">{clock(turn.at)}</span>
         {/*
           Spec 41 §2.1 — outside the clock, which keeps the column it has. The
           cell is always here and the glyph is not: it comes up when the pointer
           is over the block, so a column of turns is not a column of glyphs.
+
+          A folded thought can still be copied. What goes on the clipboard is
+          the whole thought, not what is on the screen — the same rule the
+          trace's folded rows follow.
         */}
         <CopyText text={text} what={turn.failed ? "error" : VOICE_THING[turn.voice]} />
       </div>
 
-      {markdown ? (
+      {thinking && !thoughtOpen ? null : markdown ? (
         <Prose text={text} />
       ) : (
         turn.parts.map((part, position) => (
@@ -460,24 +559,40 @@ function TurnBlock({
         `default` is drawn like any other name. It is a real answer to "which
         style was used", and hiding it would make a line that appears and
         disappears depending on a value the reviewer cannot see.
+
+        The line itself is `AnswerFoot`, shared with the trace sheet since
+        2026-09-04. It was a copy in each file, and the copies had drifted.
       */}
-      {answer && (turn.model || turn.style) ? (
-        <div className="rex-turn-foot">
-          {turn.model ? (
-            <span className="rex-foot-model" title="The model that wrote this answer">
-              {modelLabel(models, turn.model, turn.model)}
-            </span>
-          ) : null}
-          {turn.model && turn.style ? " · " : null}
-          {turn.style ? (
-            <span className="rex-foot-style" title="The output style this answer was written in">
-              {turn.style}
-            </span>
-          ) : null}
-        </div>
+      {answer ? (
+        <AnswerFoot
+          evidence={{
+            gatewayName: turn.gatewayName,
+            baseUrl: turn.baseUrl,
+            model: turn.model,
+            style: turn.style,
+          }}
+          stats={stats}
+          models={models}
+        />
       ) : null}
     </div>
   );
+}
+
+/**
+ * When the reviewer's last send happened, in epoch milliseconds, or null.
+ *
+ * What the running clock counts from (spec 43 §7.3). The last `YOU` message is
+ * the send REX is answering: a reply lands as one, and so does the note
+ * `threadAsk` opens a conversation with.
+ */
+export function lastSendAt(messages: readonly Message[]): number | null {
+  const send = [...messages]
+    .sort((a, b) => a.seq - b.seq)
+    .findLast((message) => message.role === "user" && message.kind === "text");
+  if (!send) return null;
+  const at = Date.parse(send.createdAt);
+  return Number.isNaN(at) ? null : at;
 }
 
 export function CommentCard(props: Props): React.JSX.Element {
@@ -530,10 +645,14 @@ export function CommentCard(props: Props): React.JSX.Element {
   // Spec 08 §5.3 — `2 turns` means two voices spoke. An aside is the same voice
   // speaking twice in one run, so counting it would report a thread as longer
   // than the reader can see it is.
-  const spokenTurns = turns.filter((turn) => turn.voice !== "aside").length;
+  const spokenTurns = turns.filter((turn) => !UNSPOKEN.has(turn.voice)).length;
   // Spec 36 §2 — the whole chat's numbers, from the same helper the trace
   // sheet's head uses, so the two can never disagree.
   const totals = totalsOf(thread.messages);
+  // And each single run's, keyed by the message that ends it — the reviewer's
+  // ask of 2026-09-04. The card's run line above measures the whole comment;
+  // this is what one answer took, cost and needed.
+  const runStats = runStatsOf(thread.messages);
   // Spec 36 §3.2 — the tool calls between the turns, keyed by the turn each
   // row comes before, and the ones after the last turn.
   const toolRows = toolRowsOf(thread.messages, new Set(turns.map((turn) => turn.id)));
@@ -771,7 +890,7 @@ export function CommentCard(props: Props): React.JSX.Element {
               <span className="rex-card-totals">
                 {[
                   `${spokenTurns} turn${spokenTurns === 1 ? "" : "s"}`,
-                  totals.durationMs > 0 ? seconds(totals.durationMs) : null,
+                  totals.durationMs > 0 ? spentText(totals.durationMs) : null,
                   totals.costUsd > 0 ? `$${totals.costUsd.toFixed(3)}` : null,
                 ]
                   .filter(Boolean)
@@ -861,6 +980,10 @@ export function CommentCard(props: Props): React.JSX.Element {
                 turn={turn}
                 places={placesOf(turn)}
                 models={props.models.models}
+                // The run ended in this turn only if its LAST message is the one
+                // the map is keyed on — an answer split across three `text`
+                // rows is one turn, and the run ended at the third.
+                stats={runStats.get(turn.messageIds[turn.messageIds.length - 1] ?? "") ?? null}
                 onGoToPlace={props.onGoToPlace}
               />
             </div>
@@ -890,6 +1013,23 @@ export function CommentCard(props: Props): React.JSX.Element {
             <span className="rex-working">
               <span className="rex-spinner" />
               {props.stopping ? "stopping…" : "working…"}
+              {/*
+                Spec 43 §7.3 — the elapsed time, from the moment a run starts.
+                A local model needs 5 to 15 minutes before its first token, and
+                §5.2's replay adds a whole transcript to the first send on a new
+                combination. A card that shows nothing for twelve minutes is
+                indistinguishable from a hung app.
+
+                Drawn for every run and not only for a routed one: the number is
+                the truth on the official API too, and a clock that appears only
+                sometimes is a clock nobody learns to read.
+
+                It counts from the SEND and not from this row's first paint, so
+                leaving the comment and coming back does not restart it. The
+                finished answer's foot then reports the same span as a fixed
+                number, which is what makes the two agree.
+              */}
+              <Elapsed since={lastSendAt(thread.messages)} />
             </span>
             <span className="rex-spacer" />
             <button
@@ -923,6 +1063,10 @@ export function CommentCard(props: Props): React.JSX.Element {
         models={props.models}
         model={props.model}
         onModel={props.onModel}
+        gateways={props.gateways}
+        gateway={props.gateway}
+        onGateway={props.onGateway}
+        onManageGateways={props.onManageGateways}
         style={props.style}
         onStyle={props.onStyle}
         pending={props.pending}

@@ -245,6 +245,17 @@
   stroke: none;
 }
 
+/*
+  One filled shape inside an otherwise stroked icon — the panel switches use it
+  for the bar that says which edge of the window they act on. `.rex-icon` sets
+  `fill: none` on the svg and every child inherits it, so a child that wants to
+  be solid has to say so.
+*/
+.rex-icon-fill {
+  fill: currentcolor;
+  stroke: none;
+}
+
 /* ── Top bar ─────────────────────────────────────────────── */
 
 .rex-bar {
@@ -535,6 +546,32 @@
 .rex-debug:hover {
   background: var(--raised);
   color: var(--fg-dim);
+}
+
+/*
+  The two panel switches in the bar.
+
+  Brighter while the panel is on screen, dim while it is not, so the bar reports
+  the layout at a glance and the buttons do not both sit at the same weight all
+  day. That is the same reading `.rex-segment button.rex-on` gives the Document
+  and Graph pair, in the vocabulary an icon-only control has.
+*/
+.rex-panel:hover {
+  background: var(--raised);
+}
+
+.rex-panel-on {
+  color: var(--fg-dim);
+}
+
+/*
+  The left switch is near the START of the bar, so its label has to grow
+  rightwards. Right-aligned — the default every other label wants — it would run
+  off the window's left edge and be unreadable. Same reason as `.rex-makerow`.
+*/
+.rex-panel-left[data-tip]::after {
+  right: auto;
+  left: 0;
 }
 
 /* ── Context menu ────────────────────────────────────────── */
@@ -2433,11 +2470,83 @@
   said it is a lesser fact, and it is not: the same answer from the same model
   in a different style is a different answer.
 */
+/*
+  Spec 43 §13 criterion 11 — and the gateway, first in the line and in the same
+  register again.
+
+  Three words now: gateway · model · style. They are one fact in three parts —
+  what produced this answer — and the numbers after them are what it cost. The
+  gateway leads because it is the one that can make the other two mean something
+  different: `Fable 5.1` through the official API and `Fable 5.1` through a proxy
+  are not the same claim.
+
+  No pill and no colour, for the reason the model has none: a pill in REX means
+  the mode the reviewer picked (spec 12 §7.1) and a colour means one of spec 18's
+  seven facts. Order and brightness are the whole treatment.
+*/
+.rex-foot-gateway,
 .rex-foot-model,
 .rex-foot-style {
   color: var(--muted);
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+/*
+  The reviewer's ask, 2026-09-04 — how long the answer took, how many steps it
+  needed and what it cost, after the three words that say what produced it.
+
+  They keep the foot's own `--faint`, so the line reads as two groups with no
+  rule between them: the bright half is what produced this answer, the quiet
+  half is what it cost. That is the split the two colours already carried
+  between the model and the numbers, now that there are numbers.
+*/
+.rex-foot-spent,
+.rex-foot-steps,
+.rex-foot-cost {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  A fact never breaks in the middle.
+
+  Six facts do not fit the comment column on one line, so the line wraps — and
+  wrapping `4 steps` between the number and the word, or `Envoy LMS` between its
+  two words, is how a foot stops being readable at a glance.
+*/
+.rex-foot-fact {
+  white-space: nowrap;
+}
+
+/*
+  The `·` between two facts, drawn here rather than written into the markup.
+
+  In the markup it was a text node the flex row collapsed on one side, so the
+  dot hugged the word before it — `Original· Default`. As a pseudo-element it
+  carries its own margins, and it belongs to the fact that FOLLOWS it, so a
+  wrapped line opens with `· 27.4s` and never strands a dot at the end of the
+  line above.
+*/
+.rex-foot-fact + .rex-foot-fact::before {
+  content: "·";
+  margin: 0 5px;
+  /* The foot's own colour, as the text separator it replaced had. A border
+     colour was tried and is invisible at 10px against this background. */
+  color: var(--faint);
+}
+
+/*
+  Spec 43 §7.3 — the clock beside `working…`.
+
+  Fainter than the word it follows, because it is not the message: the message
+  is that something is happening, and this only says for how long. Tabular
+  figures so the seconds do not shuffle the word left and right every tick.
+*/
+.rex-elapsed {
+  margin-left: 6px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Quotes ──────────────────────────────────────────────── */
@@ -3566,14 +3675,57 @@
   color: var(--fg);
 }
 
-/* What the thread cost, under the answer it bought and nowhere else. */
+/*
+  What the answer cost, under the answer it bought and nowhere else.
+
+  A wrapping flex row since 2026-09-04, when the line grew from three facts to
+  six. Inline spans would not do: the separator is a pseudo-element on the fact
+  it precedes (see `.rex-foot-fact`), so there is no whitespace between two
+  facts for the browser to break at, and the line ran off the edge of a comment
+  card with `$0.000` half-drawn. Flex items wrap without needing one.
+
+  Two groups, not six items: what produced the answer at the left end, what it
+  cost at the right. `column-gap` is the space between them and is deliberately
+  wider than the `·` inside each group — the gap IS the separator, and it has to
+  outweigh the dots or the eye reads six items again.
+*/
 .rex-turn-foot {
+  display: flex;
+  flex-wrap: wrap;
   padding-top: 8px;
   border-top: 1px solid var(--rule-soft);
   color: var(--faint);
   font-family: var(--mono);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
+  column-gap: 14px;
+  row-gap: 2px;
+}
+
+/*
+  The numbers, ranged right — the reviewer's ask of 2026-09-04.
+
+  `margin-left: auto` and not `justify-content: space-between`, because the two
+  differ exactly where it matters. On a comment card the pair does not fit one
+  line, so the group wraps; `space-between` then leaves it ranged LEFT on its own
+  row, which is the state the reviewer was trying to get rid of. An auto margin
+  is a property of the group itself, so it is pushed to the right edge of
+  whichever row it lands on.
+
+  The point of ranging them right is that the times, the step counts and the
+  prices then start at one edge down a whole thread and can be compared without
+  reading. Tabular figures on the foot make the columns line up exactly.
+*/
+.rex-foot-spent-group {
+  margin-left: auto;
+}
+
+/* Each group wraps inside itself before the pair wraps apart. */
+.rex-foot-made,
+.rex-foot-spent-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
 }
 
 /* §4.3 — the mode a refusal happened in, beside DENIED. */
@@ -3635,6 +3787,80 @@
 
 .rex-turn-aside .rex-label {
   color: var(--link);
+}
+
+/*
+  The agent's own reasoning, folded — the reviewer's ask of 2026-09-04.
+
+  It takes the aside's shape and NOT the aside's blue. Blue names the
+  conversation, and a thought was never part of one: it is the machinery that
+  produced the answer, so it is drawn in the machinery's grey, the same grey the
+  tool blocks wear. That is the one place grey is right here, and it is exactly
+  the argument the aside above rejects for itself.
+*/
+.rex-turn-thinking {
+  padding-left: 10px;
+  border-left: 2px solid var(--rule-soft);
+}
+
+/*
+  The whole head is the fold: the twisty, the bulb and the word.
+
+  One target, because three on a 10px line is a click that misses. It is a
+  button and it must not look like one — a bordered control down a column of
+  turns would outrank the answer — so it takes the head's own layout and gets
+  its affordance from the twisty and from brightening on hover.
+*/
+.rex-think-toggle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rex-think-toggle:hover {
+  color: var(--muted);
+}
+
+/* The word follows the button, so the whole fold brightens as one on hover. */
+.rex-turn-thinking .rex-label {
+  color: inherit;
+}
+
+/*
+  Spec 38 §3.3's fold count, in the chat: `12 lines` beside `THINKING`.
+
+  The size of the thought and never a preview of it. The reviewer asked for a
+  line with no text on it, and this is what tells them whether opening it costs
+  a paragraph or three screens — the same bargain the trace's rows offer.
+*/
+.rex-think-size {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+  Opened, the thought is mono and small.
+
+  It is not prose and it is not addressed to anybody: it is the model's working,
+  and the register that says so is the one every other piece of machinery on
+  this card is drawn in. Wrapped, because the lines are sentences and not code.
+*/
+.rex-turn-thinking .rex-turn-text {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 /*
@@ -4976,6 +5202,333 @@
   margin-left: auto;
   color: var(--faint);
   font-size: 11px;
+}
+
+/* ── Spec 43 §4.5 — the checks panel ─────────────────────── */
+
+/*
+  WHERE A CHECK'S ANSWER LIVES, and it is a place rather than a sentence.
+
+  Verify and Test used to report into a paragraph in the middle of the form, and
+  a `ready` there is a word among fifty other words — reported 2026-09-04 as
+  "boring text that I can easily overlook". A check is a question the reviewer
+  asked ON PURPOSE and is waiting for, so its answer gets a panel of its own,
+  above the buttons that start it and below the last field it depends on.
+
+  Both rows are always drawn, including before anything has run. A slot that
+  appears only after a result gives the reviewer nothing to look at while they
+  wait, and nothing to tell them the check exists at all.
+*/
+.rex-checks {
+  display: flex;
+  flex-direction: column;
+  /*
+    `.rex-dialog-body` is a scrolling flex column, so a child that does not say
+    otherwise is squashed to nothing when the form is long — measured at 2px,
+    which is the borders and no rows at all.
+  */
+  flex: none;
+  gap: 1px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--rule-soft);
+  overflow: hidden;
+}
+
+.rex-check {
+  display: grid;
+  grid-template-columns: 12px 62px 1fr;
+  gap: 2px 9px;
+  align-items: baseline;
+  padding: 9px 11px;
+  background: var(--well);
+}
+
+/*
+  The dot IS the state, and it is the only colour in the panel. One glyph in one
+  of four colours reads at a glance from across the desk, which a sentence does
+  not — and it keeps to spec 18's rule that colour means one thing at a time.
+*/
+.rex-check-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--faint);
+  align-self: center;
+}
+
+.rex-check-idle .rex-check-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--faint);
+}
+
+.rex-check-ok .rex-check-dot {
+  background: var(--ok);
+  /* A single pulse on arrival. It draws the eye once and then stops — a
+     permanent animation in a form is a distraction, not a signal. */
+  animation: rex-check-landed 0.5s ease-out 2;
+}
+
+.rex-check-warn .rex-check-dot {
+  background: var(--moved);
+}
+
+.rex-check-bad .rex-check-dot {
+  background: var(--lost-text);
+}
+
+@keyframes rex-check-landed {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--ok);
+  }
+  60% {
+    transform: scale(1.35);
+    box-shadow: 0 0 0 5px transparent;
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.rex-check-name {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.rex-check-said {
+  min-width: 0;
+  color: var(--fg);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.rex-check-idle .rex-check-said {
+  color: var(--faint);
+}
+
+.rex-check-ok .rex-check-said {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.rex-check-bad .rex-check-said {
+  color: var(--lost-text);
+}
+
+/*
+  The clock and the bound, together. "12s" alone says a number; "12s of 60"
+  says how much patience is left, which is the question a reviewer watching a
+  spinner is actually asking.
+*/
+.rex-check-clock {
+  grid-column: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rex-check-bar {
+  flex: 1;
+  max-width: 220px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.rex-check-fill {
+  height: 100%;
+  background: var(--link);
+  transition: width 1s linear;
+}
+
+/* Past halfway the wait is worth noticing; near the bound it is worth doubting. */
+.rex-check-fill-late {
+  background: var(--moved);
+}
+
+/* ── Spec 43 §4.5 — Manage gateways ──────────────────────── */
+
+/*
+  A list of rows, then a form over the descriptor. Nothing here names a gateway:
+  every label, field and note comes from `catalogue.py` over the pipe, and this
+  file only decides where they sit.
+*/
+.rex-gateway-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.rex-gateway-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  width: 140px;
+  font-weight: 600;
+}
+
+.rex-gateway-tag {
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: var(--well);
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rex-gateway-routes,
+.rex-gateway-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+/*
+  Two lines, not three columns: THE URL IS THE POINT OF THIS ROW.
+
+  As a flex row the URL and the note competed for the same space, and the note —
+  three sentences about backend schemas — won: a 32-character address broke into
+  `http://127.0.` / `0.1:26000/ant` / `hropic`, which is the one thing a reviewer
+  came to this screen to read. Reported 2026-09-04.
+
+  So the address gets the width, on its own line beside the SDK's name, and the
+  note wraps underneath where prose belongs. `nowrap` on the URL is the promise:
+  it is never broken mid-token again.
+*/
+.rex-gateway-route {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  gap: 2px 10px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 3px 0;
+}
+
+.rex-gateway-sdk {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rex-gateway-url {
+  white-space: nowrap;
+  /* A URL longer than the dialog scrolls rather than wrapping or being cut. */
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+/* The credential's NAME and whether it is set, at the right edge. Never a value. */
+.rex-gateway-cred {
+  justify-self: end;
+  white-space: nowrap;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+/*
+  The note, under the address it is about, starting where the address starts.
+  Spanning to the end lets three sentences wrap as three sentences rather than
+  as a narrow column beside something that must not wrap.
+*/
+.rex-gateway-note {
+  grid-column: 2 / -1;
+  color: var(--faint);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+/*
+  Spec 43 §4.5 — an SDK with no adapter yet, greyed, with the spec that will
+  fill it. The reviewer sees the SHAPE and cannot save a route nothing can run.
+  Hiding these rows would make work that is scheduled look like work nobody
+  thought of.
+*/
+.rex-gateway-later {
+  opacity: 0.45;
+}
+
+.rex-gateway-acts {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+/*
+  §2.3 — a kind read from a product's source and never driven against a live
+  server says so, here, where the reviewer is deciding whether to trust it.
+*/
+.rex-gateway-unverified {
+  margin: 0;
+  padding: 8px 10px;
+  border-left: 2px solid var(--rule);
+  background: var(--well);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rex-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/*
+  The sheet's own fields, and NOT `.rex-input`.
+
+  `.rex-input` is the reply box: it carries `min-height: 116px`, because what is
+  typed there is a paragraph and a two-line box made the reviewer scroll their
+  own sentence. A host name is not a paragraph, and a `height` cannot beat a
+  `min-height` — reported 2026-09-04 as five controls each taller than the
+  dialog could afford.
+*/
+.rex-field-input,
+.rex-field-area {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--well);
+  color: var(--fg);
+  font: inherit;
+  box-sizing: border-box;
+}
+
+.rex-field-input {
+  height: 30px;
+}
+
+/* One model per line, and a few lines of them. */
+.rex-field-area {
+  min-height: 66px;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+/* A `select` draws its own arrow and needs room for it. */
+select.rex-field-input {
+  padding-right: 4px;
+}
+
+.rex-field-error {
+  color: var(--lost-text);
+  font-size: 12px;
 }
 
 /* ── The Apply review bar (spec 05 §5.6.1) ───────────────── */

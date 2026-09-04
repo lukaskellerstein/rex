@@ -12,21 +12,21 @@ description: Project configuration — architecture, paths, dev environment
 - **Project**: REX — a desktop app for commenting on documents and discussing
   each comment with an AI agent (`SPEC.md` §1). Third in the family after
   **VEX** (*Visual EX*) and **DEX**; *Review EX* (`SPEC.md` §1.1).
-- **Status**: **built through spec 41.** `SPEC.md` in these files means
+- **Status**: **built through spec 42.** `SPEC.md` in these files means
   `docs/my-specs/01-initial/SPEC.md`; the later specs are
-  `docs/my-specs/NN-*/SPEC.md`, indexed in the README. Specs 42 to 46 are
+  `docs/my-specs/NN-*/SPEC.md`, indexed in the README. Specs 43 to 46 are
   proposals and nothing in them exists yet.
 - **Architecture**: Electron, two processes (`SPEC.md` §3). The renderer holds
   the document view, the shadow-root overlay and the anchor resolver; the main
   process holds the thread service, the document renderers, the gate and
-  SQLite. They talk over IPC only. **From spec 42 on, a third process:** the
+  SQLite. They talk over IPC only. **Since spec 42, a third process:** the
   Python agent library, `agent-gateway/`, spawned by main and spoken to over its
   own stdin and stdout — every agent SDK lives there, and main keeps only a pipe
   client (`src/main/agent/service.ts`) and a mapping (`bridge.ts`).
 - **Structure**: `src/main/` (`agent/`, `db/`, `docx/`, `pptx/`, `render/`,
   `workspace/`, `ipc.ts`, `apply.ts`, …), `src/renderer/` (`overlay/`,
-  `anchor/`), `src/shared/`, `src/preload/`, `test/` (39 `*.spec.ts` files),
-  `docs/my-specs/`. Spec 42 adds `agent-gateway/` at the root.
+  `anchor/`), `src/shared/`, `src/preload/`, `test/` (41 `*.spec.ts` files),
+  `docs/my-specs/`, and `agent-gateway/` at the root (spec 42).
 - **Build**: `electron-vite` — `npm run build`; `npm run typecheck` is
   `tsc --noEmit`.
 - **Run locally**: `npm run dev` — Vite on 5334, the debugger on 9334 (§ Ports).
@@ -34,13 +34,15 @@ description: Project configuration — architecture, paths, dev environment
   `.claude/hooks/playwright-launch.sh npm run dev`
   ([`06-testing.md`](06-testing.md)).
 - **Test**: one script per file — `npm run test:<name>` runs
-  `node --test test/<name>.spec.ts`. There are 39 and there is no `npm test`.
-  Spec 42 adds `uv run pytest` in `agent-gateway/` and `npm run test:library`.
+  `node --test test/<name>.spec.ts`. There are 41 and there is no `npm test`.
+  `npm run test:library` runs the three seam suites and `uv run pytest` in
+  `agent-gateway/`; a change on either side of the pipe runs both.
 - **Key dependencies**: `electron`, `electron-vite`, `react` + `react-dom`,
   `better-sqlite3` (native — needs `electron-rebuild`), `markdown-it`,
   `dompurify`, `diff-match-patch`, `uuid`, `mermaid`, `pdfjs-dist`, `mammoth`,
-  `jszip`, `pptxtojson`, `katex`; and `@anthropic-ai/claude-agent-sdk` until
-  spec 42 moves it into `agent-gateway/` as `claude-agent-sdk`.
+  `jszip`, `pptxtojson`, `katex`. **No agent SDK**: spec 42 moved
+  `@anthropic-ai/claude-agent-sdk` out of `package.json` entirely, and
+  `agent-gateway/` carries `claude-agent-sdk` instead.
 - **Package manager**: npm for the app (`package-lock.json`); `uv` for
   `agent-gateway/`, and never `pip` — package managers are not
   interchangeable.

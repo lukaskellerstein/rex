@@ -37,9 +37,19 @@ prebuilds/
 # Playwright MCP session artifacts (console logs, snapshots)
 .playwright-mcp/
 
-# Bytecode cache from the Python hooks in .claude/hooks/
+# Bytecode cache from the Python hooks in .claude/hooks/ and from agent-gateway/
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# The agent library's virtualenv (spec 42 §12). Rebuilt by `uv sync`, and it is
+# machine-specific: the interpreter inside it is one `uv` downloaded.
+#
+# NOT ignored, and deliberately: `agent-gateway/uv.lock`, `schema.json`,
+# `catalogue.json` and the generated `src/shared/agent-protocol.ts`. The last
+# three are what `test/protocol.spec.ts` compares against, so an ignored one
+# would turn the drift guard into a test that always passes.
+agent-gateway/.venv/
 
 # Machine-local Claude Code overrides. Also covered by a global ignore on this
 # machine, but that does not travel with a clone — keep it here too.

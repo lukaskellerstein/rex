@@ -27,13 +27,12 @@ const api: RexApi = {
   workspaceSearch: (request) => ipcRenderer.invoke(COMMAND.workspaceSearch, request),
   threadList: (request) => ipcRenderer.invoke(COMMAND.threadList, request),
   threadCreate: (request) => ipcRenderer.invoke(COMMAND.threadCreate, request),
-  // Spec 31 §4 — every argument, spelled out. A bridge that forwards fewer
-  // than the interface declares still type-checks: a shorter function is
-  // assignable to a longer signature in TypeScript, so a dropped trailing
-  // argument is silent here and arrives as `undefined` in main. Measured
-  // 2026-09-02, when the style reached this line and went no further.
-  threadAsk: (threadId, model, style) =>
-    ipcRenderer.invoke(COMMAND.threadAsk, threadId, model, style),
+  // Spec 43 §11 — one request object, which is the shape that ends the class of
+  // bug this line was fixed for on 2026-09-02: a bridge that forwards fewer
+  // arguments than the interface declares still type-checks, because a shorter
+  // function is assignable to a longer signature in TypeScript. A dropped field
+  // of an object is a type error; a dropped trailing argument was silent.
+  threadAsk: (request) => ipcRenderer.invoke(COMMAND.threadAsk, request),
   threadStop: (threadId) => ipcRenderer.invoke(COMMAND.threadStop, threadId),
   threadReply: (request) => ipcRenderer.invoke(COMMAND.threadReply, request),
   threadResolve: (request) => ipcRenderer.invoke(COMMAND.threadResolve, request),
@@ -58,8 +57,15 @@ const api: RexApi = {
   anchorRestate: (request) => ipcRenderer.invoke(COMMAND.anchorRestate, request),
   debugCopy: (threadId) => ipcRenderer.invoke(COMMAND.debugCopy, threadId),
   debugSnapshot: (view) => ipcRenderer.invoke(COMMAND.debugSnapshot, view),
-  modelList: () => ipcRenderer.invoke(COMMAND.modelList),
-  modelDefault: (value) => ipcRenderer.invoke(COMMAND.modelDefault, value),
+  modelList: (gatewayId) => ipcRenderer.invoke(COMMAND.modelList, gatewayId ?? null),
+  gatewayDescribe: () => ipcRenderer.invoke(COMMAND.gatewayDescribe),
+  gatewayList: () => ipcRenderer.invoke(COMMAND.gatewayList),
+  gatewaySave: (draft) => ipcRenderer.invoke(COMMAND.gatewaySave, draft),
+  gatewayDelete: (gatewayId) => ipcRenderer.invoke(COMMAND.gatewayDelete, gatewayId),
+  gatewayVerify: (request) => ipcRenderer.invoke(COMMAND.gatewayVerify, request),
+  gatewayTest: (request) => ipcRenderer.invoke(COMMAND.gatewayTest, request),
+  gatewayDefault: (choice) => ipcRenderer.invoke(COMMAND.gatewayDefault, choice),
+  gatewayHasEnv: (name) => ipcRenderer.invoke(COMMAND.gatewayHasEnv, name),
   paperView: () => ipcRenderer.invoke(COMMAND.paperView),
   paperViewSet: (view) => ipcRenderer.invoke(COMMAND.paperViewSet, view),
   renderResult: (request) => ipcRenderer.invoke(COMMAND.renderResult, request),

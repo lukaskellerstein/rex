@@ -6,11 +6,6 @@
 // enforced at runtime, on every tool call, including calls made by subagents —
 // the hook fires for those too and `agent_id` says which one made it.
 
-import type {
-  HookCallbackMatcher,
-  HookJSONOutput,
-  PreToolUseHookInput,
-} from "@anthropic-ai/claude-agent-sdk";
 import type { Profile } from "../../shared/types.ts";
 
 const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
@@ -873,20 +868,6 @@ export interface Denial {
   subagentId?: string;
 }
 
-const ALLOW: HookJSONOutput = {
-  hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow" },
-};
-
-function deny(reason: string): HookJSONOutput {
-  return {
-    hookSpecificOutput: {
-      hookEventName: "PreToolUse",
-      permissionDecision: "deny",
-      permissionDecisionReason: reason,
-    },
-  };
-}
-
 /** The decision itself, separated from the SDK so it can be reasoned about. */
 export function gateDecision(toolName: string, toolInput: unknown): string | null {
   if (WRITE_TOOLS.has(toolName)) {
@@ -930,48 +911,17 @@ export function writeGateDecision(toolName: string): string | null {
   return null;
 }
 
-/**
- * Both profiles install a PreToolUse hook; only what it decides differs.
- *
- * The `write` profile still returns allow for every tool that is not MCP, and
- * that is not decoration: without an explicit allow the SDK's default
- * permission mode prompts for approval on every Edit, and a headless session
- * has nobody to prompt — measured, the write agent's edit came back "Claude
- * requested permissions to write to …" and Apply produced an empty diff. What
- * protects the user for those tools is §8.7 step 5: the change is shown and
- * nothing is kept until they accept.
- *
- * Spec 11 §6.4.4 is why MCP is now the exception in both profiles. Step 5
- * cannot protect against an MCP server, because by the time anything is shown
- * the server has already started and whatever it was sent has already left.
- */
-export function buildHooks(
-  profile: Profile,
-  onDenial: (denial: Denial) => void,
-): Partial<Record<"PreToolUse", HookCallbackMatcher[]>> {
-  const decide =
-    profile === "write"
-      ? (name: string): string | null => writeGateDecision(name)
-      : (name: string, input: unknown): string | null => gateDecision(name, input);
-
-  return {
-    PreToolUse: [
-      {
-        matcher: ".*",
-        hooks: [
-          async (input): Promise<HookJSONOutput> => {
-            const event = input as PreToolUseHookInput;
-            const reason = decide(event.tool_name, event.tool_input);
-            if (!reason) return ALLOW;
-            onDenial({
-              toolName: event.tool_name,
-              reason,
-              ...(event.agent_id ? { subagentId: event.agent_id } : {}),
-            });
-            return deny(reason);
-          },
-        ],
-      },
-    ],
-  };
-}
+// Spec 42 §8 — `buildHooks()` used to live here, and it has left.
+//
+// A `PreToolUse` hook is how *Claude* asks a policy, so it is SDK shape, and SDK
+// shape now lives in the agent library. What stayed is every line above: the
+// decisions themselves, in REX's own words, asked over the pipe before each tool
+// call and answered by `bridge.ts`'s `policyFor`. `test/gate.spec.ts` is
+// untouched, which is the point — the gate did not move, only its wrapper did.
+//
+// One rule of the old wrapper is worth keeping in view because the adapter now
+// carries it: the `write` profile still returns an explicit ALLOW for every tool
+// that is not MCP. Without one the SDK's default permission mode prompts for
+// approval on every edit and a headless session has nobody to prompt — measured,
+// the write agent's edit came back "Claude requested permissions to write to …"
+// and Apply produced an empty diff.

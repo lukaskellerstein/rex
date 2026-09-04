@@ -15,16 +15,15 @@
 // Plain text, one `KEY  value` per line. Not JSON: it is read by a human before
 // it is read by anything else, and a wrapped 4 KB JSON blob is neither.
 
-import { statSync } from "node:fs";
-import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { totalsOf } from "../shared/totals.ts";
+import { spentText, totalsOf } from "../shared/totals.ts";
 import type { Anchor, Message, Thread, ViewState } from "../shared/types.ts";
+import { sessionState } from "./agent/bridge.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
-import { sessionFilePath, sessionRecord } from "./agent/transcript.ts";
+import { agentService } from "./agent/service.ts";
 import { type CdpStatus, cdpLines } from "./cdp.ts";
 import type { Db } from "./db/database.ts";
+import { listGateways, listThreadSessions } from "./db/gateways.ts";
 import { DB_PATH } from "./db/location.ts";
 import { getDocument, getThread, listMessages } from "./db/queries.ts";
 import type { LogEntry } from "./log.ts";
@@ -54,32 +53,29 @@ function bytes(size: number): string {
  * A missing file is not an error here — it is the answer. The SDK's session
  * store is a cache and gets cleaned (§8.5), so "gone" is the single most useful
  * thing this report can say about a thread that will not resume.
+ *
+ * Spec 42 §9.3 — the size is measured by the agent library, because the library
+ * is what knows where the Claude CLI keeps its transcripts. Main only draws it.
  */
-function transcriptSize(path: string): string {
-  try {
-    return bytes(statSync(path).size);
-  } catch {
-    return "missing";
-  }
+function transcriptSize(size: number | null): string {
+  return size === null ? "missing" : bytes(size);
 }
 
 /**
- * The installed Agent SDK version.
+ * The Agent SDK versions that are actually running.
  *
- * Read from the package's own manifest rather than from REX's `dependencies`,
- * which carries a RANGE — and the range is never what ran. The package does not
- * export `./package.json`, so the entry point is resolved and its directory
- * read instead.
+ * Spec 42 moved the SDKs into the agent library, so this is no longer a
+ * question main can answer by reading `node_modules` — the library reports what
+ * its own interpreter imported, in the `ready` message. That is still the right
+ * number for the same reason it always was: `dependencies` carries a RANGE, and
+ * the range is never what ran.
+ *
+ * `unknown` before the library has answered, which happens once at start-up.
  */
-function sdkVersion(): string {
-  try {
-    const require = createRequire(import.meta.url);
-    const entry = require.resolve("@anthropic-ai/claude-agent-sdk");
-    const manifest = require(join(dirname(entry), "package.json"));
-    return typeof manifest.version === "string" ? manifest.version : "unknown";
-  } catch {
-    return "unknown";
-  }
+function sdkVersions(): string {
+  const running = agentService().state().sdks;
+  const named = Object.entries(running).map(([name, version]) => `${name} ${version}`);
+  return named.length > 0 ? named.join(", ") : "unknown";
 }
 
 /** What one place is anchored BY — the field that decides how it resolves. */
@@ -236,10 +232,6 @@ function kindCounts(messages: readonly Message[]): string {
   return [...counts].map(([kind, count]) => `${kind} ${count}`).join(" · ");
 }
 
-function seconds(ms: number): string {
-  return ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${(ms / 60_000).toFixed(1)}m`;
-}
-
 function placeLines(db: Db, thread: Thread): string[] {
   return thread.targets.map((target, index) => {
     const document = getDocument(db, target.documentId);
@@ -266,14 +258,72 @@ async function sessionLines(cwd: string, thread: Thread): Promise<string[]> {
     return [`  session    ${sessionId} · never run; this is the id the first ask would take`];
   }
 
-  const record = await sessionRecord(cwd, sessionId);
-  const path = sessionFilePath(cwd, sessionId);
+  const state = await sessionState(cwd, sessionId);
   return [
     `  session    ${sessionId}`,
-    record
-      ? `  sdk store  has it · ${record.fileSize ? bytes(record.fileSize) : "no local file"} · last written ${new Date(record.lastModified).toISOString()}`
+    state.summary !== null
+      ? `  sdk store  has it · ${transcriptSize(state.size)} · last written ${new Date(state.lastModified ?? 0).toISOString()}`
       : "  sdk store  NO record of this session — a reply replays the thread into a fresh one (§8.5)",
-    `  sdk log    ${tilde(path)} · ${transcriptSize(path)}`,
+    `  sdk log    ${state.path === null ? "unknown" : tilde(state.path)} · ${transcriptSize(state.size)}`,
+  ];
+}
+
+/**
+ * Spec 43 §9 — one block per combination this thread has used.
+ *
+ * A thread can have several sessions now — one per (thread, SDK, gateway) — and
+ * "which session" stopped being a single answer the moment the gateway became a
+ * choice. Each line names the agent, the gateway, the URL and the session id, so
+ * a reader looking at an answer from a local model can find the transcript that
+ * produced it rather than the newest one.
+ *
+ * **It never prints a credential value, an auth header, or the child's
+ * environment** (§9). The URL is what the run addressed, and a URL is not a
+ * secret; the variable a route names is printed nowhere here, because the
+ * question this block answers is "where did this go", not "how did it get in".
+ */
+function combinationLines(db: Db, thread: Thread): string[] {
+  const rows = listThreadSessions(db, thread.id);
+  if (rows.length === 0) return [];
+  const lines = ["", `COMBINATIONS (${rows.length})`];
+  for (const row of rows) {
+    lines.push(
+      `  agent    : ${row.sdk}`,
+      // The gateway's LIVE name, joined from the row, where the messages keep
+      // the name they were produced under. The two disagreeing is a rename, and
+      // seeing both is how a reader works that out.
+      `  gateway  : ${row.gatewayName}`,
+      `  api base : ${row.baseUrl ?? "(the SDK's own endpoint)"}`,
+      `  session  : ${row.sessionId}`,
+      "",
+    );
+  }
+  // The trailing blank belongs to the block, not to each row.
+  lines.pop();
+  return lines;
+}
+
+/**
+ * Spec 42 §12 — the agent library, which is a process now and can be down.
+ *
+ * Every line here answers a question that only became askable when the SDK
+ * moved out of main: which interpreter is running it, whether it came up,
+ * whether it has been restarting, and how much work it is holding.
+ */
+function libraryLines(): string[] {
+  const state = agentService().state();
+  const age =
+    state.startedAt === null
+      ? "not started"
+      : `up ${Math.round((Date.now() - Date.parse(state.startedAt)) / 1000)}s`;
+  return [
+    "agent library",
+    `  python     ${tilde(state.interpreter)}`,
+    `  package    ${tilde(state.root)}`,
+    `  process    ${state.pid === null ? "NOT RUNNING" : `pid ${state.pid} · ${age}`} · ${state.restarts} restart(s) this session`,
+    `  protocol   ${state.version ?? "?"} · ${state.python === null ? "?" : state.python.split(" ")[0]}`,
+    `  runs       ${state.openRuns} open`,
+    ...(state.down === null ? [] : [`  DOWN       ${state.down}`]),
   ];
 }
 
@@ -289,7 +339,7 @@ function versionLine(appVersion: string): string {
     `electron ${process.versions.electron}`,
     `chrome ${process.versions.chrome}`,
     `node ${process.versions.node}`,
-    `agent-sdk ${sdkVersion()}`,
+    `agent-sdk ${sdkVersions()}`,
     `${process.platform} ${process.arch}`,
   ].join(" · ");
 }
@@ -334,6 +384,7 @@ export async function debugReport(db: Db, threadId: string, appVersion: string):
     // place it can be read back.
     `  style      ${lastChoice(messages, "style") ?? "(the SDK's default)"}`,
     ...(await sessionLines(cwd, thread)),
+    ...combinationLines(db, thread),
     `  cwd        ${tilde(cwd)}`,
     `  database   ${tilde(DB_PATH)}`,
     `  asked      ${thread.createdAt} → ${thread.updatedAt}`,
@@ -349,7 +400,7 @@ export async function debugReport(db: Db, threadId: string, appVersion: string):
   lines.push(
     "",
     "TOTALS",
-    `  ${totals.steps} steps · ${seconds(totals.durationMs)} · $${totals.costUsd.toFixed(4)} · ${totals.denied} denied · ${totals.failed} failed`,
+    `  ${totals.steps} steps · ${spentText(totals.durationMs)} · $${totals.costUsd.toFixed(4)} · ${totals.denied} denied · ${totals.failed} failed`,
     `  ${messages.length} messages · ${kindCounts(messages) || "none"}`,
   );
 
@@ -475,10 +526,42 @@ function recentLines(recent: readonly LogEntry[]): string[] {
  * broken" into an instruction a fresh Claude Code session can follow without
  * asking anything. Everything below it is evidence.
  */
+/**
+ * Spec 43 §9 — the gateways this REX has, by name and route.
+ *
+ * **It says WHETHER each named credential exists, and never its value.** The
+ * boolean is the point: a gateway that will not answer is usually a variable
+ * the shell that launched REX did not carry, and "AI_GATEWAY_KEY — NOT SET" is
+ * the whole diagnosis. Printing the value would put a key in every report the
+ * reviewer pastes into an issue.
+ */
+function gatewayLines(db: Db | null): string[] {
+  if (!db) return [];
+  const gateways = listGateways(db);
+  const lines = ["", `GATEWAYS (${gateways.length})`];
+  for (const gateway of gateways) {
+    for (const [sdk, route] of Object.entries(gateway.routes)) {
+      if (!route) continue;
+      const credential =
+        route.auth === "environment" && route.credentialEnv
+          ? ` · ${route.credentialEnv} ${process.env[route.credentialEnv] ? "set" : "NOT SET"}`
+          : route.auth === "none"
+            ? " · no authentication"
+            : "";
+      lines.push(
+        `  ${gateway.name} · ${sdk} · ${route.baseUrl ?? "(the SDK's own endpoint)"}${credential}`,
+      );
+    }
+  }
+  return lines;
+}
+
 export function appReport(
   facts: AppFacts,
   view: ViewState | null,
   recent: readonly LogEntry[],
+  /** Spec 43 §9 — omitted where there is no database to read, as in a test. */
+  db: Db | null = null,
 ): string {
   const lines = [
     `REX debug · ${new Date().toISOString()}`,
@@ -488,9 +571,13 @@ export function appReport(
     `  log        ${facts.logPath ? tilde(facts.logPath) : "(could not be opened)"} · ${facts.logLines} ${facts.logLines === 1 ? "line" : "lines"} this run`,
     "",
     "APP",
-    `  pid        ${facts.pid} · ${facts.packaged ? "packaged" : "dev (electron-vite)"} · up ${seconds(facts.uptimeMs)}`,
+    `  pid        ${facts.pid} · ${facts.packaged ? "packaged" : "dev (electron-vite)"} · up ${spentText(facts.uptimeMs)}`,
     `  database   ${tilde(DB_PATH)}`,
     `  userdata   ${tilde(facts.userDataPath)}`,
+    "",
+    "",
+    ...libraryLines(),
+    ...gatewayLines(db),
     "",
     "VIEW",
     ...viewLines(view),

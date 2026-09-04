@@ -7,11 +7,26 @@ import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
 import { app, type BrowserWindow, clipboard, dialog, ipcMain, shell } from "electron";
 import { v4 as uuidv4 } from "uuid";
+import type {
+  AgentGateway,
+  AgentSdk,
+  DescribeResult,
+  ResolvedRoute,
+  VerifyResult,
+} from "../shared/agent-protocol.ts";
+import { CATALOGUE } from "../shared/agent-protocol.ts";
 import {
+  type AgentGatewayDraft,
   type AnchorRestateRequest,
   type ApplyConfirmRequest,
   COMMAND,
   EVENT,
+  type GatewayListResponse,
+  type GatewayTarget,
+  type GatewayTestRequest,
+  type GatewayTestResult,
+  type GatewayVerifyRequest,
+  type GatewayView,
   type GroupCreateRequest,
   type GroupDeleteRequest,
   type GroupListRequest,
@@ -19,6 +34,7 @@ import {
   type InitialTarget,
   type RenderResultRequest,
   type ThreadApplyRequest,
+  type ThreadAskRequest,
   type ThreadCreateRequest,
   type ThreadDraftSaveRequest,
   type ThreadListRequest,
@@ -37,6 +53,7 @@ import {
   type WorkspaceRenameRequest,
   type WorkspaceSearchRequest,
 } from "../shared/channels.ts";
+import { buildRoutes, validateGateway } from "../shared/gateways.ts";
 import type {
   AgentChoices,
   Anchor,
@@ -50,6 +67,7 @@ import type {
   PaperView,
   ReferenceGraph,
   SendChoices,
+  SendEvidence,
   SendMode,
   TargetDraft,
   Thread,
@@ -60,7 +78,17 @@ import type {
   WorkspaceSearchResult,
   WorkspaceTree,
 } from "../shared/types.ts";
-import { listCapabilities } from "./agent/capabilities.ts";
+import { DEFAULT_MODEL } from "../shared/types.ts";
+import {
+  forgetProbe,
+  listCapabilities,
+  ORIGINAL_GATEWAY,
+  REX_SDK,
+  resolveRoute,
+  runAgent,
+  sessionExists,
+  verifyRoute,
+} from "./agent/bridge.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
 import {
   askPrompt,
@@ -70,17 +98,20 @@ import {
   synthesisPrompt,
   withEvents,
 } from "./agent/prompts.ts";
-import { runAgent } from "./agent/runner.ts";
 import { beginRun, endRun, HELD_REASON, isHeld, stopRun } from "./agent/runs.ts";
-import {
-  eventsSinceLastAnswer,
-  renderTranscript,
-  replayPrompt,
-  sessionExists,
-} from "./agent/transcript.ts";
+import { eventsSinceLastAnswer, renderTranscript, replayPrompt } from "./agent/transcript.ts";
 import { type ApplyContext, confirmApply, locatePassage, startApply, viewOf } from "./apply.ts";
 import type { CdpStatus } from "./cdp.ts";
 import type { Db } from "./db/database.ts";
+import {
+  deleteGateway,
+  getGateway,
+  getThreadSession,
+  listGateways,
+  ORIGINAL_GATEWAY_ID,
+  saveGateway,
+  setThreadSession as setCombinationSession,
+} from "./db/gateways.ts";
 import { createGroup, deleteGroup, listGroups, moveItem, updateGroup } from "./db/groups.ts";
 import {
   appendMessage,
@@ -103,13 +134,16 @@ import {
   saveDraft,
   setDocumentHash,
   setTargetState,
-  setThreadSession,
   setThreadStatus,
   setThreadStyle,
   toggleWorkspaceRule,
   upsertDocument,
 } from "./db/queries.ts";
 import {
+  AGENT_GATEWAY_KEY,
+  AGENT_MODEL_KEY,
+  AGENT_SDK_KEY,
+  agentDefaults,
   defaultModel,
   MODEL_DEFAULT_KEY,
   paperView,
@@ -156,6 +190,27 @@ import { scanWorkspace } from "./workspace/tree.ts";
  */
 const MAX_CONCURRENT_AGENTS = 5;
 
+/**
+ * Spec 43 §4.5 — how long a Test may take before REX says it did not answer.
+ *
+ * A minute is generous for what this asks: one word, no tools, no plugins and
+ * no system prompt. Measured 2026-09-04 against a 4B model on a local gateway,
+ * the whole round trip is about 9 seconds. The number is here to bound a hang,
+ * not to judge a slow model — §7's five-to-fifteen minutes is about a real
+ * agent turn, and a real turn is stopped by the reviewer, not by a clock.
+ */
+const GATEWAY_TEST_TIMEOUT_MS = 60_000;
+
+/**
+ * The same bound for Verify, and it needs one for a different reason.
+ *
+ * Verify is two HTTP `GET`s with their own ten-second timeouts, so the network
+ * cannot hang it — but it asks over the pipe, and `service.ask` waits forever by
+ * design. A child that never answers would leave this dialog spinning with
+ * nothing to end it, exactly as the Test did.
+ */
+const GATEWAY_VERIFY_TIMEOUT_MS = 30_000;
+
 class Semaphore {
   private active = 0;
   private readonly waiting: Array<() => void> = [];
@@ -177,6 +232,67 @@ class Semaphore {
       this.waiting.shift()?.();
     }
   }
+}
+
+// ── Spec 43 — what one send picks, and what it leaves behind ────
+
+/** §5.4 — a NOTE runs nothing, so it ran under nothing. Null in all four. */
+const NO_CHOICES: SendChoices = { sdk: null, gatewayId: null, model: null, style: null };
+
+/** The same, for a notice that is REX's own and had no run behind it. */
+const NO_EVIDENCE: SendEvidence = { sdk: null, gatewayName: null, baseUrl: null };
+
+/**
+ * §5.3 — the five fields every row a run produces carries.
+ *
+ * One function because they are one fact in five columns, and because a site
+ * that spread `...choices` and forgot `...evidence` would write half a record
+ * that reads as a complete one. `gatewayId` is deliberately NOT among them: the
+ * message keeps copies, and a reference is what would let an edit rewrite
+ * history.
+ */
+function stamp(choices: SendChoices, evidence: SendEvidence): Partial<MessageDraft> {
+  return {
+    model: choices.model,
+    style: choices.style,
+    sdk: evidence.sdk,
+    gatewayName: evidence.gatewayName,
+    baseUrl: evidence.baseUrl,
+  };
+}
+
+/**
+ * §11 — a send's gateway id, resolved into a route and the evidence it leaves.
+ *
+ * **Main re-reads the row and resolves the credential itself.** What the
+ * renderer sent is an id, never a URL and never a variable's value: IPC data is
+ * never used as executable SDK configuration without a database lookup and
+ * validation (§11), and `process.env` is read here, in the one process that
+ * holds it (§6.1).
+ *
+ * A missing gateway falls back to `Original` rather than refusing. §4.0's rule
+ * for a setting that names a deleted gateway, applied to a send that was in
+ * flight while the sheet deleted one — refusing would lose the reviewer's
+ * message to fix a row they can re-pick in one click.
+ */
+/** The four fields of a send, taken off whatever request carried them. */
+function choicesOf(request: SendChoices): SendChoices {
+  return {
+    sdk: request.sdk ?? REX_SDK,
+    gatewayId: request.gatewayId ?? ORIGINAL_GATEWAY_ID,
+    model: request.model,
+    style: request.style,
+  };
+}
+
+function routeFor(db: Db, choices: SendChoices): { route: ResolvedRoute; evidence: SendEvidence } {
+  const sdk = choices.sdk ?? REX_SDK;
+  const gateway = getGateway(db, choices.gatewayId ?? ORIGINAL_GATEWAY_ID) ?? ORIGINAL_GATEWAY;
+  const route = resolveRoute(gateway, sdk);
+  return {
+    route,
+    evidence: { sdk, gatewayName: gateway.name, baseUrl: route.baseUrl },
+  };
 }
 
 /**
@@ -228,12 +344,14 @@ export function registerIpc(
      * says which model and style produced it. Absent for a notice that is
      * REX's own and had no run behind it.
      */
-    choices: SendChoices = { model: null, style: null },
+    choices: SendChoices = NO_CHOICES,
+    /** Spec 43 §5.3 — and which agent, gateway and URL produced it. */
+    evidence: SendEvidence = NO_EVIDENCE,
   ): void => {
     record(threadId, {
+      ...stamp(choices, evidence),
       role: "system",
       kind: isError ? "error" : "text",
-      ...choices,
       content,
       toolName: null,
       toolInput: null,
@@ -277,6 +395,7 @@ export function registerIpc(
     cwd: string,
     before: string[],
     choices: SendChoices,
+    evidence: SendEvidence,
   ): void => {
     const after = porcelainStatus(cwd);
     const introduced = after.filter((line) => !before.includes(line));
@@ -286,7 +405,68 @@ export function registerIpc(
       `The read agent changed the repository, which the deny gate should have made impossible (SPEC.md §8.4). Changed: ${introduced.join(", ")}`,
       true,
       choices,
+      evidence,
     );
+  };
+
+  /**
+   * Spec 43 §5.2 — which session this send continues, and whether it has one.
+   *
+   * **The conversation is REX's, and it lives in SQLite.** An SDK session is a
+   * cache one harness keeps of part of it, so a thread keeps one per (thread,
+   * SDK, gateway) and losing any of them costs a replay rather than the thread.
+   *
+   * The three cases, in the spec's own order:
+   *
+   *   1. a row exists, its URL still matches, and the adapter still has the
+   *      session — resume. The ordinary reply, and it costs nothing extra.
+   *   2. a row exists but cannot be used — a fresh session, seeded with the
+   *      conversation. Two ways in: **2a** the adapter's cache was cleaned, and
+   *      **2b** the gateway was edited and the URL moved, where resuming would
+   *      ask a *different server* to continue state it has never seen.
+   *   3. no row — a fresh session with this comment's deterministic id.
+   *
+   * Cases 2 and 3 are the same code path, and it is the one REX already had for
+   * a cleaned CLI transcript: "this harness has never seen this conversation"
+   * is the same problem with the same answer.
+   */
+  const planSession = async (
+    thread: Thread,
+    choices: SendChoices,
+    route: ResolvedRoute,
+    cwd: string,
+  ): Promise<{ sessionId: string; resume: boolean }> => {
+    const gatewayId = choices.gatewayId ?? ORIGINAL_GATEWAY_ID;
+    const stored = getThreadSession(db, thread.id, route.sdk, gatewayId);
+    if (!stored) {
+      // Case 3. The deterministic id belongs to a comment's FIRST session, so
+      // the debug report can predict it before anything has run
+      // (`sessionLines` prints "this is the id the first ask would take").
+      //
+      // **It is only right once, and REX's own rows cannot tell it when.** A
+      // session id is per (thread, SDK, gateway) now, so a second combination
+      // needs its own — and the SDK's transcript files outlive REX's rows, so
+      // deleting a gateway cascades its sessions away and leaves the files
+      // behind. Both were measured on 2026-09-04, and both end the same way:
+      // `Error: Session ID … is already in use`, the CLI exits 1, and the whole
+      // send is lost before anything reaches a model.
+      //
+      // So the SDK is asked rather than inferred from. One round trip, on the
+      // first send of a combination only, and it is a file lookup rather than a
+      // model call.
+      const first = sessionIdFor(thread.id);
+      const taken = await sessionExists(cwd, first, route);
+      return { sessionId: taken ? uuidv4() : first, resume: false };
+    }
+    // Case 2b. This is why the URL is on the row and not merely on the gateway.
+    if ((stored.baseUrl ?? null) !== (route.baseUrl ?? null)) {
+      return { sessionId: uuidv4(), resume: false };
+    }
+    // Case 1, or case 2a when the adapter has lost it.
+    if (await sessionExists(cwd, stored.sessionId, route)) {
+      return { sessionId: stored.sessionId, resume: true };
+    }
+    return { sessionId: uuidv4(), resume: false };
   };
 
   const runTurn = async (
@@ -295,17 +475,21 @@ export function registerIpc(
     sessionId: string,
     resume: boolean,
     /**
-     * Spec 25 §4.1 and spec 31 §4 — the model and the style this ASK runs
-     * under, as the reviewer picked them.
+     * Spec 25 §4.1, spec 31 §4 and spec 43 §2.1 — the agent, the gateway, the
+     * model and the style this ASK runs under, as the reviewer picked them.
      *
-     * Arguments, and never `thread.model` or `thread.style`: both are
-     * properties of a SEND, so a field read here would be mutable state no
-     * send owns and two runs on one comment would take each other's. The
-     * `thread.style` column exists (spec 31 §2.1) but it is memory for the
-     * composer, written by the send and never read by it.
+     * Arguments, and never a column on the thread: all four are properties of a
+     * SEND, so a field read here would be mutable state no send owns and two
+     * runs on one comment would take each other's. The `thread.style` column
+     * exists (spec 31 §2.1) but it is memory for the composer, written by the
+     * send and never read by it.
      */
     choices: SendChoices,
   ): Promise<void> => {
+    // §11 — resolved here, from the database and this process's environment,
+    // and never from what the renderer sent. A route that cannot be resolved
+    // throws before anything is spawned, with the variable's name in it (§9).
+    const { route, evidence } = routeFor(db, choices);
     const cwd = workingDirectory(thread);
     const before = porcelainStatus(cwd);
     // Spec 11 §6.4.2 — a `.pptx` is a marker like any other, so the design
@@ -330,22 +514,48 @@ export function registerIpc(
           prompt,
           sessionId,
           resume,
-          ...choices,
+          route,
+          model: choices.model,
+          style: choices.style,
           documentPath,
           signal: controller.signal,
-          // Spec 25 §5 and spec 31 §5 — every block this run produces says
-          // which model wrote it and under which style. Stamped here, where
-          // both are known, because the runner emits blocks and has no
-          // business knowing what the reviewer picked.
-          onMessage: (draft) => record(thread.id, { ...draft, ...choices }),
+          // Spec 25 §5, spec 31 §5 and spec 43 §5.3 — every block this run
+          // produces says which agent, gateway, URL, model and style made it.
+          // Stamped here, where all five are known, because `bridge.ts` emits
+          // blocks and has no business knowing what the reviewer picked.
+          onMessage: (draft) => record(thread.id, { ...draft, ...stamp(choices, evidence) }),
         }),
       );
     } finally {
       endRun(thread.id, controller);
     }
 
-    setThreadSession(db, thread.id, result.sessionId);
-    backstop(thread.id, cwd, before, choices);
+    // §5.2 — the session belongs to this (thread, SDK, gateway) triple, and the
+    // URL it was really created against goes on the row: case 2b compares them,
+    // so a gateway whose host was edited starts fresh rather than asking a
+    // different server to continue state it has never seen.
+    //
+    // **A run that failed records nothing.** It still WROTE a transcript — the
+    // SDK's file exists the moment the CLI starts — so recording its id makes
+    // `sessionExists` say yes forever, and every later reply resumes the state
+    // that just failed. Measured 2026-09-04: one run got a 400 about a
+    // malformed thinking block, and the next three replies resumed it and got
+    // the identical 400, in 600 ms each, with no way out but deleting the row.
+    //
+    // Skipping the write costs at most one SDK cache: the conversation is REX's
+    // and lives in SQLite, so the next send takes §5.2 case 2 or 3 and replays
+    // it. A STOPPED run is not a failure and does record — the reviewer ended a
+    // real session and will want to continue it.
+    //
+    // `thread.session_id` is retired (§12) and is no longer written. It stays in
+    // the table because dropping a column rewrites it.
+    if (result.error === null) {
+      setCombinationSession(db, thread.id, route.sdk, choices.gatewayId ?? ORIGINAL_GATEWAY_ID, {
+        sessionId: result.sessionId,
+        baseUrl: route.baseUrl,
+      });
+    }
+    backstop(thread.id, cwd, before, choices, evidence);
 
     for (const denial of result.denials) {
       systemNote(
@@ -353,6 +563,7 @@ export function registerIpc(
         `Denied ${denial.toolName}${denial.subagentId ? ` (subagent ${denial.subagentId})` : ""}: ${denial.reason}`,
         false,
         choices,
+        evidence,
       );
     }
 
@@ -375,16 +586,18 @@ export function registerIpc(
     text: string,
     mode: SendMode,
     /**
-     * Spec 25 §5 and spec 31 §5 — what they picked. Both null for a NOTE,
-     * which runs nothing and so runs under nothing.
+     * Spec 25 §5, spec 31 §5 and spec 43 §5.3 — what they picked, and what
+     * answered. All null for a NOTE, which runs nothing and so runs under
+     * nothing (§5.4).
      */
     choices: SendChoices,
+    evidence: SendEvidence,
   ): Message =>
     record(threadId, {
+      ...stamp(choices, evidence),
       role: "user",
       kind: "text",
       mode,
-      ...choices,
       content: text,
       toolName: null,
       toolInput: null,
@@ -818,34 +1031,38 @@ export function registerIpc(
     }
   };
 
-  handle(
-    COMMAND.threadAsk,
-    async (_event, threadId: string, model: string | null, style: string | null): Promise<void> => {
-      const thread = getThread(db, threadId);
-      if (!thread) throw new Error(`No such thread: ${threadId}`);
-      // Spec 30 §2.2 — it is being sent, so it leaves `draft` or `note` for
-      // `open`. A no-op for a comment that was already sent, and it never
-      // touches `resolved`.
-      markThreadSent(db, threadId);
+  handle(COMMAND.threadAsk, async (_event, request: ThreadAskRequest): Promise<void> => {
+    const { threadId } = request;
+    const thread = getThread(db, threadId);
+    if (!thread) throw new Error(`No such thread: ${threadId}`);
+    // Spec 30 §2.2 — it is being sent, so it leaves `draft` or `note` for
+    // `open`. A no-op for a comment that was already sent, and it never
+    // touches `resolved`.
+    markThreadSent(db, threadId);
 
-      const prompt =
-        thread.kind === "synthesis"
-          ? synthesisPrompt({
-              note: thread.note,
-              referenced: thread.refThreadIds
-                .map((id) => getThread(db, id))
-                .filter((t): t is Thread => t !== null)
-                .map((t) => ({ thread: t, messages: listMessages(db, t.id) })),
-            })
-          : askPrompt({ thread, ...(await readContext(thread)) });
+    const prompt =
+      thread.kind === "synthesis"
+        ? synthesisPrompt({
+            note: thread.note,
+            referenced: thread.refThreadIds
+              .map((id) => getThread(db, id))
+              .filter((t): t is Thread => t !== null)
+              .map((t) => ({ thread: t, messages: listMessages(db, t.id) })),
+          })
+        : askPrompt({ thread, ...(await readContext(thread)) });
 
-      const choices: SendChoices = { model, style };
-      // Spec 31 §4.1 — the chat remembers the style it was sent under.
-      setThreadStyle(db, threadId, style);
-      recordUserText(threadId, thread.note, "ask", choices);
-      await runTurn(thread, prompt, sessionIdFor(threadId), false, choices);
-    },
-  );
+    const choices = choicesOf(request);
+    const { route, evidence } = routeFor(db, choices);
+    // Spec 31 §4.1 — the chat remembers the style it was sent under.
+    setThreadStyle(db, threadId, choices.style);
+    recordUserText(threadId, thread.note, "ask", choices, evidence);
+
+    // §5.2 applies to EVERY send, an ASK included. Before this spec an ASK
+    // always re-seeded `sessionIdFor(threadId)`; with more than one gateway
+    // that id would be seeded twice and the CLI refuses an id it already has.
+    const plan = await planSession(thread, choices, route, workingDirectory(thread));
+    await runTurn(thread, prompt, plan.sessionId, plan.resume, choices);
+  });
 
   /**
    * Spec 17 §2.1 — stop this comment's work, all of it.
@@ -874,10 +1091,10 @@ export function registerIpc(
     // Spec 25 §2.3 — and so no model, and spec 31 §4 — and no style. Both are
     // null from the renderer and would be ignored anyway: NULL here is the
     // honest record of a message that no agent ever saw.
-    const message = recordUserText(request.threadId, request.text, "note", {
-      model: null,
-      style: null,
-    });
+    // Spec 43 §5.4 — a NOTE starts no SDK and creates no session, so it stores
+    // null for every choice. NULL here is the honest record of a message that
+    // no agent ever saw.
+    const message = recordUserText(request.threadId, request.text, "note", NO_CHOICES, NO_EVIDENCE);
     addPlaces(thread, message, request.targets);
     // Spec 30 §2.2 — **Save** on a draft is what makes it a note. Only from
     // `draft`: an `open` comment that gets a NOTE message keeps its lane,
@@ -891,10 +1108,10 @@ export function registerIpc(
     markThreadSent(db, request.threadId);
 
     const cwd = workingDirectory(thread);
-    const existing = thread.sessionId ?? sessionIdFor(thread.id);
-    const choices: SendChoices = { model: request.model, style: request.style };
-    setThreadStyle(db, thread.id, request.style);
-    const message = recordUserText(thread.id, request.text, "ask", choices);
+    const choices = choicesOf(request);
+    const { route, evidence } = routeFor(db, choices);
+    setThreadStyle(db, thread.id, choices.style);
+    const message = recordUserText(thread.id, request.text, "ask", choices, evidence);
 
     // Spec 24 §4.1 — the places first, then the prompt that names them. The
     // thread is re-read so the prompt sees the grown list; with nothing added
@@ -905,17 +1122,26 @@ export function registerIpc(
       ? followUpPrompt({ thread: grown, from, text: request.text, ...(await readContext(grown)) })
       : request.text;
 
-    // SPEC.md §8.5 — the SDK's transcript cache can be cleaned at any time.
-    // REX keeps the thread; only the SDK's own record was lost.
-    if (await sessionExists(cwd, existing)) {
-      // Spec 34 §6.2 — a resumed session has its own memory and gets only the
-      // reply, so what the reviewer did to the document since the agent last
-      // spoke goes in front of it: once, and only when there is something.
+    // SPEC.md §8.5 and spec 43 §5.2 — one session per (thread, SDK, gateway),
+    // and three ways this send can find itself without one: the SDK's cache was
+    // cleaned, the gateway's URL moved, or this combination has never run.
+    const plan = await planSession(thread, choices, route, cwd);
+
+    if (plan.resume) {
+      // Case 1. Spec 34 §6.2 — a resumed session has its own memory and gets
+      // only the reply, so what the reviewer did to the document since the
+      // agent last spoke goes in front of it: once, and only when there is
+      // something.
       const events = eventsSinceLastAnswer(listMessages(db, thread.id));
-      await runTurn(thread, withEvents(events, prompt), existing, true, choices);
+      await runTurn(thread, withEvents(events, prompt), plan.sessionId, true, choices);
       return;
     }
 
+    // Cases 2 and 3. **Seeding is a decision, not a default** (§5.2): the
+    // reviewer was asked on 2026-09-03 whether a newly chosen gateway should be
+    // given the conversation so far, and chose to give it. So a switch of
+    // gateway never loses the thread — the second model reads what the first
+    // one said and answers in the same discussion.
     const transcript = renderTranscript(
       listMessages(db, thread.id).filter((m) => m.content !== request.text),
     );
@@ -925,7 +1151,7 @@ export function registerIpc(
       thread: grown ?? thread,
       ...(await readContext(grown ?? thread)),
     });
-    await runTurn(thread, replayPrompt(transcript, prompt, header), uuidv4(), false, choices);
+    await runTurn(thread, replayPrompt(transcript, prompt, header), plan.sessionId, false, choices);
   });
 
   handle(COMMAND.threadResolve, (_event, request: ThreadResolveRequest): Thread => {
@@ -1114,11 +1340,13 @@ export function registerIpc(
     const thread = getThread(db, request.threadId);
     if (!thread) throw new Error(`No such thread: ${request.threadId}`);
     markThreadSent(db, request.threadId);
-    setThreadStyle(db, request.threadId, request.style);
-    const message = recordUserText(request.threadId, request.note, "act", {
-      model: request.model,
-      style: request.style,
-    });
+    const choices = choicesOf(request);
+    // §11 — an ACT run must use the gateway the reviewer picked for it, and it
+    // resolves the same way an ASK does. §5.5 is the difference: it reads the
+    // three choices and does NOT persist its session.
+    const { route, evidence } = routeFor(db, choices);
+    setThreadStyle(db, request.threadId, choices.style);
+    const message = recordUserText(request.threadId, request.note, "act", choices, evidence);
     // Spec 24 §4.2 — the places are rows before `startApply` reads the thread,
     // so their documents join the run with no new code in `apply.ts`. The
     // message id goes along so the passage list can mark them (§6.2).
@@ -1128,8 +1356,10 @@ export function registerIpc(
     // nowhere; the directory stays for the next agent that is pointed at it.
     return startApply(applyContext, request.threadId, request.note, request.root, {
       addedWith: message.id,
-      model: request.model,
-      style: request.style,
+      route,
+      evidence,
+      model: choices.model,
+      style: choices.style,
     });
   });
 
@@ -1146,11 +1376,35 @@ export function registerIpc(
    * and every later one is free. `SCRATCH_DIR` is the cwd because the list does
    * not depend on one and there may be no document open when the renderer asks.
    */
-  handle(COMMAND.modelList, async (): Promise<AgentChoices> => {
-    const probe = await listCapabilities(SCRATCH_DIR);
+  handle(COMMAND.modelList, async (_event, gatewayId: string | null): Promise<AgentChoices> => {
+    const gateway = getGateway(db, gatewayId ?? ORIGINAL_GATEWAY_ID) ?? ORIGINAL_GATEWAY;
+    const probe = await listCapabilities(SCRATCH_DIR, gateway);
+    // Spec 43 §4.3 — a route's model list is typed by the person who
+    // configured it, because a gateway's catalogue is its own business:
+    // LiteLLM's aliases are one edit per engine in a YAML file REX has never
+    // read, and a probe against the CLI cannot know a new one exists.
+    //
+    // **A failed probe never removes a configured model.** This reverses spec
+    // 25 §3.1's first-party assumption, and only for a non-`Original` route.
+    const configured = gateway.routes[REX_SDK]?.models ?? [];
+    const models =
+      configured.length > 0
+        ? configured.map((value) => ({
+            value,
+            displayName: value,
+            description: `A model name ${gateway.name} was configured with.`,
+          }))
+        : probe.models;
     return {
-      models: probe.models,
-      chosen: defaultModel(db, probe.models),
+      models,
+      chosen:
+        gateway.id === ORIGINAL_GATEWAY_ID
+          ? defaultModel(db, models)
+          : // §4.1 — a rebuild that drops the current value picks the route's
+            // first model rather than clearing the control. An empty control
+            // the reviewer has to notice is worse than a filled one they can
+            // change.
+            (models[0]?.value ?? DEFAULT_MODEL),
       // Spec 31 §2.2 — no `chosen` style. A style belongs to the chat, so
       // there is no app-wide value for the renderer to fall back to.
       styles: probe.styles,
@@ -1158,16 +1412,280 @@ export function registerIpc(
     };
   });
 
+  // `model:default` stood here — spec 25 §6's writer for the app-wide default.
+  // Its one caller was the top bar's picker, removed on 2026-09-04, and the key
+  // it wrote is still read (§6.2) and still written, by `gateway:default`
+  // below. A command nothing can invoke is a door left open on the privileged
+  // process, so it goes with the control it existed for.
+
+  // ── Spec 43 — gateways ────────────────────────────────────────
+
   /**
-   * Spec 25 §6 — the app-wide default. Every send uses it unless its comment
-   * says otherwise.
+   * §4.5 — the kinds and their fields, so the sheet can draw itself.
    *
-   * Stored as given, with no check against the list. §6.2 is where a value that
-   * is not offered is handled, and it handles it by falling back on read rather
-   * than by refusing on write — a model can come back.
+   * The catalogue is inlined into the generated module (spec 42 §17.4), so this
+   * needs no round trip and answers even while the child is starting. It is the
+   * library's own strings, never a server's: a label a gateway could set would
+   * be a remote server writing REX's interface.
    */
-  handle(COMMAND.modelDefault, (_event, value: string): void => {
-    setSetting(db, MODEL_DEFAULT_KEY, value);
+  handle(COMMAND.gatewayDescribe, (): DescribeResult => CATALOGUE);
+
+  /**
+   * Every gateway, its routes, its capabilities, and what a new comment starts on.
+   *
+   * §8 — the probes are per (SDK, gateway) and lazy, so this waits only on the
+   * ones it has not asked yet, and a slow custom route cannot delay `Original`.
+   * They are gathered in parallel for the same reason.
+   */
+  const gatewayList = async (): Promise<GatewayListResponse> => {
+    const gateways = listGateways(db);
+    const views: GatewayView[] = await Promise.all(
+      gateways.map(async (gateway) => ({
+        gateway,
+        capabilities: {
+          [REX_SDK]: await listCapabilities(SCRATCH_DIR, gateway, REX_SDK),
+        },
+      })),
+    );
+    const defaults = agentDefaults(
+      db,
+      gateways.map((gateway) => gateway.id),
+    );
+    return {
+      gateways: views,
+      defaults: {
+        sdk: defaults.sdk,
+        gatewayId: defaults.gatewayId,
+        // §4.0 — `Original` starts on spec 25's own stored default, which is a
+        // different key and a different lifetime. Any other gateway starts on
+        // the one this spec added, and the cascade fills it from the route.
+        model:
+          defaults.gatewayId === ORIGINAL_GATEWAY_ID
+            ? defaultModel(db, (await listCapabilities(SCRATCH_DIR)).models)
+            : defaults.model,
+        missingGateway: defaults.missingGateway,
+      },
+    };
+  };
+
+  handle(COMMAND.gatewayList, gatewayList);
+
+  /**
+   * §4.5 — validate and write one gateway and its routes.
+   *
+   * The route the sheet previewed is **rebuilt here from the kind and the
+   * answers**, never trusted as sent: §11's rule is that IPC data is never used
+   * as executable SDK configuration without a lookup and validation, and a URL
+   * that arrived over the wire is exactly that. What the renderer may decide is
+   * the auth, the credential's NAME and the model list.
+   */
+  handle(COMMAND.gatewaySave, async (_event, draft: AgentGatewayDraft) => {
+    const saved = saveGateway(db, draft);
+    // §8 — the capabilities of a gateway that was just edited are no longer the
+    // ones REX has. Asked again on the next draw rather than kept.
+    forgetProbe(saved.id);
+    return gatewayList();
+  });
+
+  handle(COMMAND.gatewayDelete, async (_event, gatewayId: string) => {
+    deleteGateway(db, gatewayId);
+    forgetProbe(gatewayId);
+    return gatewayList();
+  });
+
+  /**
+   * §2.4 — what the server publishes, checked against what the route needs.
+   *
+   * It writes nothing and returns no URL. A server that publishes nothing
+   * reports "none published", which is a result rather than a failure.
+   */
+  /**
+   * §4.5 — the route a Verify or a Test is about, saved or not.
+   *
+   * A reviewer presses these BEFORE they trust a row, so neither may require it
+   * to be saved first. When the sheet sends its own answers, main rebuilds the
+   * route with `buildRoutes` — the same catalogue the preview used — so the URL
+   * is still derived here and never taken from the wire, which is §11's rule.
+   * The credential is resolved here too, from this process's environment, and
+   * the variable's NAME is all that ever crossed.
+   */
+  const targetRoute = (request: GatewayTarget): ResolvedRoute => {
+    if (request.gatewayId) {
+      const gateway = getGateway(db, request.gatewayId);
+      if (!gateway) throw new Error(`No such gateway: ${request.gatewayId}`);
+      return resolveRoute(gateway, request.sdk);
+    }
+    if (!request.kind) throw new Error("Name a gateway, or the kind and the answers to build one.");
+    const problems = validateGateway(request.kind, request.values ?? {});
+    if (problems.length > 0) throw new Error(problems[0]?.message ?? "That gateway is not valid.");
+    const routes = buildRoutes(request.kind, request.values ?? {});
+    const route = routes[request.sdk];
+    if (!route) throw new Error(`Those answers give ${request.sdk} no route.`);
+    return resolveRoute(
+      { id: "draft", name: "This gateway", kind: request.kind, routes } as AgentGateway,
+      request.sdk,
+    );
+  };
+
+  handle(COMMAND.gatewayVerify, async (_event, request: GatewayVerifyRequest) => {
+    const route = targetRoute(request);
+    const timeout = new Promise<VerifyResult>((settle) =>
+      setTimeout(
+        () =>
+          settle({
+            ok: false,
+            baseUrl: route.baseUrl ?? "",
+            expected: null,
+            document: null,
+            published: [],
+            status: null,
+            note: `The agent library did not answer within ${GATEWAY_VERIFY_TIMEOUT_MS / 1000} seconds.`,
+          }),
+        GATEWAY_VERIFY_TIMEOUT_MS,
+      ),
+    );
+    return Promise.race([verifyRoute(route), timeout]);
+  });
+
+  /**
+   * §4.5 — an explicit, read-only one-turn test of one route.
+   *
+   * The `read` profile, so it cannot write whatever it is pointed at, and one
+   * short prompt. The renderer warns that a remote model may charge; by the time
+   * it reaches here the reviewer has decided.
+   *
+   * **The word it asks for is the whole check.** A gateway that refuses the
+   * request does not always fail the run: the Claude CLI catches an HTTP error
+   * and reports it as the assistant's own words, with `error` null and a
+   * `completed` beside it — measured 2026-09-04, where a 400 about the
+   * `thinking` field arrived as a perfectly successful turn saying
+   * `API Error: 400 …`. Testing `error === null` alone therefore paints a broken
+   * gateway green, which is worse than not testing at all.
+   *
+   * So the answer has to contain the word. It is a one-word instruction to a
+   * model that has nothing else to do, and any model too weak to follow it is a
+   * model too weak to run an agent.
+   */
+  handle(
+    COMMAND.gatewayTest,
+    async (_event, request: GatewayTestRequest): Promise<GatewayTestResult> => {
+      const route = targetRoute(request);
+      // §6.4 — a gateway has never heard of `claude-opus-5`. With no model named,
+      // the CLI sends its own default and the gateway answers about a model
+      // nobody chose: measured 2026-09-04, "There's an issue with the selected
+      // model (claude-opus-5[1m])", which sends the reader after the wrong
+      // thing. REX knows it has nothing to send, so it says that instead of
+      // spending a turn to find out.
+      if (route.baseUrl && !request.model) {
+        return {
+          ok: false,
+          detail:
+            "Type at least one model above. A gateway routes on the model name, and with none " +
+            "given the SDK asks for its own default — which this gateway has never heard of.",
+          durationMs: 0,
+        };
+      }
+
+      const said: string[] = [];
+      const startedAt = Date.now();
+
+      // §4.5 — a Test must be able to END. `runAgent` deliberately has no
+      // timeout, because a real turn's deadline is the reviewer's Stop (§7.2) —
+      // and this dialog has no Stop. Measured 2026-09-04: a Test left running
+      // past five minutes with nothing on screen but the word "Testing…".
+      const controller = new AbortController();
+      const deadline = setTimeout(() => controller.abort(), GATEWAY_TEST_TIMEOUT_MS);
+
+      let result: Awaited<ReturnType<typeof runAgent>>;
+      try {
+        result = await runAgent({
+          cwd: SCRATCH_DIR,
+          profile: "read",
+          prompt: "Reply with exactly the word: ready. Say nothing else and use no tools.",
+          // A fresh id every time. This is not a conversation and nothing resumes
+          // it, so seeding a deterministic one would collide on the second press.
+          sessionId: uuidv4(),
+          resume: false,
+          route,
+          model: request.model,
+          style: null,
+          // **A probe, not a review.** REX's own instructions and its plugins are
+          // what a comment needs; here they are pure cost, and on a small local
+          // model they are most of the wall clock — the same measurement that
+          // produced the deadline above. Empty on both counts, so what is being
+          // timed is the route.
+          systemPrompt: "",
+          plugins: [],
+          signal: controller.signal,
+          onMessage: (draft) => {
+            if (draft.kind === "text" && draft.content) said.push(draft.content);
+          },
+        });
+      } finally {
+        clearTimeout(deadline);
+      }
+
+      if (controller.signal.aborted) {
+        return {
+          ok: false,
+          detail:
+            `No answer in ${GATEWAY_TEST_TIMEOUT_MS / 1000} seconds. The address is reachable or ` +
+            "Verify would have said otherwise, so the model is the slow part: a local one that " +
+            "has to load can take minutes on its first call. Load it and try again, or pick a " +
+            "smaller one.",
+          durationMs: Date.now() - startedAt,
+        };
+      }
+
+      const answer = said.join(" ").trim();
+      const ready = /\bready\b/i.test(answer);
+      return {
+        ok: result.error === null && ready,
+        detail:
+          result.error ??
+          (ready
+            ? answer
+            : answer === ""
+              ? "The gateway answered, and the model said nothing at all."
+              : // The answer IS the diagnosis here — an API error the CLI turned
+                // into prose, or a model that would not follow one instruction.
+                answer),
+        durationMs: Date.now() - startedAt,
+      };
+    },
+  );
+
+  /**
+   * §4.0 — what a NEW comment starts on.
+   *
+   * Its own command, and deliberately not a side effect of changing a control:
+   * a one-off escalation to `Original` must not silently become the default for
+   * every future comment.
+   */
+  handle(
+    COMMAND.gatewayDefault,
+    (_event, choice: { sdk: AgentSdk; gatewayId: string; model: string | null }): void => {
+      setSetting(db, AGENT_SDK_KEY, choice.sdk);
+      setSetting(db, AGENT_GATEWAY_KEY, choice.gatewayId);
+      if (choice.model !== null) setSetting(db, AGENT_MODEL_KEY, choice.model);
+      // `Original` keeps spec 25's own key too, so the model picker's fallback
+      // and this one cannot disagree about what "the default" is there.
+      if (choice.gatewayId === ORIGINAL_GATEWAY_ID && choice.model !== null) {
+        setSetting(db, MODEL_DEFAULT_KEY, choice.model);
+      }
+    },
+  );
+
+  /**
+   * §4.5 — whether a named variable is set. **True or false, never the value.**
+   *
+   * The one question the renderer may ask about the environment, and this is
+   * the whole answer to it: a boolean. §2.6 rule 4 is why there is no second
+   * command that returns anything more.
+   */
+  handle(COMMAND.gatewayHasEnv, (_event, name: string): boolean => {
+    const value = process.env[name];
+    return typeof value === "string" && value.length > 0;
   });
 
   /**
@@ -1212,6 +1730,7 @@ export function registerIpc(
       },
       view,
       entries(40),
+      db,
     );
     clipboard.writeText(report);
     return report;

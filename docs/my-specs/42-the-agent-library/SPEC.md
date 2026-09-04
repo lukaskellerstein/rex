@@ -1,7 +1,20 @@
 # REX 42 — the agent library
 
 **Version:** 3.0 · 2026-09-04
-**Status:** **proposal. Nothing in this spec is built.**
+**Status:** **built, and driven in a live window.** All three milestones are in
+the tree. `npm run test:library` is green — 44 TypeScript tests across
+`test/service.spec.ts`, `test/bridge.spec.ts` and `test/protocol.spec.ts`, and
+135 `pytest` tests in `agent-gateway/` — every one of the 41 `*.spec.ts` files
+passes, `npm run typecheck` passes, and `nvim-tools --json --all` adds no
+finding (`ruff` and `basedpyright` now run, on §12's two marker files, and are
+clean). Driven on 2026-09-04 against an isolated database: one ASK answered
+through the pipe at $0.1377, one reply that **resumed** the same session with no
+replay, a gate refusal recorded as `denied` beside a plain `Bash` call recorded
+as neither, a hand-killed child restarted once and serving again in 275 ms, an
+`lsof` on the child showing no socket at all, and a scratch `uv` project calling
+`run()` directly (criterion 17). §17 records what the build changed. **Not yet
+driven live: ACT, DOCX and PPTX** — all three are `write`-profile runs, and they
+are the remainder of milestone 1's acceptance.
 **Depends on:** [`01-initial/SPEC.md`](../01-initial/SPEC.md) §3 (the main-process
 boundary — **this spec keeps I1–I3 and changes §1.2 and §12**), §8 (one thread,
 one agent, one session), §8.4 (the gate), §8.5 (session replay), §11 (the Vex
@@ -1115,3 +1128,107 @@ Criterion 17: a scratch `uv` project that adds the package and runs one turn
 by calling `run()`; and criterion 3's `lsof` audit.
 
 *Done when:* the scratch project's turn answers, and the audit is empty.
+
+---
+
+## 17. What the build changed
+
+Written after milestones 0 to 2, on 2026-09-04. Nothing here contradicts §1 to
+§16; each entry is a place where following the spec exactly would have broken
+one of its own acceptance criteria, or a measurement §15.3 asked for.
+
+### 17.1 Four message shapes grew a field
+
+| Shape | Gained | Forced by |
+|:--|:--|:--|
+| `Started` (§7) | `tools: int \| None`, `plugins: list[str]` | §9's "the init log line: resolved model, style, tools, plugins — yes, as the `started` event". The line prints four numbers; the event has to carry four. |
+| `Error` (§7) | `cost_usd`, `duration_ms` | Criterion 10. `runner.ts` put both on the error row when the failure arrived as an unsuccessful `ResultMessage`. Without them a failed run draws no cost — and a failed run's cost is the one most worth seeing. |
+| `Stopped` (§7) | `cost_usd`, `duration_ms` | The same, for `reportStopped()`. |
+| `ready` (§4.2) | `library: str`, `sdks: dict[str, str]` | The debug report's version line read the npm manifest for `agent-sdk <version>`. After this spec no such manifest exists, so the number has to come from the interpreter that actually imported the SDK. |
+
+### 17.2 `session_exists` answers with a shape, not a boolean
+
+§4.2 gives the reply an `exists` field and §6.1 gives the adapter
+`session_exists(...) -> bool`. Both became `SessionState` — `exists`, plus the
+SDK's `summary` and `last_modified`, plus the transcript's `path` and `size`.
+
+The reason is spec 13's debug report, which prints the SDK's **record** and the
+**file** on separate lines and says why in its own comment: they can disagree,
+and every way they disagree is a different bug. A record with no file means the
+store moved; a file with no record means §8.5's replay is what will actually
+happen. A boolean collapses both into "resumable: yes", which is what hid them.
+The adapter's method is therefore `session_state`, because a method named
+`_exists` that returns a struct is a lie about itself.
+
+### 17.3 Two test files moved to Python, against criterion 16
+
+Criterion 16 asks that every existing test be unchanged. §11 deletes
+`runner.ts` and `capabilities.ts`. Two test files import from them, so the two
+cannot both hold:
+
+- **`test/errors.spec.ts` → `agent-gateway/tests/test_errors.py`**, case for
+  case. `classifyError` and `deniedBy` are `errors.py` now.
+- **`test/models.spec.ts`** keeps its settings and migration tests, changes one
+  import to `bridge.ts`, and gains an `after()` that quits the child. Its
+  `nameModels` block moved to `agent-gateway/tests/test_models.py`.
+
+One assertion changed deliberately. The version-gate hint (§9.2) said *"npm
+install @anthropic-ai/claude-agent-sdk@latest"*, and after this spec that
+package is installed nowhere. It now says `uv add claude-agent-sdk@latest` in
+`agent-gateway/`. Naming a dependency that is not there is precisely the class
+of false diagnosis `EXECUTABLE_FAILURE` and `MODEL_NEEDS_NEWER_CLI` exist to
+stop — keeping the sentence verbatim would have been keeping it wrong.
+
+Everything else is untouched and green, `test/gate.spec.ts` included.
+
+### 17.4 The TypeScript is generated from the models, not from the schema
+
+§4.3 names `json-schema-to-typescript`, and notes that `CLAUDE.md` makes it a
+confirmation. The reviewer chose the other option on 2026-09-04: a
+`--typescript` flag on `agent_gateway.protocol`, about 250 lines in
+`codegen.py`, reading the Pydantic models directly.
+
+It adds no npm dependency, and it gets the two hard parts right by
+construction — a discriminated union stays a union of named interfaces, and
+every field keeps its camelCase alias. `schema.json` is still generated and
+still committed; only the path from it to `.ts` is gone.
+
+Two consequences worth knowing:
+
+- **The catalogue is inlined into `agent-protocol.ts`** as
+  `export const CATALOGUE`. §10 wants the host to preview a route with no round
+  trip, which means the data has to be reachable from the host's own code; a
+  JSON file imported across the package boundary would need a bundler rule, a
+  loader attribute and a path that is right in both a build and a bare
+  `node --test` run. `catalogue.json` still exists beside `schema.json`.
+- **`src/shared/agent-protocol.ts` is excluded from biome**, with
+  `schema.json` and `catalogue.json`. The generator keeps the file inside
+  `lineWidth` itself; a formatter rewrapping a union would fail the drift test
+  for a reason nobody could act on, and would fail again on every biome bump.
+
+### 17.5 `RunRequest` lives in `types.py`
+
+§3.1 implies it belongs with `run()`. It cannot: `adapters/base.py` needs it to
+declare the interface, `run.py` imports the adapter registry, and the registry
+imports the adapters — so `run.py` holding `RunRequest` is an import cycle.
+`types.py` is where the other declarations of §5 already are.
+
+### 17.6 The measurements §15.3 asked for
+
+All against `claude-agent-sdk` 0.2.152 on 2026-09-04, on this machine.
+
+| Question | Answer |
+|:--|:--|
+| Does `get_server_info()` carry `models` and `available_output_styles`? | **Yes, both**, in the CLI's own initialize response. §9.4's `init`-message fallback is not needed and was not built. |
+| Does `settings=json.dumps({"outputStyle": …})` set the style? | **Yes.** Read back from `output_style`: `Explanatory` with the setting, `Busy Lukas` without it. |
+| Does `ClaudeAgentOptions.env` replace or merge? | **Merges.** `subprocess_cli.py:809-813` builds `{**inherited_env, …, **options.env}` (`CLAUDECODE` stripped), and a canary `CLAUDE_CONFIG_DIR` reached the CLI through an `env` naming something else entirely. **Spec 43 §6.2's warning is about the TypeScript binding and does not apply here** — an empty `env` is exactly today's behaviour. |
+| The exact `SdkPluginConfig` shape | `{"type": "local", "path": str}`, as §6 assumed. |
+| Startup, spawn to `ready` | About 480 ms cold, 275 ms on a restart. The capability probe answers in about 1.3 s through the pipe, so §9.4's ten-second budget was left alone. |
+| Criterion 3's `lsof` | The child has **no socket at all**. Electron's only listener is 9334, the debugger, which predates this spec. |
+
+The recorded-SDK-stream fixtures of §15.3's last row were not captured. The
+`REX_RECORD_SDK` switch would have had to be added to `runner.ts` before it was
+deleted, and criterion 10 is covered without it by splitting the path in two:
+`agent-gateway/tests/test_events.py` asserts SDK blocks become the right
+`AgentEvent`s, and `test/bridge.spec.ts` asserts each `AgentEvent` becomes the
+row `runner.ts` wrote, field by field.

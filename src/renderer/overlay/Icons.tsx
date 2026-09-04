@@ -9,6 +9,27 @@ interface Props {
   size?: number;
 }
 
+/**
+ * The glyph in the corner of a message block, in the chat and in the trace.
+ *
+ * One number for both, so the two views cannot drift — they draw the same
+ * conversation and a reviewer moves between them constantly. Raised from 12 and
+ * 13 on 2026-09-04, on the reviewer's ask: at those sizes the glyph read as
+ * punctuation beside a 10px label rather than as the thing that says who is
+ * speaking, which is the one job it has.
+ */
+export const MESSAGE_ICON = 15;
+
+/**
+ * The same slot, for a FILLED shape.
+ *
+ * Two pixels smaller because a solid mark carries far more ink than an outline
+ * at the same size: a 15px sparkle beside a 15px speech bubble reads as the
+ * larger of the two. `StopSquare` is smaller again where it is used — a filled
+ * square is the heaviest shape in the set.
+ */
+export const MESSAGE_ICON_SOLID = 13;
+
 function Line({ size = 12, d }: Props & { d: string }): React.JSX.Element {
   return (
     <svg className="rex-icon" viewBox="0 0 16 16" width={size} height={size} aria-hidden="true">
@@ -173,6 +194,32 @@ export const Bug = (p: Props): React.JSX.Element => (
     <path d="M5 8.2H2.9M11 8.2h2.1M5 11.4H3.3M11 11.4h1.7" />
   </svg>
 );
+
+/**
+ * The two panel switches in the bar (`TopBar.tsx`).
+ *
+ * The outline is the window and the filled bar is the panel, so the glyph says
+ * WHICH edge the button acts on without a word. That matters more here than in
+ * most icons: the two buttons are the same shape mirrored, and the fill is the
+ * only thing that tells them apart at 13px.
+ *
+ * Filled and not a second outline. A hollow bar beside a hollow window is two
+ * rectangles, and at this size nobody reads which one is inside the other.
+ */
+function Panel({ size = 13, x }: Props & { x: number }): React.JSX.Element {
+  return (
+    <svg className="rex-icon" viewBox="0 0 16 16" width={size} height={size} aria-hidden="true">
+      <rect x="2.5" y="3.5" width="11" height="9" />
+      <rect className="rex-icon-fill" x={x} y="3.5" width="3.5" height="9" />
+    </svg>
+  );
+}
+
+/** Show or hide the workspace, on the left. */
+export const PanelLeft = (p: Props): React.JSX.Element => <Panel {...p} x={2.5} />;
+
+/** Show or hide the comments, on the right. */
+export const PanelRight = (p: Props): React.JSX.Element => <Panel {...p} x={10} />;
 
 /** Pick mode — a crop frame with a cursor inside it. */
 export const PickTarget = (p: Props): React.JSX.Element => (

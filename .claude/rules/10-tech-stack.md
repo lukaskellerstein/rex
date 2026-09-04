@@ -9,7 +9,7 @@ description: "Reference: Technology stack — Electron + React + TypeScript, SQL
      day one exists. -->
 
 **Two languages, one boundary.** The app is TypeScript. The agent library is
-Python — `agent-gateway/`, spec 42 — and it runs as one child of the main
+Python — `agent-gateway/`, spec 42, built — and it runs as one child of the main
 process that speaks JSON lines over stdin and stdout. `SPEC.md` §12's "bundled
 Python runtime" row was retired by spec 42 §1.1 on 2026-09-04. The rows beside
 it — no broker, no HTTP server, no listening port — stand, and the pipe is how
@@ -21,13 +21,14 @@ not the one being repeated.
 - **Runtime**: Electron
 - **Data**: SQLite via `better-sqlite3`, at `~/.rex/rex.db` — outside every
   repository. Native module: needs `electron-rebuild` in the build.
-- **Agents**: none directly once spec 42 is built — `src/main/agent/service.ts`
-  spawns `agent-gateway/` and `bridge.ts` maps its events; until then,
-  `@anthropic-ai/claude-agent-sdk` in `src/main/agent/runner.ts`
+- **Agents**: none directly. `src/main/agent/service.ts` spawns
+  `agent-gateway/` and `bridge.ts` maps its events. `grep -rn
+  "claude-agent-sdk" src/ package.json` finds nothing, and that is a rule, not
+  an accident
 - **Document rendering**: `markdown-it` (needs `token.map` for `data-src-line`),
   `dompurify` for HTML sanitising
 
-## The agent library (Python, spec 42)
+## The agent library (Python, spec 42 — built)
 
 - **Where**: `agent-gateway/` at the repo root, module `agent_gateway`,
   Python 3.12 pinned in `.python-version`. A sibling of `src/`, never inside it.
@@ -35,7 +36,7 @@ not the one being repeated.
 - **The contract**: Pydantic models in `protocol.py`, camelCase on the wire;
   `src/shared/agent-protocol.ts` is generated from them and never edited by
   hand — `test/protocol.spec.ts` fails when the two drift.
-- **SDKs**: `claude-agent-sdk` (spec 42), `openai-codex` (44), an own `httpx`
+- **SDKs**: `claude-agent-sdk` 0.2.152 (spec 42), `openai-codex` (44), an own `httpx`
   client for OpenCode's server (45), `deepagents` with `langchain-openai` and
   `langchain-anthropic` (46). **Only `agent-gateway/` imports an agent SDK.**
 - **The gate stays in TypeScript.** The library asks `gate.ts` over the pipe

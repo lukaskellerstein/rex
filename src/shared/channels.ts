@@ -5,6 +5,15 @@
 // so this file is the entire surface between the two processes.
 
 import type {
+  AgentAuth,
+  AgentGateway,
+  AgentSdk,
+  DescribeResult,
+  GatewayKind,
+  RouteCapabilities,
+  VerifyResult,
+} from "./agent-protocol.ts";
+import type {
   AgentChoices,
   AnchorState,
   AnchorSummary,
@@ -17,6 +26,7 @@ import type {
   OpenedDocument,
   PaperView,
   ReferenceGraph,
+  SendChoices,
   SkippedDocument,
   TargetDraft,
   Thread,
@@ -183,13 +193,35 @@ export const COMMAND = {
   /**
    * Spec 25 §6.3 — what the CLI offers this account, and the app-wide default.
    *
-   * Two channels rather than one, because they change independently: the list
-   * is asked once per app run (§3.3) and the default is written whenever the
-   * reviewer picks a new one. `model:list` answers both at once so the picker
-   * never has to reason about a stored default missing from the list.
+   * It answers both at once so a picker never has to reason about a stored
+   * default missing from the list. `model:default` was its writer and is gone
+   * with the top bar's picker (2026-09-04): the default is now written only
+   * where a default is chosen, which is **Manage gateways…** (§4.0).
    */
   modelList: "model:list",
-  modelDefault: "model:default",
+  /**
+   * Spec 43 §11 — the gateway surface.
+   *
+   * The renderer receives gateway rows, their routes, and credential
+   * **availability**. It never receives environment contents, and main re-reads
+   * the row and resolves the credential itself before every run: IPC data is
+   * never used as executable SDK configuration without a database lookup.
+   *
+   * There is deliberately no `gateway:retire`. Nothing needs retiring, because
+   * §5.3 made history independent of these rows — a message carries copies.
+   */
+  gatewayDescribe: "gateway:describe",
+  gatewayList: "gateway:list",
+  gatewaySave: "gateway:save",
+  gatewayDelete: "gateway:delete",
+  /** §2.4 — what the server publishes, checked against the kind. Writes nothing. */
+  gatewayVerify: "gateway:verify",
+  /** An explicit, read-only one-turn test of one route. A remote model may charge. */
+  gatewayTest: "gateway:test",
+  /** §4.0 — sets the `setting.agent.*` values a NEW comment starts on. */
+  gatewayDefault: "gateway:default",
+  /** Whether a named variable is set. **True or false, never the value.** */
+  gatewayHasEnv: "gateway:has-env",
   /**
    * Spec 27 §4.7 — how the reviewer last left the Markdown page.
    *
@@ -374,7 +406,7 @@ export type WorkspaceCreateResult =
   | { ok: true; path: string; opens: boolean; note: string | null }
   | { ok: false; reason: string };
 
-export interface ThreadReplyRequest {
+export interface ThreadReplyRequest extends SendChoices {
   threadId: string;
   text: string;
   /**
@@ -386,21 +418,19 @@ export interface ThreadReplyRequest {
    * takes the same shape, so a note can point somewhere too.
    */
   targets?: TargetDraft[];
-  /**
-   * Spec 25 §4.1 — the model this send runs on, as the reviewer picked it.
-   *
-   * Null is "REX said nothing, so the SDK decides" — the value every run
-   * carried before spec 25 — and it is what `thread:note` always sends, because
-   * a NOTE runs nothing (§2.3).
-   */
-  model: string | null;
-  /**
-   * Spec 31 §4 — the output style this send runs under.
-   *
-   * Null is the CLI's own default, which is what every run did before spec 31,
-   * and it is what `thread:note` always sends: a note runs nothing.
-   */
-  style: string | null;
+}
+
+/**
+ * Spec 43 §11 — an ASK send, as a request object.
+ *
+ * `threadAsk(threadId, model, style)` was three positional arguments, and this
+ * spec adds two more. A fifth positional argument is the shape that proves the
+ * old convenience has run out — and the preload bridge has already been bitten
+ * once by exactly that (spec 31 §4: a shorter function is assignable to a
+ * longer signature in TypeScript, so a dropped trailing argument was silent).
+ */
+export interface ThreadAskRequest extends SendChoices {
+  threadId: string;
 }
 
 /**
@@ -411,7 +441,7 @@ export interface ThreadReplyRequest {
  * agent inferred what to do from the transcript, which is why Apply could not
  * run until something had been said. Empty is not valid: §4.3.
  */
-export interface ThreadApplyRequest {
+export interface ThreadApplyRequest extends SendChoices {
   threadId: string;
   note: string;
   /**
@@ -426,11 +456,98 @@ export interface ThreadApplyRequest {
   root: string | null;
   /** Spec 24 §4.2 — as on `ThreadReplyRequest`. */
   targets?: TargetDraft[];
-  /** Spec 25 §4.1 — as on `ThreadReplyRequest`. */
-  model: string | null;
-  /** Spec 31 §4 — as on `ThreadReplyRequest`. ACT gets a style too (§2.3). */
-  style: string | null;
 }
+
+// ── Spec 43 §11 — gateways ──────────────────────────────────────
+
+/**
+ * One route, as the sheet edits it.
+ *
+ * `credentialEnv` is the NAME of an environment variable and never a value —
+ * §2.6 rule 4, and the reason `gateway:has-env` exists: the renderer may ask
+ * whether a named variable is set, and main answers true or false.
+ */
+export interface GatewayRouteDraft {
+  baseUrl: string | null;
+  auth: AgentAuth;
+  credentialEnv: string | null;
+  models: string[];
+}
+
+export interface AgentGatewayDraft {
+  /** Absent for a new gateway. Present to edit the one it names. */
+  id?: string;
+  name: string;
+  kind: GatewayKind;
+  routes: Partial<Record<AgentSdk, GatewayRouteDraft>>;
+}
+
+/**
+ * One gateway as the renderer sees it: the row, plus what each route can do.
+ *
+ * The capabilities are per SDK because §8 keys the probe that way, and they
+ * arrive already resolved so the picker never has to reason about a route that
+ * has not been asked yet. An SDK with no entry has no route here (§4.2 greys
+ * it, with the reason on hover).
+ */
+export interface GatewayView {
+  gateway: AgentGateway;
+  capabilities: Partial<Record<AgentSdk, RouteCapabilities>>;
+}
+
+export interface GatewayListResponse {
+  gateways: GatewayView[];
+  /** §4.0 — what a NEW comment starts on, with a missing gateway resolved. */
+  defaults: {
+    sdk: AgentSdk;
+    gatewayId: string;
+    model: string | null;
+    /** The stored gateway that is gone, so the picker can say so once. */
+    missingGateway: string | null;
+  };
+}
+
+/** §4.5 — an explicit, read-only one-turn test of one route. */
+/**
+ * Spec 43 §4.5 — which route to act on, for a gateway that may not exist yet.
+ *
+ * **Verify and Test are what a reviewer presses BEFORE they trust a row**, so
+ * neither may require it to be saved first: a Test you can only run on a
+ * gateway you have already committed to is a Test that answers the wrong
+ * question.
+ *
+ * `gatewayId` names a stored row. `kind` and `values` are the sheet's own
+ * answers, and main rebuilds the route from them with the same `buildRoutes`
+ * the preview used — so the URL is still derived from the catalogue by main and
+ * never taken from the wire, which is §11's rule. One or the other, never
+ * neither.
+ */
+export interface GatewayTarget {
+  sdk: AgentSdk;
+  gatewayId?: string;
+  kind?: GatewayKind;
+  values?: Record<string, string>;
+}
+
+export interface GatewayTestRequest extends GatewayTarget {
+  /**
+   * The model the test turn asks for.
+   *
+   * It matters more than it looks: a gateway routes on the model name, so the
+   * wrong one is a 404 from a gateway that is working perfectly. Null lets the
+   * route's own first configured model stand in.
+   */
+  model: string | null;
+}
+
+export interface GatewayTestResult {
+  ok: boolean;
+  /** What the agent actually said, or the error. Never a credential. */
+  detail: string;
+  durationMs: number;
+}
+
+export type GatewayVerifyRequest = GatewayTarget;
 
 /**
  * Spec 14 §3.1 — `title: null` is the reset, and so is an empty string.
@@ -725,12 +842,9 @@ export interface RexApi {
   threadList(request: ThreadListRequest): Promise<ThreadWithMessages[]>;
   threadCreate(request: ThreadCreateRequest): Promise<Thread>;
   /**
-   * Spec 25 §4.1 — a second argument, not a request object.
-   *
-   * The channel has always taken a bare id, and wrapping two fields in a named
-   * type to add one string buys nothing the other two sends needed.
+   * Spec 43 §11 — a request object at last. See `ThreadAskRequest` for why.
    */
-  threadAsk(threadId: string, model: string | null, style: string | null): Promise<void>;
+  threadAsk(request: ThreadAskRequest): Promise<void>;
   /**
    * Spec 17 §3.1 — stops every run this comment has, and says how many.
    *
@@ -785,10 +899,31 @@ export interface RexApi {
   debugCopy(threadId: string): Promise<string>;
   /** Spec 13 §4 — the same, for the app rather than for one comment. */
   debugSnapshot(view: ViewState): Promise<string>;
-  /** Spec 25 §3 — the models this account can use, and the current default. */
-  modelList(): Promise<AgentChoices>;
-  /** Spec 25 §6 — sets the app-wide default. Every send uses it. */
-  modelDefault(value: string): Promise<void>;
+  /**
+   * Spec 25 §3 and spec 43 §4.3 — what one gateway offers, and the default model.
+   *
+   * The gateway is an argument now, because the model list follows it (§4.1's
+   * cascade). Omitted means `Original`, which is what every caller meant before
+   * this spec.
+   */
+  modelList(gatewayId?: string): Promise<AgentChoices>;
+
+  /** Spec 43 §4.5 — the kinds and the fields, so the sheet can draw itself. */
+  gatewayDescribe(): Promise<DescribeResult>;
+  /** Every gateway, its routes, its capabilities, and what a new comment starts on. */
+  gatewayList(): Promise<GatewayListResponse>;
+  /** Validates and writes one gateway and its routes. Refuses `Original`. */
+  gatewaySave(draft: AgentGatewayDraft): Promise<GatewayListResponse>;
+  /** Removes it. **History is unaffected** (§5.3). Refuses `Original`. */
+  gatewayDelete(gatewayId: string): Promise<GatewayListResponse>;
+  /** §2.4 — what the server publishes, checked against the route. Writes nothing. */
+  gatewayVerify(request: GatewayVerifyRequest): Promise<VerifyResult>;
+  /** §4.5 — one read-only turn through the real adapter. A remote model may charge. */
+  gatewayTest(request: GatewayTestRequest): Promise<GatewayTestResult>;
+  /** §4.0 — sets what a NEW comment starts on. Changing a control does not. */
+  gatewayDefault(choice: { sdk: AgentSdk; gatewayId: string; model: string | null }): Promise<void>;
+  /** Whether a named variable is set. **True or false, never the value.** */
+  gatewayHasEnv(name: string): Promise<boolean>;
   /** Spec 27 §4.7 — the paper the reviewer last read on. */
   paperView(): Promise<PaperView>;
   paperViewSet(view: PaperView): Promise<void>;

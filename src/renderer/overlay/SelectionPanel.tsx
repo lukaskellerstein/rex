@@ -16,6 +16,7 @@
 import { useRef, useState } from "react";
 import { type AgentChoices, DEFAULT_STYLE, type RegionRef } from "../../shared/types.ts";
 import { type PickScope, scopeWord } from "../anchor/pick.ts";
+import type { GatewayChoice } from "./Composer.tsx";
 import { Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import { ModelPick, styleRows } from "./ModelPick.tsx";
@@ -58,6 +59,17 @@ interface Props {
   models: AgentChoices;
   model: string | null;
   onModel: (model: string | null) => void;
+  /**
+   * Spec 43 §4 — the gateway, to the left of the model, on the panel too.
+   *
+   * The control sits on every surface a send can start from, because §2.6 rule
+   * 1 is that every send picks: a panel that could only use the default would
+   * make "pick a gateway" mean "pick it after the first answer".
+   */
+  gateways: GatewayChoice;
+  gateway: string;
+  onGateway: (gatewayId: string) => void;
+  onManageGateways: () => void;
   /** Spec 31 §2.2 — the style the next comment is made with. Never null. */
   style: string;
   onStyle: (style: string) => void;
@@ -315,6 +327,25 @@ export function SelectionPanel(props: Props): React.JSX.Element {
             together instead of the button dropping to the left on its own.
           */}
           <span className="rex-row-end">
+            <ModelPick
+              models={props.gateways.rows}
+              value={props.gateway}
+              fallback={props.gateway}
+              allowDefault={false}
+              disabled={
+                props.mode === "note" ? "A note runs nothing, so it uses no gateway." : null
+              }
+              error={null}
+              rowDisabled={props.gateways.blocked}
+              action={{
+                label: "Manage gateways…",
+                title: "Add, edit or remove a gateway. Old answers keep their own record.",
+                onPick: props.onManageGateways,
+              }}
+              onPick={(value) => {
+                if (value !== null) props.onGateway(value);
+              }}
+            />
             <ModelPick
               models={props.models.models}
               value={props.model}

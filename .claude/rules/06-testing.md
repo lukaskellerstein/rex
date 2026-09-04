@@ -102,11 +102,11 @@ Anything changed is a bug in the gate. Surface it, do not merely log it.
 write a file, and that attempt must be denied.
 
 **Project test suite** — one script per file: `npm run test:<name>` runs
-`node --test test/<name>.spec.ts`. There are 39, and there is no `npm test`.
+`node --test test/<name>.spec.ts`. There are 41, and there is no `npm test`.
 Run the ones that cover what you touched, and `npm run test:anchor` for
-anything near the resolver. Once spec 42 is built, `agent-gateway/` adds
-`uv run pytest` and `npm run test:library`, and a change on either side of the
-pipe runs both.
+anything near the resolver. **`npm run test:library`** runs the three seam
+suites (`test:service`, `test:bridge`, `test:protocol`) and `uv run pytest` in
+`agent-gateway/`; a change on either side of the pipe runs both.
 
 **Every code change** — repo-wide lint / format / type check:
 
@@ -118,10 +118,10 @@ Your change must not add findings, measured against the baseline you took in the
 Understand step. How to read the output (including `gated-off`), and why this
 never replaces the project's own suite: [`machine-tools.md`](machine-tools.md).
 
-`tsc` runs, because `tsconfig.json` exists. `ruff` and `basedpyright` are
-`gated-off` until `agent-gateway/` carries `ruff.toml` and `pyrightconfig.json`
-(spec 42 §12) — that is the repo missing a marker, not the CLI failing. See
-[`09-code-quality.md`](09-code-quality.md).
+`tsc` runs, because `tsconfig.json` exists. **`ruff` and `basedpyright` run
+too**, since spec 42 gave `agent-gateway/` its `ruff.toml` and
+`pyrightconfig.json` (§12). A Python finding is now a finding like any other.
+See [`09-code-quality.md`](09-code-quality.md).
 
 **Non-testable changes** (docs, config, IaC only): explicitly state why no
 runtime test is needed.

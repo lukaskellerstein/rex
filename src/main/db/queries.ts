@@ -6,6 +6,7 @@ import type { ThreadListRequest } from "../../shared/channels.ts";
 import { buildCommentTree, walkOrder } from "../../shared/commentTree.ts";
 import { movedPath } from "../../shared/paths.ts";
 import type {
+  AgentSdk,
   Anchor,
   AnchorState,
   AnchorTarget,
@@ -87,6 +88,10 @@ interface MessageRow {
   mode: SendMode | null;
   model: string | null;
   style: string | null;
+  /** Spec 43 §5.3 — the evidence. Absent on a database the migration has not reached. */
+  sdk: AgentSdk | null;
+  gateway_name: string | null;
+  base_url: string | null;
   content: string | null;
   tool_name: string | null;
   tool_input_json: string | null;
@@ -151,6 +156,13 @@ function toMessage(row: MessageRow): Message {
     mode: row.mode,
     model: row.model,
     style: row.style,
+    // `?? null` for the shape SQLite can hand back that the type cannot say: a
+    // row read before `migrateMessageRoute` has run has no such column at all,
+    // and the value is `undefined` rather than null. The same guard `denied`
+    // carries below, for the same reason.
+    sdk: row.sdk ?? null,
+    gatewayName: row.gateway_name ?? null,
+    baseUrl: row.base_url ?? null,
     content: row.content,
     toolName: row.tool_name,
     toolInput: row.tool_input_json ? JSON.parse(row.tool_input_json) : null,
@@ -857,12 +869,31 @@ export function setTargetState(
  */
 export type MessageDraft = Omit<
   Message,
-  "id" | "threadId" | "seq" | "createdAt" | "mode" | "model" | "style" | "denied"
+  | "id"
+  | "threadId"
+  | "seq"
+  | "createdAt"
+  | "mode"
+  | "model"
+  | "style"
+  | "sdk"
+  | "gatewayName"
+  | "baseUrl"
+  | "denied"
 > & {
   mode?: SendMode | null;
   model?: string | null;
   /** Spec 31 §5 — optional for `model`'s reason: one site knows it, none else. */
   style?: string | null;
+  /**
+   * Spec 43 §5.3 — optional for exactly `model`'s reason, and stamped at exactly
+   * the same place. `bridge.ts` emits blocks and has no business knowing which
+   * gateway the reviewer picked; `ipc.ts`'s `record` knows, and stamps them all
+   * on the way past.
+   */
+  sdk?: AgentSdk | null;
+  gatewayName?: string | null;
+  baseUrl?: string | null;
   /**
    * Optional for the reason `mode` is: one site knows it and the rest do not.
    * The gate is the only thing that can refuse a call, so the runner is the only
@@ -889,10 +920,11 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
   const seq = seqRow?.next ?? 0;
 
   db.prepare(
-    `INSERT INTO message (id, thread_id, seq, role, kind, mode, model, style, content, tool_name,
+    `INSERT INTO message (id, thread_id, seq, role, kind, mode, model, style,
+                          sdk, gateway_name, base_url, content, tool_name,
                           tool_input_json, is_error, denied, cost_usd, duration_ms, input_tokens,
                           output_tokens, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     threadId,
@@ -902,6 +934,9 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     draft.mode ?? null,
     draft.model ?? null,
     draft.style ?? null,
+    draft.sdk ?? null,
+    draft.gatewayName ?? null,
+    draft.baseUrl ?? null,
     draft.content,
     draft.toolName,
     draft.toolInput === null || draft.toolInput === undefined
@@ -924,6 +959,9 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     mode: draft.mode ?? null,
     model: draft.model ?? null,
     style: draft.style ?? null,
+    sdk: draft.sdk ?? null,
+    gatewayName: draft.gatewayName ?? null,
+    baseUrl: draft.baseUrl ?? null,
     denied: draft.denied ?? false,
     id,
     threadId,

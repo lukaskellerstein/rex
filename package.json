@@ -1,7 +1,7 @@
 {
   "name": "rex",
   "version": "0.1.0",
-  "description": "Review EX — comment on documents and discuss each comment with an AI agent",
+  "description": "Review EX \u2014 comment on documents and discuss each comment with an AI agent",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
@@ -16,7 +16,6 @@
     "test:comments": "node --test test/comments.spec.ts",
     "export": "node src/cli/export.ts",
     "rebuild": "electron-rebuild -f -w better-sqlite3",
-    "test:errors": "node --test test/errors.spec.ts",
     "test:gate": "node --test test/gate.spec.ts",
     "test:links": "node --test test/links.spec.ts",
     "test:markdown": "node --test test/markdown.spec.ts",
@@ -52,10 +51,17 @@
     "test:lane": "node --test test/lane.spec.ts",
     "test:place-line": "node --test test/placeLine.spec.ts",
     "test:tool-rows": "node --test test/toolRows.spec.ts",
-    "test:trace": "node --test test/trace.spec.ts"
+    "test:trace": "node --test test/trace.spec.ts",
+    "test:service": "node --test test/service.spec.ts",
+    "test:bridge": "node --test test/bridge.spec.ts",
+    "test:protocol": "node --test test/protocol.spec.ts",
+    "test:library": "npm run test:service && npm run test:bridge && npm run test:protocol && (cd agent-gateway && uv run pytest -q)",
+    "test:run-stats": "node --test test/runStats.spec.ts",
+    "test:aside": "node --test test/aside.spec.ts",
+    "test:gateways": "node --test test/gateways.spec.ts",
+    "test:choices": "node --test test/choices.spec.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.259",
     "@fontsource/dm-sans": "^5.3.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/newsreader": "^5.3.0",

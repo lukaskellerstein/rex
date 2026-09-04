@@ -100,6 +100,21 @@
   },
   "overrides": [
     {
+      // Spec 42 §4.3 — generated from `agent-gateway/src/agent_gateway/protocol.py`
+      // and compared byte for byte by `test/protocol.spec.ts`. A formatter that
+      // rewrapped a union or unquoted an object key would make that test fail
+      // for a reason nobody could act on, and it would fail again on every
+      // biome upgrade. The generator keeps the file inside lineWidth itself.
+      "includes": [
+        "src/shared/agent-protocol.ts",
+        "agent-gateway/schema.json",
+        "agent-gateway/catalogue.json"
+      ],
+      "formatter": {
+        "enabled": false
+      }
+    },
+    {
       // Enabling html.formatter above ALSO hands biome every .svg — measured
       // on 2.5.5 (one repo: the flag pulled in 4 .html and 14 .svg). biome
       // reformats the CSS inside an SVG's <style> as it would a stylesheet, so

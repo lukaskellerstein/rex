@@ -41,19 +41,23 @@ variable): skip step 2. State what you'll do and proceed.
   comment with an AI agent. Select text → write a comment → **Ask** → one agent
   answers that one comment → keep chatting in the thread → **Apply** lets a
   second, write-capable agent make the change. `SPEC.md` §1.
-- **Status**: **built through spec 41.** The specs are the authority. `SPEC.md`
+- **Status**: **built through spec 42.** The specs are the authority. `SPEC.md`
   in these files means `docs/my-specs/01-initial/SPEC.md`; every later decision
   is a numbered spec under `docs/my-specs/NN-*/SPEC.md`, and the README's spec
-  table indexes them. Specs 42 to 46 — the agent library, the local gateway,
-  and three more agent SDKs — are **proposals**; nothing in them is built.
+  table indexes them. Spec 42 — the agent library — is **built**. Specs 43 to
+  46 — the local gateway and three more agent SDKs — are **proposals**; nothing
+  in them is built.
 - **Milestone 0 passed.** `test/anchor.spec.ts` is the anchor spike, kept as
   the regression net for the one component that fails silently.
 - **Stack**: TypeScript for the app — Electron + React + `electron-vite`,
-  `better-sqlite3` — and, from spec 42 on, **Python for the agent library**:
+  `better-sqlite3` — and, since spec 42, **Python for the agent library**:
   `agent-gateway/`, a package REX runs as one child of the main process and
   speaks to over stdin and stdout, one JSON line per message. No NATS, no HTTP
   server, no listening port — that part of `SPEC.md` §12 still holds. Its "no
-  Python runtime" row was retired by spec 42 §1.1 on 2026-09-04.
+  Python runtime" row was retired by spec 42 §1.1 on 2026-09-04. **No file under
+  `src/` imports an agent SDK any more**: `src/main/agent/service.ts` is a pipe
+  client and `bridge.ts` is a mapping, and `grep -rn "claude-agent-sdk" src/
+  package.json` finds nothing.
 - **Three invariants that shape every change** (`SPEC.md` §3): anchors resolve in
   the **renderer** on the live DOM; only the **main** process touches SQLite and
   the SDK; IPC only — **no HTTP server, no broker, no listening port**.
@@ -63,9 +67,10 @@ variable): skip step 2. State what you'll do and proceed.
   to attach to. It is not an app port. `dex` uses 9333 and `vex` uses 9222/9333.
 - **Ported from Vex, not invented**: the Claude Agent SDK adapter comes from
   `~/Projects/Github/lukaskellerstein/vex` (read-only). `SPEC.md` §11 is the
-  file-by-file mapping, including what to **drop**. Spec 42 §9 ports it back
-  into Python, under REX's rules, and §15.1 records why Vex's broker and ports
-  are not ported with it.
+  file-by-file mapping, including what to **drop**. Spec 42 §9 ported it back
+  into Python, under REX's rules — it is
+  `agent-gateway/src/agent_gateway/adapters/claude/` — and §15.1 records why
+  Vex's broker and ports were not ported with it.
 
 Full facts → [`rules/01-project-config.md`](rules/01-project-config.md); stack and
 conventions → [`rules/10-tech-stack.md`](rules/10-tech-stack.md).

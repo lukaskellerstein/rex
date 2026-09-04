@@ -19,25 +19,52 @@ import { modelLabel, modelRows, styleRows } from "./modelChoices.ts";
 // pure data helpers and live in a `.ts` file the test runner can load.
 export { modelLabel, styleRows };
 
+/**
+ * The tick column, so every row's text starts at the same x.
+ *
+ * A figure space rather than two ordinary ones: it is exactly one digit wide in
+ * every font, so an unpicked row lines up with a picked one instead of drifting
+ * left by a hair on each redraw.
+ */
+const TICK = "\u2713 ";
+const SPACE = "\u2007 ";
+
 interface Props {
   models: ModelChoice[];
   /**
    * The pick, or null for "follow the app-wide default".
    *
    * The two are genuinely different and the menu shows both: a comment set to
-   * null moves when the default moves, and one set to `sonnet` does not. The
-   * top bar passes a concrete value and never null — it IS the default.
+   * null moves when the default moves, and one set to `sonnet` does not.
    */
   value: string | null;
   /** §6 — the app-wide default, which is what `value: null` resolves to. */
   fallback: string;
-  /** §7.1 — offered by the composer, never by the top bar, which would loop. */
+  /**
+   * §7.1 — whether the menu offers `Default — …` as a row of its own.
+   *
+   * On for the model and off for the gateway and the style, which have no
+   * app-wide default to follow (spec 31 §7.3). It was also off for the top
+   * bar's own picker, which set the default and would have looped; that picker
+   * was removed on 2026-09-04.
+   */
   allowDefault: boolean;
   /** §2.3 — why the model cannot be chosen here, or null when it can. */
   disabled: string | null;
   /** §3.4 — the probe failed, and this says so. */
   error: string | null;
   onPick: (value: string | null) => void;
+  /**
+   * Spec 43 §4.2 — why one ROW cannot be chosen, or null when it can.
+   *
+   * **Impossible combinations are shown, not hidden.** A greyed row with the
+   * reason on hover says "this is configuration you have not done"; a row that
+   * is simply absent says "REX cannot do this", which is a different and false
+   * claim.
+   */
+  rowDisabled?: (value: string) => string | null;
+  /** An action at the foot of the menu — `Manage gateways…`, and nothing else yet. */
+  action?: { label: string; title: string; onPick: () => void };
 }
 
 export function ModelPick(props: Props): React.JSX.Element {
@@ -120,34 +147,61 @@ export function ModelPick(props: Props): React.JSX.Element {
               className="rex-menu-item"
               // §7.1 — picking "the default" and picking the model it happens
               // to be are different acts, so the row names both.
-              title="Follow the default in the top bar. This comment moves when that does."
+              title="Follow the app-wide default. This comment moves when that does."
               onClick={() => {
                 props.onPick(null);
                 setOpen(false);
               }}
             >
-              {props.value === null ? "✓ " : "  "}
+              {props.value === null ? TICK : SPACE}
               Default — {modelLabel(models, null, props.fallback)}
             </button>
           ) : null}
 
           {props.allowDefault && models.length > 0 ? <div className="rex-menu-rule" /> : null}
 
-          {models.map((model) => (
-            <button
-              key={model.value}
-              type="button"
-              className="rex-menu-item"
-              title={model.description}
-              onClick={() => {
-                props.onPick(model.value);
-                setOpen(false);
-              }}
-            >
-              {props.value === model.value ? "✓ " : "  "}
-              {model.displayName}
-            </button>
-          ))}
+          {models.map((model) => {
+            const blocked = props.rowDisabled?.(model.value) ?? null;
+            return (
+              <button
+                key={model.value}
+                type="button"
+                className="rex-menu-item"
+                disabled={blocked !== null}
+                title={blocked ?? model.description}
+                onClick={() => {
+                  props.onPick(model.value);
+                  setOpen(false);
+                }}
+              >
+                {props.value === model.value ? TICK : SPACE}
+                {model.displayName}
+              </button>
+            );
+          })}
+
+          {/*
+            Spec 43 §4.5 — `Manage gateways…`, at the foot of the list it
+            manages. The one place the sheet is opened from, so a reviewer who
+            wants a gateway that is not in the menu finds the door in the menu.
+          */}
+          {props.action ? (
+            <>
+              <div className="rex-menu-rule" />
+              <button
+                type="button"
+                className="rex-menu-item"
+                title={props.action.title}
+                onClick={() => {
+                  props.action?.onPick();
+                  setOpen(false);
+                }}
+              >
+                {SPACE}
+                {props.action.label}
+              </button>
+            </>
+          ) : null}
         </div>
       ) : null}
     </div>
