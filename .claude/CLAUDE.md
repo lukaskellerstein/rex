@@ -41,15 +41,19 @@ variable): skip step 2. State what you'll do and proceed.
   comment with an AI agent. Select text → write a comment → **Ask** → one agent
   answers that one comment → keep chatting in the thread → **Apply** lets a
   second, write-capable agent make the change. `SPEC.md` §1.
-- **Status**: **not implemented.** `SPEC.md` (1,135 lines, at the repo root) is
-  a complete implementation spec and is the authority on everything. The repo
-  holds it, a README, tooling markers and this scaffold — no `package.json`, no
-  `src/`, no `node_modules`.
-- **Milestone 0 is a gate.** The anchor spike (a ~150-line standalone script, no
-  Electron, no database, no UI) must pass before the app is built. `SPEC.md` §13.
-- **Stack**: TypeScript only — Electron + React + `electron-vite`,
-  `better-sqlite3`, `@anthropic-ai/claude-agent-sdk`. A Python runtime is an
-  explicit non-goal (`SPEC.md` §12).
+- **Status**: **built through spec 41.** The specs are the authority. `SPEC.md`
+  in these files means `docs/my-specs/01-initial/SPEC.md`; every later decision
+  is a numbered spec under `docs/my-specs/NN-*/SPEC.md`, and the README's spec
+  table indexes them. Specs 42 to 46 — the agent library, the local gateway,
+  and three more agent SDKs — are **proposals**; nothing in them is built.
+- **Milestone 0 passed.** `test/anchor.spec.ts` is the anchor spike, kept as
+  the regression net for the one component that fails silently.
+- **Stack**: TypeScript for the app — Electron + React + `electron-vite`,
+  `better-sqlite3` — and, from spec 42 on, **Python for the agent library**:
+  `agent-gateway/`, a package REX runs as one child of the main process and
+  speaks to over stdin and stdout, one JSON line per message. No NATS, no HTTP
+  server, no listening port — that part of `SPEC.md` §12 still holds. Its "no
+  Python runtime" row was retired by spec 42 §1.1 on 2026-09-04.
 - **Three invariants that shape every change** (`SPEC.md` §3): anchors resolve in
   the **renderer** on the live DOM; only the **main** process touches SQLite and
   the SDK; IPC only — **no HTTP server, no broker, no listening port**.
@@ -59,7 +63,9 @@ variable): skip step 2. State what you'll do and proceed.
   to attach to. It is not an app port. `dex` uses 9333 and `vex` uses 9222/9333.
 - **Ported from Vex, not invented**: the Claude Agent SDK adapter comes from
   `~/Projects/Github/lukaskellerstein/vex` (read-only). `SPEC.md` §11 is the
-  file-by-file mapping, including what to **drop**.
+  file-by-file mapping, including what to **drop**. Spec 42 §9 ports it back
+  into Python, under REX's rules, and §15.1 records why Vex's broker and ports
+  are not ported with it.
 
 Full facts → [`rules/01-project-config.md`](rules/01-project-config.md); stack and
 conventions → [`rules/10-tech-stack.md`](rules/10-tech-stack.md).
@@ -73,13 +79,20 @@ These actions are pre-approved. Run them yourself when the situation calls for i
 - Reading anything inside this repo, `SPEC.md` included.
 - Reading `~/Projects/Github/lukaskellerstein/vex` — the reference implementation
   being ported. **Read-only: never write into vex.**
-- Reading `~/Projects/Github/redhat/ProtoBot/docs/` — the test documents
-  anchoring is developed against. **Read-only: never write into ProtoBot.**
+- Reading `~/Projects/Github/lukaskellerstein/documentation-sample` — the
+  sample documents every test and every live check uses: `one/` holds three
+  unrelated documents (a Markdown README, a DOCX business review, a PDF
+  report), `two/` holds one report as Markdown, DOCX and PDF, `three/` a deck
+  and a workbook. **Read-only: never write into it.** An ACT test runs on a
+  throwaway copy.
 - `git status`, `git diff`, `git log`, `git show`, `git blame`, `git ls-files`
   in this repo.
 - Fetching the Claude Agent SDK docs at `https://code.claude.com/docs/en/agent-sdk`
-  — `SPEC.md` §0 requires verifying every SDK symbol against them rather than
-  assuming the TypeScript names match the Python ones.
+  (the Python reference is `…/agent-sdk/python`) — `SPEC.md` §0 requires
+  verifying every SDK symbol against them rather than assuming the names in a
+  spec are the names in the pinned package. The same goes for
+  `https://pypi.org/pypi/<name>/json` and the LangChain docs at
+  `https://docs.langchain.com/oss/python/…` for specs 44 to 46.
 - Inspecting a running REX: `curl -s http://localhost:9334/json/version`.
 - `sqlite3 ~/.rex/rex.db` with read-only statements (`SELECT`, `.schema`).
 
@@ -89,10 +102,14 @@ restate them here.
 
 ### Pre-approved mutations
 
-- Creating and editing files under `src/`, `test/`, and the build config at the
-  repo root (`package.json`, `tsconfig.json`, `electron.vite.config.ts`).
-- Installing declared dependencies — the ones `SPEC.md` §3.2 names — and running
-  `electron-rebuild` for `better-sqlite3`.
+- Creating and editing files under `src/`, `test/`, `agent-gateway/`, and the
+  build config at the repo root (`package.json`, `tsconfig.json`,
+  `electron.vite.config.ts`).
+- Installing declared dependencies — the ones `SPEC.md` §3.2 names for the app,
+  and the ones spec 42 §3 and specs 44 to 46 §3 name for `agent-gateway/` — and
+  running `electron-rebuild` for `better-sqlite3`. In `agent-gateway/` that is
+  `uv add` and `uv sync`, **never `pip`**; `uv sync`, `uv run pytest` and
+  `uv run python -m agent_gateway.protocol --schema` are pre-approved.
 - Building and launching REX locally. Since spec 13 the debugger port needs no
   flag — every run opens 9334 — so **check `curl -s http://localhost:9334/json/version`
   before starting one**: an answering endpoint is a REX that already exists, and
@@ -107,9 +124,11 @@ restate them here.
 
 ### Requires confirmation — always ask first
 
-- Adding any dependency `SPEC.md` §3.2 does not name — and never one from the
-  §12 forbidden list (NATS or any broker, any HTTP server framework, `nats.ws`,
-  any Python runtime).
+- Adding any dependency no spec names — `SPEC.md` §3.2 for the app, spec 42 §3
+  and specs 44 to 46 §3 for `agent-gateway/` — and never one from the §12
+  forbidden list (NATS or any broker, any HTTP server framework, `nats.ws`, any
+  socket listener in the agent library). A Python SDK package a spec names is an
+  ordinary declared dependency; the interpreter itself is `uv`'s to install.
 - Building anything from a milestone later than the one in progress, or any
   feature `SPEC.md` §12 lists as a non-goal.
 - Editing `SPEC.md` itself. It is the authority; changing it changes the contract
@@ -118,7 +137,7 @@ restate them here.
   That is an agent editing a file on this machine — `SPEC.md` §8.7 step 5
   requires a diff be shown and accepted first, and that requirement applies to
   you as much as to the app.
-- Anything at all that writes into `vex` or `ProtoBot`.
+- Anything at all that writes into `vex` or `documentation-sample`.
 - `git push`, `git push --force`, branch deletes — **never commit unless the user
   explicitly asks**.
 - Anything touching secrets, TLS material, tokens, or credential files. A secret

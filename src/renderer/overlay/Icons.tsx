@@ -81,6 +81,22 @@ export const Undo = (p: Props): React.JSX.Element => (
 export const Lines = (p: Props): React.JSX.Element => <Line {...p} d="M3 5h10M3 8h10M3 11h6" />;
 
 /**
+ * Spec 41 §2 — copy this block's text.
+ *
+ * Two sheets, the front one over the back one's corner. It is the shape every
+ * editor and every browser uses for copy, and this is not the place to be
+ * original: the button is 20px, appears on hover, and has one press to explain
+ * itself. The back sheet is drawn as an open path rather than a second
+ * rectangle, so the two never cross where the front one covers it.
+ *
+ * Not the `Check` beside it in `CopyText`: that one is the same tick every
+ * confirmation in REX wears, and it means the same thing here.
+ */
+export const Copy = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 12} d="M6 6h7.5v7.5H6zM3.5 10H2.5V2.5h7.5V6" />
+);
+
+/**
  * Spec 14 §2.1 — a comment group.
  *
  * A folder, decided by the reviewer on 2026-08-25 after the first build drew a
@@ -263,6 +279,44 @@ export const FileGlyph = (p: Props): React.JSX.Element => (
   >
     <path d="M4 2.5h5l3 3v8H4z" />
     <path d="M9 2.5v3h3" />
+  </svg>
+);
+
+/**
+ * Spec 39 §5.3 — which of the two the blank name box is about to make.
+ *
+ * Once the menu has closed, this glyph in the row's twisty slot is the only
+ * thing that says whether Enter makes a file or a folder.
+ *
+ * The tree's own two shapes with a `+` in the corner. The shapes are SHORTENED
+ * to make room for it rather than scaled down: a folder at 9px beside a folder
+ * at 13px reads as two different kinds of folder, which is the one thing these
+ * two must not say.
+ */
+export const FilePlus = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M3.5 2.5h4.5L10.5 5v4.5h-7z" />
+    <path d="M8 2.5V5h2.5" />
+    <path d="M9.5 12h4M11.5 10v4" />
+  </svg>
+);
+
+export const FolderPlus = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M2 4.5h4l1.2 1.6h5.3v3.4H2z" />
+    <path d="M9.5 12h4M11.5 10v4" />
   </svg>
 );
 

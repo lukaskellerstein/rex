@@ -41,6 +41,7 @@ import { totalsOf } from "../../shared/totals.ts";
 import type { AgentChoices, AnchorState, ThreadWithMessages } from "../../shared/types.ts";
 import { spokenTurnsOf } from "./CommentCard.tsx";
 import { Composer } from "./Composer.tsx";
+import { CopyText } from "./CopyText.tsx";
 import { DebugCopy } from "./DebugCopy.tsx";
 import {
   Blocked,
@@ -65,9 +66,11 @@ import {
   changeCounts,
   foldSize,
   glyphOf,
+  HAS_ROWS,
   previewOf,
   type TraceEntry,
   type TraceKind,
+  textOf,
   traceOf,
 } from "./trace.ts";
 
@@ -193,8 +196,25 @@ function Row({
   );
 }
 
-/** The blocks that are a call, and so carry rows. */
-const CALLS: ReadonlySet<TraceKind> = new Set(["tool", "denied", "failed", "diff"]);
+/**
+ * Spec 41 §2 — what the copy button calls this block in its own tooltip.
+ *
+ * The label is on the screen already, so the word here is the one a sentence
+ * needs: "Copy this refusal", not "Copy this DENIED".
+ */
+const KIND_THING: Record<TraceKind, string> = {
+  you: "question",
+  answer: "answer",
+  aside: "remark",
+  thinking: "thought",
+  note: "notice",
+  stopped: "stop",
+  error: "error",
+  tool: "step",
+  denied: "refusal",
+  failed: "step",
+  diff: "change",
+};
 
 /**
  * Spec 38 §3.4 — a change, line by line, in the diff's two colours. The lines
@@ -257,7 +277,7 @@ function Entry({
   const [showInput, setShowInput] = useState(entry.kind === "denied");
   const [showChange, setShowChange] = useState(false);
   const [showOutput, setShowOutput] = useState(entry.kind === "failed");
-  const call = CALLS.has(entry.kind);
+  const call = HAS_ROWS.has(entry.kind);
   const counts = entry.change ? changeCounts(entry.change) : null;
 
   return (
@@ -303,6 +323,13 @@ function Entry({
           <span className="rex-spacer" />
           {/* Spec 38 §3.1 — always the clock, one aligned column down the trace. */}
           <span className="rex-trace-spent">{clock(entry.at)}</span>
+          {/*
+            Spec 41 §2.1 — outside the clock, so that column stays where §3.1
+            put it. What goes on the clipboard is `textOf`'s decision, which is
+            why a folded INPUT and OUTPUT are copied and a shut row is not a
+            row the reviewer has to open first.
+          */}
+          <CopyText text={textOf(entry)} what={KIND_THING[entry.kind]} />
         </div>
 
         {entry.reason ? <p className="rex-trace-reason">{entry.reason}</p> : null}

@@ -38,6 +38,18 @@ export interface ElementRef {
   id?: string; // element id attribute, if stable
   css?: string; // fallback CSS path
   /**
+   * The kind of element the ref names — `h2`, `li`, `table` — as a lowercase
+   * tag name. Written since 2026-09-04; absent on every anchor made before,
+   * and the resolver checks nothing when it is absent.
+   *
+   * It exists because the other two fields cannot say it. A stable id makes
+   * the CSS path `#faq`, with no tag in it, and the quote of a whole block is
+   * the same words whether they sit in a heading or in the table-of-contents
+   * entry that points at the heading. Spec 16 §6.3's gap neighbour needs the
+   * difference: `resolve.ts` `kindNamed()`.
+   */
+  tag?: string;
+  /**
    * Spec 11 §5.2 — what the element held when the anchor was written.
    *
    * The same idea as `RegionRef.fingerprint`, and it exists for the same

@@ -139,3 +139,44 @@ test("output that merely quotes that sentence is not a refusal", () => {
 test("nothing refused and nothing quoted is simply a failure", () => {
   assert.equal(deniedBy([], "Bash", "Exit code 2\ngrep: docs: Is a directory"), false);
 });
+
+// ── The bundled CLI is older than the model needs ───────────────
+//
+// Reported 2026-09-03. The API's own message ends "Run `claude update`", which
+// is the one instruction that cannot work here: the SDK resolves its own
+// binary. This machine's Claude Code was 2.1.259 while REX's runs were on
+// 2.1.237 — so following the advice would have changed nothing and looked like
+// REX being broken.
+
+const VERSION_GATE =
+  "API Error: 400 Claude Code 2.1.237 does not support this model; version 2.1.251 or newer is required. Run 'claude update', or update the Claude desktop app, then try again.";
+
+test("the version gate names both versions, and the dependency to update", () => {
+  const said = classifyError(new Error(VERSION_GATE));
+
+  assert.match(said, /2\.1\.237/, "the version REX is actually running");
+  assert.match(said, /2\.1\.251/, "the version the model needs");
+  assert.match(said, /@anthropic-ai\/claude-agent-sdk/, "the thing to update is REX's dependency");
+  assert.ok(said.includes(VERSION_GATE), "and the API's own words survive, as ever");
+});
+
+test("the version gate contradicts the CLI's own advice, out loud", () => {
+  const said = classifyError(new Error(VERSION_GATE));
+  // Not merely omitting it: the wrong instruction is still there, three lines
+  // below, and a hint that ignores it leaves the reader to follow it.
+  assert.match(said, /Ignore the "run claude update" advice/i);
+});
+
+test("it does not fire on any other 400", () => {
+  for (const text of [
+    "API Error: 400 messages.0: all messages must have non-empty content",
+    "400 model 'claude-nope' not found",
+    "Claude Code 2.1.237 exited with code 1",
+  ]) {
+    assert.equal(
+      classifyError(new Error(text)).startsWith("Agent error:"),
+      true,
+      `REX must add no hint to: ${text}`,
+    );
+  }
+});

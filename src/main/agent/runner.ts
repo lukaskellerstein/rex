@@ -150,6 +150,33 @@ const EXECUTABLE_FAILURE =
   /claude code (?:executable|native binary) not found|claude code executable at .* failed to launch|spawn \S*claude\S* enoent/i;
 
 /**
+ * The bundled Claude Code is older than the model needs — and the CLI's own
+ * advice about it is wrong for REX.
+ *
+ * Reported 2026-09-03: picking **Fable 5.1** failed with *"400 Claude Code
+ * 2.1.237 does not support this model; version 2.1.251 or newer is required.
+ * Run `claude update`…"*. Every word of that is true and the instruction is a
+ * dead end here, for the reason `EXECUTABLE_FAILURE` above already records: the
+ * SDK **ships and resolves its own binary** and never looks at PATH. This
+ * machine's own Claude Code was already 2.1.259 while REX's runs were on
+ * 2.1.237 — updating it changes nothing REX does.
+ *
+ * The fix is REX's `@anthropic-ai/claude-agent-sdk` dependency, whose versions
+ * track the CLI's last segment: `0.3.237` carries Claude Code `2.1.237`, and
+ * `0.3.259` carries `2.1.259`. The hint says `@latest` rather than doing that
+ * arithmetic out loud, so a correspondence REX only observed cannot become a
+ * promise it made.
+ *
+ * **This is also the hole in spec 25 §3.1**, which reasoned that every value
+ * the probe returns is safe to send. The probe asks the ACCOUNT what models
+ * exist; the bundled binary has a floor of its own, and nothing in the list
+ * says so. REX cannot know each model's floor — only the API does, at run time,
+ * with this 400 — so naming it clearly when it arrives is the whole remedy.
+ */
+const MODEL_NEEDS_NEWER_CLI =
+  /claude code ([\d.]+) does not support this model; version ([\d.]+) or newer is required/i;
+
+/**
  * A hint to put ABOVE the error, or null when REX has nothing useful to add.
  *
  * Every pattern here matches a phrase only that one failure produces. The
@@ -173,6 +200,10 @@ function hintFor(text: string): string | null {
   }
   if (EXECUTABLE_FAILURE.test(text)) {
     return "The Claude Code executable could not be started. Reinstall Claude Code, or set options.pathToClaudeCodeExecutable.";
+  }
+  const older = MODEL_NEEDS_NEWER_CLI.exec(text);
+  if (older) {
+    return `This model needs Claude Code ${older[2]} or newer, and the Agent SDK inside REX is ${older[1]}. Ignore the "run claude update" advice below — it updates the Claude Code on your PATH, which REX never uses. Update REX's own dependency instead: npm install @anthropic-ai/claude-agent-sdk@latest, then npm run build. Or pick a model the bundled version supports.`;
   }
   return null;
 }

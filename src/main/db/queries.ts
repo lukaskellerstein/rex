@@ -262,6 +262,34 @@ export function documentsUnder(db: Db, path: string): DocumentRecord[] {
 }
 
 /**
+ * Spec 39 §2.2 — how many comments REX holds about these documents, any lane.
+ *
+ * Deliberately NOT `commentCountsByDocument`. That one counts the three lanes
+ * the tree draws — open, resolved, gone — so a `draft` and a `note` come back
+ * as zero, which is right for a marker beside a filename and wrong here: the
+ * question this answers is *is there work on this name*, and a note somebody
+ * wrote is work. Measured on 2026-09-03, when a note-lane comment made the
+ * sentence say nothing at all.
+ *
+ * The UNION is the same two routes the tree's counting uses: a comment written
+ * on the document, and a comment written elsewhere that points at it.
+ */
+export function countThreadsFor(db: Db, documentIds: readonly string[]): number {
+  if (documentIds.length === 0) return 0;
+  const holes = documentIds.map(() => "?").join(",");
+  const row = db
+    .prepare<string[], { n: number }>(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT t.id FROM thread t WHERE t.document_id IN (${holes})
+         UNION
+         SELECT tt.thread_id FROM thread_target tt WHERE tt.document_id IN (${holes})
+       )`,
+    )
+    .get(...documentIds, ...documentIds);
+  return row?.n ?? 0;
+}
+
+/**
  * Spec 23 §4.1 — the document rows follow the file.
  *
  * Every `thread`, `thread_target` and `message` comes with them for free: they

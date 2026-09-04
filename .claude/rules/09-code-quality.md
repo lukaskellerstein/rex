@@ -48,10 +48,11 @@ only if the repo carries that tool's own config file. If `:w` changes nothing an
 the gutter stays empty, the marker file is missing — not the editor broken.
 
 This repo carries `biome.jsonc` (the JS/TS family — formatter *and* live linter),
-`.editorconfig` (shfmt) and `.markdownlint-cli2.yaml` (markdown). It does **not**
-yet carry `tsconfig.json`, so nothing type-checks it — `nvim-tools` gates `tsc` on
-that file exactly as it gates basedpyright on `pyrightconfig.json`. Writing it is
-part of milestone 1, and until then a `types` finding can never appear.
+`tsconfig.json` (tsc), `.editorconfig` (shfmt) and `.markdownlint-cli2.yaml`
+(markdown). `nvim-tools` gates each tool on its file — `tsc` on `tsconfig.json`
+exactly as it gates `basedpyright` on `pyrightconfig.json` and `ruff` on
+`ruff.toml`, which `agent-gateway/` carries from spec 42 on. Until then a Python
+finding can never appear, and that is the gate working, not a tool missing.
 
 The file must stay `biome.jsonc`, not `biome.json`: biome silently ignores a
 `.json` config containing comments and falls back to its full defaults, which

@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import Database from "better-sqlite3";
-import { chooseCdpPort, DEFAULT_CDP_PORT } from "../src/main/cdp.ts";
+import { chooseCdpPort, DEFAULT_CDP_PORT, probeCdp } from "../src/main/cdp.ts";
 import { appendMessage, createThread, upsertDocument } from "../src/main/db/queries.ts";
 import { type AppFacts, appReport, badStepsOf, debugReport } from "../src/main/debug.ts";
 import { entries, record, resetLog } from "../src/main/log.ts";
@@ -218,6 +218,73 @@ test("a typo in REX_CDP_PORT is said out loud, not silently ignored", () => {
   assert.match(choice.warning ?? "", /not a port number/);
 });
 
+// ── Spec 13 §7 — "does not claim a port it did not get" ───────
+//
+// The criterion was written in the spec and not met by the code. `probeCdp`
+// fetched `/json/version` and believed the answer, and when a second REX is the
+// thing that failed to bind, the FIRST one answers that fetch. Measured on
+// 2026-09-03: pid 91081 printed `bind() failed: Address already in use` on
+// Chromium's stderr at 13:18:37.195 and `cdp … listening · Chrome/150` into
+// `~/.rex/rex.log` 114ms earlier — the version of a REX from two days before.
+//
+// So the socket's owner decides, and the endpoint only ever supplies a version
+// string. `9334` is the port throughout; only the pids matter.
+
+const CHOICE = { port: 9334, source: "default" as const, warning: null };
+const NEVER_ASKED = async () => {
+  throw new Error("the endpoint was asked about a port this process does not hold");
+};
+
+test("a port another process holds is never reported as this REX's own", async () => {
+  const status = await probeCdp(CHOICE, {
+    ownPid: 91081,
+    listeners: async () => [55547],
+    version: NEVER_ASKED,
+  });
+
+  assert.equal(status.listening, false);
+  assert.equal(status.owner, 55547);
+  assert.equal(status.browser, null);
+  assert.match(status.detail ?? "", /pid 55547 holds it/);
+});
+
+test("the port is this REX's own only when this process holds the socket", async () => {
+  const status = await probeCdp(CHOICE, {
+    ownPid: 91081,
+    listeners: async () => [91081],
+    version: async () => ({ browser: "Chrome/150.0.7871.224", detail: null }),
+  });
+
+  assert.equal(status.listening, true);
+  assert.equal(status.owner, null);
+  assert.equal(status.browser, "Chrome/150.0.7871.224");
+});
+
+test("a port nothing bound at all says so, and does not blame another process", async () => {
+  const status = await probeCdp(CHOICE, {
+    ownPid: 91081,
+    listeners: async () => [],
+    version: NEVER_ASKED,
+  });
+
+  assert.equal(status.listening, false);
+  assert.equal(status.owner, null);
+  assert.match(status.detail ?? "", /nothing is listening/);
+});
+
+test("when the owner cannot be looked up, the endpoint is still the last word", async () => {
+  // `lsof` missing must not turn a working debugger into a reported failure.
+  // `null` is "could not ask", which is not the same as "nobody holds it".
+  const status = await probeCdp(CHOICE, {
+    ownPid: 91081,
+    listeners: async () => null,
+    version: async () => ({ browser: "Chrome/150.0.7871.224", detail: null }),
+  });
+
+  assert.equal(status.listening, true);
+  assert.equal(status.browser, "Chrome/150.0.7871.224");
+});
+
 test("the ring keeps the newest lines and drops the oldest", () => {
   resetLog();
   for (let index = 0; index < 350; index++) record("info", "test", `line ${index}`);
@@ -244,6 +311,7 @@ const FACTS: AppFacts = {
     listening: true,
     browser: "Chrome/140.0.0.0",
     detail: null,
+    owner: null,
   },
   logPath: "/tmp/rex.log",
   logLines: 41,
@@ -299,6 +367,7 @@ test("a port that did not open is never reported as one that did", () => {
         listening: false,
         browser: null,
         detail: "no answer (fetch failed)",
+        owner: null,
       },
     },
     VIEW,
@@ -306,6 +375,30 @@ test("a port that did not open is never reported as one that did", () => {
   );
 
   assert.match(report, /NOT LISTENING/);
+  assert.doesNotMatch(report, /· listening ·/);
+});
+
+test("the report names the pid holding the port, and the command that frees it", () => {
+  const report = appReport(
+    {
+      ...FACTS,
+      cdp: {
+        port: 9334,
+        source: "default",
+        listening: false,
+        browser: null,
+        detail: "pid 55547 holds it",
+        owner: 55547,
+      },
+    },
+    VIEW,
+    [],
+  );
+
+  // A pid alone leaves the reader to work out what to do with it, and the thing
+  // to do is one command. Both, or the block has not finished its job.
+  assert.match(report, /NOT LISTENING — pid 55547 holds it/);
+  assert.match(report, /kill -INT 55547/);
   assert.doesNotMatch(report, /· listening ·/);
 });
 

@@ -6,35 +6,44 @@ description: Project configuration — architecture, paths, dev environment
 
 <!-- Filled from what the repo actually contains. Every line must be verifiable
      by reading a file in the repo — never write an aspiration here.
-     This repo is pre-implementation: the only substantive file is SPEC.md, so
-     every "planned" line below cites the section of SPEC.md that fixes it, and
-     every "not yet present" line is a fact about the working tree today. -->
+     A line about a spec that is not built yet says so and cites the spec;
+     everything else is a fact about the working tree today (2026-09-04). -->
 
 - **Project**: REX — a desktop app for commenting on documents and discussing
   each comment with an AI agent (`SPEC.md` §1). Third in the family after
   **VEX** (*Visual EX*) and **DEX**; *Review EX* (`SPEC.md` §1.1).
-- **Status**: **not implemented.** The tree holds `SPEC.md`, `README.md`, tooling
-  markers and this `.claude/`. No `package.json`, no `src/`, no `node_modules`.
-  `SPEC.md` is the authority on everything below.
+- **Status**: **built through spec 41.** `SPEC.md` in these files means
+  `docs/my-specs/01-initial/SPEC.md`; the later specs are
+  `docs/my-specs/NN-*/SPEC.md`, indexed in the README. Specs 42 to 46 are
+  proposals and nothing in them exists yet.
 - **Architecture**: Electron, two processes (`SPEC.md` §3). The renderer holds
   the document view, the shadow-root overlay and the anchor resolver; the main
-  process holds the thread service, the agent runner, the document renderers and
-  SQLite. They talk over IPC only.
-- **Structure**: planned as `src/main/`, `src/renderer/`, `src/shared/`,
-  `src/preload/`, `test/` — the full tree is `SPEC.md` §3.1. **None of it exists
-  yet.**
-- **Build**: `electron-vite` (`SPEC.md` §3.2) — config not yet written.
-- **Run locally**: not yet runnable. Milestone 1 (`SPEC.md` §13) is the first
-  milestone that produces a launchable app.
-- **Test**: no suite yet. Milestone 0 is a standalone ~150-line script in
-  `test/anchor.spec.ts` (`SPEC.md` §13, Milestone 0).
-- **Key dependencies** (planned, `SPEC.md` §3.2): `electron`, `electron-vite`,
-  `react` + `react-dom`, `better-sqlite3` (native — needs `electron-rebuild`),
-  `@anthropic-ai/claude-agent-sdk`, `markdown-it`, `dompurify`,
-  `diff-match-patch`, `uuid`.
-- **Package manager**: not yet chosen — decided when `package.json` is written at
-  milestone 1. The sibling repos `~/Projects/Github/lukaskellerstein/dex` and
-  `~/Projects/Github/lukaskellerstein/vex` both use npm.
+  process holds the thread service, the document renderers, the gate and
+  SQLite. They talk over IPC only. **From spec 42 on, a third process:** the
+  Python agent library, `agent-gateway/`, spawned by main and spoken to over its
+  own stdin and stdout — every agent SDK lives there, and main keeps only a pipe
+  client (`src/main/agent/service.ts`) and a mapping (`bridge.ts`).
+- **Structure**: `src/main/` (`agent/`, `db/`, `docx/`, `pptx/`, `render/`,
+  `workspace/`, `ipc.ts`, `apply.ts`, …), `src/renderer/` (`overlay/`,
+  `anchor/`), `src/shared/`, `src/preload/`, `test/` (39 `*.spec.ts` files),
+  `docs/my-specs/`. Spec 42 adds `agent-gateway/` at the root.
+- **Build**: `electron-vite` — `npm run build`; `npm run typecheck` is
+  `tsc --noEmit`.
+- **Run locally**: `npm run dev` — Vite on 5334, the debugger on 9334 (§ Ports).
+  An agent starts its own instance only through
+  `.claude/hooks/playwright-launch.sh npm run dev`
+  ([`06-testing.md`](06-testing.md)).
+- **Test**: one script per file — `npm run test:<name>` runs
+  `node --test test/<name>.spec.ts`. There are 39 and there is no `npm test`.
+  Spec 42 adds `uv run pytest` in `agent-gateway/` and `npm run test:library`.
+- **Key dependencies**: `electron`, `electron-vite`, `react` + `react-dom`,
+  `better-sqlite3` (native — needs `electron-rebuild`), `markdown-it`,
+  `dompurify`, `diff-match-patch`, `uuid`, `mermaid`, `pdfjs-dist`, `mammoth`,
+  `jszip`, `pptxtojson`, `katex`; and `@anthropic-ai/claude-agent-sdk` until
+  spec 42 moves it into `agent-gateway/` as `claude-agent-sdk`.
+- **Package manager**: npm for the app (`package-lock.json`); `uv` for
+  `agent-gateway/`, and never `pip` — package managers are not
+  interchangeable.
 
 ## The three invariants
 
@@ -48,9 +57,10 @@ description: Project configuration — architecture, paths, dev environment
 
 ## Ports
 
-REX itself listens on nothing — that is invariant I3. The two ports in this
-repo's config belong to Electron's debugger and to the dev-time bundler, not to
-the app. The built app opens neither:
+REX itself listens on nothing — that is invariant I3, and it holds for the
+agent library too: `agent-gateway/` is a child on pipes, not a server (spec 42
+§4). The two ports in this repo's config belong to Electron's debugger and to
+the dev-time bundler, not to the app. The built app opens neither:
 
 | Port | What | Where |
 |:--|:--|:--|
@@ -80,5 +90,8 @@ Verified to exist on this machine. `SPEC.md` §2 is the source.
 |:--|:--|
 | `~/Projects/Github/lukaskellerstein/vex` | The reference adapter being ported (`SPEC.md` §11). **Read-only.** |
 | `~/Projects/Github/lukaskellerstein/claude-my-marketplace` | Supplies the `lsp-*` plugins REX loads into its own agents (`SPEC.md` §8.3) |
-| `~/Projects/Github/redhat/ProtoBot/docs/` | The test documents anchoring is developed against (`SPEC.md` §2). Note the capitalisation — `redhat` lower, `ProtoBot` camel. **Read-only.** |
+| `~/Projects/Github/lukaskellerstein/documentation-sample` | The sample documents every test and live check uses. `one/`: `sample-document.md` (263 lines, a README), `sample-document.docx` (a different document — a quarterly business review, 45 blocks, 4 images, 4 tables) and `sample-document.pdf` (a third — a watershed monitoring report). `two/`: `sample-report.md` (349 lines), `.docx` and `.pdf`, one report in three formats. `three/`: `sample-deck.pptx`, `sample-workbook.xlsx`. **Read-only.** |
 | `~/.rex/rex.db` | REX's database at runtime — **outside every repository**, so it can never be committed (`SPEC.md` §9) |
+| `~/Projects/Github/lukaskellerstein/ai-gateway` | The reviewer's gateways — `litellm/` on 24000, `envoy/` on 26000 — that spec 43 routes agents through. **Read-only.** Never run `compose config` there; it prints keys |
+| `~/Projects/Github/lukaskellerstein/vibe-coding-course` | The Codex and OpenCode samples specs 44 and 45 cite by file and line. **Read-only.** |
+| `~/Projects/Github/lukaskellerstein/ai-agents-course/Version_3/06_langchain-ai/3_deepagents` | The Deep Agents samples spec 46 cites. **Read-only.** |

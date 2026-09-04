@@ -140,6 +140,7 @@ function elementRef(el: Element | null): ElementRef | null {
   const ref: ElementRef = {};
   if (isStableId(el.id)) ref.id = el.id;
   ref.css = generateCssPath(el);
+  ref.tag = el.tagName.toLowerCase();
   // Spec 11 §5.2 — stamped only where the id can be an index, which is a slide.
   // Everywhere else the id and the CSS path are identities already, and a
   // fingerprint would make an anchor orphan on a rebuild that changed nothing

@@ -12,8 +12,10 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { extractLinks, indexByBasename, resolveTarget } from "../src/main/workspace/links.ts";
 
-const DOCS = join(homedir(), "Projects/Github/redhat/ProtoBot/docs");
-const COMPONENTS = join(DOCS, "architecture/components.md");
+// The sample documents every test uses — read-only, see CLAUDE.md.
+const DOCS = join(homedir(), "Projects/Github/lukaskellerstein/documentation-sample");
+const DOCUMENT = join(DOCS, "one/sample-document.md");
+const REPORT = join(DOCS, "two/sample-report.md");
 
 test("markdown links come from the token stream, not a pattern", () => {
   const source = [
@@ -71,47 +73,55 @@ test("a scheme means it is a URL, and is never a node", () => {
     "mailto:a@b.c",
     "//cdn.example",
   ]) {
-    assert.equal(resolveTarget(COMPONENTS, href).kind, "url", href);
+    assert.equal(resolveTarget(REPORT, href).kind, "url", href);
   }
 });
 
 test("a bare fragment is a link to the same document", () => {
-  assert.equal(resolveTarget(COMPONENTS, "#content-storage-model").kind, "self");
-  assert.equal(resolveTarget(COMPONENTS, "").kind, "self");
+  assert.equal(resolveTarget(DOCUMENT, "#installation").kind, "self");
+  assert.equal(resolveTarget(DOCUMENT, "").kind, "self");
 });
 
 test("a relative link resolves against the linking file and keeps its fragment", () => {
-  const target = resolveTarget(COMPONENTS, "user-interaction-flow.md#phase-3-building-autonomous");
+  const target = resolveTarget(REPORT, "../one/sample-document.md#installation");
   assert.equal(target.kind, "file");
   if (target.kind !== "file") return;
-  assert.equal(target.path, join(DOCS, "architecture/user-interaction-flow.md"));
-  assert.equal(target.fragment, "phase-3-building-autonomous");
+  assert.equal(target.path, DOCUMENT);
+  assert.equal(target.fragment, "installation");
   assert.equal(target.exists, true);
 });
 
 test("a link that leaves the folder still resolves to the file it names", () => {
-  const review = join(DOCS, "review/2026-08-20-architecture-explained.html");
-  const target = resolveTarget(review, "../../comparison.html");
+  const target = resolveTarget(DOCUMENT, "../README.md");
   assert.equal(target.kind, "file");
   if (target.kind !== "file") return;
   // Whether this counts as "external" is the graph's decision, not this file's.
-  assert.equal(target.path, join(homedir(), "Projects/Github/redhat/ProtoBot/comparison.html"));
+  assert.equal(target.path, join(DOCS, "README.md"));
+  assert.equal(target.exists, true);
 });
 
 test("a target that does not exist is reported as not existing", () => {
-  const target = resolveTarget(COMPONENTS, "no-such-document.md");
+  // The sample document really links to this file, and the file is not there.
+  const target = resolveTarget(DOCUMENT, "./CONTRIBUTING.md");
   assert.equal(target.kind, "file");
   if (target.kind !== "file") return;
   assert.equal(target.exists, false);
 });
 
 test("a link to a directory resolves to its index, or is broken", () => {
-  const withIndex = resolveTarget(join(DOCS, "architecture/components.md"), ".");
+  // `one/` has no index.md, index.html or README.md, so a link to it is broken
+  // rather than silently resolving to the directory itself.
+  const withoutIndex = resolveTarget(DOCUMENT, ".");
+  assert.equal(withoutIndex.kind, "file");
+  if (withoutIndex.kind !== "file") return;
+  assert.equal(withoutIndex.exists, false);
+
+  // The repository root has a README.md, so a link one folder up finds it.
+  const withIndex = resolveTarget(DOCUMENT, "..");
   assert.equal(withIndex.kind, "file");
   if (withIndex.kind !== "file") return;
-  // docs/architecture has no index.md or README.md, so a link to it is broken
-  // rather than silently resolving to the directory itself.
-  assert.equal(withIndex.exists, false);
+  assert.equal(withIndex.path, join(DOCS, "README.md"));
+  assert.equal(withIndex.exists, true);
 });
 
 test("a wikilink resolves by basename, and a tie is left broken", () => {

@@ -61,7 +61,7 @@ export type PreviewFigure =
  * A drawing lifted out of its document loses its document's stylesheet, and for
  * SVG that is not a cosmetic loss — `fill` falls back to black, so a figure of
  * outlined boxes becomes a figure of solid black rectangles. Measured on
- * 2026-08-24 against ProtoBot's architecture page, whose diagrams are drawn with
+ * 2026-08-24 against a reviewed architecture page, whose diagrams are drawn with
  * classes (`.d-box-in { fill: var(--paper); stroke: var(--rule) }`) rather than
  * with presentation attributes.
  *
@@ -133,7 +133,7 @@ const TRANSPARENT = /^(?:transparent|rgba\(0,\s*0,\s*0,\s*0\))$/;
  *
  * What replaced it is a signal the document actually declares:
  * `aria-hidden="true"` is an author saying this drawing is decoration. The four
- * diagrams in ProtoBot's architecture page carry `role="img"` and an
+ * diagrams in that architecture page carry `role="img"` and an
  * `aria-label`; Mermaid's renders carry `role="graphics-document document"`.
  * None of them is hidden, and an icon that is decoration usually says so.
  *

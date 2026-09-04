@@ -27,6 +27,14 @@ interface Props {
    * how a document silently stops being one REX can open.
    */
   selection?: "all" | "stem";
+  /**
+   * Spec 39 §5.3 — what an EMPTY box says it is for.
+   *
+   * A rename opens on the current name and needs none. A create opens blank, and
+   * a blank focused box in the middle of a tree says nothing at all about which
+   * of the two things it is about to make.
+   */
+  placeholder?: string;
   /** Null only ever reaches this when `allowEmpty` is true. */
   onSave: (name: string | null) => void;
   onCancel: () => void;
@@ -81,6 +89,7 @@ export function NameBox(props: Props): React.JSX.Element {
       type="text"
       className="rex-name-box"
       aria-label={props.label}
+      placeholder={props.placeholder}
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
       // The row underneath is a click target and a drag source. Neither should

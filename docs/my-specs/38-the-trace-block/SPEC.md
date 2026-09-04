@@ -378,7 +378,7 @@ four failed calls — with the explorer and the card open, so the sheet had a
 | The rows | 72 `INPUT`, 11 `CHANGE`, 72 `OUTPUT` |
 | The first `YOU` | the `ASK` pill, then `PLACES 3`: `1 user-interaction-flow.md │ whole file`, `2 components.md`, `3 overview.md` — the places it started with |
 | Two later `YOU`s, sent as `ACT` | the red `ACT` pill and one place each, the ones those messages brought |
-| A `READ` | `INPUT /Users/…/user-interaction-flow… 1 field`, shut; open, `file_path` and the path. `OUTPUT 1 # ProtoBot: User Interaction Flow 102 lines` |
+| A `READ` | `INPUT /Users/…/user-interaction-flow… 1 field`, shut; open, `file_path` and the path. `OUTPUT 1 # User Interaction Flow 102 lines` |
 | A `BASH` | `BASH List architecture docs` in the head; `INPUT ls -la /Users/…` below it |
 | The `EDIT` | `INPUT … 2 fields`, `CHANGE −40 +1 41 lines`, `OUTPUT The file … 198 chars`; the change opened to red and green lines |
 | A failed `BASH` | `BASH · FAILED`, its `OUTPUT` open on `Exit code 1` |

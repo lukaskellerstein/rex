@@ -346,7 +346,7 @@ uncommon but the risk is real:
 | `sample-files/sample-document.md` | 15 | — |
 | `sample-files/sample-document.docx` | 12 | — |
 | `documentation-sample/two/sample-report.docx` | 15 | — |
-| ProtoBot `2026-08-20-architecture-explained.html` | 15 | 7 |
+| a hand-written HTML review page, measured 2026-08-20 | 15 | 7 |
 
 Both sample DOCX files convert with **zero** unmapped styles, so their headings
 are real. The HTML file is the case rule 2 of §4.1 exists for: 7 of its 15
@@ -743,10 +743,10 @@ first three are the scopes and stand alone; the rest are the pen.
    than `durable`.
 
 3. **Real sectioning elements win.** Rule 2 of §4.1.
-   **Accept:** on
-   `~/Projects/Github/redhat/ProtoBot/docs/review/2026-08-20-architecture-explained.html`,
-   a heading inside an existing `<section id=…>` offers that element — one
-   `section` scope in the chain, not two.
+   **Accept:** on an HTML page whose headings sit inside `<section id=…>`
+   elements — none in `documentation-sample` does, so a ten-line fixture
+   written for this check — a heading inside an existing `<section id=…>`
+   offers that element — one `section` scope in the chain, not two.
 
 4. **Ink on the glass.** The pen mode, the layer, strokes, undo, redo, cancel,
    done. Nothing is selected and nothing is stored yet.

@@ -7,6 +7,14 @@
 // prints what each anchor resolved *to*, and fails when a layer 1 hit does not
 // return the text it was created from.
 //
+// The two documents are from `documentation-sample` (CLAUDE.md § read-only):
+//   * `one/sample-document.md` — Markdown through REX's own renderer, so every
+//     block carries `data-src-line` and every heading a slug id.
+//   * `one/sample-document.docx` — a different document, through mammoth, so
+//     the page has NO `data-src-line` and NO ids: the hand-written-HTML shape,
+//     where every anchor falls back to text and structure. Its four images are
+//     data URIs, which is what the region gate needs.
+//
 // Run: npm run test:anchor
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -15,12 +23,13 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 import { chromium, type Page } from "playwright";
+import { renderDocx } from "../src/main/render/docx.ts";
 import { renderMarkdown } from "../src/main/render/markdown.ts";
 import type { Anchor, AnchorState } from "../src/shared/types.ts";
 
-const DOCS = join(homedir(), "Projects/Github/redhat/ProtoBot/docs");
-const HTML_DOC = join(DOCS, "review/2026-08-20-architecture-explained.html");
-const MD_DOC = join(DOCS, "architecture/components.md");
+const DOCS = join(homedir(), "Projects/Github/lukaskellerstein/documentation-sample");
+const MD_DOC = join(DOCS, "one/sample-document.md");
+const DOCX_DOC = join(DOCS, "one/sample-document.docx");
 const WORK = join(process.env.REX_SPIKE_DIR ?? tmpdir(), "rex-anchor-spike");
 
 interface Marker {
@@ -103,13 +112,17 @@ function createInPage(input: {
       range.commonAncestorContainer.nodeType === 1
         ? (range.commonAncestorContainer as Element)
         : range.commonAncestorContainer.parentElement;
+    // A marker whose quote happens to be a block's whole text resolves to
+    // that BLOCK, so the block it sits in has to be recorded — not the inline
+    // `<strong>` or `<em>` the range happens to be inside, which is what the
+    // range's own ancestor is for a bold tagline.
+    const block =
+      holder?.closest("p,li,h1,h2,h3,h4,h5,h6,td,th,pre,blockquote,figcaption,dt,dd") ?? holder;
     created.push({
       id: marker.id,
       anchor: rex.createTextAnchor(index, range, input.sourceFile),
       signature: marker.quote,
-      // A marker whose quote happens to be a block's whole text resolves to
-      // that block, so the element it sits in has to be recorded too.
-      blockSignature: holder ? describe(holder) : marker.quote,
+      blockSignature: block ? describe(block) : marker.quote,
     });
   }
 
@@ -126,9 +139,9 @@ function createInPage(input: {
     blockSignature: describe(el),
   });
 
-  // Both test documents label their diagrams, so every anchorable element here
-  // carries text and never reaches layer 3. This probe strips the quote to
-  // force §6.5 step 4 — the path that a real image or icon would take.
+  // Both element targets carry text — a code fence and a table — so neither
+  // reaches layer 3 on its own. This probe strips the quote to force §6.5
+  // step 4, the path that a real image or icon would take.
   const probe: Created = {
     id: `${input.element.id}/layer-3-probe`,
     anchor: { ...elementAnchor, quote: null, position: null },
@@ -271,38 +284,39 @@ async function runCase(
 }
 
 // ── The three edits (§13 step 4) ────────────────────────────────
+//
+// Each document gets the same three edits — a paragraph inserted near the top
+// so every offset below it shifts, one sentence reworded, one heading reworded
+// (spec 06 §10 milestone 9), and one whole section deleted.
 
-function editHtml(html: string): string {
-  const footnote =
-    '<p class="footnote" style="margin-top:1.4rem;">Everything else in the architecture exists to keep those three claims alive. Every component below protects one of them.</p>';
-  let out = replaceOnce(
-    html,
-    footnote,
-    `${footnote}\n<p class="footnote">Inserted by the milestone 0 spike. It exists only to shift every character offset below it.</p>`,
-  );
+const INSERTED =
+  "Inserted by the milestone 0 spike. It exists only to shift every character offset below it.";
+
+function editDocx(html: string): string {
+  const firstParagraphEnd = "retired the last of the legacy hosting contracts.</p>";
+  let out = replaceOnce(html, firstParagraphEnd, `${firstParagraphEnd}<p>${INSERTED}</p>`);
 
   out = replaceOnce(
     out,
-    "EARS is the narrow waist of the system. Everything upstream of it is conversation. Everything downstream of it is machinery.",
-    "EARS is the pinch point of the whole pipeline. Above the line everything is discussion; below it everything is automation.",
+    "Margin expansion came from three identifiable sources.",
+    "Three separate sources drove the expansion of the margin.",
   );
 
   // Spec 06 §10 milestone 9 — a section keys on its *heading*, so rewording
-  // one is the edit that tests it. Section 04 is chosen because it survives the
-  // deletion below, which is what makes the wrong-place question live: its
-  // positional path still matches a heading afterwards, just not its own.
+  // one is the edit that tests it. "What moved the margin" is chosen because it
+  // sits below the deletion, which is what makes the wrong-place question live:
+  // its positional path still matches a heading afterwards, just not its own.
   out = replaceOnce(
     out,
-    "<h2>Two stores, joined by two strings</h2>",
-    "<h2>Where the two stores meet, and what joins them</h2>",
+    "<h2><strong>What moved the margin</strong></h2>",
+    "<h2><strong>Why the margin moved</strong></h2>",
   );
 
-  return deleteHtmlSection(out, '<div class="plate">02</div>');
+  return deleteDocxSection(out, "<h2><strong>At a glance</strong></h2>");
 }
 
 function editMarkdown(source: string): string {
-  const intro =
-    "For the user-facing flow and phase details, see\n[user-interaction-flow.md](user-interaction-flow.md).";
+  const intro = "Requires Python 3.10 or newer and GDAL 3.6+.";
   let out = replaceOnce(
     source,
     intro,
@@ -311,15 +325,15 @@ function editMarkdown(source: string): string {
 
   out = replaceOnce(
     out,
-    "The WMS Adapter is a thin, pluggable integration layer between\nProtoBot and the user's chosen work management backend.",
-    "The WMS Adapter is a slim, swappable bridge that connects ProtoBot\nto whichever work management backend the user picked.",
+    "Tile size matters more than worker count.",
+    "Tile size counts for far more than the number of workers.",
   );
 
   // §10 milestone 9 — the reworded heading. Its slug id changes with it, which
   // is the whole point: the strongest key a Markdown section has stops matching.
-  out = replaceOnce(out, "## Content Storage Model", "## How project content is stored");
+  out = replaceOnce(out, "## Configuration", "## Settings, and where they come from");
 
-  return deleteMarkdownSection(out, "## Specification Toolkit");
+  return deleteMarkdownSection(out, "## FAQ");
 }
 
 function replaceOnce(haystack: string, needle: string, replacement: string): string {
@@ -328,14 +342,18 @@ function replaceOnce(haystack: string, needle: string, replacement: string): str
   return haystack.slice(0, at) + replacement + haystack.slice(at + needle.length);
 }
 
-/** Removes the whole `<section>` containing `marker`. */
-function deleteHtmlSection(html: string, marker: string): string {
-  const at = html.indexOf(marker);
-  if (at === -1) throw new Error(`section marker not found: ${marker}`);
-  const start = html.lastIndexOf("<section>", at);
-  const end = html.indexOf("</section>", at);
-  if (start === -1 || end === -1) throw new Error("could not bracket the section to delete");
-  return html.slice(0, start) + html.slice(end + "</section>".length);
+/**
+ * Removes a mammoth section: the heading and everything up to the next `<h1>`
+ * or `<h2>`. mammoth emits no `<section>` element, so a section here is what a
+ * reader would call one — a heading and the blocks under it.
+ */
+function deleteDocxSection(html: string, heading: string): string {
+  const start = html.indexOf(heading);
+  if (start === -1) throw new Error(`heading not found: ${heading}`);
+  const rest = html.slice(start + heading.length);
+  const next = rest.search(/<h[12][\s>]/);
+  if (next === -1) throw new Error("could not find the heading after the section to delete");
+  return html.slice(0, start) + rest.slice(next);
 }
 
 /** Removes an `## …` section up to the next heading of the same level. */
@@ -346,125 +364,122 @@ function deleteMarkdownSection(source: string, heading: string): string {
   return source.slice(0, start) + (next === -1 ? "" : source.slice(next + 1));
 }
 
-const MD_PAGE = (body: string): string =>
-  `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><title>components.md</title></head>\n<body>\n${body}\n</body></html>\n`;
+const PAGE = (title: string, body: string): string =>
+  `<!doctype html>\n<html lang="en"><head><meta charset="utf-8"><title>${title}</title></head>\n<body>\n${body}\n</body></html>\n`;
 
 // ── Main ────────────────────────────────────────────────────────
 
-const HTML_MARKERS: Marker[] = [
+const DOCX_MARKERS: Marker[] = [
   {
-    id: "html/verdict",
-    quote: "ProtoBot turns a written specification into a running demo",
+    id: "docx/title",
+    quote: "Quarterly Business Review",
     expect: "ok",
     why: "above the insertion point — offsets unchanged",
   },
   {
-    id: "html/repeated-phrase",
-    quote: "The specification is the product",
+    id: "docx/repeated-phrase",
+    quote: "Q2 2026",
     expect: "ok",
-    why: "occurs twice; must disambiguate by prefix/suffix, not pick the first",
+    why: "occurs three times; must disambiguate by prefix/suffix, not pick the first",
   },
   {
-    id: "html/after-insert",
-    quote: "The design uses a construction metaphor.",
+    id: "docx/after-insert",
+    quote: "Two areas need attention before the next cycle.",
     expect: "ok",
     why: "below the inserted paragraph — §13 requires these stay ok",
   },
   {
-    id: "html/ears-parse",
-    quote: "A plain program can parse it.",
+    id: "docx/below-deletion",
+    quote: "Figures are drawn from the consolidated ledger as at 30 June 2026",
     expect: "ok",
-    why: "short quote below the insertion, inside a list item",
+    why: "the first paragraph after the deleted section",
   },
   {
-    id: "html/reworded",
-    quote:
-      "EARS is the narrow waist of the system. Everything upstream of it is conversation. Everything downstream of it is machinery.",
+    id: "docx/reworded",
+    quote: "Margin expansion came from three identifiable sources.",
     expect: "moved-or-orphaned",
     why: "THE REWORDED ONE — must never resolve silently to another passage",
   },
   {
-    id: "html/deleted-section",
-    quote: "Keep them apart, and their agreement becomes real evidence",
+    id: "docx/deleted-section",
+    quote: "Total revenue of 12.8M USD, up 17.4% year over year",
     expect: "orphaned",
-    why: "inside the deleted section 02",
+    why: "inside the deleted 'At a glance' section",
   },
   {
-    id: "html/components",
-    quote: "The room where a person and an agent sit together.",
+    id: "docx/caption",
+    quote: "Figure 2 — Active accounts and monthly churn rate, January to June 2026.",
     expect: "ok",
-    why: "below both the insertion and the deletion",
+    why: "an italic caption below both the insertion and the deletion",
   },
   {
-    id: "html/walkthrough",
-    quote: "If only one part of this document sticks, make it this one.",
+    id: "docx/pull-quote",
+    quote: "The migration paid for itself two quarters earlier than we forecast",
     expect: "ok",
-    why: "far below the deletion",
+    why: "inside a quoted, italic run — inline elements must not break the quote",
   },
   {
-    id: "html/gaps",
-    quote: "Some is named as an open question but is far bigger than its one bullet suggests.",
+    id: "docx/last",
+    quote: "Approved by the executive committee",
     expect: "ok",
-    why: "last section — the largest offset shift",
+    why: "last paragraph — the largest offset shift",
   },
 ];
 
 const MD_MARKERS: Marker[] = [
   {
     id: "md/title",
-    quote: "ProtoBot: System Components",
+    quote: "A tiled, parallel resampler for very large raster datasets.",
     expect: "ok",
-    why: "the h1, above everything",
+    why: "the bold tagline under the h1, above everything",
   },
   {
-    id: "md/overview",
-    quote:
-      "This document identifies the major system components that ProtoBot needs to be built from",
+    id: "md/repeated-phrase",
+    quote: "Sentinel-2 mosaic",
     expect: "ok",
-    why: "hard-wrapped in source; only survives if whitespace normalisation is right",
+    why: "occurs twice, in prose and in a table cell; must disambiguate by prefix/suffix",
   },
   {
-    id: "md/drafting-table",
-    quote: "The Drafting Table is where the human sits down with an AI agent",
+    id: "md/after-insert",
+    quote: "Reproject a 40 GB scene to EPSG:3857 with bilinear resampling:",
     expect: "ok",
     why: "below the inserted paragraph",
   },
   {
-    id: "md/two-parts",
-    quote: "A Drafting Table implementation consists of two parts",
+    id: "md/list-item",
+    quote: "Command-line flags",
     expect: "ok",
-    why: "spans a bold span — inline elements must not break the quote",
+    why: "short quote inside an ordered-list item",
   },
   {
     id: "md/reworded",
-    quote:
-      "The WMS Adapter is a thin, pluggable integration layer between ProtoBot and the user's chosen work management backend.",
+    quote: "Tile size matters more than worker count.",
     expect: "moved-or-orphaned",
-    why: "THE REWORDED ONE — must never resolve silently to another passage",
+    why: "THE REWORDED ONE — inside an alert callout; must never resolve silently to another passage",
   },
   {
     id: "md/deleted-section",
-    quote: "The Specification Toolkit is the portable domain logic that any",
+    quote: "Can I resume an interrupted run?",
     expect: "orphaned",
-    why: "inside the deleted Specification Toolkit section",
+    why: "inside the deleted FAQ section",
   },
   {
-    id: "md/storage",
-    quote: "Project content lives in the project's git repo, not in the",
+    id: "md/inline-code",
+    quote: "Tilecat falls back to a single-pass path below --tile-threshold (default 1 GB).",
     expect: "ok",
-    why: "below the deletion, spans a bold span",
+    why: "spans an inline code span — inline elements must not break the quote",
   },
   {
-    id: "md/one-adapter",
-    quote: "One adapter implementation is active per project.",
+    id: "md/contributing",
+    quote: "Pull requests are welcome. Before opening one:",
     expect: "ok",
-    why: "immediately after the reworded sentence — the neighbour most at risk",
+    why: "immediately after the deleted section — the neighbour most at risk",
   },
   {
-    id: "md/approved-specs",
-    quote: "Approved specifications live on main",
+    id: "md/last",
+    quote: "Third-party components retain their own licences",
     expect: "ok",
-    why: "short quote, far below every edit",
+    why: "last section — the largest offset shift",
   },
 ];
 
@@ -475,6 +490,10 @@ const MD_MARKERS: Marker[] = [
 // That is the one silent wrong-place failure the rest of §6 is built to avoid,
 // and the `RegionRef.fingerprint` field exists solely to close it. This case is
 // the proof, and it fails loudly if the field is ever dropped.
+//
+// It runs on the DOCX render, whose four figures are `<img>` elements with
+// data-URI sources — deterministic, no network, and exactly what a chart in a
+// Word document is.
 
 interface RegionCheck {
   id: string;
@@ -482,26 +501,28 @@ interface RegionCheck {
   landedOn: string | null;
 }
 
+/** A valid 1×1 PNG — "a different picture", as small as one can be. */
+const ONE_PIXEL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
 /** Redraws one figure in place: same element, same position, new content. */
-function redrawSvg(html: string, which: number): string {
-  const blocks = [...html.matchAll(/<svg[\s\S]*?<\/svg>/g)];
-  const block = blocks[which];
-  if (!block) throw new Error(`document has no svg at index ${which}`);
-  const redrawn = block[0].replace(
-    /^(<svg[^>]*>)/,
-    '$1<circle cx="12" cy="12" r="5" fill="#2f5da8"></circle>',
-  );
-  return html.slice(0, block.index) + redrawn + html.slice(block.index + block[0].length);
+function redrawImage(html: string, which: number): string {
+  const images = [...html.matchAll(/<img[^>]*>/g)];
+  const image = images[which];
+  if (!image) throw new Error(`document has no img at index ${which}`);
+  const redrawn = image[0].replace(/src="[^"]*"/, `src="${ONE_PIXEL}"`);
+  if (redrawn === image[0]) throw new Error("img has no src to redraw");
+  return html.slice(0, image.index) + redrawn + html.slice(image.index + image[0].length);
 }
 
 function createRegionsInPage(which: number): Array<{ id: string; anchor: Anchor }> {
   const rex = (window as any).__rexAnchor;
   const index = rex.buildTextIndex(document);
-  const svgs = document.querySelectorAll("svg");
+  const images = document.querySelectorAll("img");
   const box = { x: 8, y: 8, w: 40, h: 24 };
   return [
-    { id: "region/redrawn", anchor: rex.createRegionAnchor(index, svgs[which], box, null) },
-    { id: "region/untouched", anchor: rex.createRegionAnchor(index, svgs[which + 1], box, null) },
+    { id: "region/redrawn", anchor: rex.createRegionAnchor(index, images[which], box, null) },
+    { id: "region/untouched", anchor: rex.createRegionAnchor(index, images[which + 1], box, null) },
   ];
 }
 
@@ -514,7 +535,7 @@ function resolveRegionsInPage(created: Array<{ id: string; anchor: Anchor }>): R
       id: record.id,
       orphaned: resolution === null,
       landedOn: resolution?.element
-        ? `<${resolution.element.tagName.toLowerCase()}> ${(resolution.element.getAttribute("aria-label") ?? "").slice(0, 60)}`
+        ? `<${resolution.element.tagName.toLowerCase()}> ${(resolution.element.getAttribute("alt") ?? "").slice(0, 60)}`
         : null,
     };
   });
@@ -525,7 +546,7 @@ async function runRegionGate(bundle: string, html: string): Promise<number> {
   const original = join(WORK, "region-original.html");
   const redrawn = join(WORK, "region-redrawn.html");
   writeFileSync(original, html);
-  writeFileSync(redrawn, redrawSvg(html, which));
+  writeFileSync(redrawn, redrawImage(html, which));
 
   const created = await withPage(bundle, original, (page) =>
     page.evaluate(createRegionsInPage, which),
@@ -563,10 +584,10 @@ async function runRegionGate(bundle: string, html: string): Promise<number> {
 // A section anchor names its *heading* and means everything under it (§4.3), so
 // the failure it can hide is different from a text anchor's: not "the quote
 // moved" but "the heading is gone and something else answered to its
-// description". A positional path like `section:nth-of-type(4) > div > h2`
-// still matches a heading after a section above it is deleted — it is just not
-// the same heading. That resolves, reports `moved`, and outlines the wrong four
-// thousand characters.
+// description". A positional path like `h2:nth-of-type(4)` still matches a
+// heading after a section above it is deleted — it is just not the same
+// heading. That resolves, reports `moved`, and outlines the wrong four thousand
+// characters.
 //
 // So this case does not assert that a section resolved. It prints the heading
 // each one *landed on* and fails when that is not the heading it was created
@@ -697,59 +718,65 @@ async function runSectionGate(
 
 const MD_SECTIONS: SectionMarker[] = [
   {
-    id: "md/overview",
-    heading: "Overview",
+    id: "md/installation",
+    heading: "Installation",
     expect: "ok",
     why: "the insertion lands inside its run — a section grows without moving",
   },
   {
-    id: "md/drafting-table",
-    heading: "Drafting Table",
+    id: "md/benchmarks",
+    heading: "Benchmarks",
     expect: "ok",
     why: "below the insertion; its slug id carries it whatever the offsets do",
   },
   {
     id: "md/deleted",
-    heading: "Specification Toolkit",
+    heading: "FAQ",
     expect: "orphaned",
     why: "the whole section was deleted — there is no heading to walk from",
   },
   {
     id: "md/reworded-inside",
-    heading: "WMS Adapter",
+    heading: "Quick start",
     expect: "ok",
     why: "a sentence inside it was rewritten; the heading is what the anchor names",
   },
   {
     id: "md/reworded-heading",
-    heading: "Content Storage Model",
+    heading: "Configuration",
     expect: "moved-or-orphaned",
     why: "THE REWORDED HEADING — must never resolve to the neighbouring section",
   },
 ];
 
-const HTML_SECTIONS: SectionMarker[] = [
+const DOCX_SECTIONS: SectionMarker[] = [
   {
-    id: "html/phases",
-    heading: "Four phases, and one line that matters",
+    id: "docx/executive-summary",
+    heading: "Executive summary",
     expect: "ok",
-    why: "above every edit",
+    why: "the insertion lands inside its run — a section grows without moving",
   },
   {
-    id: "html/deleted",
-    heading: "Dual-model isolation, the idea that half the architecture protects",
+    id: "docx/deleted",
+    heading: "At a glance",
     expect: "orphaned",
-    why: "section 02, deleted outright",
+    why: "the whole section was deleted — there is no heading to walk from",
   },
   {
-    id: "html/components",
-    heading: "The six components",
+    id: "docx/scope",
+    heading: "Scope and method",
     expect: "ok",
-    why: "below the deletion — no id here, so it resolves on its heading's text",
+    why: "just below the deletion — no id here, so it resolves on its heading's text",
   },
   {
-    id: "html/reworded-heading",
-    heading: "Two stores, joined by two strings",
+    id: "docx/financial",
+    heading: "1. Financial performance",
+    expect: "ok",
+    why: "an h1 below the deletion; its run ends where the next h1 begins",
+  },
+  {
+    id: "docx/reworded-heading",
+    heading: "What moved the margin",
     expect: "moved-or-orphaned",
     why: "THE REWORDED HEADING — its positional path still matches a heading, just not its own",
   },
@@ -764,7 +791,7 @@ const HTML_SECTIONS: SectionMarker[] = [
 // So §6.3 makes it report doubt rather than confidence: a single-sided match is
 // `moved` and never `ok`, and no neighbour at all is `orphaned` rather than
 // "somewhere near where it used to be". This case is the proof of both, and it
-// runs against the same two hostile documents and the same three edits.
+// runs against the same two documents and the same three edits.
 
 interface GapMarker {
   id: string;
@@ -802,10 +829,10 @@ function createGapsInPage(input: {
   const sign = (el: Element | null): string => norm(el?.textContent ?? "").slice(0, 60);
 
   // The same set spec 16 §6.6 offers gaps between: stamped blocks where the
-  // renderer stamped any, keeping only the outermost. The hand-written HTML
-  // document carries no `data-src-line` at all, so there the block tags stand in
-  // — which is what the gap RESOLVER sees either way, since it walks to the
-  // nearest stamped ancestor and falls back to the element itself.
+  // renderer stamped any, keeping only the outermost. The mammoth document
+  // carries no `data-src-line` at all, so there the block tags stand in — which
+  // is what the gap RESOLVER sees either way, since it walks to the nearest
+  // stamped ancestor and falls back to the element itself.
   const stamped = [...document.querySelectorAll("[data-src-line]")];
   const candidates =
     stamped.length > 0
@@ -899,48 +926,54 @@ async function runGapGate(
 const MD_GAPS: GapMarker[] = [
   {
     id: "md-gap/untouched",
-    after: "One adapter implementation is active per project.",
+    after: "Environment variables mirror the flags",
     expect: "ok",
     why: "both neighbours survive every edit — the only case that may report ok",
   },
   {
     id: "md-gap/after-only",
-    after: "The WMS backend holds the state, so this should work",
+    after: "Deprecation of --legacy-scheduler, which has been a no-op since 1.0.",
     expect: "moved",
-    why: "the block BELOW was deleted with its section — one side is not ok",
+    why: "the block BELOW is the deleted FAQ heading; the table of contents still holds an <li> reading 'FAQ', which must not answer for it",
   },
   {
     id: "md-gap/before-only",
-    after: "The agent should not need to manipulate spec files",
+    after: "Is the output bit-identical to GDAL's gdalwarp?",
     expect: "moved",
     why: "the block ABOVE went with the deleted section; it resolves via `before`",
   },
   {
     id: "md-gap/orphaned",
-    after: "The Specification Toolkit is the portable domain logic",
+    after: "Does Tilecat modify the source file?",
     expect: "orphaned",
     why: "both neighbours were deleted — never 'somewhere near where it used to be'",
   },
 ];
 
-const HTML_GAPS: GapMarker[] = [
+const DOCX_GAPS: GapMarker[] = [
   {
-    id: "html-gap/untouched",
-    after: "The room where a person and an agent sit together.",
+    id: "docx-gap/untouched",
+    after: "The following commitments were agreed at the quarterly planning session.",
     expect: "ok",
-    why: "below both the insertion and the deletion; both neighbours survive",
+    why: "a paragraph and the table under it; both survive every edit",
   },
   {
-    id: "html-gap/orphaned",
-    after: "Keep them apart, and their agreement becomes real evidence",
-    expect: "orphaned",
-    why: "both neighbours are inside the deleted section 02",
-  },
-  {
-    id: "html-gap/before-only",
-    after: "The odd rule: after a failed cycle the sub-branches are not re-cut.",
+    id: "docx-gap/after-only",
+    after: "Two areas need attention before the next cycle.",
     expect: "moved",
-    why: "the last block of the deleted section — only what follows it is left",
+    why: "the block BELOW is the deleted 'At a glance' heading — one side is not ok",
+  },
+  {
+    id: "docx-gap/before-only",
+    after: "Headcount grew by 34, of which 21 joined delivery and support functions.",
+    expect: "moved",
+    why: "the last item of the deleted section — only what follows it is left",
+  },
+  {
+    id: "docx-gap/orphaned",
+    after: "At a glance",
+    expect: "orphaned",
+    why: "a heading and its first bullet, both inside the deleted section",
   },
 ];
 
@@ -958,44 +991,47 @@ async function main(): Promise<void> {
   });
   const bundle = built.outputFiles[0].text;
 
-  const html = readFileSync(HTML_DOC, "utf8");
-  const htmlOriginal = join(WORK, "original.html");
-  const htmlEdited = join(WORK, "edited.html");
-  writeFileSync(htmlOriginal, html);
-  writeFileSync(htmlEdited, editHtml(html));
+  const docx = (await renderDocx(DOCX_DOC)).html;
+  const docxOriginal = join(WORK, "original.docx.html");
+  const docxEdited = join(WORK, "edited.docx.html");
+  writeFileSync(docxOriginal, PAGE("sample-document.docx", docx));
+  writeFileSync(docxEdited, PAGE("sample-document.docx", editDocx(docx)));
 
   const markdown = readFileSync(MD_DOC, "utf8");
   const mdOriginal = join(WORK, "original.md.html");
   const mdEdited = join(WORK, "edited.md.html");
-  writeFileSync(mdOriginal, MD_PAGE(renderMarkdown(markdown)));
-  writeFileSync(mdEdited, MD_PAGE(renderMarkdown(editMarkdown(markdown))));
+  writeFileSync(mdOriginal, PAGE("sample-document.md", renderMarkdown(markdown)));
+  writeFileSync(mdEdited, PAGE("sample-document.md", renderMarkdown(editMarkdown(markdown))));
 
   const cases: Case[] = [
     {
-      name: "HTML · 2026-08-20-architecture-explained.html",
-      markers: HTML_MARKERS,
+      name: "DOCX · sample-document.docx (mammoth, no data-src-line)",
+      markers: DOCX_MARKERS,
       element: {
-        selector: "svg",
-        index: 2,
-        id: "html/svg-element",
+        selector: "table",
+        index: 1,
+        id: "docx/table-element",
         quote: "",
         expect: "ok",
-        why: "inline SVG in section 03 — its <text> labels are indexable, so it keys on them",
+        why: "the 'Summary of results' table — has text, so it resolves by quote, not by position",
       },
-      original: htmlOriginal,
-      edited: htmlEdited,
+      original: docxOriginal,
+      edited: docxEdited,
       sourceFile: null,
     },
     {
-      name: "Markdown · components.md (data-src-line)",
+      name: "Markdown · sample-document.md (data-src-line)",
       markers: MD_MARKERS,
       element: {
+        // Not the Mermaid fence: a diagram block resolves by spec 29's own
+        // rules and is covered by test/diagram.spec.ts. A plain fence is the
+        // element-anchor case this gate is about.
         selector: "pre",
         index: 1,
         id: "md/pre-element",
         quote: "",
         expect: "ok",
-        why: "a fenced diagram block — has text, so it resolves by quote, not by position",
+        why: "the console fence under Installation — has text, so it resolves by quote, not by position",
       },
       original: mdOriginal,
       edited: mdEdited,
@@ -1013,13 +1049,13 @@ async function main(): Promise<void> {
     );
   }
 
-  failures += await runRegionGate(bundle, html);
+  failures += await runRegionGate(bundle, PAGE("sample-document.docx", docx));
 
-  // Spec 06 §10 milestone 9 — both hostile documents, the same three edits, plus
-  // the one edit a section can actually feel: its heading reworded.
+  // Spec 06 §10 milestone 9 — both documents, the same three edits, plus the
+  // one edit a section can actually feel: its heading reworded.
   failures += await runSectionGate(
     bundle,
-    "components.md",
+    "sample-document.md",
     MD_SECTIONS,
     mdOriginal,
     mdEdited,
@@ -1027,22 +1063,22 @@ async function main(): Promise<void> {
   );
   failures += await runSectionGate(
     bundle,
-    "architecture-explained.html",
-    HTML_SECTIONS,
-    htmlOriginal,
-    htmlEdited,
+    "sample-document.docx",
+    DOCX_SECTIONS,
+    docxOriginal,
+    docxEdited,
     null,
   );
 
-  // Spec 16 §6.3 — the new kind, against both hostile documents. It is the one
-  // most able to fail silently, so it is the one that has to fail loudly.
-  failures += await runGapGate(bundle, "components.md", MD_GAPS, mdOriginal, mdEdited, MD_DOC);
+  // Spec 16 §6.3 — the new kind, against both documents. It is the one most
+  // able to fail silently, so it is the one that has to fail loudly.
+  failures += await runGapGate(bundle, "sample-document.md", MD_GAPS, mdOriginal, mdEdited, MD_DOC);
   failures += await runGapGate(
     bundle,
-    "architecture-explained.html",
-    HTML_GAPS,
-    htmlOriginal,
-    htmlEdited,
+    "sample-document.docx",
+    DOCX_GAPS,
+    docxOriginal,
+    docxEdited,
     null,
   );
 

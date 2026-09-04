@@ -100,6 +100,14 @@ npx electron . doc.md      # one document
 npx electron . docs/       # a folder, as a workspace
 ```
 
+> **Every `npm install` undoes `npm run rebuild`** — including one that installs
+> a single unrelated package. npm reinstalls `better-sqlite3` against Node's
+> ABI, and the tests keep passing (they run under `node`) while the app dies the
+> moment it touches the database. It does not die loudly: the window opens, the
+> debugger port answers, and the process disappears on the first query, which
+> looks like a crash on whatever you clicked. Measured 2026-09-03, updating the
+> Agent SDK. **Run `npm run rebuild` after any install.**
+
 ### Developing
 
 `npm run dev` runs the same app through electron-vite, watching all three
@@ -128,7 +136,7 @@ the Agent SDK, and there is no way to patch a running one.
 | `npm run dev` | electron-vite dev server, watching main and preload too |
 | `npm run build` | build main, preload and renderer into `out/` |
 | `npm start` | preview the built app through electron-vite |
-| `npm run rebuild` | rebuild `better-sqlite3` for the current Electron |
+| `npm run rebuild` | rebuild `better-sqlite3` for the current Electron — **after every `npm install`**, see below |
 | `npm run typecheck` | `tsc --noEmit` over everything |
 | `npm run test:anchor` | the anchor gate, against two real documents |
 | `npm run test:comments` | comment names, the tree, the drop rules and the group store |
@@ -540,6 +548,12 @@ predecessors rather than restating them:
 | 31 | [how the agent writes](docs/my-specs/31-how-the-agent-writes/SPEC.md) | an output style beside the model, remembered for the whole chat and used by every mode |
 | 34 | [the copy is permanent](docs/my-specs/34-the-permanent-copy/SPEC.md) | REX's copy of a document lives at one path from the first agent on and is never deleted; approve and discard move content, a running agent holds its documents, and a reviewer's approve or discard is a message in the thread |
 | 38 | [the trace block](docs/my-specs/38-the-trace-block/SPEC.md) | a tool call in the trace is a head and stacked `INPUT` / `CHANGE` / `OUTPUT` rows; `YOU` wears its mode and lists its places, the answer's foot names the model and the style, the head is the comment's name and the card's run line, and the foot is the card's composer |
+| 41 | [copying a block](docs/my-specs/41-copying-a-block/SPEC.md) | every block in the chat and the trace grows a copy button in its head, hidden until the pointer is over it; a spoken block copies its words alone, a tool call copies its head, `INPUT`, `CHANGE` and `OUTPUT` even while they are folded |
+| 42 | [the agent library](docs/my-specs/42-the-agent-library/SPEC.md) | every agent SDK sits in one Python package that REX runs as a child over stdin and stdout, one JSON line per message and no port; it emits its own events and asks REX's gate before every tool call, and with only Claude and the reviewer's subscription behind it nothing on screen changes |
+| 43 | [the local gateway](docs/my-specs/43-the-local-gateway/SPEC.md) | a gateway control beside the model, LiteLLM and Envoy filled from a kind and a host, one session per gateway a comment has used, and every answer records the gateway, URL and model that produced it |
+| 44 | [the Codex agent](docs/my-specs/44-the-codex-agent/SPEC.md) | the agent control appears, and Codex is its second row: a Responses route, a read-only sandbox for ASK, and ACT held behind a write-boundary proof |
+| 45 | [the OpenCode agent](docs/my-specs/45-the-opencode-agent/SPEC.md) | a loopback OpenCode server REX owns and drives with its own small HTTP client, a private provider per gateway, a project mirror so ASK never writes into the repository, and permission requests answered by REX's gate |
+| 46 | [the deep agent](docs/my-specs/46-the-deep-agent/SPEC.md) | LangChain Deep Agents inside the agent service, on the OpenAI chat route of either gateway; a read-only backend for ASK, a composite one for ACT, no shell, and a fresh graph seeded with the replay on every send |
 
 ## Contributing
 

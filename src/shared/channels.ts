@@ -66,6 +66,10 @@ export const COMMAND = {
    */
   workspaceRename: "workspace:rename",
   workspaceDelete: "workspace:delete",
+  /** Spec 39 §2 — the third act at that door: an empty file, or an empty folder. */
+  workspaceCreate: "workspace:create",
+  /** Spec 40 §2 — the fourth: a row dragged into another folder. */
+  workspaceMove: "workspace:move",
   /** Spec 28 §4.2 — every match of a query across the documents in the tree. */
   workspaceSearch: "workspace:search",
   threadList: "thread:list",
@@ -302,6 +306,20 @@ export interface WorkspaceRenameRequest {
   name: string;
 }
 
+/**
+ * Spec 40 §2 — one row, into one folder.
+ *
+ * `parent` is the folder it lands in, never the new path itself, and the name
+ * is not carried at all: a move keeps the basename it has. That is the whole
+ * difference from a rename, which changes the basename and nothing else — spec
+ * 23 §8's line, held from the other side.
+ */
+export interface WorkspaceMoveRequest {
+  root: string;
+  path: string;
+  parent: string;
+}
+
 /** Spec 23 §3 — one file, to the system Bin. Never a folder. */
 export interface WorkspaceDeleteRequest {
   root: string;
@@ -325,6 +343,36 @@ export interface WorkspaceSearchRequest {
  * the path that was emptied for a delete.
  */
 export type WorkspaceFileResult = { ok: true; path: string } | { ok: false; reason: string };
+
+/**
+ * Spec 39 §4 — one empty path, in a folder the reviewer named.
+ *
+ * `parent` is the folder it goes in and never the new path itself, so main joins
+ * the two after it has checked the name. `name` is a basename for spec 23 §4.2's
+ * reason: a box that accepts `docs/api/new.md` reads as a rename and acts as a
+ * move (§3.1).
+ */
+export interface WorkspaceCreateRequest {
+  root: string;
+  parent: string;
+  name: string;
+  kind: "file" | "directory";
+}
+
+/**
+ * Spec 39 §4 — a create has two things to say that a rename and a delete do not.
+ *
+ * `opens` is main's answer to "is this a document REX can render". The format
+ * predicates use `node:path`, which the renderer cannot have, so it is told
+ * rather than left to guess — spec 27 §5.2 made the same call for the Markdown
+ * list.
+ *
+ * `note` is §2.2: the new path may be one REX still holds comments for, from a
+ * file that went to the Bin. That is not a refusal, and it is not silent either.
+ */
+export type WorkspaceCreateResult =
+  | { ok: true; path: string; opens: boolean; note: string | null }
+  | { ok: false; reason: string };
 
 export interface ThreadReplyRequest {
   threadId: string;
@@ -668,6 +716,10 @@ export interface RexApi {
   workspaceRename(request: WorkspaceRenameRequest): Promise<WorkspaceFileResult>;
   /** Spec 23 §3 — to the Bin. The comments on it are kept. */
   workspaceDelete(request: WorkspaceDeleteRequest): Promise<WorkspaceFileResult>;
+  /** Spec 39 §4 — an empty file or an empty folder, and nothing written but the path. */
+  workspaceCreate(request: WorkspaceCreateRequest): Promise<WorkspaceCreateResult>;
+  /** Spec 40 §4 — a row into a folder, with every record keyed on its path. */
+  workspaceMove(request: WorkspaceMoveRequest): Promise<WorkspaceFileResult>;
   /** Spec 28 §4.2 — runs on `↵`; the answer is a snapshot. */
   workspaceSearch(request: WorkspaceSearchRequest): Promise<WorkspaceSearchResult>;
   threadList(request: ThreadListRequest): Promise<ThreadWithMessages[]>;

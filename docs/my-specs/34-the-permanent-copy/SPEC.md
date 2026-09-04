@@ -36,7 +36,7 @@ the agent edited in place is adopted) and §12.1 (pending copies join a run);
 
 ### 1.1 What was measured
 
-Thread `f54f2c9a`, 2026-09-02, a comment on `lukas-feedback.md` in the ProtoBot
+Thread `f54f2c9a`, 2026-09-02, a comment on `lukas-feedback.md` in a reviewed
 workspace. The reviewer pressed ACT. Eight tool calls failed on the same path,
 and the debug report the reviewer pasted was the first sign of it:
 

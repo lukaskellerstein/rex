@@ -12,6 +12,7 @@ import {
   foldSize,
   PREVIEW_MAX,
   previewOf,
+  textOf,
   traceOf,
 } from "../src/renderer/overlay/trace.ts";
 import type { AnchorTarget, Message, ThreadWithMessages } from "../src/shared/types.ts";
@@ -292,6 +293,105 @@ test("spec 38 §3.1 — every block carries the clock, and a tool with no result
   assert.equal(entries[0].at, "2026-09-02T13:06:00.000Z");
   assert.equal(entries[1].result, null);
   assert.equal(entries[1].kind, "tool");
+});
+
+test("spec 41 §3.1 — a spoken block copies its words and nothing else", () => {
+  const entries = traceOf(
+    thread([
+      you("Rewrite 7b so it names the table.", { mode: "act" }),
+      ["thinking", { content: "The table is in components.md." }],
+      said("Rewrote 7b.", { model: "fable[1m]", style: "Concise" }),
+      ["text", { role: "system", content: "The write agent was denied." }],
+      ["stopped", { content: "You stopped this run." }],
+      ["error", { content: "The run ended: rate limited." }],
+    ]),
+  );
+  assert.deepEqual(
+    entries.map((entry) => [entry.kind, textOf(entry)]),
+    [
+      ["you", "Rewrite 7b so it names the table."],
+      ["thinking", "The table is in components.md."],
+      ["answer", "Rewrote 7b."],
+      ["note", "The write agent was denied."],
+      ["stopped", "You stopped this run."],
+      ["error", "The run ended: rate limited."],
+    ],
+    "no label, no clock, no mode word",
+  );
+});
+
+test("spec 41 §3.2 — a failed call copies its head, its description, its INPUT and its OUTPUT", () => {
+  const [, bash] = traceOf(
+    thread([
+      you("?"),
+      call("Bash", { command: "npm test -- --run", description: "Run the unit tests" }),
+      result("(eval):1: == not found", { isError: true }),
+    ]),
+  );
+  assert.equal(
+    textOf(bash),
+    [
+      "BASH · FAILED",
+      "Run the unit tests",
+      "",
+      "INPUT",
+      "command: npm test -- --run",
+      "description: Run the unit tests",
+      "",
+      "OUTPUT",
+      "(eval):1: == not found",
+    ].join("\n"),
+  );
+});
+
+test("spec 41 §3.2 — a change copies its CHANGE row, folded or not, and a call with no output names no OUTPUT", () => {
+  const entries = traceOf(
+    thread([
+      you("?"),
+      call("Edit", { file_path: PATH, old_string: "a", new_string: "b" }),
+      diff(PATH, ["- a", "+ b"]),
+      call("Bash", { command: "sleep 9" }),
+    ]),
+  );
+  assert.equal(
+    textOf(entries[1]),
+    ["EDIT", "", "INPUT", `file_path: ${PATH}`, "", "CHANGE", "- a", "+ b"].join("\n"),
+    "old_string and new_string are the CHANGE row, so INPUT does not repeat them",
+  );
+  assert.equal(
+    textOf(entries[2]),
+    ["BASH", "", "INPUT", "command: sleep 9"].join("\n"),
+    "a call still running has no OUTPUT to name",
+  );
+});
+
+test("spec 41 §3.2 — a denied call copies the gate's reason, above the input it refused", () => {
+  const [, edit] = traceOf(
+    thread([
+      you("?"),
+      call("Edit", { file_path: PATH, old_string: "a", new_string: "b" }),
+      result("Edit cannot be used in a read session.", { isError: true, denied: true }),
+    ]),
+  );
+  assert.equal(
+    textOf(edit),
+    [
+      "EDIT · DENIED",
+      "",
+      "Edit cannot be used in a read session.",
+      "",
+      "INPUT",
+      `file_path: ${PATH}`,
+      "old_string: a",
+      "new_string: b",
+    ].join("\n"),
+  );
+});
+
+test("spec 41 §3.2 — a lone diff copies its path, which is the only line saying what changed", () => {
+  const [, lone] = traceOf(thread([you("?"), diff("/elsewhere.md", ["+ stray"])]));
+  assert.equal(lone.kind, "diff");
+  assert.equal(textOf(lone), ["DIFF", "/elsewhere.md", "", "CHANGE", "+ stray"].join("\n"));
 });
 
 test("spec 37 §3 — placesByMessage: the places with no message are the first YOU's, the rest by their message", () => {
