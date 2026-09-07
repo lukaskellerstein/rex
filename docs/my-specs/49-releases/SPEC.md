@@ -16,7 +16,7 @@ downloadable.
 | Decision | Choice | Why |
 |:--|:--|:--|
 | Trigger | `push` to `main`, which is what a merged pull request produces | The reviewer's words: "when a new commit to main branch (via PR) is merged" |
-| Pull requests | build all five, keep them as artifacts for 14 days, publish nothing | The pipeline is exercised before a merge, and a broken build blocks the merge rather than the Release |
+| Pull requests | nothing runs | The first version built on every PR as a pre-merge check. The reviewer squash-merges a PR the moment it opens, so that only doubled every build; removed the same day. `workflow_dispatch` builds by hand, artifacts only |
 | Builders | one GitHub-hosted runner per platform **and** architecture | `bundle-python.mjs` stages the host's CPython and executes it, so there is no cross-build (spec 46 §13). The repo is public, so arm64 runners are free |
 | Files | macOS arm64 DMG; Windows x64 and arm64 NSIS; Linux x64 `.deb` and `.rpm` | Windows is mostly x64; Intel Macs are not built; AppImage was dropped on 2026-09-07 (its arm64 launcher does not start, and Ubuntu 24.04+ blocks Electron's sandbox inside one) |
 | Tag | `v<package.json version>-<run number>`, for example `v0.1.0-17` | Two merges of the same `version` must not collide, and `version` is a human's decision, never bumped by CI |
@@ -58,19 +58,27 @@ loudly, not ship the wrong Python.
   and nothing else did.
 - `.github/release-notes.md` is the fixed part of every Release body.
 
-## 5. What the first run must show
+## 5. What the first runs showed
 
-The first push to `main` after this spec is the acceptance test. Nothing here
-has run on GitHub yet, and three things are known unknowns:
+The first run on GitHub, 2026-09-07, was PR #12 and its merge. Three things
+were known unknowns going in:
 
 1. Whether the `windows-11-arm` image carries the MSVC ARM64 toolset that
-   `better-sqlite3` needs. On the Fusion VM it had to be added by name
-   (`Microsoft.VisualStudio.Component.VC.Tools.ARM64`).
-2. Whether `ubuntu-latest` has `rpmbuild` after `apt-get install rpm`. It
-   should; the step is there because the VM needed it.
-3. The Windows x64 installer has never run on x64 hardware. The arm64 VM runs
-   x64 programs under emulation, which is where its first install test can
-   happen; a native x64 machine is the real test.
+   `better-sqlite3` needs. **It does**: the arm64 job passed with no extra
+   step, where the Fusion VM had needed the component added by name.
+2. Whether `ubuntu-latest` has `rpmbuild` after `apt-get install rpm`. **It
+   does**; the `.deb` and `.rpm` were built.
+3. The Windows x64 installer has never run on x64 hardware. **Still open.**
+   The arm64 VM runs x64 programs under emulation, which is where its first
+   install test can happen; a native x64 machine is the real test.
+
+And one thing nobody predicted: every push job built its installer and then
+failed on "GitHub Personal Access Token is not set". package.json's
+`homepage`, added for the `.deb`, points at GitHub, and electron-builder
+infers a publisher from it; on a push in CI its default `onTagOrDraft` looks
+for a draft release. Pull-request jobs skip publishing, which is why the PR
+run passed on all four runners while the push run failed. `package.mjs` now
+passes `--publish never` (PR #13).
 
 ## 6. What people get
 
@@ -86,7 +94,7 @@ uv removed from the machine.
 
 | # | Criterion |
 |:--|:--|
-| A1 | A pull request runs the four build jobs and attaches four artifacts; no Release is created |
+| A1 | A pull request runs nothing; a manual `workflow_dispatch` runs the four build jobs and attaches four artifacts, and no Release is created |
 | A2 | A merge to `main` creates one Release, tagged `v<version>-<run>`, with exactly five files: one DMG, two EXEs, one DEB, one RPM |
 | A3 | Each file installs and starts REX on its platform, and both Python children start from the runtime inside it — checked by a person once per platform, on the same VMs as spec 46 |
 | A4 | The Release body starts with the install guide and ends with the generated list of pull requests |

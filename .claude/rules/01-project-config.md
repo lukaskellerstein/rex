@@ -108,12 +108,16 @@ description: Project configuration — architecture, paths, dev environment
   and Linux x64 `.deb` + `.rpm` on `macos-latest`, `windows-latest`,
   `windows-11-arm` and `ubuntu-latest`, and a push to `main` publishes them as
   a Release tagged `v<version>-<run>` with `.github/release-notes.md` as the
-  body; pull requests build and keep artifacts only. `scripts/package.mjs`
-  now defaults the architecture to the host's, because the YAML lists both
-  Windows architectures; `REX_PACKAGE_DRY_RUN=1` prints its arguments. The
-  first run settles three unknowns (spec 49 §5): the MSVC ARM64 toolset on
-  `windows-11-arm`, `rpmbuild` on `ubuntu-latest`, and the x64 installer on
-  real x64 hardware.
+  body; pull requests run nothing (they did on the first day, and only
+  doubled every build), `workflow_dispatch` builds by hand. `scripts/package.mjs`
+  defaults the architecture to the host's, because the YAML lists both
+  Windows architectures, and always passes `--publish never`: package.json's
+  `homepage` makes electron-builder infer a GitHub publisher, and the first
+  push run died after every build on "GitHub Personal Access Token is not
+  set" (PR #13). `REX_PACKAGE_DRY_RUN=1` prints its arguments. The first run
+  answered two of spec 49 §5's unknowns — `windows-11-arm` has the MSVC ARM64
+  toolset and `ubuntu-latest` builds the `.rpm` — and left one: the x64
+  installer on real x64 hardware.
   Specs 47 and 48 are proposals and nothing in them exists yet, but both were
   **retargeted on 2026-09-07** (47 to v4.0, 48 to v3.0) onto the built-in
   gateway: `http://127.0.0.1:24334/v1`, `environment` auth, `REX_GATEWAY_KEY`.

@@ -6,8 +6,13 @@
 # are free.
 #
 #   push to main (a merged PR)  → build all four, then publish one Release
-#   pull request                → build all four, keep them as artifacts, no Release
-#   workflow_dispatch           → the same as a pull request, by hand
+#   workflow_dispatch           → build all four, keep them as artifacts, no Release
+#
+# Pull requests do not run it. The first version did, as a pre-merge check,
+# and the reviewer's flow squash-merges a PR the moment it is opened, so the
+# PR run only doubled every build (2026-09-07). The one time it earned its
+# keep was that first day: the PR run passed on all four runners while the
+# push run failed one step later, which is how the publish bug was found.
 #
 # Every merge to main is a Release, tagged `v<package.json version>-<run number>`
 # so two merges of the same version never collide. Bump `version` in
@@ -18,14 +23,13 @@ name: Release
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
 
 concurrency:
   group: release-${{ github.ref }}
-  # A newer push to the same PR makes the running build pointless. A merge to
-  # main is never cancelled: a half-published Release is worse than a slow one.
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # Never cancel a merge's build: a half-published Release is worse than a
+  # slow one. Two merges in a row simply queue.
+  cancel-in-progress: false
 
 permissions:
   contents: read
