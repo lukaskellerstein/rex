@@ -1,0 +1,24 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "title": "Settings › Gateways", "x": 0, "y": 0, "w": 1000, "h": 720 },
+    { "file": "Models.dc.html", "title": "Settings › Models", "x": 1100, "y": 0, "w": 1000, "h": 720 },
+    { "file": "Controls.dc.html", "title": "Controls — switch, checkbox, close", "x": 2200, "y": 0, "w": 660, "h": 720 }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": 0,
+      "y": -150,
+      "w": 460,
+      "text": "REX Settings — a page, not a dialog.\n\nLeft nav scales to more sections. Real switches. × in the corner. The provider picker is a panel in the flow, so nothing can clip it.\n\nBoth switches are live — click them."
+    },
+    {
+      "id": "picker-note",
+      "x": 1100,
+      "y": -150,
+      "w": 420,
+      "text": "The picker opens INTO the page instead of floating out of a scrolling dialog. Each of the six gets the sentence that says what it is, and the paid three are marked before you click."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

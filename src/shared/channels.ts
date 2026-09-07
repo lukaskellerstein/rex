@@ -223,6 +223,45 @@ export const COMMAND = {
   /** Whether a named variable is set. **True or false, never the value.** */
   gatewayHasEnv: "gateway:has-env",
   /**
+   * Spec 46 §12 — the built-in gateway, its providers and its models.
+   *
+   * > **No channel returns a secret.** `gateway:secret:set` takes a value and
+   * > answers `true`. The renderer displays untrusted document content
+   * > (invariant I2) and must never be able to ask for a key, **not even its
+   * > own** — so there is no `gateway:secret:get` and there never will be.
+   *
+   * Everything a provider reports comes back as data and is drawn as text
+   * (§14 rule 6): these strings come from a remote server, not from a table REX
+   * wrote, so spec 42 §10's warning applies here with more force.
+   */
+  gatewayBuiltinState: "gateway:builtin:state",
+  /** §15 — the reviewer has read the note about removed gateways. Clears it. */
+  gatewayRetiredSeen: "gateway:retired:seen",
+  /** Flips the switch. Starts or stops the child; **deletes nothing** (§4.1). */
+  gatewayBuiltinEnable: "gateway:builtin:enable",
+  /** §5.2 — the six descriptors, so the screen can draw controls it did not write. */
+  gatewayProviderCatalogue: "gateway:provider:catalogue",
+  /** §6 — what an EXTERNAL LiteLLM serves, from its own `/v1/models`. */
+  gatewayRemoteModels: "gateway:remote-models",
+  gatewayProviderList: "gateway:provider:list",
+  gatewayProviderSave: "gateway:provider:save",
+  gatewayProviderRemove: "gateway:provider:remove",
+  /** §5.3 — what one provider serves, now. A failure is a result, not a throw. */
+  gatewayProviderDiscover: "gateway:provider:discover",
+  /** The ticked models. Rewrites `config.yaml` and restarts the child (§4.3). */
+  gatewayModelsSave: "gateway:models:save",
+  /** A key in. **There is no `get`.** */
+  gatewaySecretSet: "gateway:secret:set",
+  gatewaySecretClear: "gateway:secret:clear",
+  /** §7.3 — how this machine will protect a key, said BEFORE one is stored. */
+  gatewayStorageHealth: "gateway:storage:health",
+  /** §4.6 — this thread's requests and responses, from the gateway's own log. */
+  gatewayTraffic: "gateway:traffic",
+  /** §8 rule 5 — how much disk the log holds, and a way to clear it. */
+  gatewayTrafficSize: "gateway:traffic:size",
+  gatewayTrafficClear: "gateway:traffic:clear",
+  gatewayTrafficBodies: "gateway:traffic:bodies",
+  /**
    * Spec 27 §4.7 — how the reviewer last left the Markdown page.
    *
    * Read once, when the overlay mounts, and written on every switch. It is one
@@ -477,6 +516,15 @@ export interface GatewayRouteDraft {
 export interface AgentGatewayDraft {
   /** Absent for a new gateway. Present to edit the one it names. */
   id?: string;
+  /**
+   * Spec 46 §7 — the master key, going ONE way.
+   *
+   * `undefined` means the sheet did not touch it, so a rename cannot blank a
+   * credential. `null` removes it. A string replaces it, and main seals it with
+   * the operating system's keystore before anything is written. **There is no
+   * field on the way back** — `GatewayView.hasKey` is a boolean.
+   */
+  key?: string | null;
   name: string;
   kind: GatewayKind;
   routes: Partial<Record<AgentSdk, GatewayRouteDraft>>;
@@ -492,6 +540,8 @@ export interface AgentGatewayDraft {
  */
 export interface GatewayView {
   gateway: AgentGateway;
+  /** §8 rule 4 — `set` or `not set`, and never the value. */
+  hasKey: boolean;
   capabilities: Partial<Record<AgentSdk, RouteCapabilities>>;
 }
 
@@ -548,6 +598,198 @@ export interface GatewayTestResult {
 }
 
 export type GatewayVerifyRequest = GatewayTarget;
+
+// ── Spec 46 §12 — the built-in gateway ──────────────────────────
+//
+// **Nothing below carries a credential in either direction, except one field
+// going in.** `GatewaySecret.value` is the only place a key appears in this
+// file, and it has no counterpart coming back (§12's warning).
+
+/** §4.1 and §8 — what the Gateways tab draws about REX's own gateway. */
+export interface BuiltinState {
+  /** The switch, as stored. True even while the child is still starting. */
+  enabled: boolean;
+  /** Whether a process is actually listening. `enabled && !running` is a fault. */
+  running: boolean;
+  /** The port it GOT, which is not always the one it wanted (§4.2). */
+  port: number | null;
+  startedAt: string | null;
+  /** Why it is not running, in a sentence a person can act on. */
+  down: string | null;
+  /** How many models it currently serves, across every provider. */
+  models: number;
+  providers: number;
+  /**
+   * §15 — the gateways the migration removed, named once.
+   *
+   * Empty on every launch but the first after upgrading. The Settings screen
+   * says it and then clears it: a person whose two working gateways vanished is
+   * owed a sentence, and one that keeps reappearing is noise.
+   */
+  retired: string[];
+}
+
+/**
+ * §5.2 — one provider REX can put behind its own gateway, as data.
+ *
+ * The shape of `local-gateway/catalogue.json`, which is generated from
+ * `providers.py` and checked against it by `local-gateway/tests/test_catalogue.py`.
+ * The screen draws controls from this and knows nothing about any provider by
+ * name — which is criterion A8: a seventh provider is a row here and at most one
+ * probe function, with no `if provider ==` in anything that renders.
+ */
+export interface ProviderDescriptor {
+  id: string;
+  label: string;
+  /** What `config.yaml` prefixes the model with. `openai/` is a protocol. */
+  prefix: string;
+  fields: ProviderField[];
+  /** §5.4 — free to enumerate, or does every model bill a real account? */
+  local: boolean;
+  /** One sentence, drawn under the provider's name. */
+  note: string;
+  /** Set when the provider has a fixed endpoint and asks for no address. */
+  defaultUrl: string | null;
+  auth: "bearer" | "x-api-key" | "none";
+  headers: Record<string, string>;
+}
+
+export interface ProviderField {
+  key: string;
+  label: string;
+  /** `password` is never rendered with a reveal — §8 rule 4. */
+  kind: "url" | "text" | "password";
+  required: boolean;
+  placeholder: string | null;
+  help: string | null;
+  default: string | null;
+}
+
+/** One provider, as the Models tab draws it. **Never carries a key.** */
+export interface GatewayProviderView {
+  id: string;
+  /** A descriptor id — `lmstudio`, `openai`, … The catalogue supplies the rest. */
+  provider: string;
+  label: string;
+  baseUrl: string | null;
+  /** §8 rule 4 — `set` or `not set`, and never the value. */
+  hasKey: boolean;
+  listedAt: string | null;
+  /** The models ticked under it, as stored. */
+  models: GatewayModelView[];
+}
+
+export interface GatewayModelView {
+  /** The provider's own id, verbatim. */
+  model: string;
+  /** The alias REX generated. A person never types one. */
+  alias: string;
+  maxInput: number | null;
+  maxOutput: number | null;
+  /** **Null is "the provider did not say"**, and must never be drawn as "no". */
+  tools: boolean | null;
+}
+
+/** §6 — what an external LiteLLM answered, or why it did not. */
+export interface GatewayRemoteModels {
+  models: Array<{ id: string; maxInput: number | null; maxOutput: number | null }>;
+  error: string | null;
+  /** True when the refusal was about the key, so the screen names the fix. */
+  needsKey: boolean;
+}
+
+export interface GatewayProviderDraft {
+  /** Absent for a new provider. */
+  id?: string;
+  provider: string;
+  label: string;
+  baseUrl: string | null;
+}
+
+/** §5.3 — what one provider answered, or why it did not. */
+export interface GatewayDiscovery {
+  provider: string;
+  models: Array<{
+    id: string;
+    context: number | null;
+    kind: "chat" | "embedding" | "unknown";
+    tools: boolean | null;
+    note: string;
+  }>;
+  /** Null when it answered. A sentence when it did not — never a stack trace. */
+  error: string | null;
+}
+
+/** The ticked set for one provider. Replaces whatever was there. */
+export interface GatewayModelsRequest {
+  providerId: string;
+  models: Array<{
+    model: string;
+    context: number | null;
+    tools: boolean | null;
+  }>;
+}
+
+/**
+ * A key, going one way.
+ *
+ * There is no reply type carrying a value, and no channel that reads one back.
+ * That is the whole of §12's rule, expressed as an absence.
+ */
+export interface GatewaySecret {
+  providerId: string;
+  value: string;
+}
+
+/** §7.3 — what this machine will actually do with a key, said before it stores one. */
+export interface GatewayStorageHealth {
+  available: boolean;
+  /** The Linux backend's own name. Null elsewhere. */
+  backend: string | null;
+  /** True when a key would be saved **without real protection**. */
+  unprotected: boolean;
+  warning: string | null;
+}
+
+/** §4.6 — one request through the gateway, as the traffic sheet draws it. */
+export interface GatewayTrafficRow {
+  at: string;
+  thread: string | null;
+  run: string | null;
+  profile: string | null;
+  /** The ENGINE's own id, not the alias. */
+  model: string | null;
+  ms: number | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  cost: number | null;
+  /** Null on success. **Failures are recorded too**, unlike in Grafana. */
+  error: string | null;
+  requestBody?: unknown;
+  response?: unknown;
+}
+
+/**
+ * What the traffic button gets back.
+ *
+ * `available` is false for a `litellm` gateway, and `reason` says why (§4.6,
+ * criterion A16): REX writes the built-in gateway's config so it can install a
+ * callback, and an existing LiteLLM belongs to somebody else. The button does
+ * not disappear, because a control that vanishes looks like a bug.
+ */
+export interface GatewayTrafficResult {
+  available: boolean;
+  reason: string | null;
+  rows: GatewayTrafficRow[];
+  /** Whether bodies are being captured at all, so an empty one reads correctly. */
+  bodies: boolean;
+}
+
+export interface GatewayTrafficSize {
+  bytes: number;
+  days: number;
+  bodies: boolean;
+}
 
 /**
  * Spec 14 §3.1 — `title: null` is the reset, and so is an empty string.
@@ -900,13 +1142,14 @@ export interface RexApi {
   /** Spec 13 §4 — the same, for the app rather than for one comment. */
   debugSnapshot(view: ViewState): Promise<string>;
   /**
-   * Spec 25 §3 and spec 43 §4.3 — what one gateway offers, and the default model.
+   * Spec 25 §3 and spec 43 §4.3 — what one route offers, and the default model.
    *
-   * The gateway is an argument now, because the model list follows it (§4.1's
-   * cascade). Omitted means `Original`, which is what every caller meant before
-   * this spec.
+   * Both halves of the route are arguments, because the model list follows both
+   * (spec 43 §4.1's cascade, and spec 44 §3's row above it). Omitted means
+   * `Original` and the Claude Agent SDK, which is what every caller meant
+   * before spec 43.
    */
-  modelList(gatewayId?: string): Promise<AgentChoices>;
+  modelList(gatewayId?: string, sdk?: AgentSdk): Promise<AgentChoices>;
 
   /** Spec 43 §4.5 — the kinds and the fields, so the sheet can draw itself. */
   gatewayDescribe(): Promise<DescribeResult>;
@@ -924,6 +1167,37 @@ export interface RexApi {
   gatewayDefault(choice: { sdk: AgentSdk; gatewayId: string; model: string | null }): Promise<void>;
   /** Whether a named variable is set. **True or false, never the value.** */
   gatewayHasEnv(name: string): Promise<boolean>;
+  // ── Spec 46 §12 — the built-in gateway ────────────────────────
+
+  /** On or off, the port it got, whether it is running, and why not. */
+  gatewayBuiltinState(): Promise<BuiltinState>;
+  /** §15 — the note is shown once. This is what makes it once. */
+  gatewayRetiredSeen(): Promise<BuiltinState>;
+  /** Flips the switch and starts or stops the child. **Deletes nothing.** */
+  gatewayBuiltinEnable(enabled: boolean): Promise<BuiltinState>;
+  /** §5.2 — the six descriptors, as data. The screen names no provider itself. */
+  gatewayProviderCatalogue(): Promise<ProviderDescriptor[]>;
+  /** §6 — an external gateway's own model list. Says "add the key", never "no models". */
+  gatewayRemoteModels(gatewayId: string): Promise<GatewayRemoteModels>;
+  gatewayProviderList(): Promise<GatewayProviderView[]>;
+  gatewayProviderSave(draft: GatewayProviderDraft): Promise<GatewayProviderView[]>;
+  gatewayProviderRemove(providerId: string): Promise<GatewayProviderView[]>;
+  /** §5.3 — asks one provider what it serves, now. */
+  gatewayProviderDiscover(providerId: string): Promise<GatewayDiscovery>;
+  /** The ticked models. Rewrites the config and restarts the child. */
+  gatewayModelsSave(request: GatewayModelsRequest): Promise<GatewayProviderView[]>;
+  /** A key in, and `true` back. **There is no way to read one out.** */
+  gatewaySecretSet(secret: GatewaySecret): Promise<boolean>;
+  gatewaySecretClear(providerId: string): Promise<boolean>;
+  /** §7.3 — asked BEFORE a key is entered, so the warning arrives in time. */
+  gatewayStorageHealth(): Promise<GatewayStorageHealth>;
+  /** §4.6 — this comment's requests and responses. */
+  gatewayTraffic(threadId: string): Promise<GatewayTrafficResult>;
+  gatewayTrafficSize(): Promise<GatewayTrafficSize>;
+  gatewayTrafficClear(): Promise<GatewayTrafficSize>;
+  /** §8 rule 5 — capture request and response bodies, on or off. */
+  gatewayTrafficBodies(capture: boolean): Promise<GatewayTrafficSize>;
+
   /** Spec 27 §4.7 — the paper the reviewer last read on. */
   paperView(): Promise<PaperView>;
   paperViewSet(view: PaperView): Promise<void>;

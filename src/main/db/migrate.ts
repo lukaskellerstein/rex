@@ -8,6 +8,7 @@
 
 import type Database from "better-sqlite3";
 import type { Anchor } from "../../shared/types.ts";
+import { getSetting, setSetting } from "./settings.ts";
 
 type Db = Database.Database;
 
@@ -432,7 +433,33 @@ export function migrateThreadLanes(db: Db): boolean {
 export const ORIGINAL_GATEWAY_ID = "rex-original";
 export const ORIGINAL_GATEWAY_NAME = "Original";
 
-/** Spec 42 §5.1's four SDK names, so specs 44 to 46 add rows and no migration. */
+/**
+ * Spec 46 §4.1 — REX's own LiteLLM. A **permanent row**, exactly as `Original` is.
+ *
+ * It is never created and never deleted by a person; a switch turns its process
+ * on and off. Its providers, models and keys are kept either way, and §4.1's
+ * whole point is that they are: "it's already the second time that he is
+ * enabling it and he already has some configuration — we should not force him
+ * to fill it in again." `enabled` is the only column the switch writes.
+ */
+export const BUILTIN_GATEWAY_ID = "rex-builtin";
+export const BUILTIN_GATEWAY_NAME = "Built-in";
+
+/**
+ * Spec 46 §4.2 — the port the built-in row is seeded with.
+ *
+ * A starting point and not a promise: if the port is taken the child walks up,
+ * and §4.2.1 rewrites these four rows with the port it really got **before
+ * anything can resolve one**. `resolveRoute()` returns `route.baseUrl` as
+ * stored, so a stale row here would resolve to a dead address and the failure
+ * would look like a broken gateway rather than a moved port.
+ */
+export const BUILTIN_GATEWAY_PORT = 24334;
+
+/** §7.1 — the variable REX sets in its own process while the child runs. */
+export const BUILTIN_GATEWAY_KEY_VAR = "REX_GATEWAY_KEY";
+
+/** Spec 42 §5.1's four SDK names, so specs 44, 47 and 48 add rows and no migration. */
 const EVERY_SDK = ["claude-agent", "codex", "opencode", "deep-agents"] as const;
 
 function hasTable(db: Db, name: string): boolean {
@@ -479,9 +506,15 @@ export function migrateGateways(db: Db): boolean {
       sdk             TEXT NOT NULL
                         CHECK (sdk IN ('claude-agent','codex','opencode','deep-agents')),
       base_url        TEXT,
+      -- 'stored' is spec 46 §7. Written here as well as in schema.sql, because
+      -- THIS is the function that creates the table on a database made before
+      -- spec 43 — one created in the old shape would need widenRouteAuth to
+      -- rebuild it moments later for nothing. No backticks: this string is a
+      -- template literal, and one would end it.
       auth            TEXT NOT NULL
-                        CHECK (auth IN ('inherit','none','environment')),
+                        CHECK (auth IN ('inherit','none','environment','stored')),
       credential_env  TEXT,
+      token_cipher    BLOB,
       models          TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (gateway_id, sdk),
       CHECK (
@@ -511,6 +544,326 @@ export function migrateGateways(db: Db): boolean {
     for (const sdk of EVERY_SDK) route.run(ORIGINAL_GATEWAY_ID, sdk);
   })();
   return true;
+}
+
+/**
+ * Spec 46 §4.1 and §15 steps 1, 4 — the switch, and the permanent row it belongs to.
+ *
+ * Two steps, and both are **additive**. Nothing is deleted here: §15 step 2 —
+ * removing every `envoy` and `custom` row — is milestone 3, and doing it early
+ * would take away the reviewer's working gateways before their replacement had
+ * been proven. The `CHECK` therefore still admits all five kinds.
+ *
+ * 1. `agent_gateway.enabled`, defaulting to 1 so every existing row keeps
+ *    behaving exactly as it did. **Only the built-in row is ever 0.**
+ * 2. The `builtin` row, `enabled = 0`, with a route for all four SDKs. Off,
+ *    because a switch that is already on the first time a person opens REX
+ *    would spend 296 MB and 1.6 seconds on something nobody asked for.
+ *
+ * Returns true when it created the row.
+ */
+export function migrateBuiltinGateway(db: Db): boolean {
+  if (!hasColumn(db, "agent_gateway", "enabled")) {
+    db.exec("ALTER TABLE agent_gateway ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+  }
+  widenGatewayKinds(db);
+
+  const already = db
+    .prepare<[string], { id: string }>("SELECT id FROM agent_gateway WHERE id = ?")
+    .get(BUILTIN_GATEWAY_ID);
+  if (already) return false;
+
+  const at = new Date().toISOString();
+  const host = `http://127.0.0.1:${BUILTIN_GATEWAY_PORT}`;
+  db.transaction(() => {
+    db.prepare(
+      "INSERT INTO agent_gateway (id, name, kind, enabled, created_at) VALUES (?, ?, 'builtin', 0, ?)",
+    ).run(BUILTIN_GATEWAY_ID, BUILTIN_GATEWAY_NAME, at);
+    const route = db.prepare(
+      `INSERT INTO gateway_route (gateway_id, sdk, base_url, auth, credential_env, models)
+       VALUES (?, ?, ?, 'environment', ?, '')`,
+    );
+    for (const sdk of EVERY_SDK) {
+      // Spec 43 §3's trap, and spec 46 §4.5's answer. The Claude SDK appends
+      // `/v1/messages` itself, so its base is the ROOT; the other three address
+      // `/v1`. One alias then serves all four, which is why the open problem in
+      // spec 45's folder has no instances left once this gateway is the one.
+      const base = sdk === "claude-agent" ? host : `${host}/v1`;
+      route.run(BUILTIN_GATEWAY_ID, sdk, base, BUILTIN_GATEWAY_KEY_VAR);
+    }
+  })();
+  return true;
+}
+
+/**
+ * Spec 46 §11 and §15 step 5 — the providers behind the built-in gateway.
+ *
+ * Two tables and one column, all additive, all idempotent.
+ *
+ * **`key_cipher` and `token_cipher` are BLOBs and never TEXT**, and that is not
+ * a storage detail: a `TEXT` column invites somebody to put a key in it during
+ * a debugging session, and §7.1 is that no credential is readable on disk,
+ * ever. `safeStorage` hands back a `Buffer`, so the column that holds it is the
+ * shape that cannot hold anything else.
+ */
+export function migrateGatewayProviders(db: Db): boolean {
+  const fresh = !hasTable(db, "gateway_provider");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS gateway_provider (
+      id           TEXT PRIMARY KEY,
+      -- A ProviderDescriptor id (§5.2). Not a foreign key: the catalogue is
+      -- code, not a table, and a provider REX stops knowing must leave a row
+      -- that can be read and removed rather than one that cannot be loaded.
+      provider     TEXT NOT NULL,
+      label        TEXT NOT NULL,
+      -- Null for a provider with a fixed endpoint (OpenAI, OpenRouter, Anthropic).
+      base_url     TEXT,
+      -- §7 — safeStorage ciphertext. NEVER text.
+      key_cipher   BLOB,
+      -- When its models were last asked for. §6's rule: a list that silently
+      -- ages is how a person concludes their provider is broken when it merely
+      -- gained a model.
+      listed_at    TEXT,
+      created_at   TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS gateway_model (
+      provider_id  TEXT NOT NULL REFERENCES gateway_provider(id) ON DELETE CASCADE,
+      -- The provider's own id, verbatim. The one field never normalised.
+      model        TEXT NOT NULL,
+      -- The LiteLLM model_name REX generates. A person never types one (§11).
+      alias        TEXT NOT NULL,
+      max_input    INTEGER,
+      max_output   INTEGER,
+      -- 1 yes, 0 no, NULL the provider did not say (§5.5). NULL is a real
+      -- answer and must not be read as "no".
+      tools        INTEGER,
+      PRIMARY KEY (provider_id, model)
+    );
+  `);
+
+  // §7 — an external gateway's key, beside the row it belongs to. `credential_env`
+  // stays, unused by new rows: dropping a column rewrites a table in SQLite and
+  // the column is harmless. A row has one or the other, never both.
+  if (!hasColumn(db, "gateway_route", "token_cipher")) {
+    db.exec("ALTER TABLE gateway_route ADD COLUMN token_cipher BLOB");
+  }
+  return fresh;
+}
+
+/**
+ * Spec 46 §15 step 2 and §3.1 — `envoy` and `custom` leave, and are named once.
+ *
+ * **There is no deprecation period**, because the only person with rows of
+ * either kind is the reviewer. Deletion is correct rather than harsh:
+ *
+ * - A row that cannot run must not be selectable, and a gateway whose product
+ *   REX no longer supports cannot run. That rule is already in the schema
+ *   (spec 43 §2.2's `CHECK (auth <> 'none' OR base_url IS NOT NULL)`).
+ * - **No history is lost.** Spec 43 §2.6 rule 2 copies the SDK, gateway name,
+ *   base URL and model onto every message, so an old answer still says which
+ *   gateway produced it after that gateway is gone.
+ * - `thread_session` rows cascade, so a deleted gateway costs a **replay** on a
+ *   thread that used it, never the thread.
+ *
+ * The names are written into a setting rather than only logged, because §15
+ * says the Settings screen shows the note *once* — and a note that only exists
+ * in a log is a note nobody reads.
+ *
+ * Returns the names it deleted, newest configuration first.
+ */
+export function migrateRetireGatewayKinds(db: Db): string[] {
+  if (!hasTable(db, "agent_gateway")) return [];
+
+  const doomed = db
+    .prepare<[], { id: string; name: string; kind: string }>(
+      "SELECT id, name, kind FROM agent_gateway WHERE kind IN ('envoy','custom')",
+    )
+    .all();
+
+  if (doomed.length > 0) {
+    db.transaction(() => {
+      const remove = db.prepare("DELETE FROM agent_gateway WHERE id = ?");
+      for (const row of doomed) remove.run(row.id);
+      // Remembered so the screen can say it once. Appended rather than
+      // replaced: a database migrated in two steps must not lose the first
+      // step's names. Guarded, because a note nobody reads must never be the
+      // reason a migration that deleted rows fails half-way.
+      if (hasTable(db, "setting")) {
+        const already = getSetting(db, RETIRED_GATEWAYS_KEY);
+        const names = [...(already ? already.split("\n") : []), ...doomed.map((row) => row.name)];
+        setSetting(db, RETIRED_GATEWAYS_KEY, [...new Set(names)].join("\n"));
+      }
+    })();
+  }
+
+  narrowGatewayKinds(db);
+  widenRouteAuth(db);
+  return doomed.map((row) => row.name);
+}
+
+/** §15 — the names removed, for the one note the Settings screen shows. */
+export const RETIRED_GATEWAYS_KEY = "gateway.retired";
+
+/**
+ * Narrow `agent_gateway.kind` to the three §3 leaves.
+ *
+ * It runs **after** the delete, and it must: SQLite validates a `CHECK` against
+ * every row while copying the table, so narrowing first would fail on exactly
+ * the rows the step before removes.
+ */
+function narrowGatewayKinds(db: Db): void {
+  const table = db
+    .prepare<[], { sql: string }>(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_gateway'",
+    )
+    .get();
+  if (!table?.sql.includes("'envoy'")) return;
+
+  // `migrateBuiltinGateway` adds this column, and `database.ts` runs it first.
+  // Guarded for the same reason `widenRouteAuth` guards `token_cipher`: a
+  // migration must not depend on a sibling having run, because the order in
+  // one file is not a guarantee the next person keeps.
+  if (!hasColumn(db, "agent_gateway", "enabled")) {
+    db.exec("ALTER TABLE agent_gateway ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1");
+  }
+
+  rebuild(db, () => {
+    db.exec(`
+      CREATE TABLE agent_gateway_new (
+        id          TEXT PRIMARY KEY,
+        name        TEXT NOT NULL,
+        kind        TEXT NOT NULL
+                      CHECK (kind IN ('original','builtin','litellm')),
+        enabled     INTEGER NOT NULL DEFAULT 1,
+        created_at  TEXT NOT NULL
+      );
+      INSERT INTO agent_gateway_new (id, name, kind, enabled, created_at)
+        SELECT id, name, kind, enabled, created_at FROM agent_gateway;
+      DROP TABLE agent_gateway;
+      ALTER TABLE agent_gateway_new RENAME TO agent_gateway;
+    `);
+  });
+}
+
+/**
+ * Spec 46 §7 — `gateway_route.auth` gains `stored`.
+ *
+ * The host keeps the value, encrypted by the operating system's keystore, in
+ * `token_cipher` on this row. `credential_env` stays for the rows spec 43 wrote
+ * and for the built-in gateway, whose key is random per launch and lives in an
+ * environment and nowhere else — **a row has one or the other, never both**,
+ * and the two CHECKs below are what make that true rather than intended.
+ */
+function widenRouteAuth(db: Db): void {
+  const table = db
+    .prepare<[], { sql: string }>(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'gateway_route'",
+    )
+    .get();
+  if (!table || table.sql.includes("'stored'")) return;
+
+  // `migrateGatewayProviders` adds this column, and `database.ts` runs it
+  // first. **A migration must not depend on a sibling having run** — the order
+  // in one file is not a guarantee the next person keeps, and the failure is a
+  // rebuild that drops a column it was copying. Caught by a test that called
+  // this one on its own.
+  if (!hasColumn(db, "gateway_route", "token_cipher")) {
+    db.exec("ALTER TABLE gateway_route ADD COLUMN token_cipher BLOB");
+  }
+
+  rebuild(db, () => {
+    db.exec(`
+      CREATE TABLE gateway_route_new (
+        gateway_id      TEXT NOT NULL REFERENCES agent_gateway(id) ON DELETE CASCADE,
+        sdk             TEXT NOT NULL
+                          CHECK (sdk IN ('claude-agent','codex','opencode','deep-agents')),
+        base_url        TEXT,
+        auth            TEXT NOT NULL
+                          CHECK (auth IN ('inherit','none','environment','stored')),
+        credential_env  TEXT,
+        token_cipher    BLOB,
+        models          TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (gateway_id, sdk),
+        CHECK (
+          (auth = 'environment' AND credential_env IS NOT NULL) OR
+          (auth <> 'environment' AND credential_env IS NULL)
+        ),
+        CHECK (auth <> 'none' OR base_url IS NOT NULL),
+        -- A stored key needs somewhere to send it, and must not also name a
+        -- variable: two credentials on one row is one credential too many.
+        CHECK (auth <> 'stored' OR base_url IS NOT NULL)
+      );
+      INSERT INTO gateway_route_new
+             (gateway_id, sdk, base_url, auth, credential_env, token_cipher, models)
+        SELECT gateway_id, sdk, base_url, auth, credential_env, token_cipher, models
+          FROM gateway_route;
+      DROP TABLE gateway_route;
+      ALTER TABLE gateway_route_new RENAME TO gateway_route;
+    `);
+  });
+}
+
+/**
+ * Rebuild a table with foreign keys off, so a `DROP` cascades nothing away.
+ *
+ * `gateway_route` and `thread_session` both reference `agent_gateway`
+ * `ON DELETE CASCADE`. Dropping either table with the pragma on would take
+ * every route and every session with it — the migration would report success
+ * and leave a database with no gateways at all.
+ */
+function rebuild(db: Db, work: () => void): void {
+  const wasOn = db.pragma("foreign_keys", { simple: true }) === 1;
+  if (wasOn) db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(work)();
+  } finally {
+    if (wasOn) db.pragma("foreign_keys = ON");
+  }
+}
+
+/**
+ * Widen `agent_gateway.kind` so a `builtin` row can exist at all.
+ *
+ * SQLite has no `ALTER TABLE … DROP CONSTRAINT`, so changing a `CHECK` means
+ * rebuilding the table. Guarded on the constraint's own text rather than on a
+ * column, because there is no column to look at — and the guard is what keeps
+ * this idempotent instead of rewriting a table on every open.
+ *
+ * `PRAGMA foreign_keys` is turned off around the swap. `gateway_route` and
+ * `thread_session` both reference this table `ON DELETE CASCADE`, and dropping
+ * it with them enforced would cascade away every route and every session — the
+ * migration would "succeed" and leave a database with no gateways at all.
+ */
+function widenGatewayKinds(db: Db): void {
+  const table = db
+    .prepare<[], { sql: string }>(
+      "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'agent_gateway'",
+    )
+    .get();
+  if (!table || table.sql.includes("'builtin'")) return;
+
+  const wasOn = db.pragma("foreign_keys", { simple: true }) === 1;
+  if (wasOn) db.pragma("foreign_keys = OFF");
+  try {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE agent_gateway_new (
+          id          TEXT PRIMARY KEY,
+          name        TEXT NOT NULL,
+          kind        TEXT NOT NULL
+                        CHECK (kind IN ('original','builtin','litellm','envoy','custom')),
+          enabled     INTEGER NOT NULL DEFAULT 1,
+          created_at  TEXT NOT NULL
+        );
+        INSERT INTO agent_gateway_new (id, name, kind, enabled, created_at)
+          SELECT id, name, kind, enabled, created_at FROM agent_gateway;
+        DROP TABLE agent_gateway;
+        ALTER TABLE agent_gateway_new RENAME TO agent_gateway;
+      `);
+    })();
+  } finally {
+    if (wasOn) db.pragma("foreign_keys = ON");
+  }
 }
 
 /**

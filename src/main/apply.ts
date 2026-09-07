@@ -852,6 +852,16 @@ export async function startApply(
         }),
         // Spec 43 §11 — the gateway the reviewer picked for this ACT.
         route,
+        // Spec 44 §9.3 — the only directories this run may change, said to the
+        // library as well as to the agent. An adapter with a sandbox turns this
+        // into one, and the reviewer's repository is then read-only for real
+        // rather than repaired afterwards by `putBack` below. Claude has no
+        // sandbox and ignores it, so nothing about a Claude ACT moves.
+        //
+        // The DIRECTORY of each copy, because a sandbox names roots and not
+        // files. Deduplicated: two documents in one repository can share a
+        // working directory, and a root named twice is the same root.
+        writable: [...new Set(editable.map((file) => dirname(file.copy)))],
         // One session per repository: two turns sharing a session id would resume
         // the first one's transcript in the second one's working directory.
         //
@@ -861,6 +871,11 @@ export async function startApply(
         // persist what the SDK called the session.
         sessionId: sessionIdFor(`${run.id}:${root}`),
         resume: false,
+        // Spec 45 §6 — the thread, NOT the session id above. An ACT's session
+        // is keyed by run and repository, so it is the one run where reading a
+        // thread back out of the session id would give the wrong answer. This
+        // is also the run whose cost is worth comparing against an ASK's.
+        threadId,
         model,
         style,
         signal: controller.signal,

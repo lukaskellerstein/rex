@@ -221,6 +221,50 @@ export const PanelLeft = (p: Props): React.JSX.Element => <Panel {...p} x={2.5} 
 /** Show or hide the comments, on the right. */
 export const PanelRight = (p: Props): React.JSX.Element => <Panel {...p} x={10} />;
 
+/**
+ * Settings — a cogwheel, which is the one glyph nobody has to be taught.
+ *
+ * Eight teeth on a circle, drawn as one stroked path so it inherits the bar's
+ * colour like every other icon here. The hub is a second circle rather than a
+ * hole, because a `fill-rule` cut-out renders as a black dot on the dark ground
+ * this bar uses.
+ */
+export const Cog = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    {/*
+      A RING with teeth on it, and a hub inside. The first attempt drew eight
+      spokes from the centre and no ring, which at 13 px reads as a sun rather
+      than a cog — checked on screen, not assumed. The ring is what makes the
+      short strokes teeth.
+    */}
+    <circle cx="8" cy="8" r="4.2" />
+    <circle cx="8" cy="8" r="1.7" />
+    <path d="M8 2v1.8M8 12.2V14M14 8h-1.8M3.8 8H2" />
+    <path d="M12.24 3.76 10.97 5.03M5.03 10.97 3.76 12.24M12.24 12.24 10.97 10.97M5.03 5.03 3.76 3.76" />
+  </svg>
+);
+
+/** Models — stacked planes, which is what a model list is a list of. */
+export const Layers = (p: Props): React.JSX.Element => (
+  <svg
+    className="rex-icon"
+    viewBox="0 0 16 16"
+    width={p.size ?? 13}
+    height={p.size ?? 13}
+    aria-hidden="true"
+  >
+    <path d="M8 2.2 13.4 5 8 7.8 2.6 5z" />
+    <path d="M2.6 8.2 8 11l5.4-2.8" />
+    <path d="M2.6 11.4 8 14.2l5.4-2.8" />
+  </svg>
+);
+
 /** Pick mode — a crop frame with a cursor inside it. */
 export const PickTarget = (p: Props): React.JSX.Element => (
   <svg
@@ -405,6 +449,16 @@ export const Trash = (p: Props): React.JSX.Element => (
     <path d="M4.6 4.6l.6 8.2h5.6l.6-8.2" />
     <path d="M6.8 6.8v4M9.2 6.8v4" />
   </svg>
+);
+
+/**
+ * Spec 45 §6 — this thread's traffic through the gateway, in Grafana.
+ *
+ * Bars on an axis rather than a magnifier or a link glyph: what opens is a
+ * dashboard, and the row it joins is already carrying a bug and a bin.
+ */
+export const Chart = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 13} d="M3 12.5h10M5 12.5V8M8 12.5V4.5M11 12.5V6.5" />
 );
 
 /** Close — the lightbox, and anything else that is over the whole window. */

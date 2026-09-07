@@ -36,9 +36,15 @@
 // thing. `trace.ts` decides what every row shows; this file only draws it.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { AgentSdk } from "../../shared/agent-protocol.ts";
 import { commentName } from "../../shared/names.ts";
 import { type RunStats, runStatsOf, spentText, totalsOf } from "../../shared/totals.ts";
-import type { AgentChoices, AnchorState, ThreadWithMessages } from "../../shared/types.ts";
+import type {
+  AgentChoices,
+  AnchorState,
+  ModelChoice,
+  ThreadWithMessages,
+} from "../../shared/types.ts";
 import { AnswerFoot } from "./AnswerFoot.tsx";
 import { lastSendAt, spokenTurnsOf } from "./CommentCard.tsx";
 import { Composer, type GatewayChoice } from "./Composer.tsx";
@@ -58,6 +64,7 @@ import {
   TriangleRight,
   Warning,
 } from "./Icons.tsx";
+import { modelLabel } from "./ModelPick.tsx";
 import { MODE_LABEL, type Mode } from "./mode.ts";
 import { PlaceRow } from "./PlaceRow.tsx";
 import { type PlaceFacts, placesByMessage } from "./placeLine.ts";
@@ -90,11 +97,18 @@ interface Props {
   models: AgentChoices;
   model: string | null;
   onModel: (model: string | null) => void;
-  /** Spec 43 §4 — the gateway control, passed straight through to the composer. */
+  /**
+   * Spec 43 §4 and spec 44 §3 — the agent and the gateway, passed straight
+   * through to the composer, which is where the cascade lives.
+   */
+  agents: ModelChoice[];
+  sdk: AgentSdk;
+  onSdk: (sdk: AgentSdk) => void;
   gateways: GatewayChoice;
   gateway: string;
   onGateway: (gatewayId: string) => void;
   onManageGateways: () => void;
+  supportsStyles: boolean;
   style: string;
   onStyle: (style: string) => void;
   /** Spec 24 §3.2 — the places waiting to go with the next send. */
@@ -442,6 +456,7 @@ function Entry({
         {entry.kind === "answer" ? (
           <AnswerFoot
             evidence={{
+              agent: entry.sdk ? modelLabel(props.agents, entry.sdk, entry.sdk) : null,
               gatewayName: entry.gatewayName,
               baseUrl: entry.baseUrl,
               model: entry.model,
@@ -628,10 +643,14 @@ export function TraceSheet(props: Props): React.JSX.Element {
         models={props.models}
         model={props.model}
         onModel={props.onModel}
+        agents={props.agents}
+        sdk={props.sdk}
+        onSdk={props.onSdk}
         gateways={props.gateways}
         gateway={props.gateway}
         onGateway={props.onGateway}
         onManageGateways={props.onManageGateways}
+        supportsStyles={props.supportsStyles}
         style={props.style}
         onStyle={props.onStyle}
         pending={props.pending}

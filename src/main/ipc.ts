@@ -19,12 +19,21 @@ import {
   type AgentGatewayDraft,
   type AnchorRestateRequest,
   type ApplyConfirmRequest,
+  type BuiltinState,
   COMMAND,
   EVENT,
+  type GatewayDiscovery,
   type GatewayListResponse,
+  type GatewayModelsRequest,
+  type GatewayProviderDraft,
+  type GatewayProviderView,
+  type GatewaySecret,
+  type GatewayStorageHealth,
   type GatewayTarget,
   type GatewayTestRequest,
   type GatewayTestResult,
+  type GatewayTrafficResult,
+  type GatewayTrafficSize,
   type GatewayVerifyRequest,
   type GatewayView,
   type GroupCreateRequest,
@@ -32,6 +41,7 @@ import {
   type GroupListRequest,
   type GroupUpdateRequest,
   type InitialTarget,
+  type ProviderDescriptor,
   type RenderResultRequest,
   type ThreadApplyRequest,
   type ThreadAskRequest,
@@ -104,15 +114,33 @@ import { type ApplyContext, confirmApply, locatePassage, startApply, viewOf } fr
 import type { CdpStatus } from "./cdp.ts";
 import type { Db } from "./db/database.ts";
 import {
+  BUILTIN_GATEWAY_ID,
   deleteGateway,
+  gatewayKeyCipher,
   getGateway,
   getThreadSession,
+  hasGatewayKey,
+  isEnabled,
   listGateways,
   ORIGINAL_GATEWAY_ID,
   saveGateway,
   setThreadSession as setCombinationSession,
+  setEnabled,
 } from "./db/gateways.ts";
 import { createGroup, deleteGroup, listGroups, moveItem, updateGroup } from "./db/groups.ts";
+import { BUILTIN_GATEWAY_NAME, RETIRED_GATEWAYS_KEY } from "./db/migrate.ts";
+import {
+  getProvider,
+  keyCipherOf,
+  listConfigured,
+  listModels,
+  listProviders,
+  markListed,
+  removeProvider,
+  saveProvider,
+  setModels,
+  setProviderKey,
+} from "./db/providers.ts";
 import {
   appendMessage,
   appendTargets,
@@ -145,12 +173,29 @@ import {
   AGENT_SDK_KEY,
   agentDefaults,
   defaultModel,
+  getSetting,
   MODEL_DEFAULT_KEY,
   paperView,
   setPaperView,
   setSetting,
 } from "./db/settings.ts";
 import { appReport, debugReport } from "./debug.ts";
+import { providerCatalogue } from "./gateway/catalogue.ts";
+import { discoverProvider } from "./gateway/discover.ts";
+import { remoteModels } from "./gateway/external.ts";
+import {
+  CAPTURE_BODIES_KEY,
+  captureBodies,
+  gatewayEnvironment,
+  OUTPUT_RESERVE,
+  rebuildConfig,
+  restartBuiltin,
+  startBuiltin,
+  stopBuiltin,
+} from "./gateway/lifecycle.ts";
+import { localGateway } from "./gateway/local.ts";
+import { seal, storageHealth, unseal } from "./gateway/secrets.ts";
+import { clearTraffic, threadTraffic, trafficSize } from "./gateway/traffic.ts";
 import { porcelainStatus, repositoryRoot } from "./git.ts";
 // Aliased: `registerIpc` has its own `record`, which appends a message row.
 import { entries, lineCount, logFile, record as logLine } from "./log.ts";
@@ -288,7 +333,10 @@ function choicesOf(request: SendChoices): SendChoices {
 function routeFor(db: Db, choices: SendChoices): { route: ResolvedRoute; evidence: SendEvidence } {
   const sdk = choices.sdk ?? REX_SDK;
   const gateway = getGateway(db, choices.gatewayId ?? ORIGINAL_GATEWAY_ID) ?? ORIGINAL_GATEWAY;
-  const route = resolveRoute(gateway, sdk);
+  // Spec 46 §7 — decrypted here, at the moment the run needs it, and never
+  // held. `unseal` answers null for a `rex.db` copied from another machine,
+  // and `resolveRoute` then refuses by name rather than sending an empty key.
+  const route = resolveRoute(gateway, sdk, process.env, unseal(gatewayKeyCipher(db, gateway.id)));
   return {
     route,
     evidence: { sdk, gatewayName: gateway.name, baseUrl: route.baseUrl },
@@ -514,6 +562,8 @@ export function registerIpc(
           prompt,
           sessionId,
           resume,
+          // Spec 45 §6 — the gateway groups a month of inference by this.
+          threadId: thread.id,
           route,
           model: choices.model,
           style: choices.style,
@@ -1376,41 +1426,65 @@ export function registerIpc(
    * and every later one is free. `SCRATCH_DIR` is the cwd because the list does
    * not depend on one and there may be no document open when the renderer asks.
    */
-  handle(COMMAND.modelList, async (_event, gatewayId: string | null): Promise<AgentChoices> => {
-    const gateway = getGateway(db, gatewayId ?? ORIGINAL_GATEWAY_ID) ?? ORIGINAL_GATEWAY;
-    const probe = await listCapabilities(SCRATCH_DIR, gateway);
-    // Spec 43 §4.3 — a route's model list is typed by the person who
-    // configured it, because a gateway's catalogue is its own business:
-    // LiteLLM's aliases are one edit per engine in a YAML file REX has never
-    // read, and a probe against the CLI cannot know a new one exists.
-    //
-    // **A failed probe never removes a configured model.** This reverses spec
-    // 25 §3.1's first-party assumption, and only for a non-`Original` route.
-    const configured = gateway.routes[REX_SDK]?.models ?? [];
-    const models =
-      configured.length > 0
-        ? configured.map((value) => ({
-            value,
-            displayName: value,
-            description: `A model name ${gateway.name} was configured with.`,
-          }))
-        : probe.models;
-    return {
-      models,
-      chosen:
-        gateway.id === ORIGINAL_GATEWAY_ID
-          ? defaultModel(db, models)
-          : // §4.1 — a rebuild that drops the current value picks the route's
-            // first model rather than clearing the control. An empty control
-            // the reviewer has to notice is worse than a filled one they can
-            // change.
-            (models[0]?.value ?? DEFAULT_MODEL),
-      // Spec 31 §2.2 — no `chosen` style. A style belongs to the chat, so
-      // there is no app-wide value for the renderer to fall back to.
-      styles: probe.styles,
-      error: probe.error,
-    };
-  });
+  handle(
+    COMMAND.modelList,
+    async (_event, gatewayId: string | null, sdk: AgentSdk | null): Promise<AgentChoices> => {
+      // Spec 44 §3 — the cascade starts one control further left now, so the
+      // list is a function of BOTH the agent and the gateway. A null SDK is
+      // every caller that predates the agent control.
+      const chosen = sdk ?? REX_SDK;
+      const gateway = getGateway(db, gatewayId ?? ORIGINAL_GATEWAY_ID) ?? ORIGINAL_GATEWAY;
+      const probe = await listCapabilities(
+        SCRATCH_DIR,
+        gateway,
+        chosen,
+        unseal(gatewayKeyCipher(db, gateway.id)),
+      );
+      // Spec 43 §4.3 — a route's model list is typed by the person who
+      // configured it, because a gateway's catalogue is its own business:
+      // LiteLLM's aliases are one edit per engine in a YAML file REX has never
+      // read, and a probe against the CLI cannot know a new one exists.
+      //
+      // **A failed probe never removes a configured model.** This reverses spec
+      // 25 §3.1's first-party assumption, and only for a non-`Original` route.
+      const configured = gateway.routes[chosen]?.models ?? [];
+      const models =
+        configured.length > 0
+          ? configured.map((value) => ({
+              value,
+              displayName: value,
+              description: `A model name ${gateway.name} was configured with.`,
+            }))
+          : probe.models;
+      // Spec 43 §4.3 — a ROUTED gateway with no model list is a route that
+      // cannot send, and the picker is where that has to be said. `Default`
+      // means "REX says nothing" (spec 25 §5.1), and a gateway routes on the
+      // model name, so saying nothing to one makes the SDK send its own
+      // first-party default and the gateway answer 404. Measured 2026-09-05 on
+      // a Codex route, where the reviewer paid a round trip to be told the
+      // address was wrong when it was not.
+      const needsModels =
+        gateway.id !== ORIGINAL_GATEWAY_ID && gateway.routes[chosen] && models.length === 0;
+
+      return {
+        models,
+        chosen:
+          gateway.id === ORIGINAL_GATEWAY_ID
+            ? defaultModel(db, models)
+            : // §4.1 — a rebuild that drops the current value picks the route's
+              // first model rather than clearing the control. An empty control
+              // the reviewer has to notice is worse than a filled one they can
+              // change.
+              (models[0]?.value ?? DEFAULT_MODEL),
+        // Spec 31 §2.2 — no `chosen` style. A style belongs to the chat, so
+        // there is no app-wide value for the renderer to fall back to.
+        styles: probe.styles,
+        error: needsModels
+          ? `${gateway.name} has no models listed for this agent, and a gateway routes on the model name. Open Manage gateways, edit ${gateway.name}, and type the models it answers to — otherwise this send asks for no model and the gateway refuses it.`
+          : probe.error,
+      };
+    },
+  );
 
   // `model:default` stood here — spec 25 §6's writer for the app-wide default.
   // Its one caller was the top bar's picker, removed on 2026-09-04, and the key
@@ -1439,12 +1513,35 @@ export function registerIpc(
    */
   const gatewayList = async (): Promise<GatewayListResponse> => {
     const gateways = listGateways(db);
+    // Spec 44 §3 — every SDK the descriptor lists, not the one constant. The
+    // agent control's cascade needs a capability per (agent, gateway) before it
+    // can grey a row, and asking lazily per draw would grey the right rows one
+    // frame late. `listCapabilities` caches per key, so a second gateway list
+    // waits on nothing.
+    const built = CATALOGUE.sdks.map((entry) => entry.id);
     const views: GatewayView[] = await Promise.all(
       gateways.map(async (gateway) => ({
         gateway,
-        capabilities: {
-          [REX_SDK]: await listCapabilities(SCRATCH_DIR, gateway, REX_SDK),
-        },
+        // §8 rule 4 — a boolean, never the value. The renderer displays
+        // untrusted document content, so it may learn THAT a key exists and
+        // never what it is.
+        hasKey: hasGatewayKey(db, gateway.id),
+        capabilities: Object.fromEntries(
+          await Promise.all(
+            built.map(
+              async (sdk) =>
+                [
+                  sdk,
+                  await listCapabilities(
+                    SCRATCH_DIR,
+                    gateway,
+                    sdk,
+                    unseal(gatewayKeyCipher(db, gateway.id)),
+                  ),
+                ] as const,
+            ),
+          ),
+        ),
       })),
     );
     const defaults = agentDefaults(
@@ -1480,7 +1577,14 @@ export function registerIpc(
    * the auth, the credential's NAME and the model list.
    */
   handle(COMMAND.gatewaySave, async (_event, draft: AgentGatewayDraft) => {
-    const saved = saveGateway(db, draft);
+    // Spec 46 §7 — sealed here, before anything is written, and the plaintext
+    // is never held. The three cases are deliberately distinct: `undefined`
+    // leaves the stored key alone (a rename must not blank a credential),
+    // `null` removes it, and a string replaces it.
+    const cipher =
+      draft.key === undefined ? undefined : draft.key === null ? null : seal(draft.key);
+    const { key: _key, ...rest } = draft;
+    const saved = saveGateway(db, rest, cipher);
     // §8 — the capabilities of a gateway that was just edited are no longer the
     // ones REX has. Asked again on the next draw rather than kept.
     forgetProbe(saved.id);
@@ -1513,7 +1617,12 @@ export function registerIpc(
     if (request.gatewayId) {
       const gateway = getGateway(db, request.gatewayId);
       if (!gateway) throw new Error(`No such gateway: ${request.gatewayId}`);
-      return resolveRoute(gateway, request.sdk);
+      return resolveRoute(
+        gateway,
+        request.sdk,
+        process.env,
+        unseal(gatewayKeyCipher(db, gateway.id)),
+      );
     }
     if (!request.kind) throw new Error("Name a gateway, or the kind and the answers to build one.");
     const problems = validateGateway(request.kind, request.values ?? {});
@@ -1524,6 +1633,11 @@ export function registerIpc(
     return resolveRoute(
       { id: "draft", name: "This gateway", kind: request.kind, routes } as AgentGateway,
       request.sdk,
+      process.env,
+      // The sheet's own answer, for a gateway that has not been saved yet.
+      // Verify and Test must work before Save, or a person cannot check a
+      // gateway without committing to it (§4.5).
+      request.values?.key ?? null,
     );
   };
 
@@ -1687,6 +1801,307 @@ export function registerIpc(
     const value = process.env[name];
     return typeof value === "string" && value.length > 0;
   });
+
+  // ── Spec 46 §12 — the built-in gateway ────────────────────────
+  //
+  // **No handler below returns a secret**, and one takes one. That asymmetry is
+  // the rule, not an oversight: the renderer displays untrusted document
+  // content (invariant I2), so it must never be able to ask for a key, not even
+  // one it just supplied.
+
+  /** The decryptor every gateway call shares. Main-only, by construction. */
+  const decrypt = (providerId: string): string | null => unseal(keyCipherOf(db, providerId));
+
+  const builtinState = (): BuiltinState => {
+    const live = localGateway().state();
+    return {
+      enabled: isEnabled(db, BUILTIN_GATEWAY_ID),
+      running: live.running,
+      // The port it GOT (§4.2). The debug report prints this for the same
+      // reason it prints the CDP port it found rather than the one it wanted.
+      port: live.port,
+      startedAt: live.startedAt,
+      down: live.down,
+      models: listConfigured(db).length,
+      providers: listProviders(db).length,
+      // §15 — read here rather than pushed, because the screen is the only
+      // thing that can show it and this is the call the screen makes.
+      retired: (getSetting(db, RETIRED_GATEWAYS_KEY) ?? "").split("\n").filter(Boolean),
+    };
+  };
+
+  const providerViews = (): GatewayProviderView[] =>
+    listProviders(db).map((row) => ({
+      id: row.id,
+      provider: row.provider,
+      label: row.label,
+      baseUrl: row.baseUrl,
+      hasKey: row.hasKey,
+      listedAt: row.listedAt,
+      models: listModels(db, row.id).map((model) => ({
+        model: model.model,
+        alias: model.alias,
+        maxInput: model.maxInput,
+        maxOutput: model.maxOutput,
+        tools: model.tools,
+      })),
+    }));
+
+  handle(COMMAND.gatewayBuiltinState, (): BuiltinState => builtinState());
+
+  /**
+   * §15 — the note is shown ONCE.
+   *
+   * Cleared by the screen after it has drawn it, rather than by the migration
+   * that wrote it: the migration cannot know whether anybody was looking, and a
+   * sentence about two deleted gateways that nobody ever sees is the same as no
+   * sentence at all.
+   */
+  handle(COMMAND.gatewayRetiredSeen, (): BuiltinState => {
+    setSetting(db, RETIRED_GATEWAYS_KEY, "");
+    return builtinState();
+  });
+
+  /**
+   * §4.1 — the switch. **Turning it off deletes nothing.**
+   *
+   * `setEnabled` writes one column; the child is started or stopped around it.
+   * The reviewer's instruction is the whole reason this is two operations and
+   * not one: "it's already the second time that he is enabling it and he
+   * already has some configuration — we should not force him to fill it in
+   * again."
+   */
+  handle(COMMAND.gatewayBuiltinEnable, async (_event, enabled: boolean): Promise<BuiltinState> => {
+    setEnabled(db, BUILTIN_GATEWAY_ID, enabled);
+    if (enabled) {
+      try {
+        await rebuildConfig(db);
+        await startBuiltin(db, gatewayEnvironment(db, decrypt));
+      } catch (error) {
+        // The switch stays ON and the reason is reported. A switch that
+        // silently flipped itself back would hide the fault that needs fixing.
+        logLine("error", "local-gateway", error instanceof Error ? error.message : String(error));
+      }
+    } else {
+      await stopBuiltin();
+    }
+    return builtinState();
+  });
+
+  /**
+   * §5.2 — the six descriptors, so the screen can draw controls it did not write.
+   *
+   * Read from `local-gateway/catalogue.json`, which is generated from
+   * `providers.py` and checked against it by that package's own tests. **Every
+   * string in it comes from REX's own source**, never from a provider — which
+   * is what stops a remote server writing the host's interface (§14 rule 6).
+   */
+  handle(COMMAND.gatewayProviderCatalogue, (): ProviderDescriptor[] => providerCatalogue());
+
+  /**
+   * §6 — what an external LiteLLM serves, asked of the gateway itself.
+   *
+   * REX configures no models for one: they are already configured, inside it.
+   * The key is decrypted here and never leaves main.
+   */
+  handle(COMMAND.gatewayRemoteModels, async (_event, gatewayId: string) => {
+    const gateway = getGateway(db, gatewayId);
+    if (!gateway) return { models: [], error: "That gateway is gone.", needsKey: false };
+    return remoteModels(
+      gateway.routes["claude-agent"]?.baseUrl ?? null,
+      unseal(gatewayKeyCipher(db, gatewayId)),
+    );
+  });
+
+  handle(COMMAND.gatewayProviderList, (): GatewayProviderView[] => providerViews());
+
+  handle(
+    COMMAND.gatewayProviderSave,
+    async (_event, draft: GatewayProviderDraft): Promise<GatewayProviderView[]> => {
+      saveProvider(db, draft);
+      // A provider with no ticked models changes no config, but re-rendering is
+      // cheap and keeps `config.yaml` a pure function of the database.
+      await restartIfRunning();
+      return providerViews();
+    },
+  );
+
+  handle(
+    COMMAND.gatewayProviderRemove,
+    async (_event, providerId: string): Promise<GatewayProviderView[]> => {
+      // Its models cascade (§11). The key goes with the row, which is the only
+      // deletion in this file that removes a credential — and it is the one a
+      // person explicitly asked for.
+      removeProvider(db, providerId);
+      await restartIfRunning();
+      return providerViews();
+    },
+  );
+
+  /**
+   * §5.3 — what one provider serves, now.
+   *
+   * The key is decrypted here and handed to the child in its environment, never
+   * as an argument, and never back to the renderer. A failure comes back as
+   * `error` rather than as a rejection: the Settings screen draws it, and
+   * "could not reach LM Studio at …" is a sentence a person can act on.
+   */
+  handle(
+    COMMAND.gatewayProviderDiscover,
+    async (_event, providerId: string): Promise<GatewayDiscovery> => {
+      const provider = getProvider(db, providerId);
+      if (!provider) {
+        return { provider: "", models: [], error: "That provider is no longer configured." };
+      }
+      const found = await discoverProvider(
+        provider.provider,
+        provider.baseUrl,
+        provider.hasKey ? decrypt(providerId) : null,
+      );
+      if (!found.error) markListed(db, providerId);
+      return found;
+    },
+  );
+
+  /**
+   * The ticked models. §4.3 — this rewrites `config.yaml` and restarts.
+   *
+   * The window is stored **less the output reserve** (§4.4 rule 3), applied
+   * once here by `write-config`, so nothing downstream applies it a second time.
+   */
+  handle(
+    COMMAND.gatewayModelsSave,
+    async (_event, request: GatewayModelsRequest): Promise<GatewayProviderView[]> => {
+      const provider = getProvider(db, request.providerId);
+      if (!provider) throw new Error("That provider is no longer configured.");
+      setModels(
+        db,
+        request.providerId,
+        provider.provider,
+        request.models.map((model) => ({
+          model: model.model,
+          maxInput: model.context,
+          maxOutput: model.context === null ? null : OUTPUT_RESERVE,
+          tools: model.tools,
+        })),
+      );
+      await restartIfRunning();
+      return providerViews();
+    },
+  );
+
+  /**
+   * §7 — a key in, and `true` back.
+   *
+   * `seal` refuses on a machine that cannot encrypt at all, so a plaintext key
+   * can never reach the database by this route. The `basic_text` case does not
+   * refuse — it is real if weak encryption, the person was warned by
+   * `gateway:storage:health` before typing, and refusing would leave them
+   * unable to use REX (§7.3).
+   */
+  handle(COMMAND.gatewaySecretSet, async (_event, secret: GatewaySecret): Promise<boolean> => {
+    setProviderKey(db, secret.providerId, seal(secret.value));
+    await restartIfRunning();
+    return true;
+  });
+
+  handle(COMMAND.gatewaySecretClear, async (_event, providerId: string): Promise<boolean> => {
+    setProviderKey(db, providerId, null);
+    await restartIfRunning();
+    return true;
+  });
+
+  handle(COMMAND.gatewayStorageHealth, (): GatewayStorageHealth => storageHealth());
+
+  /**
+   * §4.6 — this comment's requests and responses.
+   *
+   * **Only the built-in gateway has a traffic log.** REX writes its config, so
+   * REX can install a callback; an existing LiteLLM belongs to somebody else
+   * and REX will not ask it to load code. On any other gateway this answers
+   * `available: false` with the reason, and the button says so rather than
+   * disappearing — a control that vanishes looks like a bug (A16).
+   */
+  handle(COMMAND.gatewayTraffic, (_event, threadId: string): GatewayTrafficResult => {
+    const messages = listMessages(db, threadId);
+    const names = new Set(messages.map((message) => message.gatewayName).filter(Boolean));
+    const bodies = captureBodies(db);
+
+    // A comment that ran on `Original` has no gateway traffic at all: those
+    // requests went straight to the vendor and no gateway ever saw them.
+    if (!messages.some((message) => message.baseUrl)) {
+      return {
+        available: false,
+        reason:
+          "This comment ran on Original, so its requests went straight to the SDK's own " +
+          "endpoint and never through a gateway. Pick the built-in gateway in the composer, " +
+          "ask again, and this will show that run.",
+        rows: [],
+        bodies,
+      };
+    }
+    if (!names.has(BUILTIN_GATEWAY_NAME)) {
+      return {
+        available: false,
+        reason:
+          "This comment ran through a gateway somebody else runs, so REX did not write its " +
+          "configuration and could not add the recorder to it. Only REX's own built-in " +
+          "gateway keeps a traffic log.",
+        rows: [],
+        bodies,
+      };
+    }
+    return { available: true, reason: null, rows: threadTraffic(threadId), bodies };
+  });
+
+  handle(COMMAND.gatewayTrafficSize, (): GatewayTrafficSize => trafficReport());
+
+  handle(COMMAND.gatewayTrafficClear, (): GatewayTrafficSize => {
+    clearTraffic();
+    return trafficReport();
+  });
+
+  /**
+   * §8 rule 5 — capture bodies, on or off.
+   *
+   * It restarts the gateway, because the switch reaches the callback through
+   * the child's environment and LiteLLM has no hot reload without a database
+   * (§4.3, §17).
+   */
+  handle(
+    COMMAND.gatewayTrafficBodies,
+    async (_event, capture: boolean): Promise<GatewayTrafficSize> => {
+      setSetting(db, CAPTURE_BODIES_KEY, capture ? "1" : "0");
+      await restartIfRunning();
+      return trafficReport();
+    },
+  );
+
+  function trafficReport(): GatewayTrafficSize {
+    const size = trafficSize();
+    return { bytes: size.bytes, days: size.days, bodies: captureBodies(db) };
+  }
+
+  /**
+   * §4.3 — a change restarts the child, and the restart waits for in-flight runs.
+   *
+   * A no-op when the switch is off: the config is still rewritten, so turning
+   * the gateway on later starts it against what the person configured while it
+   * was stopped.
+   */
+  async function restartIfRunning(): Promise<void> {
+    try {
+      await restartBuiltin(db, decrypt, (openRuns) => {
+        logLine(
+          "info",
+          "local-gateway",
+          `waiting for ${openRuns} run(s) before restarting the gateway`,
+        );
+      });
+    } catch (error) {
+      logLine("error", "local-gateway", error instanceof Error ? error.message : String(error));
+    }
+  }
 
   /**
    * Spec 27 §4.7 — how the reviewer last had the Markdown page drawn.

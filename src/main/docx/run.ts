@@ -132,6 +132,11 @@ export async function runDocxApply(input: DocxApplyInput): Promise<DocxApplyResu
     resume: false,
     // Spec 43 §5.5 — a run-scoped id, and its session is never stored.
     route: input.route,
+    // Spec 44 §9.3 — a Word run writes exactly one thing: its plan, in REX's
+    // own cache. The document itself is edited by REX afterwards from that
+    // plan, so the agent needs no write access to it at all — which makes this
+    // the tightest boundary of the three write callers.
+    writable: [docxCacheDir(contentHash)],
     model: input.model,
     style: input.style,
     documentPath: input.documentPath,

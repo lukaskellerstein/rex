@@ -1,20 +1,28 @@
 #!/usr/bin/env python3
 """PostToolUse hook on mcp__playwright-<slug>__browser_* AND on Bash.
 
-One job: the park-fallback. Placement normally happens at window CREATION, by
-the permanent claude-pw-* yabai rules — an agent browser is born on the
-`playwright` desktop and this hook finds nothing to do. What the rules cannot
-catch is a window that carries neither matched app name nor the `[agent]`
-title tag: an app launched bare by an agent's own script, outside the launch
-wrapper, in a repo whose app does not honour PW_AGENT. The Bash trigger is the
-only hook that ever sees those (no MCP tool fires for them — measured in
-ca-p-tcha 2026-08-23).
+One job: the park-fallback. Placement normally happens at window CREATION —
+the permanent claude-pw-* yabai rules for the windows they recognise, and the
+machine's window_created signal (mac-setup pw_route.sh, deciding from the
+process tree) for every agent window whatever it is called — so this hook
+finds nothing to do. What is left for it is a window that slipped both: an
+app launched bare by an agent's own script, backgrounded so its launcher was
+gone before the window appeared, in a repo whose app does not honour
+PW_AGENT. The Bash trigger is the only hook that ever sees those (no MCP tool
+fires for them — measured in ca-p-tcha 2026-08-23).
+
+A window found off every agent desktop is handed to pw.route — the same
+machine script the signal runs — so a hook never has an opinion of its own
+about which desktop is right (the shared one, or the project's `pw:` one).
+Parking straight to the shared desktop was this hook's old move, and it would
+undo the project split on every Bash call.
 
 Safe on every Bash call because the ownership test is pw.is_claude_browser —
-Claude ancestry or the instance's own /json/version marker, never argv and
-never a bare "some MCP server claims this port". The looser port-claim test
-parked the USER's own app while an agent was merely attached to it (measured
-in rex 2026-08-30, the repo's old hook set); this grain cannot.
+the machine's pid registry, Claude ancestry, or the instance's own
+/json/version marker; never argv and never a bare "some MCP server claims this
+port". The looser port-claim test parked the USER's own app while an agent was
+merely attached to it (measured in rex 2026-08-30, the repo's old hook set);
+this grain cannot.
 
 Deliberately NO automatic walk-back of the visible space. The old set dragged
 the user home whenever the scratch space was visible — but with placement at
@@ -35,13 +43,13 @@ def main():
     if not pw.yabai_ok():
         sys.exit(0)
 
-    scratch = pw.scratch_index()
-    if scratch is None:
+    if pw.scratch_index() is None:
         sys.exit(0)  # reported by session-start and healed by the pre hook
 
+    home = pw.agent_space_indices()
     for window in pw.browser_windows():
-        if window["space"] != scratch and pw.is_claude_browser(window["pid"]):
-            pw.park(window["id"], scratch)
+        if window["space"] not in home and pw.is_claude_browser(window["pid"]):
+            pw.route(window["id"])
 
     sys.exit(0)
 

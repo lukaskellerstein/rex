@@ -63,14 +63,22 @@ export interface RunStats {
    */
   elapsedMs: number;
   /**
-   * What the run reported it cost, in dollars.
+   * What the run reported it cost, in dollars, or **null when nothing reported one**.
    *
-   * **Zero is the ordinary answer, not a missing one.** A local model behind a
-   * gateway bills nothing and reports nothing, so `cost_usd` is null on every
-   * row of such a run; the reviewer asked for `$0` there rather than a blank
-   * (2026-09-04). Only the official endpoint has ever filled this column.
+   * The distinction is the whole point, and it took two goes to get right. It
+   * was a plain `number` accumulated with `?? 0`, which made "the SDK said
+   * nothing" and "the SDK said zero" the same value — so a run through a local
+   * gateway drew `$0.000`, and so would a run whose cost REX had simply failed
+   * to record. The reviewer first asked for `$0` there (2026-09-04) and then
+   * chose the other way the same day, which is what spec 43 §8.1 and spec 44
+   * §11 criterion 12 had said all along: **a missing cost is drawn as unknown,
+   * never as `$0.00`.**
+   *
+   * Only a first-party endpoint has ever filled this. A routed Claude run
+   * reports none on purpose (spec 43 §8.1 — the CLI prices a model it has never
+   * heard of), and a Codex run reports none at all.
    */
-  costUsd: number;
+  costUsd: number | null;
   /** Tool calls the run made. */
   steps: number;
 }
@@ -95,7 +103,9 @@ export function runStatsOf(messages: readonly Message[]): Map<string, RunStats> 
   const ordered = [...messages].sort((a, b) => a.seq - b.seq);
 
   let startedAt: number | null = null;
-  let costUsd = 0;
+  //: Null until a row actually carries a cost, so an unreported run stays
+  //: unreported rather than summing to a zero nobody claimed.
+  let costUsd: number | null = null;
   let steps = 0;
   let drawn: string | null = null;
 
@@ -106,14 +116,14 @@ export function runStatsOf(messages: readonly Message[]): Map<string, RunStats> 
     // send they are still waiting on.
     if (message.role === "user" && message.kind === "text") {
       startedAt = Date.parse(message.createdAt);
-      costUsd = 0;
+      costUsd = null;
       steps = 0;
       drawn = null;
       continue;
     }
     if (startedAt === null || Number.isNaN(startedAt)) continue;
 
-    costUsd += message.costUsd ?? 0;
+    if (message.costUsd !== null) costUsd = (costUsd ?? 0) + message.costUsd;
     if (message.kind === "tool_call") steps += 1;
     if (message.role === "assistant" && message.kind === "text" && message.content) {
       drawn = message.id;
@@ -152,9 +162,15 @@ export function spentText(ms: number): string {
   return `${Math.floor(total / 3600)}h ${String(minutes).padStart(2, "0")}m`;
 }
 
-/** A price, always three decimals, so a column of them lines up. */
-export function costText(usd: number): string {
-  return `$${usd.toFixed(3)}`;
+/**
+ * A price, always three decimals, so a column of them lines up.
+ *
+ * Null is a cost **nobody reported**, and it draws as an em dash rather than as
+ * a number: spec 43 §8.1 and spec 44 §11 criterion 12. A dash keeps the column
+ * aligned and cannot be added up by eye, which `$0.000` invited.
+ */
+export function costText(usd: number | null): string {
+  return usd === null ? "—" : `$${usd.toFixed(3)}`;
 }
 
 /** `1 step`, `4 steps` — and `0 steps`, which is what an answer with no tools is. */

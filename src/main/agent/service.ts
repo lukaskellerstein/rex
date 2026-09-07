@@ -15,7 +15,7 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   AgentEvent,
@@ -26,6 +26,7 @@ import type {
   ToolCall,
 } from "../../shared/agent-protocol.ts";
 import { record as logLine } from "../log.ts";
+import { interpreterFor, packageRoot } from "../python.ts";
 
 /** The child's first line has to arrive inside this, or the spawn has failed. */
 const READY_TIMEOUT_MS = 20_000;
@@ -66,7 +67,7 @@ export interface ServiceState {
   /** The protocol version the child speaks. */
   version: string | null;
   python: string | null;
-  /** The `agent-gateway` distribution's own version. */
+  /** The `agent-runner` distribution's own version. */
   library: string | null;
   /** SDK distribution name to version, as the child's interpreter imported them. */
   sdks: Record<string, string>;
@@ -77,54 +78,22 @@ export interface ServiceState {
 }
 
 /**
- * The repository root, found by looking for the package rather than by counting
- * directories.
+ * The `agent-runner/` directory, wherever this file is running from.
  *
- * Counting `..` is wrong in one of the two places this runs: main is bundled to
- * `out/main/index.js` at runtime and lives at `src/main/agent/service.ts` in a
- * test, and those are different depths. Walking up until `agent-gateway/`
- * appears is right in both, and says plainly what it is looking for.
+ * Spec 46 §9 renamed it and §13 gave both Python packages one way to be found,
+ * so the walk itself lives in `python.ts` and this only names what to look for.
  */
 function findPackageRoot(): string {
-  const override = process.env.REX_AGENT_GATEWAY;
-  if (override) return resolve(override);
-
-  let here = dirname(fileURLToPath(import.meta.url));
-  for (let depth = 0; depth < 8; depth += 1) {
-    const candidate = join(here, "agent-gateway");
-    if (existsSync(join(candidate, "pyproject.toml"))) return candidate;
-    const up = dirname(here);
-    if (up === here) break;
-    here = up;
-  }
-  // Nothing found. Return the path the message will name, so the sentence the
-  // reviewer reads points at a real place rather than at nothing.
-  return join(process.cwd(), "agent-gateway");
-}
-
-/**
- * §4.1 step 1 — the interpreter, and never `python` from `PATH`.
- *
- * A Mac app started from the Dock gets a stunted `PATH` — which is the whole
- * reason Vex carries a `system-path.ts` — so the one on `PATH` is either absent
- * or the wrong one. The venv's own interpreter is the only correct answer in
- * development, and a bundled runtime will be the only correct answer once REX
- * is packaged.
- */
-export function interpreterFor(root: string): string {
-  const override = process.env.REX_PYTHON;
-  if (override) return override;
-
-  const bundled = join(dirname(dirname(root)), "python", "bin", "python");
-  const venv = join(root, ".venv", "bin", "python");
-  if (existsSync(venv)) return venv;
-  if (existsSync(bundled)) return bundled;
-  return venv;
+  return packageRoot(
+    "agent-runner",
+    dirname(fileURLToPath(import.meta.url)),
+    process.env.REX_AGENT_RUNNER,
+  );
 }
 
 export function defaultSpawn(): ServiceSpawn {
   const root = findPackageRoot();
-  return { command: interpreterFor(root), args: ["-m", "agent_gateway"], cwd: root };
+  return { command: interpreterFor(root), args: ["-m", "agent_runner"], cwd: root };
 }
 
 interface PendingRequest {
@@ -183,9 +152,23 @@ export class AgentService {
     return new Promise<void>((settle, fail) => {
       const child = spawn(this.config.command, this.config.args, {
         cwd: this.config.cwd,
-        // Nothing is added but the buffering flag: routing and credentials
+        // Nothing is added but buffering and encoding: routing and credentials
         // travel in `run` messages, per run, never in the child's environment.
-        env: { ...process.env, PYTHONUNBUFFERED: "1" },
+        //
+        // **UTF-8 is not optional on Windows.** The protocol is JSON lines and
+        // REX decodes this pipe as UTF-8, but Python's stdout defaults to the
+        // console code page there — cp1252 on the machine this was measured on.
+        // An agent answer containing an em-dash, a curly quote or an accented
+        // name would then be mangled or raise `UnicodeEncodeError` mid-stream.
+        // The gateway child hit exactly this and died on LiteLLM's banner
+        // (`gateway/local.ts`); this side had not been exercised yet, which is
+        // luck rather than correctness.
+        env: {
+          ...process.env,
+          PYTHONUNBUFFERED: "1",
+          PYTHONUTF8: "1",
+          PYTHONIOENCODING: "utf-8",
+        },
         stdio: ["pipe", "pipe", "pipe"],
       });
       this.child = child;

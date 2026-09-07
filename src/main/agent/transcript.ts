@@ -9,7 +9,7 @@
 // Spec 42 §9.3 split this file in two, along the line of who owns what. **Where
 // the Claude CLI keeps its transcripts is SDK knowledge**, so `configDir`,
 // `projectDirName`, `sessionFilePath`, `sessionRecord` and `sessionExists` moved
-// into `agent-gateway/…/adapters/claude/sessions.py` and are asked for over the
+// into `agent-runner/…/adapters/claude/sessions.py` and are asked for over the
 // pipe (`bridge.ts`'s `sessionState`). What is left here is the half that is
 // about REX's own `Message` rows, and knows nothing about any SDK.
 

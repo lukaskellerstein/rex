@@ -14,8 +14,28 @@ Thumbs.db
 # Node.js
 node_modules/
 dist/
-build/
 out/
+
+# `build/` is a Node convention for OUTPUT, but electron-builder uses it for
+# INPUT: `buildResources: build` in `electron-builder.yml`, which names
+# `build/entitlements.mac.plist` twice. Ignoring the directory means a fresh
+# clone cannot package REX — it worked here only because the file sat on disk
+# untracked. The contents are still ignored; the entitlements file is not.
+#
+# `build/*` and not `build/`, because git never descends into an excluded
+# DIRECTORY, so a `!` under one has no effect. This is the one pattern that
+# fails silently and looks correct.
+build/*
+!build/entitlements.mac.plist
+# The app icon. electron-builder picks `build/icon.png` up automatically from
+# `buildResources` and generates the .ico and .icns from it. Without it every
+# platform ships the default Electron icon — which is what REX did until
+# 2026-09-07, when a Windows install produced a shortcut nobody would recognise.
+!build/icon.png
+# The Windows installer's "already installed" page (Reinstall or Uninstall).
+# electron-builder includes `build/installer.nsh` by name, so an ignored copy
+# would build fine here and vanish from every clone and every CI runner.
+!build/installer.nsh
 
 # electron-vite / vite
 .vite/
@@ -37,19 +57,22 @@ prebuilds/
 # Playwright MCP session artifacts (console logs, snapshots)
 .playwright-mcp/
 
-# Bytecode cache from the Python hooks in .claude/hooks/ and from agent-gateway/
+# Bytecode cache from the Python hooks in .claude/hooks/ and from both packages
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
 
-# The agent library's virtualenv (spec 42 §12). Rebuilt by `uv sync`, and it is
-# machine-specific: the interpreter inside it is one `uv` downloaded.
+# Each Python package's virtualenv (spec 42 §12, spec 46 §10). Rebuilt by
+# `uv sync`, and machine-specific: the interpreter inside is one `uv` downloaded.
+# `local-gateway/.venv` is 456 MB, because `litellm[proxy]` is.
 #
-# NOT ignored, and deliberately: `agent-gateway/uv.lock`, `schema.json`,
-# `catalogue.json` and the generated `src/shared/agent-protocol.ts`. The last
-# three are what `test/protocol.spec.ts` compares against, so an ignored one
-# would turn the drift guard into a test that always passes.
-agent-gateway/.venv/
+# NOT ignored, and deliberately: both `uv.lock` files, `agent-runner/schema.json`,
+# `agent-runner/catalogue.json` and the generated `src/shared/agent-protocol.ts`.
+# The last three are what `test/protocol.spec.ts` compares against, so an ignored
+# one would turn the drift guard into a test that always passes.
+agent-runner/.venv/
+local-gateway/.venv/
 
 # Machine-local Claude Code overrides. Also covered by a global ignore on this
 # machine, but that does not travel with a clone — keep it here too.
@@ -89,3 +112,14 @@ design-system/ds-bundle/
 design-system/.design-sync/.cache/
 design-system/.design-sync/learnings/
 design-system/.design-sync/node_modules
+
+# Spec 46 §13 — built by `npm run bundle:python` and `electron-builder`.
+# 806 MB and 1.3 GB; rebuilt from the two pyproject.toml files on demand.
+python-dist/
+release/
+
+# design/ is the Claude Design working tree for the Settings page. The
+# artboards (*.dc.html) and canvas.json ARE the source and stay versioned; the
+# seeded page is 2.5 MB of editor payload, re-made from them by seed-canvas.mjs
+# on every change, and must never be edited by hand.
+design/rex-settings-page.html

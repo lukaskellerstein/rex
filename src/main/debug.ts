@@ -400,7 +400,9 @@ export async function debugReport(db: Db, threadId: string, appVersion: string):
   lines.push(
     "",
     "TOTALS",
-    `  ${totals.steps} steps · ${spentText(totals.durationMs)} · $${totals.costUsd.toFixed(4)} · ${totals.denied} denied · ${totals.failed} failed`,
+    // Spec 43 §8.1 — `$0.0000` for a comment nobody priced is the one
+    // number in this report that would be read as measured.
+    `  ${totals.steps} steps · ${spentText(totals.durationMs)} · ${totals.costUsd > 0 ? `$${totals.costUsd.toFixed(4)}` : "cost not reported"} · ${totals.denied} denied · ${totals.failed} failed`,
     `  ${messages.length} messages · ${kindCounts(messages) || "none"}`,
   );
 

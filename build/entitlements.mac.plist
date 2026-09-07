@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!--
+    Spec 46 milestone 4. Four entitlements, and each is here because REX cannot
+    work without it — an entitlement nobody can explain is one nobody should
+    have granted.
+  -->
+
+  <!-- REX spawns two Python children: the agent runner and the gateway. The
+       hardened runtime blocks an unsigned child without this. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+
+  <!-- The gateway talks to a model provider, and the agents talk to their own
+       endpoints. Outgoing only: REX listens on nothing (invariant I3), and the
+       one loopback port spec 46 §2 allows needs no entitlement. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+
+  <!-- The documents a person opens, and `~/.rex`. Chosen by them, never by an
+       agent — SPEC.md §8.7's diff-and-accept is the rule above this one. -->
+  <key>com.apple.security.files.user-selected.read-write</key>
+  <true/>
+</dict>
+</plist>

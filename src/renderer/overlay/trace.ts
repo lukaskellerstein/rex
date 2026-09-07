@@ -12,6 +12,7 @@
 // and its count) and open (its fields, its diff, its output) is decided here,
 // as data, so `node --test` can check it without a DOM.
 
+import type { AgentSdk } from "../../shared/agent-protocol.ts";
 import type { Message, SendMode, ThreadWithMessages } from "../../shared/types.ts";
 import { agentText } from "./aside.ts";
 import { type Mode, modeOf } from "./mode.ts";
@@ -93,6 +94,12 @@ export interface TraceEntry {
    * *"In the trace view I'm missing, in the answer, information about what
    * gateway it came from."* Both feet are one component now.
    */
+  /**
+   * Spec 44 §3 — and which agent ran it. The same shape and the same nulls: a
+   * turn no agent was in has none, and neither has one written before the
+   * column existed.
+   */
+  sdk: AgentSdk | null;
   gatewayName: string | null;
   baseUrl: string | null;
   /**
@@ -291,6 +298,7 @@ function entry(message: Message, kind: TraceKind, label: string, body: string): 
     sent: message.mode,
     model: message.model,
     style: message.style,
+    sdk: message.sdk,
     gatewayName: message.gatewayName,
     baseUrl: message.baseUrl,
     what: null,

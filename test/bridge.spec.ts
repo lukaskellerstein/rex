@@ -6,7 +6,7 @@
 // wrote before spec 42, asserted field by field.
 //
 // The other half — an SDK message becoming an event — is tested in Python, in
-// `agent-gateway/tests/test_events.py`. Together the two cover the whole path
+// `agent-runner/tests/test_events.py`. Together the two cover the whole path
 // with no CLI, no network and no key.
 //
 // Run: npm run test:bridge
@@ -25,6 +25,7 @@ import {
   validateGateway,
 } from "../src/main/agent/bridge.ts";
 import type { AgentEvent } from "../src/shared/agent-protocol.ts";
+import { CATALOGUE } from "../src/shared/agent-protocol.ts";
 
 /** Every draft carries these unless the event says otherwise. */
 const BLANK = {
@@ -245,10 +246,68 @@ test("for Claude, a tool the library could not map is still ALLOWED", () => {
 
 test("for any later SDK, a tool the library could not map is DENIED", () => {
   // The fall-through direction is the whole difference between a gate and a
-  // decoration, and specs 44 to 46 each bring a closed mapping.
+  // decoration, and specs 44, 47 and 48 each bring a closed mapping.
   const decide = policyFor("read", "codex");
   const reason = decide({ name: "apply_patch", common: null, input: {}, subagentId: null });
   assert.match(reason ?? "", /does not know the codex tool 'apply_patch'/);
+});
+
+// ── Spec 44 §9.1 — a second SDK's names reach the same gate ─────
+
+test("a Codex shell call is judged by the gate's own shell rules", () => {
+  // THE HOLE THIS CLOSES. `gateDecision` matches `Bash` and returns allow for
+  // any name it does not know, and `command_execution` is a name it does not
+  // know — so without the translation a read session runs arbitrary shell.
+  const decide = policyFor("read", "codex");
+  const reason = decide({
+    name: "command_execution",
+    common: "shell",
+    input: { command: "rm -rf ~/Documents" },
+    subagentId: null,
+  });
+  assert.match(reason ?? "", /cannot change any file/);
+});
+
+test("a Codex shell call that only reads is allowed, exactly as Bash is", () => {
+  const decide = policyFor("read", "codex");
+  const call = { name: "command_execution", common: "shell" as const, subagentId: null };
+  assert.equal(decide({ ...call, input: { command: "ls -la" } }), null);
+  assert.equal(decide({ ...call, input: { command: "git status" } }), null);
+});
+
+test("a Codex file change is refused in a read session by REX's own words", () => {
+  const decide = policyFor("read", "codex");
+  assert.match(
+    decide({ name: "file_change", common: "write", input: {}, subagentId: null }) ?? "",
+    /read session/,
+  );
+});
+
+test("a Codex MCP call keeps its own name, because the allowlist is written in it", () => {
+  const decide = policyFor("read", "codex");
+  assert.match(
+    decide({
+      name: "mcp__media-mcp__generate_image",
+      common: "mcp",
+      input: {},
+      subagentId: null,
+    }) ?? "",
+    /deny-by-default/,
+  );
+});
+
+test("a Codex write run is allowed to write, as a Claude one is", () => {
+  const decide = policyFor("write", "codex");
+  assert.equal(decide({ name: "file_change", common: "write", input: {}, subagentId: null }), null);
+  assert.equal(
+    decide({
+      name: "command_execution",
+      common: "shell",
+      input: { command: "ls" },
+      subagentId: null,
+    }),
+    null,
+  );
 });
 
 test("the write policy allows everything but an MCP tool", () => {
@@ -274,7 +333,13 @@ test("the Original gateway resolves to no URL and no token", () => {
 });
 
 test("an SDK with no adapter is refused by name", () => {
-  assert.throws(() => resolveRoute(ORIGINAL_GATEWAY, "codex", {}), /No adapter for 'codex'/);
+  assert.throws(() => resolveRoute(ORIGINAL_GATEWAY, "opencode", {}), /No adapter for 'opencode'/);
+});
+
+test("the SDK spec 44 built resolves, on the gateway that was already there", () => {
+  const route = resolveRoute(ORIGINAL_GATEWAY, "codex", {});
+  assert.equal(route.sdk, "codex");
+  assert.equal(route.baseUrl, null);
 });
 
 test("a credential is read from the environment it was handed", () => {
@@ -335,4 +400,18 @@ test("a gateway URL must be an address and nothing more", () => {
   ]) {
     assert.notEqual(baseUrlProblem(bad), null, bad);
   }
+});
+
+// ── Spec 44 §7 — a capability the agent does not have is not built ──
+
+test("no plugin path is built for an agent that has none", () => {
+  // Measured in the running app on 2026-09-04, and the reason this test exists:
+  // REX resolves `lsp-bash` for every run, the library refuses a plugin list an
+  // adapter cannot honour, and every Codex ASK therefore failed before its child
+  // started. The refusal is right; building the list was the bug.
+  const claude = CATALOGUE.sdks.find((sdk) => sdk.id === "claude-agent");
+  const codex = CATALOGUE.sdks.find((sdk) => sdk.id === "codex");
+  assert.equal(claude?.supportsPlugins, true);
+  assert.equal(codex?.supportsPlugins, false);
+  assert.equal(codex?.supportsStyles, false);
 });

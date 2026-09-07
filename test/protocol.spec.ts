@@ -21,7 +21,7 @@ import { buildRoutes, validateGateway } from "../src/main/agent/bridge.ts";
 import { CATALOGUE } from "../src/shared/agent-protocol.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const PACKAGE = join(ROOT, "agent-gateway");
+const PACKAGE = join(ROOT, "agent-runner");
 const PYTHON = process.env.REX_PYTHON ?? join(PACKAGE, ".venv", "bin", "python");
 
 /**
@@ -37,7 +37,7 @@ const needsPackage = {
 };
 
 function generate(flag: string): string {
-  return execFileSync(PYTHON, ["-m", "agent_gateway.protocol", flag], {
+  return execFileSync(PYTHON, ["-m", "agent_runner.protocol", flag], {
     cwd: PACKAGE,
     encoding: "utf8",
     maxBuffer: 32 * 1024 * 1024,
@@ -50,18 +50,18 @@ test("the committed TypeScript is what the models produce", needsPackage, () => 
     committed,
     generate("--typescript"),
     "src/shared/agent-protocol.ts is stale — regenerate it with\n" +
-      "  uv run python -m agent_gateway.protocol --typescript > ../src/shared/agent-protocol.ts",
+      "  uv run python -m agent_runner.protocol --typescript > ../src/shared/agent-protocol.ts",
   );
 });
 
 test("the committed schema is what the models produce", needsPackage, () => {
   const committed = readFileSync(join(PACKAGE, "schema.json"), "utf8");
-  assert.equal(committed, generate("--schema"), "agent-gateway/schema.json is stale");
+  assert.equal(committed, generate("--schema"), "agent-runner/schema.json is stale");
 });
 
 test("the committed catalogue is what the descriptor produces", needsPackage, () => {
   const committed = readFileSync(join(PACKAGE, "catalogue.json"), "utf8");
-  assert.equal(committed, generate("--catalogue"), "agent-gateway/catalogue.json is stale");
+  assert.equal(committed, generate("--catalogue"), "agent-runner/catalogue.json is stale");
 });
 
 test("the generated module carries the catalogue the host renders from", () => {
@@ -94,7 +94,7 @@ test("both sides build the same routes for the same answers", needsPackage, () =
           PYTHON,
           [
             "-c",
-            "import json,sys;from agent_gateway import build_routes;" +
+            "import json,sys;from agent_runner import build_routes;" +
               "kind,values=json.loads(sys.argv[1]);" +
               "print(json.dumps({k: v.model_dump(by_alias=True) for k, v in build_routes(kind, values).items()}))",
             JSON.stringify([kind.id, values]),
@@ -116,7 +116,7 @@ test("both sides refuse the same answers", needsPackage, () => {
           PYTHON,
           [
             "-c",
-            "import json,sys;from agent_gateway import validate_gateway;" +
+            "import json,sys;from agent_runner import validate_gateway;" +
               "kind,values=json.loads(sys.argv[1]);" +
               "print(json.dumps([e.model_dump(by_alias=True) for e in validate_gateway(kind, values)]))",
             JSON.stringify([kind.id, values]),

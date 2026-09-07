@@ -11,18 +11,23 @@ that used to break on every reboot or yabai restart (measured repeatedly,
      mutation they may make is re-running that same script when the desktop was
      destroyed mid-session. No uuid file in $TMPDIR, nothing to lose.
 
-  2. THE WINDOW DECLARES ITSELF. Placement happens at window CREATION, by two
-     permanent yabai rules playwright_space.sh installs: automation browser
-     builds by app name, and agent-launched Electron apps by the ` [agent]`
-     title suffix an app adds when PW_AGENT=1 is in its environment (the
-     launch wrapper sets it). No hook has to guess ownership from a process
-     tree after the window has already landed on the user's desktop.
+  2. THE LAUNCH IDENTIFIES THE WINDOW, NOT ITS NAME. The machine's yabai
+     signal (mac-setup modules/yabai/pw_route.sh) decides ownership from the
+     process tree at the moment a window is born -- a Claude Code process
+     above it -- and records the pid in a registry (AGENT_PIDS) so the proof
+     outlives the launcher. No app name is matched: rex packaged its app,
+     macOS called it `REX` instead of `Electron`, and every name-based
+     matcher let the window land on the user's desktop (2026-09-07). The two
+     permanent yabai rules (Playwright's browser builds by name, agent-mode
+     apps by the ` [agent]` title tag an app adds when PW_AGENT=1 is set)
+     remain as the fast path that places a window before it is drawn.
 
-  3. OWNERSHIP IS READ FROM THE RUNNING APP, NOT FROM `ps`. An app in agent
-     mode appends `pw-agent` to its user agent, which `/json/version` on its
-     CDP port reports. That answer survives reparenting, backgrounding and
-     reboots, because it comes from the instance itself. Process ancestry
-     remains only as a fallback for apps with no agent mode.
+  3. OWNERSHIP IS READ FROM THE RUNNING APP, NOT FROM `ps`, wherever the app
+     can say. An app in agent mode appends `pw-agent` to its user agent,
+     which `/json/version` on its CDP port reports. That answer survives
+     reparenting, backgrounding and reboots, because it comes from the
+     instance itself. The registry is the same durability for apps with no
+     agent mode; live ancestry is the fallback for both.
 
 What this file still guards, and with which grain:
 
@@ -76,11 +81,27 @@ PLAYWRIGHT_SPACE_SH = Path.home() / ".config" / "yabai" / "playwright_space.sh"
 AGENT_TITLE_TAG = "[agent]"
 AGENT_UA_MARKER = "pw-agent"
 
-# App names (lowercased) a Claude-driven browser can appear under. The MCP is
-# pinned to --browser chromium precisely so this set never overlaps with a
-# browser the user runs by hand. `electron` IS run by the user too — which is
-# why nothing in this file moves or closes one without the agent tag, the
-# marker, or a proven ancestry.
+# The machine's registry of proven agent pids, written by the yabai signal the
+# moment ancestry proves a window (mac-setup modules/yabai/pw_common.sh,
+# PW_PIDS). One `<pid>\t<ps lstart>` per line; the start time is what makes a
+# recycled pid harmless. Read-only here.
+AGENT_PIDS = Path.home() / ".local" / "state" / "yabai" / "pw-agent-pids"
+
+# The machine's placement authority, runnable with a window id. Used by the
+# park-fallback so a hook and the signal can never disagree on where a window
+# belongs.
+PW_ROUTE_SH = Path.home() / ".config" / "yabai" / "pw_route.sh"
+
+# The labels of the desktops agent windows live on: the shared one, and
+# `pw:<project>` for a project with a desktop of its own.
+PROJECT_LABEL_PREFIX = "pw:"
+
+# App names (lowercased) a Claude-driven browser can appear under WITHOUT the
+# machine having proved it: Playwright's own builds, which the user never runs
+# (the MCP is pinned to --browser chromium for exactly that), plus a dev-mode
+# Electron. These are only candidates -- nothing in this file moves or closes
+# one without the agent tag, the marker, the registry, or a proven ancestry.
+# A registered pid is a candidate whatever its app is called.
 BROWSER_APPS = frozenset({"chromium", "chrome for testing", "google chrome for testing", "electron"})
 
 # Argv markers that survive reparenting. Playwright's browsers live under an
@@ -224,6 +245,35 @@ def is_owned_by(pid, session):
     return bool(pid and session and session in _ancestor_pids(pid))
 
 
+def _start_time(pid):
+    """`ps lstart` of a live process, or "" -- the same string the machine
+    side stores next to the pid, compared verbatim."""
+    return (run(["ps", "-o", "lstart=", "-p", str(pid)]) or "").strip()
+
+
+_REGISTRY = None
+
+
+def registered_agent_pid(pid):
+    """The machine proved this pid at a window's birth (ancestry under a Claude
+    process) and it is still that same process. Survives reparenting, which is
+    what ancestry alone cannot do."""
+    global _REGISTRY
+    if not pid:
+        return False
+    if _REGISTRY is None:
+        _REGISTRY = {}
+        try:
+            for line in AGENT_PIDS.read_text().splitlines():
+                parts = line.split("\t", 1)
+                if len(parts) == 2 and parts[0].isdigit():
+                    _REGISTRY[int(parts[0])] = parts[1].strip()
+        except Exception:
+            pass
+    start = _REGISTRY.get(pid)
+    return bool(start) and _start_time(pid) == start
+
+
 def was_automated(pid):
     """Argv says this was started under automation. Half of the close-path
     grain; the cleanup hook also accepts the `[agent]` title tag, because an
@@ -321,6 +371,8 @@ def is_claude_browser(pid):
     claim (see the module docstring for the measured false positive)."""
     if not pid:
         return False
+    if registered_agent_pid(pid):
+        return True
     if any(_is_claude_process(a) for a in _ancestor_pids(pid)):
         return True
     return any(agent_instance(port) for port in _listen_ports_of(pid))
@@ -355,6 +407,9 @@ def spaces():
 
 
 def browser_windows():
+    """Candidate agent windows: Playwright's builds and dev Electron by name,
+    plus any window whose pid the machine has proved -- so a packaged app
+    under its own bundle name is a candidate too."""
     return [
         {
             "id": w.get("id"),
@@ -364,13 +419,48 @@ def browser_windows():
             "title": w.get("title") or "",
         }
         for w in (yabai_json("query", "--windows") or [])
-        if (w.get("app") or "").lower() in BROWSER_APPS
+        if (w.get("app") or "").lower() in BROWSER_APPS or registered_agent_pid(w.get("pid"))
     ]
 
 
 def current_space_index():
     space = yabai_json("query", "--spaces", "--space")
     return space.get("index") if isinstance(space, dict) else None
+
+
+def agent_space_indices():
+    """Indices of every desktop an agent window may live on: the shared
+    `playwright` one and each `pw:<project>` one."""
+    return {
+        s.get("index")
+        for s in spaces()
+        if (s.get("label") or "") == SCRATCH_LABEL or (s.get("label") or "").startswith(PROJECT_LABEL_PREFIX)
+    }
+
+
+def window_space_label(window_id):
+    """Label of the desktop the window is on ("" when unlabelled or gone)."""
+    window = yabai_json("query", "--windows", "--window", str(window_id))
+    if not isinstance(window, dict):
+        return ""
+    for s in spaces():
+        if s.get("index") == window.get("space"):
+            return s.get("label") or ""
+    return ""
+
+
+def route(window_id):
+    """Hand a window to the machine's placement authority -- the same script
+    the yabai signal runs -- so a hook never has to know which desktop is the
+    right one. Falls back to the shared desktop where the machine module is
+    missing."""
+    if PW_ROUTE_SH.exists():
+        run([str(PW_ROUTE_SH), str(window_id)], timeout=15)
+        if window_space_label(window_id):
+            return
+    index = scratch_index() or ensure_scratch()
+    if index is not None:
+        park(window_id, index)
 
 
 def _is_real_window(w):
@@ -512,25 +602,23 @@ def _cli(argv):
     elif cmd == "cdp-port":  # the project's .mcp.json --cdp-endpoint port
         port = cdp_port(os.environ.get("CLAUDE_PROJECT_DIR", "."))
         print(port if port is not None else "")
-    elif cmd == "list-windows":  # list-windows <app_regex> → ids, comma-separated
-        pattern = re.compile(argv[1])
-        ids = [str(w.get("id")) for w in yabai_json("query", "--windows") or [] if pattern.search(w.get("app") or "")]
-        print(",".join(ids))
+    elif cmd == "list-windows":  # list-windows → every window id, comma-separated
+        print(",".join(str(w.get("id")) for w in yabai_json("query", "--windows") or []))
     elif cmd == "wait-window":
-        # wait-window <app_regex> <timeout_s> <exclude_ids_csv> <owner_pid>
+        # wait-window <timeout_s> <exclude_ids_csv> <owner_pid>
         # A window counts only if it did not exist before the launch AND its
-        # process descends from the launched pid — a user window matching the
-        # same app name must never be picked up here.
+        # process is, or descends from, the launched pid. Nothing about the app
+        # name is asked: descent is the proof, and a user's own window of the
+        # same app can never satisfy it.
         import time
 
-        pattern = re.compile(argv[1])
-        deadline = time.time() + float(argv[2])
-        exclude = {int(t) for t in (argv[3] if len(argv) > 3 else "").split(",") if t}
-        owner = int(argv[4]) if len(argv) > 4 and argv[4] else None
+        deadline = time.time() + float(argv[1])
+        exclude = {int(t) for t in (argv[2] if len(argv) > 2 else "").split(",") if t}
+        owner = int(argv[3]) if len(argv) > 3 and argv[3] else None
         while time.time() < deadline:
             forget_processes()
             for w in yabai_json("query", "--windows") or []:
-                if not (_is_real_window(w) and pattern.search(w.get("app") or "")):
+                if not _is_real_window(w):
                     continue
                 if w.get("id") in exclude:
                     continue
@@ -544,7 +632,11 @@ def _cli(argv):
     elif cmd == "window-space":  # window-space <id> → the space the window is on
         window = yabai_json("query", "--windows", "--window", argv[1])
         print(window.get("space", "") if isinstance(window, dict) else "")
-    elif cmd == "park":  # park <window_id>
+    elif cmd == "window-label":  # window-label <id> → label of its desktop, "" if none
+        print(window_space_label(argv[1]))
+    elif cmd == "route":  # route <window_id> — the machine decides the desktop
+        route(argv[1])
+    elif cmd == "park":  # park <window_id> — the shared desktop, by hand
         index = scratch_index() or ensure_scratch()
         if index is None:
             sys.exit(1)

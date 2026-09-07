@@ -41,26 +41,87 @@ variable): skip step 2. State what you'll do and proceed.
   comment with an AI agent. Select text → write a comment → **Ask** → one agent
   answers that one comment → keep chatting in the thread → **Apply** lets a
   second, write-capable agent make the change. `SPEC.md` §1.
-- **Status**: **built through spec 42.** The specs are the authority. `SPEC.md`
-  in these files means `docs/my-specs/01-initial/SPEC.md`; every later decision
-  is a numbered spec under `docs/my-specs/NN-*/SPEC.md`, and the README's spec
-  table indexes them. Spec 42 — the agent library — is **built**. Specs 43 to
-  46 — the local gateway and three more agent SDKs — are **proposals**; nothing
-  in them is built.
+- **Status**: **built through spec 45, plus spec 46 milestones 0 to 4.** The
+  specs are the authority. `SPEC.md` in these files means
+  `docs/my-specs/01-initial/SPEC.md`; every later decision is a numbered spec
+  under `docs/my-specs/NN-*/SPEC.md`, and the README's spec table indexes them.
+  Specs 42 to 45 — the agent library, the local gateway, the Codex agent and
+  watching the gateway — are **built**. Spec 46 — the built-in gateway — is
+  **in progress**: milestones 0 to 3 are built — the rename, `local-gateway/`,
+  the `builtin` kind, the switch, the port, the six providers, the Settings
+  screen, the encrypted key store, the traffic log, and milestone 3's code
+  (three kinds only, `stored` auth, §15's migration, §6's remote model list).
+  §15's migration **has run** against `~/.rex/rex.db` — verified 2026-09-06:
+  `agent_gateway` holds only `rex-original` and `rex-builtin`, its `CHECK`
+  lists three kinds, and `setting.gateway.retired` records the two rows it
+  deleted, `Envoy LMS` and `Envoy Unsloth`. **Milestone 3 is complete**:
+  `infra/` is deleted, its six containers, three volumes and two networks are
+  gone, and the dead spec 45 `gatewayTraces` channel that opened its Grafana
+  went with it. Milestone 4 is built
+  for macOS — `npm run bundle:python` stages a relocatable CPython with both
+  packages, `npm run package` makes a DMG, and installing that DMG on 2026-09-07
+  found and fixed the bug it exists to find: `local-gateway/catalogue.json` was
+  never staged, so a packaged REX listed **no providers**. It is now in
+  `electron-builder.yml`'s `extraResources` with a test guarding it.
+  **Windows arm64 is built, installed and validated — 2026-09-07, in the
+  `Windows 11 64-bit Arm` VMware Fusion VM, driven headless with `vmrun`**
+  (credentials are Lukas's; ask). Three real bugs found there, none catchable
+  from macOS: `python.ts` looked for `Scripts\python.exe` where the standalone
+  runtime keeps `python.exe` at its root; both Python children wrote cp1252
+  stdout, which killed LiteLLM's banner before it bound; and electron-builder's
+  NSIS installer **silently dropped every PE binary** because 7-Zip's `ARM64`
+  filter is undecodable by the bundled `nsis7z` (7-Zip 19.00 SDK). That last
+  one is fixed by `scripts/package.mjs` setting `ELECTRON_BUILDER_7Z_FILTER=BCJ2`
+  — **never run `electron-builder` directly for Windows, use `npm run package`.**
+  Windows prerequisites: `Microsoft.VisualStudio.Component.VC.Tools.ARM64` named
+  explicitly (the `VCTools` workload omits it), and `bundle-python.mjs` reports
+  0 MB there because `du` is absent. The installer's "already installed" page
+  — Reinstall or Uninstall — is `build/installer.nsh`, included by name and
+  guarded by a test, because `build/*` is gitignored and a missing include
+  builds fine with no page. No universal x64+arm64 installer exists
+  (electron-builder #6571 backlog, #5461 broken): x64 is a second `arch` and a
+  second, x64 build machine. **Linux is validated — 2026-09-07, Ubuntu 26.04
+  arm64 in `rex-ubuntu.vmx`**: the `.deb` installs to `/opt/REX` and the
+  installed app ran both Python children with Node and uv removed. The
+  AppImage was dropped that day — its arm64 launcher does not start
+  (electron-builder #7835) and Ubuntu 24.04+ blocks Electron's sandbox inside
+  one — so Linux ships `.deb` and `.rpm`. No cross-build
+  exists: `bundle-python.mjs` installs and then *executes* the host's CPython.
+  Signing and notarisation are deliberately unconfigured
+  (`identity: null`); both need an Apple ID and are their own job. **Spec 49 — releases — is
+  built, first run pending**: `.github/workflows/release.yml` builds the five
+  installers on one runner per architecture and publishes a Release tagged
+  `v<version>-<run>` on every push to `main`; pull requests build only. It
+  has never run on GitHub — spec 49 §5 lists the three unknowns the first run
+  settles. Specs 47 and 48 — OpenCode and
+  Deep Agents — are **proposals**; nothing in them is built. Both were
+  **retargeted on 2026-09-07** onto the built-in gateway (47 → v4.0, 48 → v3.0);
+  their old target `infra/envoy` on 26334 is gone, and both now wait on one
+  shared measurement — does LiteLLM pass streaming `tool_calls` through intact
+  (spec 47 §10.0, spec 48 §12.4 item 0). The numbers follow the build
+  order, which is why they were renumbered on 2026-09-06.
 - **Milestone 0 passed.** `test/anchor.spec.ts` is the anchor spike, kept as
   the regression net for the one component that fails silently.
 - **Stack**: TypeScript for the app — Electron + React + `electron-vite`,
-  `better-sqlite3` — and, since spec 42, **Python for the agent library**:
-  `agent-gateway/`, a package REX runs as one child of the main process and
-  speaks to over stdin and stdout, one JSON line per message. No NATS, no HTTP
-  server, no listening port — that part of `SPEC.md` §12 still holds. Its "no
-  Python runtime" row was retired by spec 42 §1.1 on 2026-09-04. **No file under
-  `src/` imports an agent SDK any more**: `src/main/agent/service.ts` is a pipe
-  client and `bridge.ts` is a mapping, and `grep -rn "claude-agent-sdk" src/
-  package.json` finds nothing.
+  `better-sqlite3` — and **two Python packages**, which are siblings and never
+  import each other:
+  - `agent-runner/` (spec 42; called `agent-gateway/` until spec 46 §9 renamed
+    it on 2026-09-06) — every agent SDK, run as one child of the main process
+    and spoken to over stdin and stdout, one JSON line per message. No port.
+  - `local-gateway/` (spec 46) — REX's own LiteLLM, serving inference on one
+    loopback port. It is a separate package precisely because `agent-runner/`
+    may hold no HTTP server and `litellm[proxy]` is one.
+
+  **No file under `src/` imports an agent SDK**: `src/main/agent/service.ts` is
+  a pipe client and `bridge.ts` is a mapping, and `grep -rn "claude-agent-sdk"
+  src/ package.json` finds nothing. `SPEC.md` §12's "no Python runtime" row was
+  retired by spec 42 §1.1.
 - **Three invariants that shape every change** (`SPEC.md` §3): anchors resolve in
   the **renderer** on the live DOM; only the **main** process touches SQLite and
-  the SDK; IPC only — **no HTTP server, no broker, no listening port**.
+  the SDK; IPC only — no HTTP server, no broker, **and one loopback port that
+  carries inference and nothing else**. That last clause is spec 46 §2's amendment
+  to I3, forced by the fact that every SDK reaches a gateway by URL and none of
+  them can address a pipe or a Unix socket. REX still *listens* on nothing.
 - **Data lives outside the repo**: `~/.rex/rex.db`, so it can never be committed
   by accident.
 - **Port 9334** is Electron's remote-debugging endpoint, for the Playwright MCP
@@ -69,7 +130,7 @@ variable): skip step 2. State what you'll do and proceed.
   `~/Projects/Github/lukaskellerstein/vex` (read-only). `SPEC.md` §11 is the
   file-by-file mapping, including what to **drop**. Spec 42 §9 ported it back
   into Python, under REX's rules — it is
-  `agent-gateway/src/agent_gateway/adapters/claude/` — and §15.1 records why
+  `agent-runner/src/agent_runner/adapters/claude/` — and §15.1 records why
   Vex's broker and ports were not ported with it.
 
 Full facts → [`rules/01-project-config.md`](rules/01-project-config.md); stack and
@@ -97,7 +158,7 @@ These actions are pre-approved. Run them yourself when the situation calls for i
   verifying every SDK symbol against them rather than assuming the names in a
   spec are the names in the pinned package. The same goes for
   `https://pypi.org/pypi/<name>/json` and the LangChain docs at
-  `https://docs.langchain.com/oss/python/…` for specs 44 to 46.
+  `https://docs.langchain.com/oss/python/…` for specs 44, 47 and 48.
 - Inspecting a running REX: `curl -s http://localhost:9334/json/version`.
 - `sqlite3 ~/.rex/rex.db` with read-only statements (`SELECT`, `.schema`).
 
@@ -107,14 +168,15 @@ restate them here.
 
 ### Pre-approved mutations
 
-- Creating and editing files under `src/`, `test/`, `agent-gateway/`, and the
+- Creating and editing files under `src/`, `test/`, `agent-runner/`,
+  `local-gateway/`, and the
   build config at the repo root (`package.json`, `tsconfig.json`,
   `electron.vite.config.ts`).
 - Installing declared dependencies — the ones `SPEC.md` §3.2 names for the app,
-  and the ones spec 42 §3 and specs 44 to 46 §3 name for `agent-gateway/` — and
-  running `electron-rebuild` for `better-sqlite3`. In `agent-gateway/` that is
+  and the ones spec 42 §3 and specs 44, 47 and 48 §3 name for `agent-runner/` — and
+  running `electron-rebuild` for `better-sqlite3`. In `agent-runner/` that is
   `uv add` and `uv sync`, **never `pip`**; `uv sync`, `uv run pytest` and
-  `uv run python -m agent_gateway.protocol --schema` are pre-approved.
+  `uv run python -m agent_runner.protocol --schema` are pre-approved.
 - Building and launching REX locally. Since spec 13 the debugger port needs no
   flag — every run opens 9334 — so **check `curl -s http://localhost:9334/json/version`
   before starting one**: an answering endpoint is a REX that already exists, and
@@ -130,7 +192,7 @@ restate them here.
 ### Requires confirmation — always ask first
 
 - Adding any dependency no spec names — `SPEC.md` §3.2 for the app, spec 42 §3
-  and specs 44 to 46 §3 for `agent-gateway/` — and never one from the §12
+  and specs 44, 47 and 48 §3 for `agent-runner/` — and never one from the §12
   forbidden list (NATS or any broker, any HTTP server framework, `nats.ws`, any
   socket listener in the agent library). A Python SDK package a spec names is an
   ordinary declared dependency; the interpreter itself is `uv`'s to install.

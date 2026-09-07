@@ -106,7 +106,7 @@ write a file, and that attempt must be denied.
 Run the ones that cover what you touched, and `npm run test:anchor` for
 anything near the resolver. **`npm run test:library`** runs the three seam
 suites (`test:service`, `test:bridge`, `test:protocol`) and `uv run pytest` in
-`agent-gateway/`; a change on either side of the pipe runs both.
+`agent-runner/`; a change on either side of the pipe runs both.
 
 **Every code change** — repo-wide lint / format / type check:
 
@@ -119,7 +119,7 @@ Understand step. How to read the output (including `gated-off`), and why this
 never replaces the project's own suite: [`machine-tools.md`](machine-tools.md).
 
 `tsc` runs, because `tsconfig.json` exists. **`ruff` and `basedpyright` run
-too**, since spec 42 gave `agent-gateway/` its `ruff.toml` and
+too**, since spec 42 gave `agent-runner/` its `ruff.toml` and
 `pyrightconfig.json` (§12). A Python finding is now a finding like any other.
 See [`09-code-quality.md`](09-code-quality.md).
 

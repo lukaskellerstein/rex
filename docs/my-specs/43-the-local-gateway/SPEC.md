@@ -18,8 +18,8 @@ styles); [`34-the-permanent-copy/SPEC.md`](../34-the-permanent-copy/SPEC.md) §5
 (documents held by a run); [`38-the-trace-block/SPEC.md`](../38-the-trace-block/SPEC.md)
 (the transcript and its foot).
 **Extended by:** [`44-the-codex-agent/SPEC.md`](../44-the-codex-agent/SPEC.md)
-(which adds the agent control), [`45-the-opencode-agent/SPEC.md`](../45-the-opencode-agent/SPEC.md),
-[`46-the-deep-agent/SPEC.md`](../46-the-deep-agent/SPEC.md).
+(which adds the agent control), [`47-the-opencode-agent/SPEC.md`](../47-the-opencode-agent/SPEC.md),
+[`48-the-deep-agent/SPEC.md`](../48-the-deep-agent/SPEC.md).
 
 > [!note]
 > **This spec separates three things REX now calls "the model".** The **agent
@@ -44,7 +44,7 @@ styles); [`34-the-permanent-copy/SPEC.md`](../34-the-permanent-copy/SPEC.md) §5
 >
 > **What changed in 4.1.** Spec 42 became a Python package the same day. For
 > this spec that moves four things and changes one fact: the Claude adapter's
-> file is `agent-gateway/src/agent_gateway/adapters/claude/adapter.py`; the
+> file is `agent-runner/src/agent_runner/adapters/claude/adapter.py`; the
 > descriptor the gateway sheet renders arrives over the pipe (§4.5, §11); the
 > credential crosses the pipe once, going down (§6.1); and the Python SDK
 > documents `ClaudeAgentOptions.env` as **merged** onto the inherited
@@ -114,7 +114,7 @@ path — spec 42 §5.2 defines the shape, §3 below is the measurement. Stored a
 two tables, because `routes` is a map and SQLite is not a document store:
 
 ```sql
-CREATE TABLE agent_gateway (
+CREATE TABLE agent_runner (
   id          TEXT PRIMARY KEY,
   name        TEXT NOT NULL,
   kind        TEXT NOT NULL
@@ -123,7 +123,7 @@ CREATE TABLE agent_gateway (
 );
 
 CREATE TABLE gateway_route (
-  gateway_id      TEXT NOT NULL REFERENCES agent_gateway(id) ON DELETE CASCADE,
+  gateway_id      TEXT NOT NULL REFERENCES agent_runner(id) ON DELETE CASCADE,
   sdk             TEXT NOT NULL
                     CHECK (sdk IN ('claude-agent','codex','opencode','deep-agents')),
   base_url        TEXT,
@@ -148,7 +148,7 @@ never queried by element, and a text column keeps
 `sqlite3 ~/.rex/rex.db "select * from gateway_route"` readable — which is how
 every gateway problem in §15 was actually diagnosed.
 
-The `sdk` check names all four SDKs now, so specs 44 to 46 add rows and no
+The `sdk` check names all four SDKs now, so specs 44, 47 and 48 add rows and no
 migration. In this spec only `claude-agent` rows are ever written.
 
 ### 2.3 Gateway kinds are a catalogue, and the catalogue is the library's
@@ -167,7 +167,7 @@ three kinds to the one spec 42 shipped:
 **Only the Claude column is this spec's.** It is measured for LiteLLM (§15) and
 read from source for Envoy (§15.2), whose row ships with
 `KindDescriptor.unverified` set until milestone 3 clears it. The other three
-columns are what specs 44 to 46 will prove; they are in the table so the
+columns are what specs 44, 47 and 48 will prove; they are in the table so the
 catalogue's shape is visible, and each of those specs owns its column.
 
 **This catalogue is code, not data.** It is hard-won knowledge about other
@@ -202,7 +202,7 @@ published and whether the expected path is in it — and §4.5 is the button.
 `Original` is the `original`-kind row, and it is the default. It has a route for
 every SDK and **no `baseUrl` on any of them**: each SDK uses its own official
 endpoint and the credential the reviewer already has installed — `claude login`
-today; the OpenAI subscription and `opencode auth login` in specs 44 and 45.
+today; the OpenAI subscription and `opencode auth login` in specs 44 and 47.
 `auth` is `inherit`, and REX changes nothing about how that SDK authenticates.
 
 `Original` cannot be edited or deleted. It is what REX does today, and it must
@@ -371,8 +371,8 @@ HOST     http://localhost:24000
 REX will use:
   Claude       {host}                  Anthropic Messages
   Codex        {host}/v1               OpenAI Responses        spec 44
-  OpenCode     {host}/v1               OpenAI chat             spec 45
-  Deep Agents  {host}/v1               OpenAI chat             spec 46
+  OpenCode     {host}/v1               OpenAI chat             spec 47
+  Deep Agents  {host}/v1               OpenAI chat             spec 48
 
                         Cancel   Verify   Test   Save   Use as default
 ```
@@ -441,7 +441,7 @@ that one harness keeps of part of it.
 CREATE TABLE thread_session (
   thread_id   TEXT NOT NULL REFERENCES thread(id) ON DELETE CASCADE,
   sdk         TEXT NOT NULL,
-  gateway_id  TEXT NOT NULL REFERENCES agent_gateway(id) ON DELETE CASCADE,
+  gateway_id  TEXT NOT NULL REFERENCES agent_runner(id) ON DELETE CASCADE,
   -- The URL this session was actually created against. Case 2b.
   base_url    TEXT,
   session_id  TEXT NOT NULL,
@@ -554,7 +554,7 @@ reviewer picked for it. They simply do not persist its session.
 ## 6. The child environment
 
 This is what the Claude adapter (spec 42 §9) does with a route that has a URL.
-The code lives in `agent-gateway/src/agent_gateway/adapters/claude/adapter.py`,
+The code lives in `agent-runner/src/agent_runner/adapters/claude/adapter.py`,
 because it is knowledge about how the Claude SDK is pointed somewhere; the rules
 live here, because this is the spec that first needs them.
 
@@ -687,7 +687,7 @@ A failed probe never removes a configured model (§4.3).
 ### 8.1 What the flags do on screen
 
 They are declared in spec 42 and consumed by the UI, so their behaviour belongs
-here rather than in specs 44 to 46 that first set them false:
+here rather than in specs 44, 47 and 48 that first set them false:
 
 | Flag | False means |
 |:--|:--|
@@ -815,7 +815,7 @@ and every caller passes the one it resolved from the reviewer's choice.
 ## 12. Migration
 
 ```sql
-INSERT INTO agent_gateway (id, name, kind, created_at)
+INSERT INTO agent_runner (id, name, kind, created_at)
   VALUES ('rex-original', 'Original', 'original', :now);
 
 INSERT INTO gateway_route (gateway_id, sdk, base_url, auth, credential_env, models)
@@ -840,7 +840,7 @@ Then:
   migration seeding from the resolved value would destroy the choice spec 25 §6.2
   promised to keep.
 
-`PRAGMA foreign_keys` is ON (`src/main/db/database.ts:89`), so `agent_gateway` is
+`PRAGMA foreign_keys` is ON (`src/main/db/database.ts:89`), so `agent_runner` is
 created and its `Original` row inserted **before** `gateway_route`,
 `thread_session`, and the `message` columns.
 
@@ -915,7 +915,7 @@ milestone 2 adds them through the UI as its own acceptance test.
   Azure credential flows.
 - Storing raw API keys in REX.
 - Falling back from a local route to `Original`.
-- The agent control and any SDK but Claude (specs 44 to 46).
+- The agent control and any SDK but Claude (specs 44, 47 and 48).
 
 ---
 
@@ -1083,7 +1083,7 @@ but the gateway sheet says the local path is unproven.
 
 ### 1 — gateways, sessions and the record
 
-Schema (`agent_gateway`, `gateway_route`, `thread_session`, the three `message`
+Schema (`agent_runner`, `gateway_route`, `thread_session`, the three `message`
 columns), migration, queries, the `litellm`, `envoy` and `custom` kinds in the
 library's catalogue, URL and auth validation, IPC, and the `Manage gateways…`
 sheet rendered from the descriptor.

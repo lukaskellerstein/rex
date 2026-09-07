@@ -17,7 +17,7 @@
 // here, because the library holds no state that outlives a run. So this suite
 // now starts a Python child, and the "could not be asked" branch it always had
 // covers one more way of not being asked: no `uv sync` yet. The naming rules the
-// probe's rows go through moved with it — they are `agent-gateway/tests/test_models.py`.
+// probe's rows go through moved with it — they are `agent-runner/tests/test_models.py`.
 //
 // Run: npm run test:models
 

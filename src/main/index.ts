@@ -8,7 +8,10 @@ import { agentService } from "./agent/service.ts";
 import { isAgentMode, userAgent, windowTitle } from "./agentMode.ts";
 import { type CdpStatus, chooseCdpPort, probeCdp } from "./cdp.ts";
 import { closeDatabase, openDatabase } from "./db/database.ts";
+import { keyCipherOf } from "./db/providers.ts";
 import { installDiagnostics } from "./diagnostics.ts";
+import { startBuiltinIfEnabled, stopBuiltin } from "./gateway/lifecycle.ts";
+import { unseal } from "./gateway/secrets.ts";
 import { registerIpc } from "./ipc.ts";
 import { openLogFile, record } from "./log.ts";
 import { generationAvailable } from "./pptx/media.ts";
@@ -157,6 +160,15 @@ void app.whenReady().then(() => {
       record("error", "agent-service", error instanceof Error ? error.message : String(error));
     });
 
+  // Spec 46 §4.1 — "enabled means running". If the switch was left on, the
+  // gateway comes back with the app; if it was left off, nothing happens and
+  // nothing is spent. Not awaited, for the same reason above: 1.6 seconds is
+  // 1.6 seconds the window would spend showing nothing.
+  //
+  // The decryptor is passed in rather than imported by `lifecycle.ts`, so that
+  // the only file in `gateway/` needing `electron` is `secrets.ts` (§7).
+  startBuiltinIfEnabled(db, (providerId) => unseal(keyCipherOf(db, providerId)));
+
   // Not awaited: the window must not wait on a loopback fetch. The report is
   // asked for by a human, minutes later at the earliest.
   void probeCdp(cdpChoice).then((status) => {
@@ -199,15 +211,24 @@ let childEnded = false;
 app.on("before-quit", (event) => {
   if (childEnded) return;
   event.preventDefault();
-  void agentService()
-    .quit()
-    .catch((error: unknown) => {
-      record("warn", "agent-service", `did not stop cleanly: ${String(error)}`);
-    })
-    .finally(() => {
-      childEnded = true;
-      app.quit();
-    });
+  // Spec 46 §4.3 — **a gateway that outlives REX is a key server nobody is
+  // watching.** It holds every provider key in its process environment, so
+  // killing it here is the security boundary and not tidiness. Both children
+  // are ended together: neither waits on the other, and a proxy that refuses to
+  // die must not keep the agent library alive with it.
+  void Promise.allSettled([
+    agentService()
+      .quit()
+      .catch((error: unknown) => {
+        record("warn", "agent-service", `did not stop cleanly: ${String(error)}`);
+      }),
+    stopBuiltin().catch((error: unknown) => {
+      record("warn", "local-gateway", `did not stop cleanly: ${String(error)}`);
+    }),
+  ]).finally(() => {
+    childEnded = true;
+    app.quit();
+  });
 });
 
 app.on("will-quit", closeDatabase);

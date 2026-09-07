@@ -81,10 +81,18 @@ interface Props {
   built: readonly AgentSdk[];
   onSave: (draft: AgentGatewayDraft) => Promise<void>;
   onDelete: (gatewayId: string) => Promise<void>;
-  /** §4.5 — a saved gateway, or the answers that would build one. */
-  onVerify: (target: GatewayCheckTarget) => Promise<VerifyResult>;
+  /**
+   * §4.5 — a saved gateway, or the answers that would build one.
+   *
+   * Spec 44 §2 — and WHICH route, because a gateway holds one per agent and
+   * they address different paths. Verifying a gateway without saying which
+   * agent asked would answer about `/v1/messages` for a route that will knock
+   * on `/v1/responses`.
+   */
+  onVerify: (target: GatewayCheckTarget, sdk: AgentSdk) => Promise<VerifyResult>;
   onTest: (
     target: GatewayCheckTarget,
+    sdk: AgentSdk,
     model: string | null,
   ) => Promise<{ ok: boolean; detail: string }>;
   onDefault: (gatewayId: string) => Promise<void>;
@@ -275,6 +283,14 @@ export function ManageGateways(props: Props): React.JSX.Element {
   const [tested, setTested] = useState<{ ok: boolean; detail: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   /**
+   * Spec 44 §2 — which agent's route Verify and Test are about.
+   *
+   * Null until the reviewer picks one, and then it is resolved against the
+   * routes this gateway actually has: a pick that survived from a gateway with
+   * a Codex route to one without would check a route that is not there.
+   */
+  const [sdkPick, setSdkPick] = useState<AgentSdk | null>(null);
+  /**
    * Seconds since the running check began, or null.
    *
    * §7.3's lesson, applied to a button: a control that says "Testing…" and
@@ -325,8 +341,19 @@ export function ManageGateways(props: Props): React.JSX.Element {
     return merged;
   }, [editing, props.buildRoutes]);
 
+  /**
+   * Spec 44 §2 — the route Verify and Test ask about.
+   *
+   * The first built agent this gateway actually offers, until the reviewer
+   * picks another. Not a fixed `claude-agent`: a gateway configured only for
+   * Codex would otherwise verify a route it does not have.
+   */
+  const checkable = SDK_ORDER.filter((id) => props.built.includes(id) && preview[id]);
+  const checkSdk =
+    sdkPick !== null && checkable.includes(sdkPick) ? sdkPick : (checkable[0] ?? "claude-agent");
+
   /** The model a Test asks for: the first one configured, or the SDK's default. */
-  const testModel = preview["claude-agent"]?.models?.[0] ?? null;
+  const testModel = preview[checkSdk]?.models?.[0] ?? null;
 
   const errors = useMemo(
     () =>
@@ -375,8 +402,8 @@ export function ManageGateways(props: Props): React.JSX.Element {
     if (which === "verify") setVerified(null);
     else setTested(null);
     try {
-      if (which === "verify") setVerified(await props.onVerify(target));
-      else setTested(await props.onTest(target, testModel));
+      if (which === "verify") setVerified(await props.onVerify(target, checkSdk));
+      else setTested(await props.onTest(target, checkSdk, testModel));
     } catch (error) {
       const detail = staleMain(error instanceof Error ? error.message : String(error));
       if (which === "verify") {
@@ -395,6 +422,16 @@ export function ManageGateways(props: Props): React.JSX.Element {
     }
   };
 
+  /**
+   * Does the gateway being edited already have a stored key?
+   *
+   * Read from the list rather than passed in: `GatewayView.hasKey` is the
+   * boolean main already sends, and §12's rule is that the renderer may learn
+   * THAT a key exists and never what it is.
+   */
+  const editingHasKey =
+    props.list.gateways.find((view) => view.gateway.id === editing?.id)?.hasKey === true;
+
   const save = async (): Promise<void> => {
     if (!editing) return;
     setBusy("save");
@@ -404,6 +441,11 @@ export function ManageGateways(props: Props): React.JSX.Element {
         name: editing.name.trim(),
         kind: editing.kind,
         routes: preview,
+        // Spec 46 §7 — the key travels ONE way, and only when it was typed.
+        // `undefined` leaves a stored key alone, which is what a rename must
+        // do; a string replaces it. There is no third case here, because the
+        // screen offers no "remove the key" that is not "remove the gateway".
+        key: editing.values.key?.trim() ? editing.values.key.trim() : undefined,
       });
       closeEditor();
     } finally {
@@ -564,11 +606,30 @@ export function ManageGateways(props: Props): React.JSX.Element {
                 const problem = errors.find((error) => error.key === field.key);
                 return (
                   <label key={field.key} className="rex-field">
-                    <span className="rex-label">{field.label.toUpperCase()}</span>
+                    <span className="rex-label">
+                      {field.label.toUpperCase()}
+                      {/*
+                        Spec 46 §8 rule 4 — the screen never shows a key back,
+                        not even masked-with-a-reveal. So a saved gateway's key
+                        field is EMPTY with a note saying one is stored, and
+                        typing replaces it. An empty box on a gateway that has a
+                        key would otherwise read as "no key", which is why the
+                        note is not optional.
+                      */}
+                      {field.kind === "password" && editingHasKey ? (
+                        <span className="rex-gateway-tag">stored</span>
+                      ) : null}
+                    </span>
                     <input
                       className="rex-field-input"
+                      type={field.kind === "password" ? "password" : "text"}
+                      autoComplete={field.kind === "password" ? "new-password" : undefined}
                       value={editing.values[field.key] ?? ""}
-                      placeholder={field.placeholder ?? ""}
+                      placeholder={
+                        field.kind === "password" && editingHasKey
+                          ? "A key is stored. Type to replace it."
+                          : (field.placeholder ?? "")
+                      }
                       onChange={(event) =>
                         setEditing({
                           ...editing,
@@ -664,17 +725,31 @@ export function ManageGateways(props: Props): React.JSX.Element {
                 whatever the CLI would have asked for, and a working gateway
                 answers 404.
               */}
-              {preview["claude-agent"] ? (
-                <label className="rex-field">
-                  <span className="rex-label">MODELS — one per line</span>
+              {/*
+                Spec 44 §2 — one list per agent, because a gateway routes on the
+                model name and the two agents reach different backends through
+                it. LiteLLM's `-anthropic` aliases exist for the Claude route
+                and mean nothing to the Codex one.
+              */}
+              {checkable.map((id) => (
+                <label className="rex-field" key={id}>
+                  <span className="rex-label">
+                    {checkable.length > 1
+                      ? `MODELS FOR ${(props.descriptor.sdks.find((sdk) => sdk.id === id)?.label ?? SDK_LABELS[id]).toUpperCase()} — one per line`
+                      : "MODELS — one per line"}
+                  </span>
                   <textarea
                     className="rex-field-area"
-                    value={editing.models["claude-agent"] ?? ""}
-                    placeholder={"unsloth-26b-anthropic\nunsloth-4b-anthropic"}
+                    value={editing.models[id] ?? ""}
+                    placeholder={
+                      id === "claude-agent"
+                        ? "lms-26b-anthropic\nlms-4b-anthropic"
+                        : "lms-26b\nlms-4b"
+                    }
                     onChange={(event) =>
                       setEditing({
                         ...editing,
-                        models: { ...editing.models, "claude-agent": event.currentTarget.value },
+                        models: { ...editing.models, [id]: event.currentTarget.value },
                       })
                     }
                   />
@@ -683,7 +758,7 @@ export function ManageGateways(props: Props): React.JSX.Element {
                     for.
                   </span>
                 </label>
-              ) : null}
+              ))}
 
               {/*
                 RED MEANS "THIS DOES NOT WORK", and `ok` is not that question.
@@ -764,6 +839,30 @@ export function ManageGateways(props: Props): React.JSX.Element {
                 Verify asks the SERVER what it publishes and spends nothing;
                 Test runs one real turn and can cost money.
               */}
+              {/*
+                Spec 44 §2 — WHICH route the two checks are about. Drawn only
+                when there is more than one, for the reason the composer's agent
+                control is: a picker with one row is a control that decides
+                nothing.
+              */}
+              {checkable.length > 1 ? (
+                <label className="rex-dialog-foot-pick">
+                  <span className="rex-label">CHECK</span>
+                  <select
+                    className="rex-field-input"
+                    value={checkSdk}
+                    disabled={busy !== null}
+                    onChange={(event) => setSdkPick(event.currentTarget.value as AgentSdk)}
+                  >
+                    {checkable.map((id) => (
+                      <option key={id} value={id}>
+                        {props.descriptor.sdks.find((sdk) => sdk.id === id)?.label ??
+                          SDK_LABELS[id]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <button
                 type="button"
                 className="rex-button"

@@ -1,8 +1,8 @@
 // GENERATED FILE — DO NOT EDIT.
 //
-// Spec 42 §4.3. Written by `agent-gateway`'s Pydantic models:
+// Spec 42 §4.3. Written by `agent-runner`'s Pydantic models:
 //
-//     uv run python -m agent_gateway.protocol --typescript > src/shared/agent-protocol.ts
+//     uv run python -m agent_runner.protocol --typescript > src/shared/agent-protocol.ts
 //
 // `test/protocol.spec.ts` regenerates this and fails when it differs, so a
 // model changed on the Python side cannot be missed on this one.
@@ -19,9 +19,9 @@ export const PROTOCOL_VERSION = "1";
 
 export type AgentSdk = "claude-agent" | "codex" | "opencode" | "deep-agents";
 
-export type GatewayKind = "original" | "litellm" | "envoy" | "custom";
+export type GatewayKind = "original" | "builtin" | "litellm";
 
-export type AgentAuth = "inherit" | "none" | "environment";
+export type AgentAuth = "inherit" | "none" | "environment" | "stored";
 
 export type CommonTool =
   | "read"
@@ -143,7 +143,10 @@ export interface RunRequest {
   systemPrompt: string;
   disallowed: CommonTool[];
   plugins: string[];
+  writable: string[];
   maxTurns: number | null;
+  threadId: string;
+  profile: string;
 }
 
 /** What the SDK knows about one session, and what is on disk for it. */
@@ -271,7 +274,7 @@ export interface Option {
 export interface ConfigField {
   key: string;
   label: string;
-  kind: "url" | "text" | "textarea" | "select" | "env-var";
+  kind: "url" | "text" | "textarea" | "select" | "env-var" | "password";
   required: boolean;
   placeholder: string | null;
   help: string | null;
@@ -303,6 +306,7 @@ export interface SdkDescriptor {
   id: AgentSdk;
   label: string;
   supportsStyles: boolean;
+  supportsPlugins: boolean;
 }
 
 /** One answer the reviewer must fix before the gateway can be saved. */
@@ -392,7 +396,10 @@ export interface RunMessage {
   systemPrompt: string;
   disallowed: CommonTool[];
   plugins: string[];
+  writable: string[];
   maxTurns: number | null;
+  threadId: string;
+  profile: string;
   type: "run";
 }
 
@@ -507,24 +514,75 @@ export const CATALOGUE: DescribeResult = {
     {
       "fields": [
         {
+          "default": "http://127.0.0.1:24334",
+          "help": "REX chooses this. It moves if the port is taken.",
+          "key": "url",
+          "kind": "url",
+          "label": "Address",
+          "options": null,
+          "placeholder": null,
+          "required": false
+        }
+      ],
+      "id": "builtin",
+      "label": "Built-in",
+      "routes": {
+        "claude-agent": {
+          "appends": "/v1/messages",
+          "auth": "environment",
+          "baseUrl": "{url}",
+          "credentialEnv": "REX_GATEWAY_KEY",
+          "note": "Anthropic Messages, at the root. One alias serves every agent (spec 46 \u00a74.5).",
+          "protocol": "anthropic"
+        },
+        "codex": {
+          "appends": "/responses",
+          "auth": "environment",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": "REX_GATEWAY_KEY",
+          "note": "OpenAI Responses, from the same alias.",
+          "protocol": "openai-responses"
+        },
+        "deep-agents": {
+          "appends": "/v1/chat/completions",
+          "auth": "environment",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": "REX_GATEWAY_KEY",
+          "note": "OpenAI chat. Spec 48.",
+          "protocol": "openai-chat"
+        },
+        "opencode": {
+          "appends": "/session",
+          "auth": "environment",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": "REX_GATEWAY_KEY",
+          "note": "OpenAI chat, as a model provider. Spec 47.",
+          "protocol": "openai-chat"
+        }
+      },
+      "unverified": null
+    },
+    {
+      "fields": [
+        {
           "default": null,
           "help": "Just the address. Do not add a path \u2014 each SDK's own is filled in below.",
           "key": "url",
           "kind": "url",
           "label": "Host",
           "options": null,
-          "placeholder": "http://localhost:24000",
+          "placeholder": "http://localhost:4000",
           "required": true
         },
         {
-          "default": "AI_GATEWAY_KEY",
-          "help": "The environment variable holding the gateway key. Its value is never stored.",
-          "key": "tokenEnv",
-          "kind": "env-var",
-          "label": "Credential variable",
+          "default": null,
+          "help": "Encrypted by your operating system and never shown again. A LiteLLM answers 401 to everything without it \u2014 including its own model list, so REX cannot even ask what it serves.",
+          "key": "key",
+          "kind": "password",
+          "label": "Master key",
           "options": null,
-          "placeholder": "AI_GATEWAY_KEY",
-          "required": false
+          "placeholder": null,
+          "required": true
         }
       ],
       "id": "litellm",
@@ -532,186 +590,34 @@ export const CATALOGUE: DescribeResult = {
       "routes": {
         "claude-agent": {
           "appends": "/v1/messages",
-          "auth": "environment",
+          "auth": "stored",
           "baseUrl": "{url}",
-          "credentialEnv": "{tokenEnv}",
+          "credentialEnv": null,
           "note": "Anthropic Messages, at the root. LiteLLM translates to whatever the alias names.",
           "protocol": "anthropic"
         },
         "codex": {
-          "appends": "/v1/responses",
-          "auth": "environment",
+          "appends": "/responses",
+          "auth": "stored",
           "baseUrl": "{url}/v1",
-          "credentialEnv": "{tokenEnv}",
+          "credentialEnv": null,
           "note": "OpenAI Responses. Spec 44.",
           "protocol": "openai-responses"
         },
         "deep-agents": {
           "appends": "/v1/chat/completions",
-          "auth": "environment",
+          "auth": "stored",
           "baseUrl": "{url}/v1",
-          "credentialEnv": "{tokenEnv}",
-          "note": "OpenAI chat. Spec 46.",
+          "credentialEnv": null,
+          "note": "OpenAI chat. Spec 48.",
           "protocol": "openai-chat"
         },
         "opencode": {
           "appends": "/session",
-          "auth": "environment",
+          "auth": "stored",
           "baseUrl": "{url}/v1",
-          "credentialEnv": "{tokenEnv}",
-          "note": "OpenAI chat, as a model provider. Spec 45.",
-          "protocol": "openai-chat"
-        }
-      },
-      "unverified": null
-    },
-    {
-      "fields": [
-        {
-          "default": null,
-          "help": "Just the address. Do not add a path \u2014 each SDK's own is filled in below.",
-          "key": "url",
-          "kind": "url",
-          "label": "Host",
-          "options": null,
-          "placeholder": "http://localhost:26334",
-          "required": true
-        },
-        {
-          "default": "/anthropic",
-          "help": "Envoy's own default. Change it only if the deployment passes --endpointPrefixes.",
-          "key": "anthropicPrefix",
-          "kind": "text",
-          "label": "Anthropic prefix",
-          "options": null,
-          "placeholder": "/anthropic",
-          "required": false
-        },
-        {
-          "default": "",
-          "help": "Envoy's own default is no prefix at all.",
-          "key": "openaiPrefix",
-          "kind": "text",
-          "label": "OpenAI prefix",
-          "options": null,
-          "placeholder": "(none)",
-          "required": false
-        }
-      ],
-      "id": "envoy",
-      "label": "Envoy AI Gateway",
-      "routes": {
-        "claude-agent": {
-          "appends": "/v1/messages",
-          "auth": "none",
-          "baseUrl": "{url}{anthropicPrefix}",
           "credentialEnv": null,
-          "note": "Anthropic Messages, under the Anthropic prefix. **Use an alias ending '-anthropic'** \u2014 one routed to a backend declared 'schema: {name: Anthropic}', so the body reaches the engine untranslated. A plain alias is converted to OpenAI on the way in, and the engine then refuses the thinking blocks that conversion carries; a one-shot usually survives it and an agent conversation fails at random. Measured 2026-09-04 direct on Unsloth, LM Studio and Ollama, with no gateway in the path.",
-          "protocol": "anthropic"
-        },
-        "codex": {
-          "appends": "/v1/responses",
-          "auth": "none",
-          "baseUrl": "{url}{openaiPrefix}/v1",
-          "credentialEnv": null,
-          "note": "OpenAI Responses, served natively. Spec 44.",
-          "protocol": "openai-responses"
-        },
-        "deep-agents": {
-          "appends": "/v1/chat/completions",
-          "auth": "none",
-          "baseUrl": "{url}{openaiPrefix}/v1",
-          "credentialEnv": null,
-          "note": "OpenAI chat. Spec 46.",
-          "protocol": "openai-chat"
-        },
-        "opencode": {
-          "appends": "/session",
-          "auth": "none",
-          "baseUrl": "{url}{openaiPrefix}/v1",
-          "credentialEnv": null,
-          "note": "OpenAI chat, as a model provider. Spec 45.",
-          "protocol": "openai-chat"
-        }
-      },
-      "unverified": null
-    },
-    {
-      "fields": [
-        {
-          "default": null,
-          "help": "An Anthropic Messages endpoint. The SDK appends /v1/messages itself.",
-          "key": "claudeUrl",
-          "kind": "url",
-          "label": "Claude Agent URL",
-          "options": null,
-          "placeholder": null,
-          "required": false
-        },
-        {
-          "default": null,
-          "help": "An OpenAI Responses endpoint. Spec 44.",
-          "key": "codexUrl",
-          "kind": "url",
-          "label": "Codex URL",
-          "options": null,
-          "placeholder": null,
-          "required": false
-        },
-        {
-          "default": null,
-          "help": "An OpenAI-compatible endpoint for OpenCode's provider. Spec 45.",
-          "key": "opencodeUrl",
-          "kind": "url",
-          "label": "OpenCode URL",
-          "options": null,
-          "placeholder": null,
-          "required": false
-        },
-        {
-          "default": null,
-          "help": "An OpenAI chat endpoint. Spec 46.",
-          "key": "deepAgentsUrl",
-          "kind": "url",
-          "label": "Deep Agents URL",
-          "options": null,
-          "placeholder": null,
-          "required": false
-        }
-      ],
-      "id": "custom",
-      "label": "Custom",
-      "routes": {
-        "claude-agent": {
-          "appends": "/v1/messages",
-          "auth": "inherit",
-          "baseUrl": "{claudeUrl}",
-          "credentialEnv": null,
-          "note": "Typed by hand.",
-          "protocol": "anthropic"
-        },
-        "codex": {
-          "appends": "/v1/responses",
-          "auth": "inherit",
-          "baseUrl": "{codexUrl}",
-          "credentialEnv": null,
-          "note": "Typed by hand. Spec 44.",
-          "protocol": "openai-responses"
-        },
-        "deep-agents": {
-          "appends": "/v1/chat/completions",
-          "auth": "inherit",
-          "baseUrl": "{deepAgentsUrl}",
-          "credentialEnv": null,
-          "note": "Typed by hand. Spec 46.",
-          "protocol": "openai-chat"
-        },
-        "opencode": {
-          "appends": "/session",
-          "auth": "inherit",
-          "baseUrl": "{opencodeUrl}",
-          "credentialEnv": null,
-          "note": "Typed by hand. Spec 45.",
+          "note": "OpenAI chat, as a model provider. Spec 47.",
           "protocol": "openai-chat"
         }
       },
@@ -722,7 +628,14 @@ export const CATALOGUE: DescribeResult = {
     {
       "id": "claude-agent",
       "label": "Claude Agent SDK",
+      "supportsPlugins": true,
       "supportsStyles": true
+    },
+    {
+      "id": "codex",
+      "label": "Codex",
+      "supportsPlugins": false,
+      "supportsStyles": false
     }
   ]
 };

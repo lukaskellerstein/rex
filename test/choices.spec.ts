@@ -21,6 +21,8 @@ import { saveGateway } from "../src/main/db/gateways.ts";
 import { migrateGateways } from "../src/main/db/migrate.ts";
 import { AGENT_GATEWAY_KEY, agentDefaults, setSetting } from "../src/main/db/settings.ts";
 import {
+  agentRows,
+  gatewayForAgent,
   gatewayRows,
   lastGatewayId,
   lastUsed,
@@ -29,6 +31,7 @@ import {
   routeSummary,
   unusableReason,
 } from "../src/renderer/overlay/gatewayChoices.ts";
+import type { AgentSdk } from "../src/shared/agent-protocol.ts";
 import type { GatewayView } from "../src/shared/channels.ts";
 import type { Message } from "../src/shared/types.ts";
 
@@ -47,6 +50,7 @@ function openDb(): Database.Database {
 
 function view(id: string, name: string, extra: Partial<GatewayView> = {}): GatewayView {
   return {
+    hasKey: false,
     gateway: {
       id,
       name,
@@ -190,11 +194,12 @@ test("a renamed gateway is not matched, and the comment starts on the setting", 
 
 test("a gateway with no route for the agent is greyed with the reason", () => {
   const missing: GatewayView = {
-    gateway: { id: "gw-1", name: "Envoy", kind: "envoy", routes: {} },
+    gateway: { id: "gw-1", name: "Work LiteLLM", kind: "litellm", routes: {} },
+    hasKey: false,
     capabilities: {},
   };
   const reason = unusableReason(missing, "claude-agent", "Claude Agent SDK");
-  assert.match(reason ?? "", /Envoy has no Claude Agent SDK route/);
+  assert.match(reason ?? "", /Work LiteLLM has no Claude Agent SDK route/);
   assert.match(reason ?? "", /Manage gateways/);
 });
 
@@ -266,4 +271,96 @@ test("a combination that has already answered says nothing", () => {
 test("a comment with no messages at all says nothing", () => {
   // There is no conversation to replay, so there is no cost to warn about.
   assert.equal(replayNotice([], "LiteLLM", "claude-agent"), null);
+});
+
+// ── Spec 44 §3 — the agent row of the cascade ───────────────────
+
+/** A gateway that offers both agents, or only one. */
+function twoWay(id: string, name: string, sdks: AgentSdk[]): GatewayView {
+  const one = view(id, name);
+  return {
+    ...one,
+    gateway: {
+      ...one.gateway,
+      routes: Object.fromEntries(
+        sdks.map((sdk) => [
+          sdk,
+          {
+            baseUrl: sdk === "codex" ? "http://localhost:24000/v1" : "http://localhost:24000",
+            auth: "environment" as const,
+            credentialEnv: "AI_GATEWAY_KEY",
+            models: [],
+          },
+        ]),
+      ),
+    },
+  };
+}
+
+const DESCRIBED = [
+  {
+    id: "claude-agent" as AgentSdk,
+    label: "Claude Agent SDK",
+    supportsStyles: true,
+    supportsPlugins: true,
+  },
+  { id: "codex" as AgentSdk, label: "Codex", supportsStyles: false, supportsPlugins: false },
+];
+
+test("the agent rows are the descriptor's, and say how many gateways offer each", () => {
+  const views = [
+    twoWay("rex-original", "Original", ["claude-agent", "codex"]),
+    twoWay("g2", "LiteLLM", ["claude-agent"]),
+  ];
+  const rows = agentRows(DESCRIBED, views);
+  assert.deepEqual(
+    rows.map((row) => row.value),
+    ["claude-agent", "codex"],
+  );
+  // The label is the library's, never a string REX's own source spells.
+  assert.equal(rows[1]?.displayName, "Codex");
+  assert.match(rows[0]?.description ?? "", /2 of 2/);
+  assert.match(rows[1]?.description ?? "", /1 of 2/);
+});
+
+test("an agent no gateway offers says so rather than looking broken", () => {
+  const rows = agentRows(DESCRIBED, [twoWay("g2", "LiteLLM", ["claude-agent"])]);
+  assert.match(rows[1]?.description ?? "", /No gateway has a route for it yet/);
+});
+
+test("switching the agent moves the gateway when the one in hand cannot run it", () => {
+  const views = [
+    twoWay("rex-original", "Original", ["claude-agent"]),
+    twoWay("g2", "LiteLLM", ["claude-agent", "codex"]),
+  ];
+  assert.equal(gatewayForAgent(views, "codex", "rex-original"), "g2");
+  // Already usable: nothing moves, because a rebuild must not undo a pick.
+  assert.equal(gatewayForAgent(views, "codex", "g2"), null);
+  assert.equal(gatewayForAgent(views, "claude-agent", "rex-original"), null);
+});
+
+test("an agent nothing can run leaves the gateway alone and greys the rows", () => {
+  const views = [twoWay("rex-original", "Original", ["claude-agent"])];
+  assert.equal(gatewayForAgent(views, "codex", "rex-original"), null);
+  assert.match(
+    unusableReason(views[0] as GatewayView, "codex", "Codex") ?? "",
+    /has no Codex route/,
+  );
+});
+
+test("a comment that last ran on Codex starts on Codex", () => {
+  const messages = [
+    message({ sdk: "claude-agent", gatewayName: "Original" }),
+    message({ sdk: "codex", gatewayName: "LiteLLM" }),
+  ];
+  assert.equal(lastUsed(messages)?.sdk, "codex");
+});
+
+test("the replay notice fires when the AGENT changes, not only the gateway", () => {
+  // Spec 43 §5.2 case 3, reached for the first time by spec 44: one session per
+  // (thread, SDK, gateway), so a new agent on the SAME gateway is still a
+  // conversation that has to be replayed.
+  const messages = [message({ sdk: "claude-agent", gatewayName: "LiteLLM" })];
+  assert.equal(replayNotice(messages, "LiteLLM", "claude-agent"), null);
+  assert.match(replayNotice(messages, "LiteLLM", "codex") ?? "", /has not seen this comment yet/);
 });

@@ -1,10 +1,10 @@
-// A stand-in for `python -m agent_gateway`, in a few lines of Node.
+// A stand-in for `python -m agent_runner`, in a few lines of Node.
 //
 // Spec 42 §12 — `test/service.spec.ts` drives the real `AgentService` against
 // this, so the client's own behaviour (line framing, the ready wait, run
 // routing, the policy round trip, restart, shutdown) is tested with no Python,
 // no SDK and no key. The Python loop has its own test on the other side of the
-// pipe, in `agent-gateway/tests/test_service.py`.
+// pipe, in `agent-runner/tests/test_service.py`.
 //
 // What a run does is chosen by its prompt, which is the cheapest possible way
 // to script a stream.

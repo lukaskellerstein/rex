@@ -74,6 +74,15 @@ export interface AgentRunInput {
   profile: Profile;
   prompt: string;
   sessionId: string;
+  /**
+   * Spec 45 §6 — the comment thread this run belongs to, for the gateway.
+   *
+   * Optional on purpose. `sessionId` is NOT a substitute: it is
+   * `sessionIdFor(...)` of whatever the caller had, and an Apply passes a run
+   * key rather than a thread id, so reading a thread back out of it would be
+   * wrong for exactly the runs that cost the most.
+   */
+  threadId?: string;
   /** True to continue an existing SDK session, false to seed a new one. */
   resume: boolean;
   /**
@@ -100,6 +109,21 @@ export interface AgentRunInput {
    * the reviewer gave up on after five minutes.
    */
   plugins?: string[];
+  /**
+   * Spec 44 §9.3 — every directory this run may change, as absolute paths.
+   *
+   * REX's own boundary, said to the library rather than only to the agent. A
+   * read run names none. An ACT run names its working copies, and a DOCX or
+   * PPTX run names the cache directory its plan is written into.
+   *
+   * **What an adapter does with it is the adapter's own business**, and the two
+   * REX has differ on purpose: Claude has no sandbox, so its boundary stays the
+   * write prompt plus `putBack`'s repair, exactly as before this spec; Codex
+   * has one, so the same list becomes a sandbox that stops the write instead of
+   * REX undoing it. The field says the intent; neither behaviour is encoded in
+   * the caller.
+   */
+  writable?: string[];
   /** Spec 11 §6.4.2 — the document under review, so only a deck pays for the design plugins. */
   documentPath?: string | null;
   onMessage: (draft: MessageDraft) => void;
@@ -159,6 +183,31 @@ export function drawDiff(path: string, before: string | null, after: string): st
 const STOPPED = "You stopped this run.";
 
 /**
+ * Spec 44 §9.1 — the Claude name each common tool is judged under.
+ *
+ * **`gate.ts` reasons in Claude's own names**, and that is not an accident to be
+ * tidied away: those names are what spec 12 §6's whole shell analysis is written
+ * against, and rewriting it in the common vocabulary would mean re-deriving
+ * every rule about `sed -i`, `git`, redirects and `gh` in a second dialect.
+ *
+ * So the translation happens here instead, at the one place a second SDK arrives.
+ * `shell` is the row that matters: a Codex `command_execution` handed to the gate
+ * under its own name matches nothing, `gateDecision` returns allow, and a read
+ * session runs arbitrary shell — the exact hole §9.1 says a mapping exists to
+ * close. Measured before this line existed.
+ *
+ * `read`, `list`, `search` and `task` are deliberately absent. Each is allowed in
+ * both profiles, so there is nothing for a name to unlock, and inventing one
+ * would claim the gate had an opinion it does not have.
+ */
+const GATE_NAMES: Partial<Record<CommonTool, string>> = {
+  write: "Write",
+  edit: "Edit",
+  shell: "Bash",
+  fetch: "WebFetch",
+};
+
+/**
  * §8 — REX's gate, in the shape the library asks for it.
  *
  * `gate.ts` is untouched and `test/gate.spec.ts` is untouched: what left the
@@ -169,7 +218,7 @@ const STOPPED = "You stopped this run.";
  * purpose. For Claude an unmapped name is ALLOWED, because that is exactly what
  * `gateDecision()` did before this spec — it reasons in Claude's own names, and
  * `TodoWrite`, `Skill` and `AskUserQuestion` were always allowed. For every
- * later SDK an unmapped name is DENIED, because specs 44 to 46 each bring a
+ * later SDK an unmapped name is DENIED, because specs 44, 47 and 48 each bring a
  * closed mapping and an unmapped name there is a hole, not a convention.
  */
 export function policyFor(profile: Profile, sdk: AgentSdk): (call: ToolCall) => string | null {
@@ -177,7 +226,13 @@ export function policyFor(profile: Profile, sdk: AgentSdk): (call: ToolCall) => 
     if (sdk !== REX_SDK && call.common === null) {
       return `REX does not know the ${sdk} tool '${call.name}', so it is not allowed.`;
     }
-    return profile === "write" ? writeGateDecision(call.name) : gateDecision(call.name, call.input);
+    // An MCP call keeps its own name: `mcp__<server>__<tool>` is already what
+    // the gate's allowlist is written in, and every adapter produces it.
+    const name =
+      sdk === REX_SDK || call.common === null || call.common === "mcp"
+        ? call.name
+        : (GATE_NAMES[call.common] ?? call.name);
+    return profile === "write" ? writeGateDecision(name) : gateDecision(name, call.input);
   };
 }
 
@@ -193,6 +248,7 @@ export function resolveRoute(
   gateway: AgentGateway,
   sdk: AgentSdk,
   env: NodeJS.ProcessEnv = process.env,
+  stored: string | null = null,
 ): ResolvedRoute {
   if (!CATALOGUE.sdks.some((entry) => entry.id === sdk)) {
     throw new Error(`No adapter for '${sdk}'.`);
@@ -201,7 +257,18 @@ export function resolveRoute(
   if (!route) throw new Error(`The gateway '${gateway.name}' does not offer ${sdk}.`);
 
   let token: string | null = null;
-  if (route.auth === "environment") {
+  if (route.auth === "stored") {
+    // Spec 46 §7 — the host holds the key, encrypted by the operating system's
+    // own keystore, and hands the plaintext in here. It is a parameter and not
+    // something this function looks up, so that `bridge.ts` stays a pure
+    // mapping and `test/bridge.spec.ts` can drive it with no keychain.
+    if (!stored) {
+      throw new Error(
+        `The ${sdk} route on '${gateway.name}' needs a key, and none is stored. Add one in Settings.`,
+      );
+    }
+    token = stored;
+  } else if (route.auth === "environment") {
     const name = route.credentialEnv;
     if (!name) {
       throw new Error(
@@ -232,24 +299,37 @@ export function resolveRoute(
 
 const probes = new Map<string, Promise<RouteCapabilities>>();
 
-/** §3.4 — what the pickers show when the library could not be asked at all. */
-function unreachable(reason: string): RouteCapabilities {
+/**
+ * §3.4 — what the pickers show when the library could not be asked at all.
+ *
+ * Named for the SDK the question was about, because the two say different things
+ * about what a fallback even means: Claude's `default` row is a real value the
+ * CLI advertises, and every capability below is what Claude has. A Codex route
+ * that could not be asked has no styles and no plugins whatever the reason, so
+ * claiming them here would put controls on screen that the run then refuses.
+ */
+function unreachable(reason: string, sdk: AgentSdk = REX_SDK): RouteCapabilities {
+  const label = CATALOGUE.sdks.find((entry) => entry.id === sdk)?.label ?? sdk;
+  const claude = sdk === REX_SDK;
   return {
     models: [
       {
         value: DEFAULT_MODEL,
         displayName: "Default",
-        description: "Whatever the Claude CLI is configured to use.",
+        description: `Whatever ${label} is configured to use.`,
       },
     ],
-    styles: [DEFAULT_STYLE],
-    supportsStyles: true,
-    supportsPlugins: true,
-    supportsCost: true,
+    styles: claude ? [DEFAULT_STYLE] : [],
+    supportsStyles: claude,
+    supportsPlugins: claude,
+    supportsCost: claude,
     supportsAsk: true,
-    supportsAct: true,
+    // A route REX could not ask about must not offer to CHANGE a document. ASK
+    // stays on because a question that fails costs a sentence; a write that
+    // fails half-way costs a repair.
+    supportsAct: claude,
     supportsResume: true,
-    error: `REX could not ask the Claude CLI what it offers, so only the defaults are available. ${reason}`,
+    error: `REX could not ask ${label} what it offers, so only the defaults are available. ${reason}`,
   };
 }
 
@@ -262,9 +342,9 @@ async function probe(route: ResolvedRoute, cwd: string): Promise<RouteCapabiliti
       cwd,
     }));
     if (value?.kind === "capabilities") return value.capabilities;
-    return unreachable("It answered nothing.");
+    return unreachable("It answered nothing.", route.sdk);
   } catch (error) {
-    return unreachable(error instanceof Error ? error.message : String(error));
+    return unreachable(error instanceof Error ? error.message : String(error), route.sdk);
   }
 }
 
@@ -288,6 +368,8 @@ export function listCapabilities(
   cwd: string,
   gateway: AgentGateway = ORIGINAL_GATEWAY,
   sdk: AgentSdk = REX_SDK,
+  /** Spec 46 §7 — the decrypted key for a `stored` route. Main's to supply. */
+  stored: string | null = null,
 ): Promise<CapabilityProbe> {
   const key = `${sdk}:${gateway.id}`;
   let pending = probes.get(key);
@@ -296,9 +378,11 @@ export function listCapabilities(
     // pickers still have to draw. The reason is the sentence they show.
     let route: ResolvedRoute;
     try {
-      route = resolveRoute(gateway, sdk);
+      route = resolveRoute(gateway, sdk, process.env, stored);
     } catch (error) {
-      return Promise.resolve(unreachable(error instanceof Error ? error.message : String(error)));
+      return Promise.resolve(
+        unreachable(error instanceof Error ? error.message : String(error), sdk),
+      );
     }
     pending = probe(route, cwd);
     probes.set(key, pending);
@@ -377,12 +461,31 @@ function sessionOf(input: AgentRunInput): AgentSession {
     : { mode: "seed", id: input.sessionId };
 }
 
+/** Spec 44 §7 — whether this agent has plugins at all, from the descriptor. */
+function pluginsSupported(sdk: AgentSdk): boolean {
+  return CATALOGUE.sdks.find((entry) => entry.id === sdk)?.supportsPlugins ?? false;
+}
+
+/**
+ * The plugin directories for this run, as opaque paths.
+ *
+ * `pluginsForRepository` stays in REX and resolves the marketplace refs. What
+ * crosses the pipe is the list of directories it produced, with no SDK shape on
+ * it — the adapter wraps them in whatever its own SDK wants.
+ */
+function resolvePlugins(input: AgentRunInput): string[] {
+  return pluginsForRepository(input.cwd, input.profile, input.documentPath).map(
+    (plugin) => plugin.path,
+  );
+}
+
 function requestFor(input: AgentRunInput, runId: string): RunMessage {
   const config = PROFILES[input.profile];
+  const route = input.route ?? resolveRoute(ORIGINAL_GATEWAY, REX_SDK);
   return {
     type: "run",
     runId,
-    route: input.route ?? resolveRoute(ORIGINAL_GATEWAY, REX_SDK),
+    route,
     cwd: input.cwd,
     prompt: input.prompt,
     session: sessionOf(input),
@@ -397,12 +500,30 @@ function requestFor(input: AgentRunInput, runId: string): RunMessage {
     // `pluginsForRepository` stays in REX and resolves the marketplace refs.
     // What crosses is the list of directories it produced — opaque paths, with
     // no SDK shape on them.
-    plugins:
-      input.plugins ??
-      pluginsForRepository(input.cwd, input.profile, input.documentPath).map(
-        (plugin) => plugin.path,
-      ),
+    // Spec 44 §7 — **`bridge.ts` passes no plugin paths** to an agent that has
+    // none. REX builds this list itself rather than asking the reviewer for it,
+    // so an SDK without plugins is not a reviewer's mistake to be refused — it
+    // is a list REX must not build. `run()` refuses a non-empty list an adapter
+    // cannot honour rather than dropping it silently, which is right, and
+    // measured 2026-09-04: without this line every Codex ASK failed with "the
+    // codex adapter cannot load plugins, and 1 were given" before the child
+    // started, because `lsp-bash` is resolved for every run.
+    //
+    // It also saves the work. `pluginsForRepository` shells out to resolve the
+    // marketplace, and doing that for an agent that will not be given the
+    // answer is a subprocess spent on nothing.
+    plugins: input.plugins ?? (pluginsSupported(route.sdk) ? resolvePlugins(input) : []),
+    writable: input.writable ?? [],
     maxTurns: config.maxTurns ?? null,
+    // Spec 45 §6 — who is spending this, for the gateway's dashboards. Ids
+    // only: a header lands in a span and a span is stored for months, so no
+    // document text and no file path is ever put in one.
+    //
+    // An absent thread is normal rather than an error. An Apply run and a probe
+    // have no comment thread, and the collector labels those `none` — visible
+    // in the totals instead of missing from them.
+    threadId: input.threadId ?? "",
+    profile: input.profile,
   };
 }
 
@@ -513,7 +634,10 @@ export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
     };
   }
 
-  const decide = policyFor(input.profile, REX_SDK);
+  // Spec 44 §9.1 — the run's OWN agent, not the constant. `message.route` is
+  // what `requestFor` resolved, so the policy and the child can never disagree
+  // about which SDK's names are about to arrive.
+  const decide = policyFor(input.profile, message.route.sdk);
 
   try {
     const result = await service.run(message, {

@@ -8,7 +8,9 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { DB_PATH } from "./location.ts";
 import {
+  migrateBuiltinGateway,
   migrateCommentOrder,
+  migrateGatewayProviders,
   migrateGateways,
   migrateMessageDenied,
   migrateMessageMode,
@@ -16,6 +18,7 @@ import {
   migrateMessageRoute,
   migrateMessageStyle,
   migrateNoteFlag,
+  migrateRetireGatewayKinds,
   migrateTargetMessage,
   migrateThreadLanes,
   migrateThreadSessions,
@@ -74,6 +77,22 @@ export function openDatabase(): Db {
   // before `thread_session` can name them. `migrateMessageRoute` is after
   // `migrateMessageMode` because it reads `mode` to leave a NOTE alone.
   migrateGateways(db);
+  // Spec 46 §4.1 — the `enabled` switch and REX's own gateway row. After
+  // `migrateGateways`, because it widens the `kind` CHECK that migration wrote
+  // and adds a column to the table it creates. Additive: spec 46 §15 step 2,
+  // which deletes the `envoy` and `custom` rows, is milestone 3.
+  migrateBuiltinGateway(db);
+  // Spec 46 §11 — the providers behind it, and the two ciphertext columns.
+  // After `migrateBuiltinGateway`, because `gateway_route` must exist before a
+  // column can be added to it.
+  migrateGatewayProviders(db);
+  // Spec 46 §15 step 2 — `envoy` and `custom` leave. LAST of the gateway
+  // migrations, because it narrows the `kind` CHECK that the two above widened
+  // and rebuilds `gateway_route` to admit `stored`. Deleting first and
+  // narrowing second is not a preference: SQLite validates a CHECK against
+  // every row while copying a table, so the other order fails on exactly the
+  // rows this removes.
+  migrateRetireGatewayKinds(db);
   migrateThreadSessions(db);
   migrateMessageRoute(db);
   // Spec 30 §7.1 — the `draft` and `note` lanes. LAST, and it must stay last:

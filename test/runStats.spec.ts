@@ -103,7 +103,7 @@ test("an aside is not the answer: the numbers land on the reply that ends the ru
     ]),
   );
   assert.equal(stats.size, 1);
-  assert.deepEqual(stats.get("m5"), { elapsedMs: 10_000, costUsd: 0, steps: 1 });
+  assert.deepEqual(stats.get("m5"), { elapsedMs: 10_000, costUsd: null, steps: 1 });
 });
 
 test("each run in a thread is counted on its own", () => {
@@ -123,10 +123,17 @@ test("each run in a thread is counted on its own", () => {
   assert.deepEqual(stats.get("m7"), { elapsedMs: 30_000, costUsd: 0.5, steps: 2 });
 });
 
-test("a local model reports no cost, and that is $0.000 rather than a gap", () => {
+test("a cost nobody reported is unknown, and never $0.000", () => {
   // Measured in the reviewer's own database: every message of an Envoy run
-  // carries a null `cost_usd`. Showing nothing there would read as "unknown",
-  // and a local model's price is known — it is zero.
+  // carries a null `cost_usd`. This asserted `$0.000` until 2026-09-05, on the
+  // reasoning that a local model's price is known to be zero — and the reviewer
+  // chose the other way, which is what spec 43 §8.1 and spec 44 §11 criterion
+  // 12 had said all along.
+  //
+  // The reasoning was wrong about what a zero says. "Nobody reported one" and
+  // "it cost nothing" are two facts, and `$0.000` on both hides the first — a
+  // run whose cost REX failed to record looks exactly like a free one, and a
+  // column of zeroes invites being added up.
   const stats = runStatsOf(
     thread([
       you("2026-09-04T19:33:52.875Z"),
@@ -134,8 +141,21 @@ test("a local model reports no cost, and that is $0.000 rather than a gap", () =
       done("2026-09-04T19:34:20.246Z", null),
     ]),
   );
+  assert.equal(stats.get("m2")?.costUsd, null);
+  assert.equal(costText(stats.get("m2")?.costUsd ?? null), "—");
+});
+
+test("a cost the SDK DID report is still a number, including a real zero", () => {
+  const stats = runStatsOf(
+    thread([
+      you("2026-09-04T19:00:00.000Z"),
+      said("2026-09-04T19:00:05.000Z"),
+      done("2026-09-04T19:00:06.000Z", 0),
+    ]),
+  );
   assert.equal(stats.get("m2")?.costUsd, 0);
-  assert.equal(costText(stats.get("m2")?.costUsd ?? 0), "$0.000");
+  assert.equal(costText(0), "$0.000");
+  assert.equal(costText(0.0125), "$0.013");
 });
 
 test("a run that answered nothing is keyed on its error or its stop", () => {
@@ -159,7 +179,7 @@ test("a run that answered nothing is keyed on its error or its stop", () => {
       ["stopped", { role: "system", content: "Stopped", ...at("2026-09-04T19:00:20.000Z") }],
     ]),
   );
-  assert.deepEqual(stopped.get("m3"), { elapsedMs: 20_000, costUsd: 0, steps: 1 });
+  assert.deepEqual(stopped.get("m3"), { elapsedMs: 20_000, costUsd: null, steps: 1 });
 });
 
 test("a `completed` with no answer before it is keyed on nothing", () => {

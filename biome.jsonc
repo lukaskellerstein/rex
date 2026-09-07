@@ -9,6 +9,19 @@
     "clientKind": "git",
     "useIgnoreFile": true
   },
+  "files": {
+    // `design/` is the Claude Design working tree — artboards (`.dc.html`), the
+    // `canvas.json` the seeding helper writes, and whatever seeded page is being
+    // published. None of it is app source, and biome cannot read the artboards
+    // at all: a `.dc.html` carries `{{ hole }}` expressions, which biome 2.5.5
+    // reports as `syntax Text expressions aren't supported`.
+    //
+    // That has to be excluded HERE rather than in an override, because a PARSE
+    // error is raised before any override applies — turning the formatter and
+    // the linter off for the path leaves every parse error still reported
+    // (measured 2026-09-06: 13 of them across three artboards).
+    "includes": ["**", "!design"]
+  },
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
@@ -100,15 +113,15 @@
   },
   "overrides": [
     {
-      // Spec 42 §4.3 — generated from `agent-gateway/src/agent_gateway/protocol.py`
+      // Spec 42 §4.3 — generated from `agent-runner/src/agent_runner/protocol.py`
       // and compared byte for byte by `test/protocol.spec.ts`. A formatter that
       // rewrapped a union or unquoted an object key would make that test fail
       // for a reason nobody could act on, and it would fail again on every
       // biome upgrade. The generator keeps the file inside lineWidth itself.
       "includes": [
         "src/shared/agent-protocol.ts",
-        "agent-gateway/schema.json",
-        "agent-gateway/catalogue.json"
+        "agent-runner/schema.json",
+        "agent-runner/catalogue.json"
       ],
       "formatter": {
         "enabled": false
@@ -129,27 +142,6 @@
       // run. Delete it in a repo whose SVGs are source you want formatted.
       "includes": ["**/*.svg"],
       "formatter": {
-        "enabled": false
-      }
-    },
-    {
-      // The same html.formatter flag also hands biome every `.dc.html` in
-      // design/ — Claude Design artboards, which are a foreign format wearing
-      // an .html extension, not app source.
-      //
-      // Formatting them is unsafe rather than merely noisy: the runtime
-      // requires `<script src="./support.js">` verbatim, and the properties
-      // panel edits the inline `style="…"` attributes biome would rewrap.
-      //
-      // The linter is off for a second reason: every artboard ends in a
-      // `class Component extends DCLogic` that nothing in the file
-      // instantiates — the Design runtime does, at render time — so
-      // noUnusedVariables fires once per artboard and can never be satisfied.
-      "includes": ["**/*.dc.html"],
-      "formatter": {
-        "enabled": false
-      },
-      "linter": {
         "enabled": false
       }
     }

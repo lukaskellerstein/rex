@@ -6,6 +6,7 @@
 // firing is worth seeing.
 
 import { useLayoutEffect, useRef, useState } from "react";
+import type { AgentSdk } from "../../shared/agent-protocol.ts";
 import { commentName } from "../../shared/names.ts";
 import { type PlaceTally, threadState } from "../../shared/targets.ts";
 import { type RunStats, runStatsOf, spentText, totalsOf } from "../../shared/totals.ts";
@@ -26,6 +27,7 @@ import { Elapsed } from "./Elapsed.tsx";
 import {
   Bubble,
   Bulb,
+  Chart,
   ChevronLeft,
   ChevronRight,
   MESSAGE_ICON,
@@ -35,6 +37,7 @@ import {
   StopSquare,
   Trash,
 } from "./Icons.tsx";
+import { modelLabel } from "./ModelPick.tsx";
 import { MODE_LABEL, type Mode } from "./mode.ts";
 import { NameBox } from "./NameBox.tsx";
 import { PlaceRow } from "./PlaceRow.tsx";
@@ -91,11 +94,26 @@ interface Props {
   models: AgentChoices;
   model: string | null;
   onModel: (model: string | null) => void;
-  /** Spec 43 §4 — the gateway control, passed straight through to the composer. */
+  /**
+   * Spec 43 §4 and spec 44 §3 — the agent and the gateway, passed straight
+   * through to the composer, which is where the cascade lives.
+   */
+  agents: ModelChoice[];
+  sdk: AgentSdk;
+  onSdk: (sdk: AgentSdk) => void;
   gateways: GatewayChoice;
   gateway: string;
   onGateway: (gatewayId: string) => void;
   onManageGateways: () => void;
+  /**
+   * Spec 46 §4.6 — open this comment's traffic.
+   *
+   * Optional, because the trace sheet draws this same card and has no sheet of
+   * its own to open one over. An absent handler makes the button inert rather
+   * than absent, which keeps the card's head the same shape in both places.
+   */
+  onTraffic?: (threadId: string) => void;
+  supportsStyles: boolean;
   /**
    * Spec 31 §2.1 — the output style this chat is having, and it is a plain
    * string, never null: a chat is always having one, and `default` is its name.
@@ -218,6 +236,12 @@ interface Turn {
    * Null for a turn no agent was in — a NOTE, a notice from REX — and for every
    * message written before the columns existed.
    */
+  /**
+   * Spec 44 §3 — and which agent ran it. The same shape and the same nulls: a
+   * turn no agent was in has none, and neither has one written before the
+   * column existed.
+   */
+  sdk: AgentSdk | null;
   gatewayName: string | null;
   baseUrl: string | null;
   /**
@@ -305,6 +329,7 @@ function turnsOf(thread: ThreadWithMessages): Turn[] {
       // message a run produces is stamped with the run's own style.
       style: message.style,
       // Spec 43 §5.3 — and the rest of the evidence, for the same reason.
+      sdk: message.sdk,
       gatewayName: message.gatewayName,
       baseUrl: message.baseUrl,
       messageIds: [message.id],
@@ -391,6 +416,7 @@ function TurnBlock({
   turn,
   places,
   models,
+  agents,
   stats,
   onGoToPlace,
 }: {
@@ -399,6 +425,8 @@ function TurnBlock({
   places: PlaceChip[];
   /** Spec 25 §7.3 — to turn the stored value into the name it was picked by. */
   models: ModelChoice[];
+  /** Spec 44 §3 — the same, for the agent: `codex` is stored, `Codex` is read. */
+  agents: ModelChoice[];
   /** What the run that ended in this turn spent, or null if it ended in another. */
   stats: RunStats | null;
   onGoToPlace: (position: number) => void;
@@ -566,6 +594,7 @@ function TurnBlock({
       {answer ? (
         <AnswerFoot
           evidence={{
+            agent: turn.sdk ? modelLabel(agents, turn.sdk, turn.sdk) : null,
             gatewayName: turn.gatewayName,
             baseUrl: turn.baseUrl,
             model: turn.model,
@@ -730,6 +759,49 @@ export function CommentCard(props: Props): React.JSX.Element {
           <ChevronLeft />
           all comments
         </button>
+        {/*
+          Spec 45 §6.3 — every request this comment sent through the gateway,
+          and every answer.
+
+          **On the navigation side, beside `all comments`, and deliberately not
+          in the cluster on the right.** Two reasons, and the reviewer named the
+          first on 2026-09-05: it sat next to the bin, and a mis-click on a row
+          of look-alike glyphs is a deleted comment. The second is what it does
+          — it LEAVES the app, exactly as `all comments` leaves the card, and
+          navigation belongs with navigation while actions stay together on the
+          right.
+
+          It carries its word, because a glyph alone said nothing about what was
+          behind it. The word is `traffic` because every shorter candidate
+          collides with something REX already means: `traces` is spec 38's trace
+          block inside this very card, `gateway` is the picker and the Manage
+          Gateways sheet, and `requests` reads as the run's own steps, which the
+          card counts two rows down. `traffic` collides with none of them and
+          says exactly what is on the other side.
+
+          Spec 46 §4.6 — it opens a REX sheet now rather than a browser.
+
+          It used to leave the app because the other side was a dashboard with
+          its own filters and its own time range, and rebuilding that in the
+          card would have been a worse copy of a tool that already existed.
+          There is no dashboard any more: the gateway writes the record itself,
+          and one comment's rows out of a file is a list, not a tool. **The
+          glyph, the word and the IPC are unchanged** — only the destination is,
+          which is a smaller change than deleting the button.
+
+          Only a thread id crosses the bridge, exactly as before: main reads the
+          log and filters it, so no document can make this open anything.
+        */}
+        <button
+          type="button"
+          className="rex-link rex-head-away"
+          aria-label="Show this comment's requests and responses"
+          data-tip="Every request and response this comment sent through the gateway"
+          onClick={() => props.onTraffic?.(thread.id)}
+        >
+          <Chart />
+          traffic
+        </button>
         <span className="rex-spacer" />
 
         {/*
@@ -800,6 +872,7 @@ export function CommentCard(props: Props): React.JSX.Element {
           reviewer reaches for constantly, and the one control in this card that
           cannot be undone should not share a row with them.
         */}
+        <span className="rex-head-rule" aria-hidden="true" />
         <button
           type="button"
           className="rex-icon-button rex-icon-danger"
@@ -980,6 +1053,7 @@ export function CommentCard(props: Props): React.JSX.Element {
                 turn={turn}
                 places={placesOf(turn)}
                 models={props.models.models}
+                agents={props.agents}
                 // The run ended in this turn only if its LAST message is the one
                 // the map is keyed on — an answer split across three `text`
                 // rows is one turn, and the run ended at the third.
@@ -1063,10 +1137,14 @@ export function CommentCard(props: Props): React.JSX.Element {
         models={props.models}
         model={props.model}
         onModel={props.onModel}
+        agents={props.agents}
+        sdk={props.sdk}
+        onSdk={props.onSdk}
         gateways={props.gateways}
         gateway={props.gateway}
         onGateway={props.onGateway}
         onManageGateways={props.onManageGateways}
+        supportsStyles={props.supportsStyles}
         style={props.style}
         onStyle={props.onStyle}
         pending={props.pending}

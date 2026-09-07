@@ -181,6 +181,10 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
     resume: false,
     // Spec 43 §5.5 — a run-scoped id, and its session is never stored.
     route: input.route,
+    // Spec 44 §9.3 — a deck run writes its plan, and the media server writes
+    // what it generates, both under the same cache directory (§6.4.3). The
+    // deck itself is rewritten by REX afterwards from the plan.
+    writable: [deckCacheDir(contentHash)],
     model: input.model,
     style: input.style,
     // §6.4.2 — a `.pptx` is a marker: the two design plugins load only here.

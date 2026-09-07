@@ -2,7 +2,7 @@
 //
 // What is being protected here is the half of the seam that has no types to
 // lean on: a process. The Python loop is tested on its own side of the pipe
-// (`agent-gateway/tests/test_service.py`); this is the side that has to survive
+// (`agent-runner/tests/test_service.py`); this is the side that has to survive
 // a child that crashes, a child that says something unreadable, and a quit that
 // arrives while a run is still open.
 //
@@ -15,7 +15,8 @@ import { strict as assert } from "node:assert";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { AgentService, defaultSpawn, interpreterFor } from "../src/main/agent/service.ts";
+import { AgentService, defaultSpawn } from "../src/main/agent/service.ts";
+import { interpreterFor } from "../src/main/python.ts";
 import type { AgentEvent, RunMessage } from "../src/shared/agent-protocol.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -49,12 +50,18 @@ function runMessage(runId: string, prompt: string): RunMessage {
     cwd: ".",
     prompt,
     session: { mode: "seed", id: "s1" },
+    // Spec 44 §9.3 — a read run may change nothing, so it names nothing.
+    writable: [],
     model: null,
     style: null,
     systemPrompt: "",
     disallowed: [],
     plugins: [],
     maxTurns: null,
+    // Spec 45 §6 — a seam test has no comment thread, and empty is what the
+    // library is told to expect for exactly that case.
+    threadId: "",
+    profile: "",
   };
 }
 
@@ -237,7 +244,7 @@ test("a missing interpreter is refused with the command that fixes it", async ()
   const missing = new AgentService({
     command: join(HERE, "fixtures", "no-such-python"),
     args: [],
-    cwd: "/tmp/agent-gateway",
+    cwd: "/tmp/agent-runner",
   });
   await assert.rejects(missing.ready(), /uv sync/);
   assert.match(missing.state().down ?? "", /uv sync/);
@@ -248,5 +255,5 @@ test("the interpreter is the venv's own, never one from PATH", () => {
   // either absent or the wrong one.
   const root = defaultSpawn().cwd;
   assert.match(interpreterFor(root), /\.venv\/bin\/python$|\/python\/bin\/python$/);
-  assert.deepEqual(defaultSpawn().args, ["-m", "agent_gateway"]);
+  assert.deepEqual(defaultSpawn().args, ["-m", "agent_runner"]);
 });

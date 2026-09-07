@@ -1,0 +1,141 @@
+{
+  "providers": [
+    {
+      "id": "lmstudio",
+      "label": "LM Studio",
+      "prefix": "lm_studio/",
+      "fields": [
+        {
+          "key": "url",
+          "label": "Address",
+          "kind": "url",
+          "required": true,
+          "placeholder": "http://127.0.0.1:1234",
+          "help": "Just the host and port. REX adds the rest of the path itself.",
+          "default": null
+        }
+      ],
+      "local": true,
+      "note": "Models on this machine. LM Studio JIT-loads a model that is not resident, and a JIT load comes back at 8192 context whatever the window says — `lms ps --json` is the truth, not the app window.",
+      "defaultUrl": null,
+      "auth": "none",
+      "headers": {}
+    },
+    {
+      "id": "ollama",
+      "label": "Ollama",
+      "prefix": "openai/",
+      "fields": [
+        {
+          "key": "url",
+          "label": "Address",
+          "kind": "url",
+          "required": true,
+          "placeholder": "http://127.0.0.1:11434",
+          "help": "Just the host and port. REX adds the rest of the path itself.",
+          "default": null
+        }
+      ],
+      "local": true,
+      "note": "Models on this machine. `openai/` here is a protocol and not a company: Ollama speaks the OpenAI wire format, and the address is the only thing separating it from api.openai.com.",
+      "defaultUrl": null,
+      "auth": "none",
+      "headers": {}
+    },
+    {
+      "id": "unsloth",
+      "label": "Unsloth",
+      "prefix": "openai/",
+      "fields": [
+        {
+          "key": "url",
+          "label": "Address",
+          "kind": "url",
+          "required": true,
+          "placeholder": "http://127.0.0.1:8888",
+          "help": "Just the host and port. REX adds the rest of the path itself.",
+          "default": null
+        },
+        {
+          "key": "key",
+          "label": "API key",
+          "kind": "password",
+          "required": false,
+          "placeholder": null,
+          "help": "Only if your server asks for one. It answers 401 on every route without it.",
+          "default": null
+        }
+      ],
+      "local": true,
+      "note": "Models on this machine, one loaded at a time. It reports a context window for the loaded model only; the rest are listed without one.",
+      "defaultUrl": null,
+      "auth": "bearer",
+      "headers": {}
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "prefix": "openai/",
+      "fields": [
+        {
+          "key": "key",
+          "label": "API key",
+          "kind": "password",
+          "required": true,
+          "placeholder": null,
+          "help": "Stored encrypted by your operating system. Never written to a file.",
+          "default": null
+        }
+      ],
+      "local": false,
+      "note": "Every model here bills your account. Nothing is added until you tick it.",
+      "defaultUrl": "https://api.openai.com/v1",
+      "auth": "bearer",
+      "headers": {}
+    },
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "prefix": "openrouter/",
+      "fields": [
+        {
+          "key": "key",
+          "label": "API key",
+          "kind": "password",
+          "required": true,
+          "placeholder": null,
+          "help": "Stored encrypted by your operating system. Never written to a file.",
+          "default": null
+        }
+      ],
+      "local": false,
+      "note": "Hundreds of models from many vendors. Every one of them bills your account.",
+      "defaultUrl": "https://openrouter.ai/api/v1",
+      "auth": "bearer",
+      "headers": {}
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "prefix": "anthropic/",
+      "fields": [
+        {
+          "key": "key",
+          "label": "API key",
+          "kind": "password",
+          "required": true,
+          "placeholder": null,
+          "help": "Stored encrypted by your operating system. Never written to a file.",
+          "default": null
+        }
+      ],
+      "local": false,
+      "note": "A second hop: REX to this gateway to Anthropic, for a protocol that was already Anthropic. Worth having with an API key and no Claude subscription. For a Claude model on a Claude login, Original is the shorter path.",
+      "defaultUrl": "https://api.anthropic.com/v1",
+      "auth": "x-api-key",
+      "headers": {
+        "anthropic-version": "2023-06-01"
+      }
+    }
+  ]
+}

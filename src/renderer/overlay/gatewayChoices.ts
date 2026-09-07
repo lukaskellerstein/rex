@@ -4,7 +4,7 @@
 // is: they hold no JSX, and this machine's test runner hands `.ts` straight to
 // `node`, which strips types and cannot parse `.tsx`.
 
-import type { AgentSdk } from "../../shared/agent-protocol.ts";
+import type { AgentSdk, SdkDescriptor } from "../../shared/agent-protocol.ts";
 import type { GatewayView } from "../../shared/channels.ts";
 import type { Message, ModelChoice, SendChoices } from "../../shared/types.ts";
 
@@ -59,6 +59,53 @@ export function gatewayRows(views: readonly GatewayView[], sdk: AgentSdk): Model
     displayName: view.gateway.name,
     description: routeSummary(view, sdk),
   }));
+}
+
+/**
+ * Spec 44 §3 — the rows the AGENT picker draws.
+ *
+ * **The labels are the descriptor's**, so REX's source names no SDK: `describe`
+ * returns only the agents that have an adapter, and an agent REX cannot run is
+ * therefore not a row a reviewer can reach.
+ *
+ * The description counts the gateways that offer each one, because that is the
+ * fact the next control depends on: an agent with no route anywhere leads to a
+ * gateway menu where every row is greyed, and saying so here is what turns that
+ * from a dead end into an instruction.
+ */
+export function agentRows(
+  sdks: readonly SdkDescriptor[],
+  views: readonly GatewayView[],
+): ModelChoice[] {
+  return sdks.map((sdk) => {
+    const offered = views.filter((view) => view.gateway.routes[sdk.id]).length;
+    return {
+      value: sdk.id,
+      displayName: sdk.label,
+      description:
+        offered === 0
+          ? "No gateway has a route for it yet. Add one in Manage gateways…"
+          : `${offered} of ${views.length} gateway${views.length === 1 ? "" : "s"} offer it.`,
+    };
+  });
+}
+
+/**
+ * §3 — the gateway this agent should move to, when the one in hand cannot run it.
+ *
+ * Spec 43 §4.1's rule for the model, applied one control to the left: a rebuild
+ * that drops the current value picks the first that works rather than leaving a
+ * selection that cannot send. Null means the one in hand is fine, or that
+ * nothing better exists — and a greyed row with its reason on hover is the
+ * honest end of that road (§4.2).
+ */
+export function gatewayForAgent(
+  views: readonly GatewayView[],
+  sdk: AgentSdk,
+  current: string,
+): string | null {
+  if (views.find((view) => view.gateway.id === current)?.gateway.routes[sdk]) return null;
+  return views.find((view) => view.gateway.routes[sdk])?.gateway.id ?? null;
 }
 
 /**

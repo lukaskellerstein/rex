@@ -48,7 +48,7 @@ export interface ProfileConfig {
    *
    * Spec 42 §6 — in the **common** vocabulary, not one SDK's names. `write`
    * becomes `Write` and `NotebookEdit` inside the Claude adapter, and something
-   * else inside each of specs 44 to 46, so the profile says what a tool does
+   * else inside each of specs 44, 47 and 48, so the profile says what a tool does
    * rather than what one SDK happens to call it.
    */
   disallowedTools: CommonTool[];

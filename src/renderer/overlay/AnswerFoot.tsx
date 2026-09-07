@@ -17,6 +17,8 @@ import { modelLabel } from "./ModelPick.tsx";
  * column existed, or a turn no agent was in.
  */
 export interface AnswerEvidence {
+  /** Spec 44 §3 — which agent answered, first on the line as it is in the row. */
+  agent: string | null;
   gatewayName: string | null;
   baseUrl: string | null;
   model: string | null;
@@ -98,6 +100,19 @@ export function AnswerFoot({
   /** The right group: what it cost. */
   const spent: Fact[] = [];
 
+  // Spec 44 §3 — the agent, before the gateway, in the order the composer
+  // offers them. Named by its label and never by its id: `codex` is a value in
+  // a database column, and `Codex` is what the reviewer picked.
+  if (evidence.agent) {
+    made.push({
+      key: "agent",
+      node: (
+        <span className="rex-foot-agent" title="The agent that answered">
+          {evidence.agent}
+        </span>
+      ),
+    });
+  }
   if (evidence.gatewayName) {
     made.push({
       key: "gateway",
@@ -164,9 +179,16 @@ export function AnswerFoot({
       node: (
         <span
           className="rex-foot-cost"
-          // §5.3 — a local model behind a gateway bills nothing and reports
-          // nothing, so `$0.000` is the truth about it rather than a gap.
-          title="What this answer cost. A local model reports nothing, and that is $0.000."
+          // Spec 43 §8.1 and spec 44 §11 criterion 12 — a cost nobody reported
+          // is drawn as unknown and never as `$0.00`. The two are not the same
+          // fact: a local model behind a gateway reports nothing, and so does a
+          // run REX failed to record, but `$0.000` on both makes the second
+          // invisible and invites the first to be added up.
+          title={
+            stats.costUsd === null
+              ? "This answer's cost was not reported. A local model behind a gateway reports none, and REX will not invent one."
+              : "What this answer cost, as the SDK reported it."
+          }
         >
           {costText(stats.costUsd)}
         </span>

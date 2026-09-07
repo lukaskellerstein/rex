@@ -1,0 +1,216 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #8fb4f0; text-decoration: none; }
+    a:hover { color: #b7cff6; }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+
+<div style="width: 1000px; height: 720px; display: flex; flex-direction: column; background: #0e1012; color: #f4f6f7; font: 13px/1.5 'DM Sans', system-ui, sans-serif;">
+
+  <!-- The page head. The × is a 24×24 icon button in the CORNER, which is
+       where a person's hand already goes; the old sheet put a text button
+       called "Close" in the middle of the bar. -->
+  <div style="display: flex; align-items: center; gap: 12px; flex: none; height: 52px; padding: 0 20px; border-bottom: 1px solid #2b3035;">
+    <div style="display: flex; align-items: baseline; gap: 10px; min-width: 0;">
+      <span style="font-size: 15px; font-weight: 600;">Settings</span>
+      <span style="color: #6e767e; font-size: 12px;">{{crumb}}</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M4 4l8 8M12 4l-8 8"/>
+      </svg>
+    </button>
+  </div>
+
+  <div style="display: flex; flex-grow: 1; min-height: 0;">
+
+    <!-- The sidebar. A list, so a seventh section is a row — not a tab strip
+         that runs out of width. -->
+    <nav style="display: flex; flex-direction: column; gap: 1px; flex: none; width: 188px; padding: 12px 8px; border-right: 1px solid #2b3035; background: #131619;">
+      <sc-for list="{{sections}}" as="s" hint-placeholder-count="2">
+        <button type="button" style="display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px; border: 0; border-radius: 2px; background: {{s.bg}}; color: {{s.fg}}; font: inherit; font-size: 13px; font-weight: {{s.weight}}; text-align: left; cursor: pointer;">
+          <span style="display: flex; width: 14px; color: {{s.icon}};">
+            <sc-if value="{{s.isGateway}}" hint-placeholder-val="{{ true }}">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+                <rect x="2" y="3" width="12" height="4" rx="1"/><rect x="2" y="9" width="12" height="4" rx="1"/>
+                <path d="M4.6 5h.01M4.6 11h.01"/>
+              </svg>
+            </sc-if>
+            <sc-if value="{{s.isModels}}" hint-placeholder-val="{{ true }}">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M8 2.2 13.4 5 8 7.8 2.6 5z"/><path d="M2.6 8.2 8 11l5.4-2.8"/><path d="M2.6 11.4 8 14.2l5.4-2.8"/>
+              </svg>
+            </sc-if>
+          </span>
+          {{s.label}}
+        </button>
+      </sc-for>
+    </nav>
+
+    <!-- The content pane. It scrolls; the sidebar and the head do not. -->
+    <div style="flex-grow: 1; min-width: 0; overflow-y: auto; padding: 20px 24px 28px;">
+      <div style="display: flex; flex-direction: column; gap: 18px; max-width: 620px;">
+
+        <div>
+          <h2 style="margin: 0 0 3px; font-size: 14px; font-weight: 600;">Gateways</h2>
+          <p style="margin: 0; color: #98a0a8; font-size: 12px;">Where REX asks for inference. Every comment picks one, and every answer records the one that produced it.</p>
+        </div>
+
+        <!--
+          Original. It is NOT Claude's — every agent has a row here, and the
+          list is the explanation: the one thing a person cannot find out
+          anywhere else is WHICH credential each agent is actually using.
+          The old copy led with "Your own Claude login", which was wrong the
+          day the Codex adapter landed.
+        -->
+        <section style="border: 1px solid #2b3035; border-radius: 2px; background: #191c1f;">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 13px 15px;">
+            <div style="min-width: 0; flex-grow: 1;">
+              <div style="font-weight: 600;">Original — no gateway</div>
+              <div style="color: #98a0a8; font-size: 12px;">Each agent talks to its own vendor directly, with the login you already have. Nothing to configure.</div>
+            </div>
+            <span style="flex: none; color: #66ad93; font-size: 11px;">always on</span>
+          </div>
+          <div style="border-top: 1px solid #2b3035;">
+            <sc-for list="{{logins}}" as="l" hint-placeholder-count="2">
+              <div style="display: flex; align-items: center; gap: 12px; padding: 7px 15px;">
+                <span style="flex: none; width: 150px; color: #ccd1d6; font-size: 12px;">{{l.agent}}</span>
+                <span style="flex-grow: 1; min-width: 0; color: #6e767e; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px;">{{l.credential}}</span>
+                <span style="flex: none; color: {{l.stateFg}}; font-size: 11px;">{{l.state}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- Built-in, with the real switch -->
+        <section style="border: 1px solid #2b3035; border-radius: 2px; background: #191c1f;">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 13px 15px;">
+            <div style="min-width: 0; flex-grow: 1;">
+              <div style="font-weight: 600;">Built-in</div>
+              <div style="color: #98a0a8; font-size: 12px;">LiteLLM, running inside REX</div>
+            </div>
+            <span style="flex: none; width: 26px; color: {{onWord}}; font-size: 11px; text-align: right;">{{onLabel}}</span>
+            <button type="button" onClick="{{toggleGateway}}" style="display: flex; align-items: center; flex: none; width: 38px; height: 22px; padding: 2px; border: 1px solid {{trackEdge}}; border-radius: 11px; background: {{trackBg}}; cursor: pointer; transition: background .14s ease, border-color .14s ease;">
+              <span style="width: 16px; height: 16px; border-radius: 8px; background: {{knobBg}}; transform: translateX({{knobX}}); transition: transform .14s ease, background .14s ease;"></span>
+            </button>
+          </div>
+
+          <div style="padding: 0 15px 13px;">
+            <sc-if value="{{running}}" hint-placeholder-val="{{ true }}">
+              <div style="display: flex; align-items: center; gap: 7px; color: #66ad93; font-size: 12px;">
+                <span style="width: 6px; height: 6px; border-radius: 3px; background: #66ad93;"></span>
+                Running on <code style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px;">http://127.0.0.1:24334</code>
+              </div>
+            </sc-if>
+            <sc-if value="{{stopped}}" hint-placeholder-val="{{ true }}">
+              <div style="color: #6e767e; font-size: 12px;">Stopped. Nothing you configured is lost — turning it on again uses the same providers, models and keys. It costs about 296&nbsp;MB and 1.6&nbsp;seconds to start.</div>
+            </sc-if>
+          </div>
+
+          <!-- What it serves. A row, so the count and the way to change it sit
+               together instead of a sentence with a link buried in it. -->
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 15px; border-top: 1px solid #2b3035;">
+            <div style="flex-grow: 1; min-width: 0; color: #ccd1d6; font-size: 12px;">6 models from 2 providers</div>
+            <button type="button" style="display: flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 14px; border: 1px solid #4d545c; border-radius: 2px; background: #363b41; color: #f4f6f7; font: inherit; font-size: 12px; cursor: pointer;">Manage models</button>
+          </div>
+
+          <!-- The traffic log. Its own row with its own switch, so the two
+               switches on this card are the same control at the same size. -->
+          <div style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 15px; border-top: 1px solid #2b3035;">
+            <div style="flex-grow: 1; min-width: 0;">
+              <div style="font-size: 12.5px;">Record questions and answers</div>
+              <div style="color: #6e767e; font-size: 11.5px;">Timings, tokens and cost are always kept. This adds the prompts and replies, in <code style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px;">~/.rex/gateway/traffic/</code>, for 30 days.</div>
+              <div style="margin-top: 6px; color: #6e767e; font-size: 11.5px;">4.2 MB over 9 days · <a href="#">Clear it</a></div>
+            </div>
+            <button type="button" onClick="{{toggleTraffic}}" style="display: flex; align-items: center; flex: none; margin-top: 1px; width: 38px; height: 22px; padding: 2px; border: 1px solid {{tEdge}}; border-radius: 11px; background: {{tBg}}; cursor: pointer; transition: background .14s ease, border-color .14s ease;">
+              <span style="width: 16px; height: 16px; border-radius: 8px; background: {{tKnob}}; transform: translateX({{tX}}); transition: transform .14s ease, background .14s ease;"></span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Somebody else's -->
+        <section style="border: 1px solid #2b3035; border-radius: 2px; background: #191c1f;">
+          <div style="display: flex; align-items: center; gap: 12px; padding: 13px 15px;">
+            <div style="min-width: 0; flex-grow: 1;">
+              <div style="font-weight: 600;">Other gateways</div>
+              <div style="color: #98a0a8; font-size: 12px;">A LiteLLM somebody else runs</div>
+            </div>
+            <button type="button" style="display: flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 14px; border: 1px solid #4d545c; border-radius: 2px; background: #363b41; color: #f4f6f7; font: inherit; font-size: 12px; cursor: pointer;">
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+              Add
+            </button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; padding: 11px 15px; border-top: 1px solid #2b3035;">
+            <div style="flex-grow: 1; min-width: 0;">
+              <div style="font-size: 12.5px;">Work LiteLLM</div>
+              <div style="color: #6e767e; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px;">http://litellm.corp:4000</div>
+            </div>
+            <span style="flex: none; color: #66ad93; font-size: 11px;">key set</span>
+            <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.8a1.7 1.7 0 0 1 2.4 2.4L5.6 13.2 2.4 14l.8-3.2z"/></svg>
+            </button>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":1000,"height":720}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { on: true, traffic: true };
+  }
+  renderVals() {
+    const on = this.state.on;
+    const traffic = this.state.traffic;
+    return {
+      crumb: "Gateways",
+      // One row per agent that HAS an adapter — the descriptor's own list, so
+      // OpenCode and Deep Agents appear here the day they are built and not
+      // before. The credential is each SDK's own, named exactly.
+      logins: [
+        { agent: "Claude Agent SDK", credential: "claude login", state: "signed in", stateFg: "#66ad93" },
+        { agent: "Codex", credential: "Codex subscription", state: "signed in", stateFg: "#66ad93" },
+      ],
+      sections: [
+        { label: "Gateways", isGateway: true, isModels: false,
+          bg: "#2b3947", fg: "#f4f6f7", icon: "#8fb4f0", weight: "600" },
+        { label: "Models", isGateway: false, isModels: true,
+          bg: "transparent", fg: "#ccd1d6", icon: "#6e767e", weight: "400" },
+      ],
+      onLabel: on ? "on" : "off",
+      onWord: on ? "#ccd1d6" : "#6e767e",
+      trackBg: on ? "#3b6fd4" : "#262a2e",
+      trackEdge: on ? "#3b6fd4" : "#414850",
+      knobBg: on ? "#ffffff" : "#98a0a8",
+      knobX: on ? "16px" : "0px",
+      running: on,
+      stopped: !on,
+      tBg: traffic ? "#3b6fd4" : "#262a2e",
+      tEdge: traffic ? "#3b6fd4" : "#414850",
+      tKnob: traffic ? "#ffffff" : "#98a0a8",
+      tX: traffic ? "16px" : "0px",
+      toggleGateway: () => this.setState({ on: !this.state.on }),
+      toggleTraffic: () => this.setState({ traffic: !this.state.traffic }),
+    };
+  }
+}
+</script>
+</body>
+</html>

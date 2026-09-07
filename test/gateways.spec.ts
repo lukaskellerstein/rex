@@ -135,7 +135,7 @@ test("the migration creates Original with a route for every SDK", () => {
   assert.ok(original);
   assert.equal(original.kind, "original");
   assert.equal(original.name, "Original");
-  // Every SDK, so specs 44 to 46 add an adapter and no migration.
+  // Every SDK, so specs 44, 47 and 48 add an adapter and no migration.
   assert.deepEqual(Object.keys(original.routes).sort(), [
     "claude-agent",
     "codex",
@@ -290,8 +290,8 @@ test("saving replaces the routes rather than merging them", () => {
   const db = openLegacy();
   migrateGateways(db);
   const first = saveGateway(db, {
-    name: "Custom",
-    kind: "custom",
+    name: "Work LiteLLM",
+    kind: "litellm",
     routes: {
       "claude-agent": { baseUrl: "http://a", auth: "inherit", credentialEnv: null, models: [] },
       codex: { baseUrl: "http://b", auth: "inherit", credentialEnv: null, models: [] },
@@ -299,8 +299,8 @@ test("saving replaces the routes rather than merging them", () => {
   });
   const second = saveGateway(db, {
     id: first.id,
-    name: "Custom",
-    kind: "custom",
+    name: "Work LiteLLM",
+    kind: "litellm",
     routes: {
       "claude-agent": { baseUrl: "http://a", auth: "inherit", credentialEnv: null, models: [] },
     },
@@ -546,22 +546,26 @@ test("a gateway URL must be an absolute http or https address and nothing more",
 test("no kind ever appends a path REX was not told to append", () => {
   // §3 — the SDK appends `/v1/messages` itself, so a Claude base ending in
   // `/v1` produces `/v1/v1/messages` and a 404 that explains nothing.
-  const litellm = buildRoutes("litellm", { url: "http://localhost:24000" });
-  assert.equal(litellm["claude-agent"]?.baseUrl, "http://localhost:24000");
-  const envoy = buildRoutes("envoy", { url: "http://localhost:26000" });
-  assert.equal(envoy["claude-agent"]?.baseUrl, "http://localhost:26000/anthropic");
+  const litellm = buildRoutes("litellm", { url: "http://localhost:4000", key: "sk-x" });
+  assert.equal(litellm["claude-agent"]?.baseUrl, "http://localhost:4000");
+  assert.equal(litellm.codex?.baseUrl, "http://localhost:4000/v1");
+  const builtin = buildRoutes("builtin", { url: "http://127.0.0.1:24334" });
+  assert.equal(builtin["claude-agent"]?.baseUrl, "http://127.0.0.1:24334");
 });
 
 test("a gateway that would offer nothing is refused before it can be saved", () => {
-  assert.deepEqual(
-    validateGateway("custom", {}).map((error) => error.key),
-    ["kind"],
-  );
+  // Spec 46 §6 — an external LiteLLM is a URL AND a key. It answers 401 to
+  // everything without one, including its own model list, so a row saved
+  // without a key could not even be asked what it serves.
   assert.deepEqual(
     validateGateway("litellm", {}).map((error) => error.key),
-    ["url"],
+    ["url", "key"],
   );
-  assert.deepEqual(validateGateway("litellm", { url: "http://localhost:24000" }), []);
+  assert.deepEqual(
+    validateGateway("litellm", { url: "http://localhost:4000" }).map((error) => error.key),
+    ["key"],
+  );
+  assert.deepEqual(validateGateway("litellm", { url: "http://localhost:4000", key: "sk-x" }), []);
 });
 
 // ── §4.5 — a saved gateway can be edited ────────────────────────
@@ -570,26 +574,27 @@ test("the answers that built a gateway are recovered from its routes", () => {
   // A saved row stores routes, not the host that produced them. Without this a
   // reviewer reopening a gateway had nothing to edit — reported 2026-09-04.
   for (const [kind, values] of [
-    ["litellm", { url: "http://localhost:24000" }],
-    ["envoy", { url: "http://localhost:26334" }],
-    ["custom", { claudeUrl: "http://localhost:9999" }],
+    ["litellm", { url: "http://localhost:4000", key: "sk-x" }],
+    ["builtin", { url: "http://127.0.0.1:24334" }],
   ] as const) {
     const routes = buildRoutes(kind, values);
     const back = recoverValues(kind, routes);
     assert.ok(back, `${kind} was not recovered`);
     // Not "the same object" — the same ROUTES, which is what matters.
-    assert.deepEqual(buildRoutes(kind, back), routes, kind);
-    assert.equal(back.url ?? back.claudeUrl, Object.values(values)[0]);
+    assert.deepEqual(buildRoutes(kind, { ...values, ...back }), routes, kind);
+    assert.equal(back.url, values.url);
   }
 });
 
-test("a non-default prefix comes back too", () => {
-  const values = { url: "http://localhost:26334", anthropicPrefix: "/claude" };
-  const routes = buildRoutes("envoy", values);
-  const back = recoverValues("envoy", routes);
+test("a key is never recovered from a route, because no route holds one", () => {
+  // Spec 46 §7 — a `stored` route carries the ciphertext on the ROW, not in the
+  // route. Recovering the answers that built a gateway must therefore give back
+  // the URL and nothing else, or the sheet would redraw a key it never had.
+  const routes = buildRoutes("litellm", { url: "http://localhost:4000", key: "sk-secret" });
+  const back = recoverValues("litellm", routes);
   assert.ok(back);
-  assert.equal(back.url, "http://localhost:26334");
-  assert.equal(back.anthropicPrefix, "/claude");
+  assert.equal(back.key, undefined);
+  assert.equal(JSON.stringify(back).includes("sk-secret"), false);
 });
 
 test("a hand-edited route claims no answers at all", () => {
@@ -597,12 +602,12 @@ test("a hand-edited route claims no answers at all", () => {
   // retyped is no longer something a host and a prefix describe, so nothing is
   // claimed and the caller keeps showing what was stored. Guessing here would
   // silently rewrite the reviewer's own edit on the next Save.
-  const routes = buildRoutes("envoy", { url: "http://localhost:26334" });
+  const routes = buildRoutes("litellm", { url: "http://localhost:4000", key: "sk-x" });
   const meddled = {
     ...routes,
     codex: { ...routes.codex, baseUrl: "http://somewhere-else:9000/v1" },
   } as typeof routes;
-  assert.equal(recoverValues("envoy", meddled), null);
+  assert.equal(recoverValues("litellm", meddled), null);
 });
 
 test("a kind nobody declared recovers nothing", () => {

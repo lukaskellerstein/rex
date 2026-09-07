@@ -2,7 +2,7 @@
 // SPEC.md §4 — copied verbatim; extend here and nowhere else.
 //
 // One exception, and it is spec 42's: the SDK and gateway vocabulary is
-// GENERATED from `agent-gateway/src/agent_gateway/protocol.py` into
+// GENERATED from `agent-runner/src/agent_runner/protocol.py` into
 // `agent-protocol.ts` beside this file, and a shape that exists there is
 // imported rather than restated. `test/protocol.spec.ts` fails when the two
 // sides of that contract drift, which a hand-written copy here would defeat.

@@ -1,0 +1,123 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #8fb4f0; } a:hover { color: #b7cff6; }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+
+<div style="width: 660px; height: 720px; padding: 24px; background: #0e1012; color: #f4f6f7; font: 13px/1.5 'DM Sans', system-ui, sans-serif;">
+
+  <div style="margin-bottom: 4px; font-size: 14px; font-weight: 600;">The switch</div>
+  <p style="margin: 0 0 20px; color: #98a0a8; font-size: 12px;">38 × 22, a 16 px knob, 2 px inset. The one place a pill radius is allowed — everything else in REX is 2 px, and a switch that is not pill-shaped is not read as a switch.</p>
+
+  <!-- Anatomy -->
+  <div style="display: flex; gap: 34px; margin-bottom: 26px;">
+    <sc-for list="{{states}}" as="s" hint-placeholder-count="4">
+      <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 8px;">
+        <div style="display: flex; align-items: center; flex: none; width: 38px; height: 22px; padding: 2px; border: 1px solid {{s.edge}}; border-radius: 11px; background: {{s.bg}}; outline: {{s.ring}};">
+          <span style="width: 16px; height: 16px; border-radius: 8px; background: {{s.knob}}; transform: translateX({{s.x}});"></span>
+        </div>
+        <div style="color: #ccd1d6; font-size: 11.5px;">{{s.name}}</div>
+        <div style="color: #6e767e; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 10.5px;">{{s.token}}</div>
+      </div>
+    </sc-for>
+  </div>
+
+  <!-- The comparison. This is the whole point. -->
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 26px;">
+    <div style="padding: 14px; border: 1px solid #4a3229; border-radius: 2px; background: #191c1f;">
+      <div style="margin-bottom: 10px; color: #eda393; font-size: 11px; font-weight: 600; letter-spacing: .04em;">TODAY</div>
+      <label style="display: flex; align-items: center; gap: 8px; color: #ccd1d6;">
+        <input type="checkbox" checked style="width: 13px; height: 13px; margin: 0; accent-color: #3b6fd4;">
+        <span style="font-size: 12.5px;">off</span>
+      </label>
+      <p style="margin: 10px 0 0; color: #6e767e; font-size: 11.5px;">A native checkbox with the word beside it. It reads as “tick this to agree”, not “this is running”. The word and the box also disagree the moment either changes.</p>
+    </div>
+    <div style="padding: 14px; border: 1px solid #2b3947; border-radius: 2px; background: #191c1f;">
+      <div style="margin-bottom: 10px; color: #66ad93; font-size: 11px; font-weight: 600; letter-spacing: .04em;">PROPOSED</div>
+      <div style="display: flex; align-items: center; gap: 9px;">
+        <div style="display: flex; align-items: center; flex: none; width: 38px; height: 22px; padding: 2px; border: 1px solid #3b6fd4; border-radius: 11px; background: #3b6fd4;">
+          <span style="width: 16px; height: 16px; border-radius: 8px; background: #fff; transform: translateX(16px);"></span>
+        </div>
+        <span style="color: #ccd1d6; font-size: 12.5px;">on</span>
+      </div>
+      <p style="margin: 10px 0 0; color: #6e767e; font-size: 11.5px;">The knob's position is the state; the word only confirms it. Blue is REX's own <code style="font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px;">--action</code>, the colour every other live control already uses.</p>
+    </div>
+  </div>
+
+  <!-- Where each belongs -->
+  <div style="margin-bottom: 8px; font-size: 14px; font-weight: 600;">Switch or checkbox?</div>
+  <p style="margin: 0 0 12px; color: #98a0a8; font-size: 12px;">Both belong in Settings, and mixing them up is how the current sheet went wrong.</p>
+  <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 26px;">
+    <div style="padding: 13px 14px; border: 1px solid #2b3035; border-radius: 2px; background: #191c1f;">
+      <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 8px;">
+        <div style="display: flex; align-items: center; flex: none; width: 38px; height: 22px; padding: 2px; border: 1px solid #3b6fd4; border-radius: 11px; background: #3b6fd4;">
+          <span style="width: 16px; height: 16px; border-radius: 8px; background: #fff; transform: translateX(16px);"></span>
+        </div>
+        <span style="font-size: 12.5px; font-weight: 600;">Switch</span>
+      </div>
+      <div style="color: #6e767e; font-size: 11.5px;">Something is either happening or it is not, and flipping it acts <em>now</em>: the gateway process, body capture in the traffic log.</div>
+    </div>
+    <div style="padding: 13px 14px; border: 1px solid #2b3035; border-radius: 2px; background: #191c1f;">
+      <div style="display: flex; align-items: center; gap: 9px; margin-bottom: 8px;">
+        <span style="display: flex; align-items: center; justify-content: center; flex: none; width: 15px; height: 15px; border: 1px solid #3b6fd4; border-radius: 2px; background: #3b6fd4;">
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.4l3 3 6-6.8"/></svg>
+        </span>
+        <span style="font-size: 12.5px; font-weight: 600;">Checkbox</span>
+      </div>
+      <div style="color: #6e767e; font-size: 11.5px;">Picking several out of a list, where nothing happens until you save: which models a provider offers.</div>
+    </div>
+  </div>
+
+  <!-- The close button -->
+  <div style="margin-bottom: 8px; font-size: 14px; font-weight: 600;">Closing</div>
+  <div style="display: flex; gap: 12px;">
+    <div style="flex: 1; padding: 13px 14px; border: 1px solid #4a3229; border-radius: 2px; background: #191c1f;">
+      <div style="margin-bottom: 10px; color: #eda393; font-size: 11px; font-weight: 600; letter-spacing: .04em;">TODAY</div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px dashed #414850; border-radius: 2px;">
+        <span style="flex-grow: 1; font-size: 12.5px; font-weight: 600;">Settings</span>
+        <span style="padding: 4px 12px; border: 1px solid #4d545c; border-radius: 2px; background: #363b41; font-size: 11.5px;">Close</span>
+      </div>
+      <p style="margin: 10px 0 0; color: #6e767e; font-size: 11.5px;">A text button, mid-bar, the same weight as an action that does something.</p>
+    </div>
+    <div style="flex: 1; padding: 13px 14px; border: 1px solid #2b3947; border-radius: 2px; background: #191c1f;">
+      <div style="margin-bottom: 10px; color: #66ad93; font-size: 11px; font-weight: 600; letter-spacing: .04em;">PROPOSED</div>
+      <div style="display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px dashed #414850; border-radius: 2px;">
+        <span style="flex-grow: 1; font-size: 12.5px; font-weight: 600;">Settings</span>
+        <span style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; border-radius: 2px; color: #98a0a8;">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </span>
+      </div>
+      <p style="margin: 10px 0 0; color: #6e767e; font-size: 11.5px;">A 24 × 24 icon button in the corner — the same one already in REX's top bar. Escape still closes.</p>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":660,"height":720}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      states: [
+        { name: "Off", token: "#262a2e", bg: "#262a2e", edge: "#414850", knob: "#98a0a8", x: "0px", ring: "none" },
+        { name: "On", token: "#3b6fd4", bg: "#3b6fd4", edge: "#3b6fd4", knob: "#ffffff", x: "16px", ring: "none" },
+        { name: "Focused", token: "outline --link", bg: "#3b6fd4", edge: "#3b6fd4", knob: "#ffffff", x: "16px", ring: "2px solid #8fb4f0" },
+        { name: "Working", token: "waiting on a run", bg: "#2b3947", edge: "#414850", knob: "#6e767e", x: "8px", ring: "none" },
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>

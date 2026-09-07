@@ -1,7 +1,10 @@
 # REX 44 — the Codex agent
 
-**Version:** 3.0 · 2026-09-04
-**Status:** **proposal. Nothing in this spec is built.**
+**Version:** 3.1 · 2026-09-05
+**Status:** **built.** Milestones 0, 1 and 2 all passed on
+2026-09-04; §10.0 records what the SDK actually does, including four places
+where §5, §6 and §8 guessed wrong and are corrected there rather than rewritten
+here.
 **Depends on:** [`42-the-agent-library/SPEC.md`](../42-the-agent-library/SPEC.md)
 — the seam: the service and its pipe, `AgentAdapter`, `RunRequest`,
 `AgentEvent`, the policy round trip, `AgentSession`, the descriptor;
@@ -22,7 +25,7 @@ gate); [`17-stopping-a-run/SPEC.md`](../17-stopping-a-run/SPEC.md) §2
 >
 > **What changed in 3.0.** The reviewer chose Python for the library on
 > 2026-09-04 — "ok, let's go with python" — so the adapter is
-> `agent-gateway/src/agent_gateway/adapters/codex/`, on the official Python SDK
+> `agent-runner/src/agent_runner/adapters/codex/`, on the official Python SDK
 > **`openai-codex`** (PyPI 0.147.0), not `@openai/codex-sdk`. The reviewer's
 > own Python samples in `vibe-coding-course/03_Codex_SDK/python/` now apply
 > directly, and §10.1 lists what they confirm. Version 2.0 had renumbered this
@@ -50,13 +53,28 @@ the proofs that its ASK cannot write.
 
 ## 2. What changes in specs 42 and 43
 
-Three lines:
+Three lines were planned:
 
 1. `run.py`'s adapter map (spec 42 §6.1) gains a `codex` entry, so `list_sdks()`
    (spec 42 §10) returns two SDKs.
 2. The gateway sheet's greyed Codex row (spec 43 §4.5) becomes editable, and a
    gateway can hold a `codex` route.
 3. The composer gains the agent control (§3).
+
+**Building it needed two more, and both are additions to spec 42's contract.**
+Recorded here rather than folded in silently, because a spec that says "three
+lines" and cost five is a spec nobody can plan the next one from:
+
+- **`RunRequest` gains `writable: list[str]`** — the directories a run may
+  change, named for intent rather than for a sandbox. §9.3 has to say the
+  boundary to the library, and spec 42 §6 had no field that could carry it. The
+  Claude adapter ignores it and nothing about a Claude run moves, which is the
+  test of whether the name was chosen well.
+- **`SdkDescriptor` gains `supports_plugins`**, beside the `supports_styles` it
+  already had. §7 says `bridge.ts` passes no plugin paths to Codex — and a host
+  that builds a plugin list per run has to know *before* the run whether to
+  build one. Without it every Codex ASK was refused by the library for a list
+  REX should never have made (§10.0.2).
 
 The URL field's meaning changes with the SDK, and the route editor says so:
 
@@ -122,8 +140,8 @@ library: it draws what `describe` returns.
 ## 4. The dependency
 
 The library adds **`openai-codex`** (module `openai_codex`) to
-`agent-gateway/pyproject.toml`, imported **only** from
-`agent-gateway/src/agent_gateway/adapters/codex/` — spec 42 §2 rule 2,
+`agent-runner/pyproject.toml`, imported **only** from
+`agent-runner/src/agent_runner/adapters/codex/` — spec 42 §2 rule 2,
 enforced by `test_boundary.py`. It is a programmatic wrapper around a Codex CLI
 child process, which it pulls in through `openai-codex-cli-bin`, so it carries
 the same shape as the Claude Agent SDK: the library does not speak HTTP to the
@@ -150,7 +168,7 @@ completed `run()` cannot fill the trace block while work is happening, and spec
 The adapter directory:
 
 ```text
-agent-gateway/src/agent_gateway/adapters/codex/
+agent-runner/src/agent_runner/adapters/codex/
 ├── adapter.py     the AsyncCodex client, thread lifecycle, child environment, cancellation
 ├── events.py      Codex items → AgentEvent (§8)
 └── tools.py       Codex item types → CommonTool (§9.1)
@@ -158,7 +176,7 @@ agent-gateway/src/agent_gateway/adapters/codex/
 
 The executable: `CodexConfig(codex_bin=...)` names the CLI, and the samples
 read it from `CODEX_EXECUTABLE` (`helpers.py:26-29`). The library takes the
-path from the host as part of the route's run input, the way spec 45 §2.1 does
+path from the host as part of the route's run input, the way spec 47 §2.1 does
 for OpenCode; when none is given, `CodexConfig()` lets the SDK resolve its own
 bundled binary.
 
@@ -392,7 +410,7 @@ Usage is nested in Python — `result.usage.total.input_tokens`,
 adapter reads the total, never a per-step figure.
 
 The mapping is a pure function with fixture tests in
-`agent-gateway/tests/test_events.py`. Streaming to the pipe and database writes
+`agent-runner/tests/test_events.py`. Streaming to the pipe and database writes
 stay with the code that handles Claude events today.
 
 Codex reports token usage and does not always report a dollar cost, especially
@@ -481,7 +499,7 @@ tools, or resume, REX says so. It never retries through the Claude adapter or
 
 ---
 
-## 10. Evidence — measured 2026-09-03
+## 10. Evidence — measured 2026-09-03, and again 2026-09-04
 
 The reviewer's gateways are the compose projects in
 [`~/Projects/Github/lukaskellerstein/ai-gateway`](../../../../ai-gateway).
@@ -512,18 +530,191 @@ calls is the measurement.
 
 | Base URL | Auth | Notes |
 |:--|:--|:--|
-| `http://localhost:24000/v1` | Environment variable · `AI_GATEWAY_KEY` | LiteLLM. Measured. Brings virtual keys, spend logs and budgets |
-| `http://localhost:26000/v1` | No authentication | Envoy. Registered, unmeasured |
+| `http://localhost:24000/v1` | Environment variable · `AI_GATEWAY_KEY` | LiteLLM. Brings virtual keys, spend logs and budgets |
+| `http://localhost:26334/v1` | No authentication | REX's own Envoy. **The one every milestone below was driven through** |
 
 Two things follow:
 
-1. **Neither the model nor the protocol is the blocker.** `unsloth-26b` returns
+1. **Neither the model nor the protocol is the blocker.** The engine returns
    structured tool calls — the hard part, and the thing most local models fail —
-   and Unsloth Studio implements `/v1/responses` itself, which is why LiteLLM
-   can forward to it.
+   and it implements `/v1/responses` itself, which is why a gateway can forward
+   to it.
 2. **Spike against LiteLLM first.** Its Responses route is measured, and its
-   spend logs are the reason to have a gateway at all. Envoy follows in the same
-   milestone once the LiteLLM turn works.
+   spend logs are the reason to have a gateway at all.
+
+### 10.0 Milestone 0, run 2026-09-04 — five records and four corrections
+
+The gate §13 sets. **Four of this spec's own guesses were wrong**, and each is
+corrected in place below rather than left for a reader to trip over.
+
+| §13 step | Result |
+|:--|:--|
+| 1 · start, stream, stop one turn | **Passed.** `AsyncCodex` + `turn.stream()`, `TurnStatus.completed`; a stop mid-turn gives `TurnStatus.interrupted`, the stream ends clean and nothing is thrown |
+| 2 · persist the SDK's id and resume it in a second process | **Passed.** `thread_resume` recalled the first turn's question |
+| 3 · two runs, two URLs, `os.environ` untouched | **Passed**, and re-run 2026-09-05 as the real thing: a Claude turn and a Codex turn started with one `Promise.all` on one service finished in 7.9 s where each alone takes ~6 s, answered their own questions (`42` and `4`), took different session ids, and left `REX_AGENT_TOKEN` unset in the parent. Two *Codex* runs on two gateways at once likewise kept their own answers — and their own errors |
+| 4 · record every symbol | Below |
+| 5 · repeat against Envoy | **Passed on `:26334`.** `:26000` is the wrong address — 404 `No matching route found`; it serves `ollama-*` aliases only |
+
+**The four corrections.** Read them before §5 and §6, which are written as they
+were guessed:
+
+1. **`model_provider` is a keyword argument**, not a config key:
+   `thread_start(model_provider="rex", config={"model_providers": {...}})`.
+   `model_providers` does go in `config`, and `Config` declares `extra="allow"`,
+   which is why it passes through.
+2. **`network_access_enabled` and `web_search_mode` are not config names.** The
+   real ones are `sandbox_workspace_write.network_access` and `web_search`
+   (`disabled` | `cached` | `indexed` | `live`), from the SDK's own `Config`
+   model.
+3. **`CodexConfig.env` is MERGED** onto `os.environ.copy()` at spawn, not a
+   replacement — the same shape spec 43 §6.2 found in the Claude Python SDK. So
+   §5.1's rule holds by naming one variable, and `PATH` and `HOME` survive
+   without being restated.
+4. **The item type §8 calls `todoList` is `plan`.** The full union also carries
+   `dynamicToolCall`, `collabAgentToolCall`, `subAgentActivity`, `imageView`,
+   `sleep`, `imageGeneration` and the review-mode markers — which is why §9.1's
+   mapping is written as a list of what is **not** a tool call, so an SDK that
+   adds one falls through to a refusal rather than past the policy.
+
+**The approval callback exists and is unusable.** `CodexClient` takes an
+`approval_handler` for `item/commandExecution/requestApproval` and
+`item/fileChange/requestApproval`, but it is not reachable through
+`AsyncCodex(config=...)`, it is synchronous on the sole stdout reader thread,
+and `ApprovalMode.deny_all` means the CLI never sends one. §9.1's
+`item/started` design therefore stands, and the sandbox stays the primary
+boundary.
+
+**What interrupts a turn:** `await turn.interrupt()` on `AsyncTurnHandle`.
+
+**Reasoning arrives as its own item**, both in the raw Responses body and as a
+Codex `reasoning` item, so §8's first two rows are clean. A local model fills
+`content` and leaves `summary` empty, so the adapter reads both.
+
+**`APPENDS["codex"]` was wrong.** Codex appends **`/responses`** and not
+`/v1/responses`: a route with `base_url = http://host/v1` knocks on
+`http://host/v1/responses`, which the CLI's own error names. Every kind's
+template already ends the base in `/v1`, so the doubled spelling made §2.4's
+Verify report `/v1/v1/responses` and call a correct route broken — spec 43 §3's
+trap pointing the wrong way, at the route rather than at the reviewer.
+
+### 10.0.1 The write boundary — milestone 2's gate, passed on macOS
+
+Run 2026-09-04 with `cwd` on one working copy and a second named in
+`writable_roots`, against a prompt that asked for all three targets:
+
+| Target | Result |
+|:--|:--|
+| the repository, read | `cat` returned its contents |
+| the repository, written | `operation not permitted` |
+| the working copy that is `cwd` | written |
+| the working copy in `writable_roots` | written |
+
+Two findings, both now in the adapter:
+
+- **`cwd` is implicitly writable** under `workspace-write`. This is what decides
+  §9.3's design: a child left in the reviewer's repository has a writable
+  repository however carefully `writable_roots` is filled.
+- **`/tmp` is writable by default.** `exclude_slash_tmp` and
+  `exclude_tmpdir_env_var` are both set, so the boundary is the working copies
+  and nothing else. The first run of this proof was staged under `/tmp` and
+  proved nothing.
+
+`ACT_PROVED` is `{"darwin"}`. Another platform advertises Codex ASK and not
+ACT, with the reason on the route, exactly as §9.3 requires.
+
+**And through `thread:apply` itself, 2026-09-05** — the sandbox proof above is
+the adapter's half, and §11 criterion 10 is about the whole path. On a
+throwaway git repository holding one Markdown document, a Codex ACT asked to
+retitle the first heading:
+
+| Step | Result |
+|:--|:--|
+| the run | one clean diff, `-# Tilecat` / `+# Tilecat (reviewed)` |
+| `restored`, `created`, `misplaced` | all empty — nothing escaped the working copy |
+| the reviewer's file, before approval | **byte-for-byte identical**, `git status` clean |
+| approve | the heading lands in the file; `git status` shows it modified |
+| undo | rewinds a working-copy revision, and is correctly not an un-approve |
+| discard, on a second run | the file returns to the pre-run hash exactly |
+
+Nothing in `work.ts` or `apply.ts` is Codex-aware, which is the point: the
+three verbs are the same code under either agent, and what changed is only what
+lands in the copy.
+
+### 10.0.2 Two integration defects only a running REX showed
+
+Both passed every unit test. Both are fixed, and each is worth the sentence:
+
+1. **Codex wraps every command in `/bin/zsh -lc '…'`**, where Claude's `Bash`
+   tool passes the command itself. REX's gate matches on the binary (spec 12
+   §6), saw `/bin/zsh`, and refused — so a plain `cat` was denied and Codex ASK
+   could read nothing. `adapters/codex/events.py` unwraps exactly
+   `<known shell> -<flags including c> <one script>` and passes anything else
+   through whole, so the gate still refuses what it cannot parse.
+2. **REX built Claude plugins for every Codex run.** `lsp-bash` is resolved for
+   every run, the library refuses a plugin list an adapter cannot honour (§7,
+   correctly), and so **every Codex ASK failed before its child started**.
+   `SdkDescriptor` gained `supports_plugins` beside `supports_styles`, and
+   `bridge.ts` asks it before building the list — which is what §7's "`bridge.ts`
+   passes no plugin paths" always meant.
+
+### 10.0.3 The reviewer's own Codex toolbox, and how it got out
+
+Learned from the reviewer's own gateway suite —
+`ai-gateway/envoy/tests/6_codex_sdk/`, whose `common.py` says of two config
+lines: *"`mcp_servers={}` and `plugins={}` are load-bearing… without it the run
+depends on who is at the keyboard."* Measured here 2026-09-05, and it is worse
+than a determinism problem.
+
+**Codex starts what `$CODEX_HOME/config.toml` lists, before the turn begins.**
+A REX Codex run on this machine spawned, every time:
+
+| Process | What it is |
+|:--|:--|
+| `node_repl` | a JavaScript interpreter — arbitrary code execution outside the shell path the gate reads |
+| `@playwright/mcp` × 2 | a full browser API |
+| `SkyComputerUseClient` | the `notify` hook |
+
+from eleven installed plugins including Slack, Google Calendar, documents and a
+site deployer. REX's gate is deny-by-default for MCP (spec 12 §6.4.3) and that
+does not help: `writeGateDecision` says why in its own words — starting a
+server has already happened by the time anything is shown, and a server that
+has started has read whatever it was configured to read.
+
+**Two mechanisms were tried and neither works at 0.147.0.**
+
+| Attempt | Servers still spawned |
+|:--|:--|
+| `thread_start(config={"mcp_servers": {}, "plugins": {}})` | 5 |
+| `CodexConfig(config_overrides=("mcp_servers={}", "plugins={}"))` | 5 — it reaches the binary as `--config` and is ignored |
+| **`CODEX_HOME` pointed at a REX directory** | **0** |
+
+So the isolation is a **directory and not a setting**: `~/.rex/codex-home`,
+stable rather than per run, because Codex keeps its rollouts there and
+`thread_resume` (§6.1) reads them. It also keeps REX's sessions out of the
+reviewer's `~/.codex`, which is the courtesy spec 42 §9.3 records for the
+Claude transcript store. Proved through `runAgent` itself: **0 of the
+reviewer's tools started, and the run still answered.**
+
+**`Original` is deliberately left alone.** No URL means the Codex CLI's own
+endpoint on the reviewer's own login, and that login lives in `~/.codex` —
+moving the home would take the account with it. A reviewer on `Original` gets
+their own toolbox, which is what `Original` means; a reviewer on a gateway has
+chosen to keep the work local, and now it is.
+
+**And `model_context_window`**, from the same file: left unset for a model
+Codex has never heard of, it assumes a small window and compacts far too early,
+*"which on a local model looks like an agent that forgets things mid-task for no
+visible reason."* Set for a routed run only.
+
+### 10.0.4 Two notes about the gateways themselves
+
+- **LiteLLM cools a failed deployment down and then misreports why.** A request
+  that times out puts the alias in cooldown, and the next call answers
+  `Invalid model name passed in model=lms-26b` — a sentence about configuration
+  for a fault that is transient. §9.4's `UNKNOWN_MODEL` hint says so.
+- **The alias vocabulary moved.** LiteLLM's `/v1/models` lists `lms-*`;
+  `unsloth-26b` is no longer among them. REX's own Envoy on `:26334` lists both
+  families and their `-anthropic` twins.
 
 ### 10.1 The reviewer's own samples
 
@@ -574,18 +765,40 @@ there for anyone reading the TypeScript names.
 
 ### 10.2 What is still unproven
 
-- One real Codex SDK turn end to end against either URL above. The endpoints
-  answer; the SDK has not driven them.
-- Every `openai-codex` symbol in §5 and §6, at the pinned version.
-- Which of `CodexConfig(...)` and `thread_start(config=...)` carries
-  `model_provider` and `model_providers` (§5).
-- Whether the Python SDK takes a per-child environment or a spawn hook (§5.1).
-- What the Python SDK offers to interrupt a running turn (§6.3).
-- Whether `unsloth-26b`'s reasoning block arrives as a Codex `reasoning` item or
-  is folded into `agentMessage`. It affects §8's first two rows and nothing
-  else. The raw Responses body does carry a separate
-  `{"type": "reasoning"}` output item, so the mapping is likely clean.
-- Whether the pinned SDK offers any pre-execution approval callback (§9.1).
+Everything this list held on 2026-09-03 was answered by §10.0 on 2026-09-04.
+What is left is smaller and is written down so nobody reads silence as proof:
+
+- **The write boundary on any platform but macOS.** Codex's sandbox is seatbelt
+  here, landlock on Linux and its own thing on Windows, so §10.0.1 proves one
+  of three. `ACT_PROVED` is the gate, and it is deliberately a list rather than
+  a flag.
+- **A gate refusal of a genuinely destructive command, end to end.** The gate
+  was made to speak on a real Codex call — `xyzzy-diagnostic` was refused by
+  name and ended the turn — but the local model declines `rm` and redirects on
+  its own, so no run has yet been refused a command it actually wanted. The
+  unit tests cover the shape (`test/bridge.spec.ts`), and the sandbox is the
+  primary boundary either way (§9.2).
+- **An unmapped item type, live.** §9.1's fall-through is unit-tested on both
+  sides — the library answers `common: None` and the host denies it — and no
+  SDK has yet produced an item type this adapter has not mapped, which is the
+  only way to see it happen.
+- **A paid endpoint.** Every measurement here is against a local model through
+  a local gateway. Nothing has driven Codex's own endpoint on a real account,
+  so `requires_openai_auth` (§5) is written and unexercised.
+- **`webSearch` items.** Mapped and unit-tested against the SDK's own model,
+  and no live run has produced one — REX disables web search on every run.
+- **`mcpToolCall` items cannot occur at this version, and that is upstream.**
+  The reviewer's own suite records two open bugs, and both bite exactly here:
+  [openai/codex#19871](https://github.com/openai/codex/issues/19871) — MCP tool
+  invocation regressed for **custom providers** in 0.117.0+, last good 0.116.0,
+  and REX pins 0.147.0 — and
+  [openai/codex#24135](https://github.com/openai/codex/issues/24135) — there is
+  no supported way to approve an MCP tool call non-interactively;
+  `approval_policy="never"` and friends are silently ignored. So §8's and
+  §9.1's `mcpToolCall` rows are written, tested and unreachable through a
+  gateway route until those close. They are kept rather than deleted: the
+  mapping is right, and a hole that opens when a bug is fixed is worse than one
+  line of unreached code.
 
 ---
 
@@ -615,7 +828,7 @@ there for anyone reading the TypeScript names.
 13. A Claude route and a Codex route run at the same time, on one service,
     without exchanging URLs, models, credentials or session ids.
 14. `openai-codex` is imported only under
-    `agent-gateway/src/agent_gateway/adapters/codex/`, and spec 42's
+    `agent-runner/src/agent_runner/adapters/codex/`, and spec 42's
     `test_boundary.py` still passes.
 15. Every answer's foot names the agent, and switching a comment from Claude to
     Codex seeds the new session with the conversation so far.
@@ -663,7 +876,7 @@ The dependency, the adapter directory, the route config, the §9.1 mapping,
 session storage and resumption, event normalisation, the read profile,
 cancellation, the agent control (§3), and the transcript and debug labels.
 
-*Tests:* `agent-gateway/tests/test_events.py` and `test_policy.py` grow Codex
+*Tests:* `agent-runner/tests/test_events.py` and `test_policy.py` grow Codex
 fixtures; `test/choices.spec.ts` (spec 43) grows the agent row of the cascade.
 
 *Done when:* a Codex route answers a real comment, resumes, stops, and runs at

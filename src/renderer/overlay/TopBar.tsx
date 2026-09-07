@@ -11,7 +11,7 @@ import { useEffect, useRef, useState } from "react";
 // copied into src/, so there is one source of truth for the brand.
 import logo from "../../../docs/logo/mark/rex-mark-color-128.png";
 import type { OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
-import { Bug, ChevronDown, PanelLeft, PanelRight } from "./Icons.tsx";
+import { Bug, ChevronDown, Cog, PanelLeft, PanelRight } from "./Icons.tsx";
 
 interface Props {
   doc: OpenedDocument | null;
@@ -25,6 +25,15 @@ interface Props {
   onOpenFolder: () => void;
   /** Spec 13 §4.1 — the app's state on the clipboard, for a bug report. */
   onDebug: () => void;
+  /**
+   * Spec 46 §8 — the Settings sheet.
+   *
+   * A door of its own, in the bar. Until now Settings was reachable only from
+   * the composer's gateway menu, which meant a person had to start a comment
+   * before they could configure the thing that answers it — and it hid every
+   * section that is not about gateways behind a control named for gateways.
+   */
+  onSettings: () => void;
   /**
    * Whether the workspace panel is on screen — `null` when there is no
    * workspace, and so no panel to hide.
@@ -299,6 +308,25 @@ export function TopBar(props: Props): React.JSX.Element {
         onClick={props.onComments}
       >
         <PanelRight />
+      </button>
+
+      {/*
+        Settings. Beside the bug for the same reason the bug sits where it does:
+        both are about REX rather than about the document, so they end the bar
+        together and neither reads as part of the panel switches before them.
+
+        `data-tip` and not `title`: a native tooltip on a glyph-only button
+        showed the reviewer nothing on 2026-08-29, which is why every icon in
+        this bar carries the attribute the overlay's own CSS draws.
+      */}
+      <button
+        type="button"
+        className="rex-icon-button rex-settings-open"
+        data-tip="Settings — gateways, models and keys"
+        aria-label="Open settings"
+        onClick={props.onSettings}
+      >
+        <Cog />
       </button>
 
       <button

@@ -1,0 +1,183 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #8fb4f0; text-decoration: none; }
+    a:hover { color: #b7cff6; }
+    * { box-sizing: border-box; }
+  </style>
+</helmet>
+
+<div style="width: 1000px; height: 720px; display: flex; flex-direction: column; background: #0e1012; color: #f4f6f7; font: 13px/1.5 'DM Sans', system-ui, sans-serif;">
+
+  <div style="display: flex; align-items: center; gap: 12px; flex: none; height: 52px; padding: 0 20px; border-bottom: 1px solid #2b3035;">
+    <div style="display: flex; align-items: baseline; gap: 10px; min-width: 0;">
+      <span style="font-size: 15px; font-weight: 600;">Settings</span>
+      <span style="color: #6e767e; font-size: 12px;">Models</span>
+    </div>
+    <div style="flex-grow: 1;"></div>
+    <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M4 4l8 8M12 4l-8 8"/>
+      </svg>
+    </button>
+  </div>
+
+  <div style="display: flex; flex-grow: 1; min-height: 0;">
+
+    <nav style="display: flex; flex-direction: column; gap: 1px; flex: none; width: 188px; padding: 12px 8px; border-right: 1px solid #2b3035; background: #131619;">
+      <button type="button" style="display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px; border: 0; border-radius: 2px; background: transparent; color: #ccd1d6; font: inherit; font-size: 13px; text-align: left; cursor: pointer;">
+        <span style="display: flex; width: 14px; color: #6e767e;">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round">
+            <rect x="2" y="3" width="12" height="4" rx="1"/><rect x="2" y="9" width="12" height="4" rx="1"/>
+            <path d="M4.6 5h.01M4.6 11h.01"/>
+          </svg>
+        </span>
+        Gateways
+      </button>
+      <button type="button" style="display: flex; align-items: center; gap: 9px; height: 30px; padding: 0 10px; border: 0; border-radius: 2px; background: #2b3947; color: #f4f6f7; font: inherit; font-size: 13px; font-weight: 600; text-align: left; cursor: pointer;">
+        <span style="display: flex; width: 14px; color: #8fb4f0;">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 2.2 13.4 5 8 7.8 2.6 5z"/><path d="M2.6 8.2 8 11l5.4-2.8"/><path d="M2.6 11.4 8 14.2l5.4-2.8"/>
+          </svg>
+        </span>
+        Models
+      </button>
+    </nav>
+
+    <div style="flex-grow: 1; min-width: 0; overflow-y: auto; padding: 20px 24px 28px;">
+      <div style="display: flex; flex-direction: column; gap: 16px; max-width: 620px;">
+
+        <div style="display: flex; align-items: flex-start; gap: 12px;">
+          <div style="flex-grow: 1; min-width: 0;">
+            <h2 style="margin: 0 0 3px; font-size: 14px; font-weight: 600;">Models</h2>
+            <p style="margin: 0; color: #98a0a8; font-size: 12px;">What the built-in gateway may serve. A gateway somebody else runs has its own models, configured inside it.</p>
+          </div>
+          <button type="button" onClick="{{togglePicker}}" style="display: flex; align-items: center; gap: 6px; flex: none; height: 28px; padding: 0 12px; border: 1px solid #3b6fd4; border-radius: 2px; background: #3b6fd4; color: #fff; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M8 3.5v9M3.5 8h9"/></svg>
+            Add a provider
+          </button>
+        </div>
+
+        <!--
+          The picker. It is a PANEL IN THE FLOW, not a menu floating out of a
+          scrolling dialog — so it cannot be clipped by anything, and each row
+          has room for the sentence that says what the provider is.
+        -->
+        <sc-if value="{{picking}}" hint-placeholder-val="{{ true }}">
+          <section style="border: 1px solid #3b6fd4; border-radius: 2px; background: #191c1f;">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 11px 15px; border-bottom: 1px solid #2b3035;">
+              <span style="flex-grow: 1; font-size: 12.5px; font-weight: 600;">Add a provider</span>
+              <button type="button" onClick="{{togglePicker}}" style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+                <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+              </button>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: #2b3035;">
+              <sc-for list="{{providers}}" as="p" hint-placeholder-count="6">
+                <button type="button" style="display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 11px 15px; border: 0; background: #191c1f; color: #f4f6f7; font: inherit; text-align: left; cursor: pointer;">
+                  <span style="display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 500;">
+                    {{p.name}}
+                    <sc-if value="{{p.paid}}" hint-placeholder-val="{{ true }}">
+                      <span style="padding: 0 5px; border-radius: 2px; background: #2b2718; color: #d9b23a; font-size: 10px; font-weight: 600; letter-spacing: .02em;">COSTS MONEY</span>
+                    </sc-if>
+                  </span>
+                  <span style="color: #6e767e; font-size: 11.5px; line-height: 1.45;">{{p.note}}</span>
+                </button>
+              </sc-for>
+            </div>
+          </section>
+        </sc-if>
+
+        <!-- A configured provider -->
+        <section style="border: 1px solid #2b3035; border-radius: 2px; background: #191c1f;">
+          <div style="display: flex; align-items: center; gap: 10px; padding: 12px 15px;">
+            <div style="min-width: 0; flex-grow: 1;">
+              <div style="display: flex; align-items: baseline; gap: 8px;">
+                <span style="font-weight: 600;">LM Studio</span>
+                <span style="color: #6e767e; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11px;">http://127.0.0.1:1234</span>
+              </div>
+              <div style="color: #6e767e; font-size: 11.5px;">Asked 3 minutes ago · <a href="#">Refresh</a></div>
+            </div>
+            <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+              <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><path d="M3 4.5h10M6.4 4.5V3.2h3.2v1.3M4.4 4.5l.6 8.3h6l.6-8.3"/></svg>
+            </button>
+          </div>
+
+          <div style="border-top: 1px solid #2b3035;">
+            <sc-for list="{{models}}" as="m" hint-placeholder-count="4">
+              <label style="display: flex; align-items: center; gap: 11px; padding: 8px 15px; border-bottom: 1px solid #202428; cursor: {{m.cursor}};">
+                <!-- A real checkbox is right HERE: this is a multi-select list,
+                     not an on/off setting. A switch would be wrong. -->
+                <span style="display: flex; align-items: center; justify-content: center; flex: none; width: 15px; height: 15px; border: 1px solid {{m.boxEdge}}; border-radius: 2px; background: {{m.boxBg}};">
+                  <sc-if value="{{m.ticked}}" hint-placeholder-val="{{ true }}">
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.4l3 3 6-6.8"/></svg>
+                  </sc-if>
+                </span>
+                <span style="flex-grow: 1; min-width: 0; color: {{m.fg}}; font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 11.5px;">{{m.id}}</span>
+                <span style="flex: none; width: 44px; color: #6e767e; font-size: 11px; text-align: right;">{{m.window}}</span>
+                <span style="flex: none; width: 96px; color: {{m.tagFg}}; font-size: 11px; text-align: right;">{{m.tag}}</span>
+              </label>
+            </sc-for>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 10px; padding: 10px 15px;">
+            <span style="flex-grow: 1; color: #6e767e; font-size: 11.5px;">2 of 14 in use</span>
+            <button type="button" style="display: flex; align-items: center; flex: none; height: 28px; padding: 0 14px; border: 1px solid #4d545c; border-radius: 2px; background: #363b41; color: #f4f6f7; font: inherit; font-size: 12px; cursor: pointer;">Select all</button>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{"$preview":{"width":1000,"height":720}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { picking: true };
+  }
+  renderVals() {
+    const row = (id, window, tag, ticked, blocked) => ({
+      id, window,
+      tag: blocked ? tag : ticked ? "tools" : tag,
+      tagFg: blocked ? "#6e767e" : "#66ad93",
+      ticked,
+      cursor: blocked ? "not-allowed" : "pointer",
+      fg: blocked ? "#6e767e" : "#f4f6f7",
+      boxBg: ticked ? "#3b6fd4" : blocked ? "#1c1f22" : "#08090a",
+      boxEdge: ticked ? "#3b6fd4" : "#414850",
+    });
+    return {
+      picking: this.state.picking,
+      togglePicker: () => this.setState({ picking: !this.state.picking }),
+      providers: [
+        { name: "LM Studio", paid: false, note: "Models on this machine. The richest listing of the six — it states context windows and tool support." },
+        { name: "Ollama", paid: false, note: "Models on this machine. Speaks the OpenAI wire format; the address is all that separates it from OpenAI." },
+        { name: "Unsloth", paid: false, note: "Models on this machine, one loaded at a time. Reports a window for the loaded model only." },
+        { name: "OpenAI", paid: true, note: "Nothing is added until you tick it." },
+        { name: "OpenRouter", paid: true, note: "Hundreds of models from many vendors." },
+        { name: "Anthropic", paid: true, note: "A second hop. For a Claude model on a Claude login, Original is shorter." },
+      ],
+      models: [
+        row("google/gemma-4-e4b", "131k", "tools", true, false),
+        row("google/gemma-4-26b-a4b-qat", "262k", "tools", true, false),
+        row("qwen/qwen3.8-27b", "262k", "tools", false, false),
+        row("meta/muse-glimmer", "131k", "no tools", false, true),
+        row("text-embedding-nomic", "2k", "embedding", false, true),
+      ],
+    };
+  }
+}
+</script>
+</body>
+</html>
