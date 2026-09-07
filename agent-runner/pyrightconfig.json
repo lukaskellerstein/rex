@@ -1,0 +1,11 @@
+{
+  "typeCheckingMode": "standard",
+  "reportMissingTypeStubs": "none",
+  "exclude": ["**/.venv", "**/__pycache__"],
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": ["src", ".venv/lib/python3.12/site-packages"]
+    }
+  ]
+}

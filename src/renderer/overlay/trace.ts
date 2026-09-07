@@ -12,6 +12,7 @@
 // and its count) and open (its fields, its diff, its output) is decided here,
 // as data, so `node --test` can check it without a DOM.
 
+import type { AgentSdk } from "../../shared/agent-protocol.ts";
 import type { Message, SendMode, ThreadWithMessages } from "../../shared/types.ts";
 import { agentText } from "./aside.ts";
 import { type Mode, modeOf } from "./mode.ts";
@@ -85,6 +86,22 @@ export interface TraceEntry {
   /** Spec 38 §3.5 — the model and the style, drawn in an answer's foot. */
   model: string | null;
   style: string | null;
+  /**
+   * Spec 43 §5.3 — and the gateway that produced it, with the URL it used.
+   *
+   * The sheet drew neither until 2026-09-04, so an answer here could not say
+   * where it came from while the card beside it could. The reviewer's report:
+   * *"In the trace view I'm missing, in the answer, information about what
+   * gateway it came from."* Both feet are one component now.
+   */
+  /**
+   * Spec 44 §3 — and which agent ran it. The same shape and the same nulls: a
+   * turn no agent was in has none, and neither has one written before the
+   * column existed.
+   */
+  sdk: AgentSdk | null;
+  gatewayName: string | null;
+  baseUrl: string | null;
   /**
    * Spec 38 §3.3 — the agent's own one-line account of a call, when the input
    * carries one: `Bash` sends a `description` beside every command. It is the
@@ -281,6 +298,9 @@ function entry(message: Message, kind: TraceKind, label: string, body: string): 
     sent: message.mode,
     model: message.model,
     style: message.style,
+    sdk: message.sdk,
+    gatewayName: message.gatewayName,
+    baseUrl: message.baseUrl,
     what: null,
     fields: [],
     change: null,

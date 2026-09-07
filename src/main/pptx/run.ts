@@ -21,14 +21,15 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import type { ResolvedRoute } from "../../shared/agent-protocol.ts";
 import type { DeckPreview, DeckSlidePreview } from "../../shared/channels.ts";
+import { runAgent } from "../agent/bridge.ts";
 import { sessionIdFor } from "../agent/profiles.ts";
 import {
   DECK_WRITE_SYSTEM_PROMPT,
   NO_GENERATION_NOTE,
   writeInstructions,
 } from "../agent/prompts.ts";
-import { runAgent } from "../agent/runner.ts";
 import type { MessageDraft } from "../db/queries.ts";
 import { openPackage } from "../ooxml/package.ts";
 import { ensureSidecar, renderSlidePage } from "../render/pptx.ts";
@@ -88,6 +89,13 @@ export interface DeckApplyInput {
   model: string | null;
   /** Spec 31 §2.3 — the output style the plan is written in. */
   style: string | null;
+  /**
+   * Spec 43 §11 — where this plan run's inference is served from.
+   *
+   * Absent means `Original`. §10.1 — the deterministic deck editor is REX's own
+   * code and does not change with the gateway; only the PLAN is a model's work.
+   */
+  route?: ResolvedRoute;
   /** §7.4.2 — the renderer's diagram drawer, passed down from the IPC layer. */
   resolver: MediaResolver;
   /** Spec 17 §2.6 — the reviewer's Stop, handed on to the agent. */
@@ -171,6 +179,12 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
     // accept. The run key is what makes it unique across the decks in one run.
     sessionId: sessionIdFor(input.runKey),
     resume: false,
+    // Spec 43 §5.5 — a run-scoped id, and its session is never stored.
+    route: input.route,
+    // Spec 44 §9.3 — a deck run writes its plan, and the media server writes
+    // what it generates, both under the same cache directory (§6.4.3). The
+    // deck itself is rewritten by REX afterwards from the plan.
+    writable: [deckCacheDir(contentHash)],
     model: input.model,
     style: input.style,
     // §6.4.2 — a `.pptx` is a marker: the two design plugins load only here.

@@ -36,17 +36,27 @@
 // thing. `trace.ts` decides what every row shows; this file only draws it.
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { AgentSdk } from "../../shared/agent-protocol.ts";
 import { commentName } from "../../shared/names.ts";
-import { totalsOf } from "../../shared/totals.ts";
-import type { AgentChoices, AnchorState, ThreadWithMessages } from "../../shared/types.ts";
-import { spokenTurnsOf } from "./CommentCard.tsx";
-import { Composer } from "./Composer.tsx";
+import { type RunStats, runStatsOf, spentText, totalsOf } from "../../shared/totals.ts";
+import type {
+  AgentChoices,
+  AnchorState,
+  ModelChoice,
+  ThreadWithMessages,
+} from "../../shared/types.ts";
+import { AnswerFoot } from "./AnswerFoot.tsx";
+import { lastSendAt, spokenTurnsOf } from "./CommentCard.tsx";
+import { Composer, type GatewayChoice } from "./Composer.tsx";
 import { CopyText } from "./CopyText.tsx";
 import { DebugCopy } from "./DebugCopy.tsx";
+import { Elapsed } from "./Elapsed.tsx";
 import {
   Blocked,
   Bubble,
   Bulb,
+  MESSAGE_ICON,
+  MESSAGE_ICON_SOLID,
   Sparkle,
   StopSquare,
   TableGlyph,
@@ -87,6 +97,18 @@ interface Props {
   models: AgentChoices;
   model: string | null;
   onModel: (model: string | null) => void;
+  /**
+   * Spec 43 §4 and spec 44 §3 — the agent and the gateway, passed straight
+   * through to the composer, which is where the cascade lives.
+   */
+  agents: ModelChoice[];
+  sdk: AgentSdk;
+  onSdk: (sdk: AgentSdk) => void;
+  gateways: GatewayChoice;
+  gateway: string;
+  onGateway: (gatewayId: string) => void;
+  onManageGateways: () => void;
+  supportsStyles: boolean;
   style: string;
   onStyle: (style: string) => void;
   /** Spec 24 §3.2 — the places waiting to go with the next send. */
@@ -113,10 +135,6 @@ interface Props {
   onReply: (text: string) => void;
 }
 
-function seconds(ms: number): string {
-  return ms < 60_000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms / 60_000)}m`;
-}
-
 /** 24-hour: the strip is tabular mono and `03:34 PM` overflows its column. */
 function clock(iso: string): string {
   return new Date(iso).toLocaleTimeString([], {
@@ -134,24 +152,25 @@ function clock(iso: string): string {
  * reviewer never chose to learn.
  */
 function KindIcon({ kind, name }: { kind: TraceKind; name: string }): React.JSX.Element {
-  if (kind === "you") return <Bubble />;
+  if (kind === "you") return <Bubble size={MESSAGE_ICON} />;
   // Spec 08 §5.3 — an aside is the agent speaking, so it keeps the agent's
   // glyph. What separates it from the answer is the colour and the missing lit
   // border, which is the same pair that separates them on the card.
-  if (kind === "answer" || kind === "aside") return <Sparkle />;
-  if (kind === "thinking") return <Bulb />;
-  if (kind === "denied") return <Blocked />;
+  if (kind === "answer" || kind === "aside") return <Sparkle size={MESSAGE_ICON_SOLID} />;
+  if (kind === "thinking") return <Bulb size={MESSAGE_ICON} />;
+  if (kind === "denied") return <Blocked size={MESSAGE_ICON} />;
   // Not the gate's `Blocked` hand: nothing stopped this call. It ran, and it
   // came back with something wrong — the same triangle REX's own errors wear.
-  if (kind === "failed" || kind === "error") return <Warning size={13} />;
-  if (kind === "diff") return <TableGlyph />;
-  if (kind === "note") return <Warning size={13} />;
+  if (kind === "failed" || kind === "error") return <Warning size={MESSAGE_ICON} />;
+  if (kind === "diff") return <TableGlyph size={MESSAGE_ICON} />;
+  if (kind === "note") return <Warning size={MESSAGE_ICON} />;
   // Spec 17 §3.2 — not the warning triangle the notice gets. A stop is not
-  // something REX is warning about; it is something the reviewer did.
-  if (kind === "stopped") return <StopSquare size={9} />;
+  // something REX is warning about; it is something the reviewer did. Smaller
+  // again than the other solid — a filled square is the heaviest mark here.
+  if (kind === "stopped") return <StopSquare size={10} />;
   // Spec 36 §3.1 — the same glyph the chat's tool row draws, so a change is a
   // pencil in both places and a read the same file.
-  return <ToolIcon glyph={glyphOf(name, false, false)} />;
+  return <ToolIcon glyph={glyphOf(name, false, false)} size={MESSAGE_ICON} />;
 }
 
 /**
@@ -267,11 +286,14 @@ function Change({ change }: { change: string }): React.JSX.Element {
 function Entry({
   entry,
   places,
+  stats,
   props,
 }: {
   entry: TraceEntry;
   /** Spec 38 §3.2 — the places this message brought, as positions. */
   places: number[];
+  /** What the run that ended in this block spent, or null if it ended in another. */
+  stats: RunStats | null;
   props: Props;
 }): React.JSX.Element {
   const [showInput, setShowInput] = useState(entry.kind === "denied");
@@ -423,24 +445,26 @@ function Entry({
         ) : null}
 
         {/*
-          Spec 38 §3.5 — which model wrote this, and in which style, in the
-          answer's own foot: the card's line (spec 25 §7.3, spec 31 §5), and
-          nothing else. The numbers are in the head, as spec 36 §2 put them.
+          Spec 38 §3.5 — the answer's own foot: the card's line, from the card's
+          own component (spec 25 §7.3, spec 31 §5, spec 43 §5.3).
+
+          It was a copy of that line and it had already lost the gateway, which
+          is the reviewer's report of 2026-09-04. The numbers here are this
+          RUN's; the head's are the whole comment's, as spec 36 §2 put them, and
+          the two are different questions rather than a disagreement.
         */}
-        {entry.kind === "answer" && (entry.model || entry.style) ? (
-          <div className="rex-turn-foot">
-            {entry.model ? (
-              <span className="rex-foot-model" title="The model that wrote this answer">
-                {modelLabel(props.models.models, entry.model, entry.model)}
-              </span>
-            ) : null}
-            {entry.model && entry.style ? " · " : null}
-            {entry.style ? (
-              <span className="rex-foot-style" title="The output style this answer was written in">
-                {entry.style}
-              </span>
-            ) : null}
-          </div>
+        {entry.kind === "answer" ? (
+          <AnswerFoot
+            evidence={{
+              agent: entry.sdk ? modelLabel(props.agents, entry.sdk, entry.sdk) : null,
+              gatewayName: entry.gatewayName,
+              baseUrl: entry.baseUrl,
+              model: entry.model,
+              style: entry.style,
+            }}
+            stats={stats}
+            models={props.models.models}
+          />
         ) : null}
       </div>
     </div>
@@ -451,6 +475,10 @@ export function TraceSheet(props: Props): React.JSX.Element {
   const entries = traceOf(props.thread);
   const steps = stepsOf(props.thread);
   const totals = totalsOf(props.thread.messages);
+  // Each run's own numbers, keyed by the block that ends it — the same map the
+  // card builds, so a run reports one time, one price and one step count
+  // wherever it is read.
+  const runStats = runStatsOf(props.thread.messages);
   const turns = spokenTurnsOf(props.thread);
   const list = useRef<HTMLDivElement>(null);
 
@@ -522,7 +550,7 @@ export function TraceSheet(props: Props): React.JSX.Element {
   // from the same helpers, so the head and the card cannot disagree.
   const summary = [
     `${turns} turn${turns === 1 ? "" : "s"}`,
-    totals.durationMs > 0 ? seconds(totals.durationMs) : null,
+    totals.durationMs > 0 ? spentText(totals.durationMs) : null,
     totals.costUsd > 0 ? `$${totals.costUsd.toFixed(3)}` : null,
   ].filter(Boolean);
 
@@ -575,7 +603,13 @@ export function TraceSheet(props: Props): React.JSX.Element {
           <p className="rex-meta">Nothing was recorded for this comment yet.</p>
         ) : (
           entries.map((entry) => (
-            <Entry key={entry.id} entry={entry} places={placesOf(entry)} props={props} />
+            <Entry
+              key={entry.id}
+              entry={entry}
+              places={placesOf(entry)}
+              stats={runStats.get(entry.id) ?? null}
+              props={props}
+            />
           ))
         )}
         {props.busy ? (
@@ -583,6 +617,12 @@ export function TraceSheet(props: Props): React.JSX.Element {
             <span className="rex-working">
               <span className="rex-spinner" />
               working…
+              {/*
+                Spec 43 §7.3 — the same clock the card shows, counting from the
+                same send. The sheet is where a reviewer watches a long run step
+                by step, and it was the one view that showed no clock at all.
+              */}
+              <Elapsed since={lastSendAt(props.thread.messages)} />
             </span>
           </div>
         ) : null}
@@ -603,6 +643,14 @@ export function TraceSheet(props: Props): React.JSX.Element {
         models={props.models}
         model={props.model}
         onModel={props.onModel}
+        agents={props.agents}
+        sdk={props.sdk}
+        onSdk={props.onSdk}
+        gateways={props.gateways}
+        gateway={props.gateway}
+        onGateway={props.onGateway}
+        onManageGateways={props.onManageGateways}
+        supportsStyles={props.supportsStyles}
         style={props.style}
         onStyle={props.onStyle}
         pending={props.pending}

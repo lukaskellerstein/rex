@@ -10,9 +10,8 @@ import { useEffect, useRef, useState } from "react";
 // 5× on a retina panel and never upscaled. Imported from the kit rather than
 // copied into src/, so there is one source of truth for the brand.
 import logo from "../../../docs/logo/mark/rex-mark-color-128.png";
-import type { AgentChoices, OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
-import { Bug, ChevronDown } from "./Icons.tsx";
-import { ModelPick } from "./ModelPick.tsx";
+import type { OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
+import { Bug, ChevronDown, Cog, PanelLeft, PanelRight } from "./Icons.tsx";
 
 interface Props {
   doc: OpenedDocument | null;
@@ -27,16 +26,27 @@ interface Props {
   /** Spec 13 §4.1 — the app's state on the clipboard, for a bug report. */
   onDebug: () => void;
   /**
-   * Spec 25 §7.2 — the app-wide default model, set here.
+   * Spec 46 §8 — the Settings sheet.
    *
-   * On the app's side of the bar, beside the bug button, and not with the
-   * document controls to its left: a default is a fact about REX and it must
-   * still be settable when no document is open. It first sat beside the cost
-   * pill, which was the other run-shaped thing up here; the bar's redesign
-   * moved that away, and the boundary the bug button names is the better home.
+   * A door of its own, in the bar. Until now Settings was reachable only from
+   * the composer's gateway menu, which meant a person had to start a comment
+   * before they could configure the thing that answers it — and it hid every
+   * section that is not about gateways behind a control named for gateways.
    */
-  models: AgentChoices;
-  onModel: (value: string) => void;
+  onSettings: () => void;
+  /**
+   * Whether the workspace panel is on screen — `null` when there is no
+   * workspace, and so no panel to hide.
+   *
+   * The button is left out entirely in that case rather than disabled. A
+   * control that can never be pressed until you open a folder teaches nothing
+   * about folders; the `Open` menu beside it already does that job.
+   */
+  explorerShown: boolean | null;
+  onExplorer: () => void;
+  /** Whether the comments panel is on screen. Always available. */
+  commentsShown: boolean;
+  onComments: () => void;
 }
 
 /**
@@ -139,6 +149,31 @@ export function TopBar(props: Props): React.JSX.Element {
         ) : null}
       </div>
 
+      {/*
+        The two panel switches sit at the END of the bar each panel is at — this
+        one on the left, its twin beside the bug button on the right. That is
+        the whole reason a reviewer knows which button is which; the mirrored
+        glyph only confirms it.
+
+        Grouping both at the right edge, the way a lot of editors do, was the
+        alternative. It saves nothing here: the bar has room, and it would ask
+        the icon alone to carry a distinction the position gives away for free.
+      */}
+      {props.explorerShown === null ? null : (
+        <button
+          type="button"
+          className={`rex-icon-button rex-panel rex-panel-left${
+            props.explorerShown ? " rex-panel-on" : ""
+          }`}
+          data-tip={props.explorerShown ? "Hide the workspace — [" : "Show the workspace — ["}
+          aria-label={props.explorerShown ? "Hide the workspace" : "Show the workspace"}
+          aria-pressed={props.explorerShown}
+          onClick={props.onExplorer}
+        >
+          <PanelLeft />
+        </button>
+      )}
+
       {props.doc ? (
         <span className="rex-path" title={props.doc.ref.value}>
           {parts.slice(0, -1).map((part, position) => (
@@ -239,21 +274,20 @@ export function TopBar(props: Props): React.JSX.Element {
       ) : null}
 
       {/*
-        Spec 25 §7.2 — the model every send uses unless its comment says
-        otherwise. On the app's side of the bar with the bug button below, for
-        the same reason: it is about REX, not about the document.
+        Spec 25 §7.2 put an app-wide model picker here. It was removed on
+        2026-09-04, on the reviewer's ask: *"we should not need the model
+        dropdown in the rex topbar."*
+
+        Spec 43 is what made it redundant. The model is one of three controls
+        the composer now carries, it is picked per send, and every answer
+        records which model wrote it. A second picker up here answered a
+        question nobody asks any more — "what will some future comment use" —
+        while the one that matters sits beside Send.
+
+        The app-wide default itself is unchanged and still read: a new comment
+        starts on `setting.agent.model` (§4.0), and marking a gateway the
+        default in **Manage gateways…** is what writes it.
       */}
-      <ModelPick
-        models={props.models.models}
-        value={props.models.chosen}
-        fallback={props.models.chosen}
-        allowDefault={false}
-        disabled={null}
-        error={props.models.error}
-        onPick={(value) => {
-          if (value !== null) props.onModel(value);
-        }}
-      />
 
       {/*
         Spec 13 §4.1 — icon only, and always there. It is about the APP, not
@@ -265,6 +299,36 @@ export function TopBar(props: Props): React.JSX.Element {
         control that belongs to nothing else can sit without being read as part
         of the group before it.
       */}
+      <button
+        type="button"
+        className={`rex-icon-button rex-panel${props.commentsShown ? " rex-panel-on" : ""}`}
+        data-tip={props.commentsShown ? "Hide the comments — ]" : "Show the comments — ]"}
+        aria-label={props.commentsShown ? "Hide the comments" : "Show the comments"}
+        aria-pressed={props.commentsShown}
+        onClick={props.onComments}
+      >
+        <PanelRight />
+      </button>
+
+      {/*
+        Settings. Beside the bug for the same reason the bug sits where it does:
+        both are about REX rather than about the document, so they end the bar
+        together and neither reads as part of the panel switches before them.
+
+        `data-tip` and not `title`: a native tooltip on a glyph-only button
+        showed the reviewer nothing on 2026-08-29, which is why every icon in
+        this bar carries the attribute the overlay's own CSS draws.
+      */}
+      <button
+        type="button"
+        className="rex-icon-button rex-settings-open"
+        data-tip="Settings — gateways, models and keys"
+        aria-label="Open settings"
+        onClick={props.onSettings}
+      >
+        <Cog />
+      </button>
+
       <button
         type="button"
         className="rex-icon-button rex-debug"

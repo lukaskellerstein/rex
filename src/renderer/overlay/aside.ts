@@ -28,9 +28,11 @@ const SPOKEN = new Set<MessageKind>(["text", "error", "stopped"]);
 /**
  * Machinery that means the agent went back to work between two spoken rows.
  *
- * `thinking` is deliberately absent. It is drawn in the trace sheet and nowhere
- * else, so counting it here would split an answer into two blocks for a reason
- * the reader of the card cannot see.
+ * `thinking` is not here because it is not work — it is handled on its own, a
+ * few lines down, and it has to be: since 2026-09-04 the card draws a thought
+ * as its own folded block, so a thought both ends a block AND gets one. Until
+ * then it was drawn in the trace and nowhere else, and counting it at all would
+ * have split an answer in two for a reason the reader of the card could not see.
  */
 const WORK = new Set<MessageKind>(["tool_call", "tool_result", "diff"]);
 
@@ -57,6 +59,27 @@ export function agentText(messages: Message[]): AgentText {
   let worked = false;
 
   for (const message of messages) {
+    /**
+     * A thought is neither speech nor work, and it needs both halves of this.
+     *
+     * It **ends** the agent's block and demotes it — the agent stopped talking
+     * to the reviewer and went back to reasoning, so what it had said so far is
+     * a remark and not the answer. And it **takes** a break of its own when
+     * work came before it, so two stretches of thinking with a tool call
+     * between them are two folded blocks rather than one that claims to have
+     * happened before the call.
+     *
+     * `worked` is cleared rather than set, which is what makes two thoughts in
+     * a row one block: they are one stream of reasoning split by the SDK, the
+     * same way one answer arrives as several `text` rows.
+     */
+    if (message.kind === "thinking" && message.content) {
+      if (worked) breaks.add(message.id);
+      for (const id of block) asides.add(id);
+      block = [];
+      worked = false;
+      continue;
+    }
     if (!SPOKEN.has(message.kind) || !message.content) {
       if (WORK.has(message.kind)) worked = true;
       continue;

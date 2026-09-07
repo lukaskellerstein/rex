@@ -14,8 +14,15 @@
 // pressing Ask turned that into a screen of a different shape.
 
 import { useRef, useState } from "react";
-import { type AgentChoices, DEFAULT_STYLE, type RegionRef } from "../../shared/types.ts";
+import type { AgentSdk } from "../../shared/agent-protocol.ts";
+import {
+  type AgentChoices,
+  DEFAULT_STYLE,
+  type ModelChoice,
+  type RegionRef,
+} from "../../shared/types.ts";
 import { type PickScope, scopeWord } from "../anchor/pick.ts";
+import type { GatewayChoice } from "./Composer.tsx";
 import { Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import { ModelPick, styleRows } from "./ModelPick.tsx";
@@ -58,6 +65,26 @@ interface Props {
   models: AgentChoices;
   model: string | null;
   onModel: (model: string | null) => void;
+  /**
+   * Spec 43 §4 — the gateway, to the left of the model, on the panel too.
+   *
+   * The control sits on every surface a send can start from, because §2.6 rule
+   * 1 is that every send picks: a panel that could only use the default would
+   * make "pick a gateway" mean "pick it after the first answer".
+   */
+  gateways: GatewayChoice;
+  gateway: string;
+  onGateway: (gatewayId: string) => void;
+  onManageGateways: () => void;
+  /**
+   * Spec 44 §3 — the agent, one control further left again, and on the panel
+   * for the same reason the gateway is: every send picks.
+   */
+  agents: ModelChoice[];
+  sdk: AgentSdk;
+  onSdk: (sdk: AgentSdk) => void;
+  /** §7 — whether this agent has output styles. The control is absent if not. */
+  supportsStyles: boolean;
   /** Spec 31 §2.2 — the style the next comment is made with. Never null. */
   style: string;
   onStyle: (style: string) => void;
@@ -315,6 +342,44 @@ export function SelectionPanel(props: Props): React.JSX.Element {
             together instead of the button dropping to the left on its own.
           */}
           <span className="rex-row-end">
+            {/*
+              Spec 44 §3 — the agent, first in the group, and drawn only when
+              there is a choice to make. One agent is not a decision.
+            */}
+            {props.agents.length < 2 ? null : (
+              <ModelPick
+                models={props.agents}
+                value={props.sdk}
+                fallback={props.sdk}
+                allowDefault={false}
+                disabled={
+                  props.mode === "note" ? "A note runs nothing, so it uses no agent." : null
+                }
+                error={null}
+                onPick={(value) => {
+                  if (value !== null) props.onSdk(value as AgentSdk);
+                }}
+              />
+            )}
+            <ModelPick
+              models={props.gateways.rows}
+              value={props.gateway}
+              fallback={props.gateway}
+              allowDefault={false}
+              disabled={
+                props.mode === "note" ? "A note runs nothing, so it uses no gateway." : null
+              }
+              error={null}
+              rowDisabled={props.gateways.blocked}
+              action={{
+                label: "Manage gateways…",
+                title: "Add, edit or remove a gateway. Old answers keep their own record.",
+                onPick: props.onManageGateways,
+              }}
+              onPick={(value) => {
+                if (value !== null) props.onGateway(value);
+              }}
+            />
             <ModelPick
               models={props.models.models}
               value={props.model}
@@ -329,17 +394,20 @@ export function SelectionPanel(props: Props): React.JSX.Element {
               `Default — …` row: a style has no app-wide default to follow, so
               `default` is an ordinary choice like the others.
             */}
-            <ModelPick
-              models={styleRows(props.models.styles)}
-              value={props.style}
-              fallback={DEFAULT_STYLE}
-              allowDefault={false}
-              disabled={props.mode === "note" ? "A note runs nothing, so it has no style." : null}
-              error={props.models.error}
-              onPick={(value) => {
-                if (value !== null) props.onStyle(value);
-              }}
-            />
+            {/* Spec 44 §7 — absent for an agent that has no styles at all. */}
+            {!props.supportsStyles ? null : (
+              <ModelPick
+                models={styleRows(props.models.styles)}
+                value={props.style}
+                fallback={DEFAULT_STYLE}
+                allowDefault={false}
+                disabled={props.mode === "note" ? "A note runs nothing, so it has no style." : null}
+                error={props.models.error}
+                onPick={(value) => {
+                  if (value !== null) props.onStyle(value);
+                }}
+              />
+            )}
             {/*
               NOTE gets the quiet treatment: not `rex-primary`, because it is not
               the send. A filled accent button that reaches nobody would be the

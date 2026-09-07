@@ -1,0 +1,170 @@
+{
+  "kinds": [
+    {
+      "fields": [],
+      "id": "original",
+      "label": "Original",
+      "routes": {
+        "claude-agent": {
+          "appends": null,
+          "auth": "inherit",
+          "baseUrl": null,
+          "credentialEnv": null,
+          "note": "The Claude CLI's own endpoint, on your own login.",
+          "protocol": "anthropic"
+        },
+        "codex": {
+          "appends": null,
+          "auth": "inherit",
+          "baseUrl": null,
+          "credentialEnv": null,
+          "note": "Codex's own endpoint, on your own login.",
+          "protocol": "openai-responses"
+        },
+        "deep-agents": {
+          "appends": null,
+          "auth": "inherit",
+          "baseUrl": null,
+          "credentialEnv": null,
+          "note": "Whatever the model provider's own environment names.",
+          "protocol": "openai-chat"
+        },
+        "opencode": {
+          "appends": null,
+          "auth": "inherit",
+          "baseUrl": null,
+          "credentialEnv": null,
+          "note": "A local OpenCode server, on its own configuration.",
+          "protocol": "opencode"
+        }
+      },
+      "unverified": null
+    },
+    {
+      "fields": [
+        {
+          "default": "http://127.0.0.1:24334",
+          "help": "REX chooses this. It moves if the port is taken.",
+          "key": "url",
+          "kind": "url",
+          "label": "Address",
+          "options": null,
+          "placeholder": null,
+          "required": false
+        }
+      ],
+      "id": "builtin",
+      "label": "Built-in",
+      "routes": {
+        "claude-agent": {
+          "appends": "/v1/messages",
+          "auth": "environment",
+          "baseUrl": "{url}",
+          "credentialEnv": "REX_GATEWAY_KEY",
+          "note": "Anthropic Messages, at the root. One alias serves every agent (spec 46 \u00a74.5).",
+          "protocol": "anthropic"
+        },
+        "codex": {
+          "appends": "/responses",
+          "auth": "environment",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": "REX_GATEWAY_KEY",
+          "note": "OpenAI Responses, from the same alias.",
+          "protocol": "openai-responses"
+        },
+        "deep-agents": {
+          "appends": "/v1/chat/completions",
+          "auth": "environment",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": "REX_GATEWAY_KEY",
+          "note": "OpenAI chat. Spec 48.",
+          "protocol": "openai-chat"
+        },
+        "opencode": {
+          "appends": "/session",
+          "auth": "environment",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": "REX_GATEWAY_KEY",
+          "note": "OpenAI chat, as a model provider. Spec 47.",
+          "protocol": "openai-chat"
+        }
+      },
+      "unverified": null
+    },
+    {
+      "fields": [
+        {
+          "default": null,
+          "help": "Just the address. Do not add a path \u2014 each SDK's own is filled in below.",
+          "key": "url",
+          "kind": "url",
+          "label": "Host",
+          "options": null,
+          "placeholder": "http://localhost:4000",
+          "required": true
+        },
+        {
+          "default": null,
+          "help": "Encrypted by your operating system and never shown again. A LiteLLM answers 401 to everything without it \u2014 including its own model list, so REX cannot even ask what it serves.",
+          "key": "key",
+          "kind": "password",
+          "label": "Master key",
+          "options": null,
+          "placeholder": null,
+          "required": true
+        }
+      ],
+      "id": "litellm",
+      "label": "LiteLLM",
+      "routes": {
+        "claude-agent": {
+          "appends": "/v1/messages",
+          "auth": "stored",
+          "baseUrl": "{url}",
+          "credentialEnv": null,
+          "note": "Anthropic Messages, at the root. LiteLLM translates to whatever the alias names.",
+          "protocol": "anthropic"
+        },
+        "codex": {
+          "appends": "/responses",
+          "auth": "stored",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": null,
+          "note": "OpenAI Responses. Spec 44.",
+          "protocol": "openai-responses"
+        },
+        "deep-agents": {
+          "appends": "/v1/chat/completions",
+          "auth": "stored",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": null,
+          "note": "OpenAI chat. Spec 48.",
+          "protocol": "openai-chat"
+        },
+        "opencode": {
+          "appends": "/session",
+          "auth": "stored",
+          "baseUrl": "{url}/v1",
+          "credentialEnv": null,
+          "note": "OpenAI chat, as a model provider. Spec 47.",
+          "protocol": "openai-chat"
+        }
+      },
+      "unverified": null
+    }
+  ],
+  "sdks": [
+    {
+      "id": "claude-agent",
+      "label": "Claude Agent SDK",
+      "supportsPlugins": true,
+      "supportsStyles": true
+    },
+    {
+      "id": "codex",
+      "label": "Codex",
+      "supportsPlugins": false,
+      "supportsStyles": false
+    }
+  ]
+}

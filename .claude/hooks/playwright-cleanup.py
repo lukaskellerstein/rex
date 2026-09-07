@@ -6,12 +6,16 @@ closed only if it is proven automated AND it either descends from this
 session's Claude process or is abandoned (nothing holding it, nothing driving
 it). Hand-opened windows and other sessions' browsers survive.
 
-Automation has two proofs, either enough:
+Automation has three proofs, any one enough:
   - argv markers (pw.was_automated) — Playwright's own browser builds;
   - the ` [agent]` title tag — an agent-mode app. Its argv shows neither a
     Playwright path nor a debugging port (the app sets the port from inside
     its main process), so the title the app tagged itself with is the signal
-    that survives.
+    that survives;
+  - the machine's pid registry (pw.registered_agent_pid) — the yabai signal
+    proved the window's process descended from a Claude session when the
+    window was born, and wrote that down. This is what closes a packaged app
+    under its own bundle name, which neither of the other two can see.
 
 The permanent `playwright` desktop is NOT destroyed — it is machine config,
 not session state, and the next session is born onto it. Consent grants this
@@ -30,7 +34,11 @@ def main():
     session = pw.session_pid()
     for window in pw.browser_windows():
         pid = window["pid"]
-        automated = pw.was_automated(pid) or window["title"].endswith(pw.AGENT_TITLE_TAG)
+        automated = (
+            pw.was_automated(pid)
+            or window["title"].endswith(pw.AGENT_TITLE_TAG)
+            or pw.registered_agent_pid(pid)
+        )
         if not automated:
             continue  # opened by hand — never ours to close
         if pw.is_owned_by(pid, session) or pw.is_abandoned(pid):

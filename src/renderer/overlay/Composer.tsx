@@ -15,7 +15,8 @@
 // on screen at once agree.
 
 import { type RefObject, useRef, useState } from "react";
-import type { AgentChoices, ThreadWithMessages } from "../../shared/types.ts";
+import type { AgentSdk } from "../../shared/agent-protocol.ts";
+import type { AgentChoices, ModelChoice, ThreadWithMessages } from "../../shared/types.ts";
 import { DEFAULT_STYLE } from "../../shared/types.ts";
 import { ChevronRight, Pencil, Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
@@ -24,6 +25,21 @@ import { isModeChord, ModeSwitch, other } from "./ModeSwitch.tsx";
 import type { Mode } from "./mode.ts";
 import { ReplyGrip } from "./ReplyGrip.tsx";
 import type { SelectionItem } from "./selection.ts";
+
+/**
+ * Spec 43 §4 — the gateway rows, and why each unusable one is still drawn.
+ *
+ * `rows` is every gateway REX has; `blocked` says why one of them cannot answer
+ * for the chosen agent. **Impossible combinations are shown, not hidden**
+ * (§4.2): a greyed row with the reason on hover says "this is configuration you
+ * have not done", where an absent row says "REX cannot do this".
+ */
+export interface GatewayChoice {
+  rows: ModelChoice[];
+  blocked: (gatewayId: string) => string | null;
+  /** §5.2's warning, or null when this combination has already seen the thread. */
+  replayNotice: string | null;
+}
 
 interface Props {
   thread: ThreadWithMessages;
@@ -36,6 +52,38 @@ interface Props {
   models: AgentChoices;
   model: string | null;
   onModel: (model: string | null) => void;
+  /**
+   * Spec 44 §3 — the agent, first in the row and the one that rebuilds the two
+   * beside it.
+   *
+   * The promise spec 43 §4 made and could not keep with one adapter built. The
+   * row reads agent · gateway · model from here on, left to right in the order
+   * the cascade runs.
+   */
+  agents: ModelChoice[];
+  sdk: AgentSdk;
+  onSdk: (sdk: AgentSdk) => void;
+  /**
+   * Spec 43 §4 — the gateway, to the LEFT of the model.
+   *
+   * Left because §4.1's cascade runs left to right: changing the gateway
+   * rebuilds the model list, and a control that rebuilds another one sits
+   * before it.
+   */
+  gateways: GatewayChoice;
+  gateway: string;
+  onGateway: (gatewayId: string) => void;
+  /**
+   * Spec 44 §7 — whether this agent HAS output styles.
+   *
+   * The control is not drawn when it does not, rather than drawn and disabled.
+   * A style is a Claude idea; Codex has no equivalent, and offering a picker
+   * whose every value would be rejected is worse than offering none (§7 rejects
+   * a silent mapping onto personalities for the same reason).
+   */
+  supportsStyles: boolean;
+  /** §4.5 — the door to `Manage gateways…`, at the foot of the gateway menu. */
+  onManageGateways: () => void;
   /** Spec 31 §2.1 — the output style this chat is having. Never null. */
   style: string;
   onStyle: (style: string) => void;
@@ -283,6 +331,56 @@ export function Composer(props: Props): React.JSX.Element {
             together instead of the button dropping to the left on its own.
           */}
           <span className="rex-row-end">
+            {/*
+              Spec 44 §3 — the agent, first in the group. Changing it rebuilds
+              the gateway list, the model list and whether there is a style
+              control at all, which is why it sits before all three.
+
+              Drawn only when there is a choice to make. One agent is not a
+              decision, and a picker with a single row is a control that teaches
+              the reviewer nothing and costs them a glance on every comment.
+            */}
+            {noteLane || props.agents.length < 2 ? null : (
+              <ModelPick
+                models={props.agents}
+                value={props.sdk}
+                fallback={props.sdk}
+                allowDefault={false}
+                disabled={
+                  props.mode === "note" ? "A note runs nothing, so it uses no agent." : null
+                }
+                error={null}
+                onPick={(value) => {
+                  if (value !== null) props.onSdk(value as AgentSdk);
+                }}
+              />
+            )}
+            {/*
+              Spec 43 §4 — the gateway, and to the left of the model it
+              rebuilds. A note is not drawn one for the reason it is drawn no
+              model: a note runs nothing, so it runs nowhere.
+            */}
+            {noteLane ? null : (
+              <ModelPick
+                models={props.gateways.rows}
+                value={props.gateway}
+                fallback={props.gateway}
+                allowDefault={false}
+                disabled={
+                  props.mode === "note" ? "A note runs nothing, so it uses no gateway." : null
+                }
+                error={null}
+                rowDisabled={props.gateways.blocked}
+                action={{
+                  label: "Manage gateways…",
+                  title: "Add, edit or remove a gateway. Old answers keep their own record.",
+                  onPick: props.onManageGateways,
+                }}
+                onPick={(value) => {
+                  if (value !== null) props.onGateway(value);
+                }}
+              />
+            )}
             {noteLane ? null : (
               <ModelPick
                 models={props.models.models}
@@ -304,8 +402,10 @@ export function Composer(props: Props): React.JSX.Element {
               a model pick can FOLLOW an app-wide default; a style has none to
               follow (§2.2), so `default` is an ordinary choice like the others
               and `allowDefault` is off.
+
+              Spec 44 §7 — and absent entirely for an agent that has no styles.
             */}
-            {noteLane ? null : (
+            {noteLane || !props.supportsStyles ? null : (
               <ModelPick
                 models={styleRows(props.models.styles)}
                 value={props.style}
@@ -359,6 +459,20 @@ export function Composer(props: Props): React.JSX.Element {
             This edits {thread.documentNames.join(", ")}. You see every change, in each document,
             before anything is kept.
           </span>
+        ) : null}
+
+        {/*
+          Spec 43 §5.2 — said BEFORE the button is pressed, for the reason the
+          sentence above it is: the first send to a new combination replays the
+          whole thread, and on a local model measured at about 100 tokens per
+          second that is minutes. A cost the reviewer learns about by waiting is
+          a cost they had no chance to decline.
+
+          One sentence, once per combination. It disappears the moment that
+          gateway has answered this comment even once.
+        */}
+        {!noteLane && props.mode !== "note" && props.gateways.replayNotice ? (
+          <span className="rex-meta">{props.gateways.replayNotice}</span>
         ) : null}
       </div>
     </>

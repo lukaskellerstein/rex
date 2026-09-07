@@ -32,6 +32,16 @@ const EMPTY_COMMENTS: CommentCounts = { open: 0, resolved: 0, orphaned: 0 };
 interface Props {
   tree: WorkspaceTree;
   width: number;
+  /**
+   * Whether the reviewer has hidden the column.
+   *
+   * Hidden here rather than unmounted by `App`, and the state below is why:
+   * which folders are open, what is being renamed, what is half-typed into a
+   * new file's name box all live in this component. Unmounting would throw
+   * every one of them away, so a glance at the document with the tree out of
+   * the way would cost a scroll back to where you were.
+   */
+  hidden: boolean;
   activePath: string | null;
   /**
    * Spec 18 §4.3 — kept out of `WorkspaceTree` on purpose.
@@ -863,7 +873,10 @@ export function Explorer(props: Props): React.JSX.Element {
   );
 
   return (
-    <nav className="rex-explorer" style={{ width: props.width }}>
+    <nav
+      className={`rex-explorer${props.hidden ? " rex-pane-hidden" : ""}`}
+      style={{ width: props.width }}
+    >
       {/*
         Spec 28 §4.2 — two views, one column. The same segmented row the
         comments column switches with (spec 08 §3.1). The `Search` tab counts

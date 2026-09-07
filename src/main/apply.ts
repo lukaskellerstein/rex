@@ -19,6 +19,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { basename, dirname, relative } from "node:path";
+import type { ResolvedRoute } from "../shared/agent-protocol.ts";
 import type { ApplyConfirmResponse, DeckPreview } from "../shared/channels.ts";
 import { findPart, locateFence, scanDiagram } from "../shared/diagram.ts";
 import type {
@@ -27,13 +28,14 @@ import type {
   ChangedRegion,
   DiagramRef,
   Message,
+  SendEvidence,
   SkippedDocument,
   Thread,
   WorkingCopyView,
 } from "../shared/types.ts";
+import { runAgent } from "./agent/bridge.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
 import { type PassagePlace, passageSection, writeInstructions } from "./agent/prompts.ts";
-import { runAgent } from "./agent/runner.ts";
 import { beginRun, endRun, HELD_REASON, isHeld } from "./agent/runs.ts";
 import { renderTranscript } from "./agent/transcript.ts";
 import type { Db } from "./db/database.ts";
@@ -411,6 +413,20 @@ export interface ApplyOptions {
    * reviewer has to remember.
    */
   style?: string | null;
+  /**
+   * Spec 43 §11 — where this ACT's inference is served from.
+   *
+   * `model`'s neighbour and its twin: an argument for the same reason, resolved
+   * by `ipc.ts` from the reviewer's own choice. Absent means `Original`, which
+   * is what every ACT did before this spec.
+   *
+   * §5.5 — an ACT reads the choices and **does not persist its session**.
+   * `sessionIdFor(runKey)` below says why: two turns sharing a session id would
+   * resume the first one's transcript in the second one's working directory.
+   */
+  route?: ResolvedRoute;
+  /** §5.3 — what every row this run writes says about where it came from. */
+  evidence?: SendEvidence;
 }
 
 /**
@@ -503,10 +519,12 @@ async function startDeckApply(
   skipped: SkippedDocument[],
   instruction: string,
   addedWith: string | null,
-  /** Spec 25 §4.1 and spec 31 §4 — what this ACT runs under. `startApply`
-   * already stamped `context.record`; this is the copy the deck agent needs. */
+  /** Spec 25 §4.1, spec 31 §4 and spec 43 §11 — what this ACT runs under, and
+   * where. `startApply` already stamped `context.record`; these are the copies
+   * the deck agent itself needs. */
   model: string | null,
   style: string | null,
+  route: ResolvedRoute | undefined,
 ): Promise<string> {
   const { db } = context;
   for (const file of others) {
@@ -539,6 +557,7 @@ async function startDeckApply(
         }),
         model,
         style,
+        route,
         resolver: context.resolver,
         signal: controller.signal,
         onMessage: (message) => context.record(thread.id, message),
@@ -606,17 +625,20 @@ export async function startApply(
 ): Promise<string> {
   const model = options.model ?? null;
   const style = options.style ?? null;
+  const route = options.route;
+  const evidence = options.evidence ?? { sdk: null, gatewayName: null, baseUrl: null };
   /**
-   * Spec 25 §5 — every message this run produces says which model ran it.
+   * Spec 25 §5 and spec 43 §5.3 — every message this run produces says which
+   * agent, gateway, URL, model and style ran it.
    *
    * Stamped once, here, rather than at each of the dozen `record` calls below
-   * and in `startDeckApply`: the model belongs to the run, so the run's own
-   * context is the honest place to put it. `confirmApply` keeps the plain one —
-   * accepting a diff is the reviewer's act and no model was involved.
+   * and in `startDeckApply`: all five belong to the run, so the run's own
+   * context is the honest place to put them. `confirmApply` keeps the plain one
+   * — accepting a diff is the reviewer's act and no agent was involved.
    */
   const context: ApplyContext = {
     ...outer,
-    record: (id, message) => outer.record(id, { ...message, model, style }),
+    record: (id, message) => outer.record(id, { ...message, model, style, ...evidence }),
   };
   const { db } = context;
   const thread = getThread(db, threadId);
@@ -645,6 +667,7 @@ export async function startApply(
       addedWith,
       model,
       style,
+      route,
     );
   }
 
@@ -710,6 +733,7 @@ export async function startApply(
         }),
         model,
         style,
+        route,
         resolver: context.resolver,
         signal: controller.signal,
         onMessage: (message) => context.record(threadId, message),
@@ -826,10 +850,32 @@ export async function startApply(
           transcript,
           addedWith,
         }),
+        // Spec 43 §11 — the gateway the reviewer picked for this ACT.
+        route,
+        // Spec 44 §9.3 — the only directories this run may change, said to the
+        // library as well as to the agent. An adapter with a sandbox turns this
+        // into one, and the reviewer's repository is then read-only for real
+        // rather than repaired afterwards by `putBack` below. Claude has no
+        // sandbox and ignores it, so nothing about a Claude ACT moves.
+        //
+        // The DIRECTORY of each copy, because a sandbox names roots and not
+        // files. Deduplicated: two documents in one repository can share a
+        // working directory, and a root named twice is the same root.
+        writable: [...new Set(editable.map((file) => dirname(file.copy)))],
         // One session per repository: two turns sharing a session id would resume
         // the first one's transcript in the second one's working directory.
+        //
+        // Spec 43 §5.5 — which is exactly why this run's session is never
+        // written to `thread_session`. It reads the three choices, because an
+        // ACT must use the gateway the reviewer picked; it simply does not
+        // persist what the SDK called the session.
         sessionId: sessionIdFor(`${run.id}:${root}`),
         resume: false,
+        // Spec 45 §6 — the thread, NOT the session id above. An ACT's session
+        // is keyed by run and repository, so it is the one run where reading a
+        // thread back out of the session id would give the wrong answer. This
+        // is also the run whose cost is worth comparing against an ASK's.
+        threadId,
         model,
         style,
         signal: controller.signal,

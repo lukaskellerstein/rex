@@ -146,6 +146,23 @@ CREATE TABLE IF NOT EXISTS message (
   -- the send and on everything the run produced, NULL for a NOTE and for every
   -- row written before it. Recorded and not drawn; the debug report reads it.
   style           TEXT,
+  -- Spec 43 §5.3 — the rest of the evidence: which agent, through which
+  -- gateway, at which URL. With `model` and `style` above, a row records the
+  -- whole answer.
+  --
+  -- **These are COPIES, not foreign keys**, and that is the point. Re-point a
+  -- gateway at another host and a `gateway_id` reference would make every
+  -- answer it ever produced start claiming the new URL — history rewritten by
+  -- an edit nobody thought of as editing history. Four short strings on the row
+  -- make that impossible by construction, which is why this spec needs no
+  -- gateway revisioning and no retirement.
+  --
+  -- NULL for a NOTE, which runs nothing, and for every row written before these
+  -- columns existed. `base_url` is NULL for `Original`, which is the honest
+  -- record of "the SDK's own endpoint" and not a missing value.
+  sdk             TEXT,
+  gateway_name    TEXT,
+  base_url        TEXT,
   content         TEXT,
   tool_name       TEXT,
   tool_input_json TEXT,
@@ -164,6 +181,152 @@ CREATE TABLE IF NOT EXISTS message (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_message_seq
   ON message(thread_id, seq);
+
+-- Spec 43 §2.2 — a gateway is a named set of routes, not one URL.
+--
+-- Two tables, because `routes` is a map and SQLite is not a document store. The
+-- base URL is a function of the gateway AND the SDK: each SDK speaks a
+-- different wire protocol, and a gateway serves each protocol at a different
+-- path — LiteLLM puts Anthropic Messages at its root, Envoy under a prefix.
+--
+-- These tables are created here AND by `migrateGateways`, and both are needed:
+-- this file runs on every open and makes them on a fresh database, and the
+-- migration seeds the `Original` row that everything else references.
+CREATE TABLE IF NOT EXISTS agent_gateway (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  -- Spec 46 §3 — three kinds, and only three. `builtin` is REX's own LiteLLM;
+  -- `litellm` is one somebody else runs, and they are the SAME PRODUCT sharing
+  -- every route template. `envoy` and `custom` were removed in milestone 3
+  -- (§1.1's measurement decided it), and `migrateRetireGatewayKinds` deletes
+  -- any row of either kind before this constraint could refuse one.
+  kind        TEXT NOT NULL
+                CHECK (kind IN ('original','builtin','litellm')),
+  -- Spec 46 §4.1 — the switch. **Only the built-in row is ever 0.**
+  --
+  -- Off is a statement about a PROCESS, not about a configuration: turning the
+  -- built-in gateway off stops its child and hides its row from the send
+  -- picker, and keeps every provider, model and key exactly as they were.
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gateway_route (
+  gateway_id      TEXT NOT NULL REFERENCES agent_gateway(id) ON DELETE CASCADE,
+  -- All four SDK names from spec 42 on, so specs 44, 47 and 48 add rows and no
+  -- migration. In spec 43 only `claude-agent` rows are ever run.
+  sdk             TEXT NOT NULL
+                    CHECK (sdk IN ('claude-agent','codex','opencode','deep-agents')),
+  base_url        TEXT,
+  -- `stored` is spec 46 §7: the HOST keeps the value, encrypted by the OS
+  -- keystore, in `token_cipher` below. `environment` stays for the built-in
+  -- gateway, whose key is random per launch and lives in an environment and
+  -- nowhere else, and for every row spec 43 wrote.
+  auth            TEXT NOT NULL
+                    CHECK (auth IN ('inherit','none','environment','stored')),
+  -- The NAME of an environment variable. **Never a value** (§2.6 rule 4): no
+  -- credential enters SQLite, IPC, a message, the log or a debug report.
+  credential_env  TEXT,
+  -- Spec 46 §7 — an external gateway's key, encrypted by the OS keystore.
+  --
+  -- It REVERSES spec 43 §6.1, which stored the NAME of an environment variable
+  -- and deliberately added no keychain. The reversal is forced by distribution:
+  -- a person installing REX has no `~/.secrets/secrets.enc.yaml` and no
+  -- `direnv`, and telling them to create a shell variable is not a product.
+  -- `credential_env` stays for rows written before that; a row has one or the
+  -- other, never both.
+  token_cipher    BLOB,
+  -- Newline-separated, not JSON. It is displayed as typed and never queried by
+  -- element, and a text column keeps `sqlite3 ~/.rex/rex.db "select * from
+  -- gateway_route"` readable — which is how every gateway problem in §15 was
+  -- actually diagnosed.
+  models          TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (gateway_id, sdk),
+  CHECK (
+    (auth = 'environment' AND credential_env IS NOT NULL) OR
+    (auth <> 'environment' AND credential_env IS NULL)
+  ),
+  -- §4.5 — "No authentication" needs an explicit URL. In the table, not only in
+  -- the validator: a row that cannot run must not be creatable by any route,
+  -- and `sqlite3 ~/.rex/rex.db` is a route.
+  CHECK (auth <> 'none' OR base_url IS NOT NULL),
+  -- A stored key needs somewhere to send it. Two credentials on one row is one
+  -- too many, which the `environment` CHECK above already forbids.
+  CHECK (auth <> 'stored' OR base_url IS NOT NULL)
+);
+
+-- Spec 46 §11 — the providers behind the built-in gateway, and the models a
+-- person ticked.
+--
+-- These describe what REX's OWN gateway serves. An external LiteLLM has its own
+-- models configured inside it (§6), so it has no rows here and the Models tab
+-- does not apply to it.
+--
+-- **`key_cipher` is a BLOB and never TEXT.** Not a storage detail: a TEXT column
+-- invites somebody to put a key in it during a debugging session, and §7.1 is
+-- that no credential is readable on disk, ever. `safeStorage` hands back a
+-- Buffer, so the column that holds it is the shape that cannot hold anything
+-- else. The key that decrypts it belongs to the OS keystore, not to REX — so
+-- copying `rex.db` to another machine carries no secrets, which is correct.
+CREATE TABLE IF NOT EXISTS gateway_provider (
+  id           TEXT PRIMARY KEY,
+  -- A ProviderDescriptor id (§5.2). Deliberately NOT a foreign key: the
+  -- catalogue is code, not a table, and a provider REX stops knowing must
+  -- leave a row that can be read and removed rather than one that cannot load.
+  provider     TEXT NOT NULL,
+  label        TEXT NOT NULL,
+  -- Null for a provider with a fixed endpoint (OpenAI, OpenRouter, Anthropic).
+  base_url     TEXT,
+  key_cipher   BLOB,
+  -- When its models were last asked for. §6: a list that silently ages is how
+  -- a person concludes their provider is broken when it merely gained a model.
+  listed_at    TEXT,
+  created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gateway_model (
+  provider_id  TEXT NOT NULL REFERENCES gateway_provider(id) ON DELETE CASCADE,
+  -- The provider's own id, verbatim. The one field that is never normalised,
+  -- because it is what the engine is asked for.
+  model        TEXT NOT NULL,
+  -- The LiteLLM model_name REX generates, `<provider>-<slug(model)>`. A person
+  -- never types one (§11).
+  alias        TEXT NOT NULL,
+  -- **The window the PROVIDER stated, raw**, and NULL when it stated none.
+  --
+  -- Not the reduced `max_input_tokens` that reaches `config.yaml`: §4.4 rule 3
+  -- subtracts an 8192 output reserve with a floor at half the window, and a
+  -- floor is not reversible. Storing the reduced value and restoring it would
+  -- round-trip through that formula and come back wrong — measured on
+  -- 2026-09-06, when a 131072 window reached the config as 131072 rather than
+  -- 122880. So the rule is applied exactly once, by `write-config`.
+  max_input    INTEGER,
+  max_output   INTEGER,
+  -- 1 yes, 0 no, NULL the provider did not say (§5.5). NULL is a real answer
+  -- and must never be drawn as "no".
+  tools        INTEGER,
+  PRIMARY KEY (provider_id, model)
+);
+
+-- Spec 43 §5.2 — one session per (thread, SDK, gateway).
+--
+-- **The conversation is REX's, and it lives in `message`.** An SDK session is a
+-- cache one harness keeps of part of it, so a thread keeps as many as it needs
+-- and losing one costs a replay rather than the thread.
+--
+-- `base_url` is on the ROW and not merely on the gateway, and that is case 2b:
+-- edit a gateway's host and resuming would ask a DIFFERENT server to continue
+-- state it has never seen. Comparing the URL the session was really created
+-- against is what makes that impossible.
+CREATE TABLE IF NOT EXISTS thread_session (
+  thread_id   TEXT NOT NULL REFERENCES thread(id) ON DELETE CASCADE,
+  sdk         TEXT NOT NULL,
+  gateway_id  TEXT NOT NULL REFERENCES agent_gateway(id) ON DELETE CASCADE,
+  base_url    TEXT,
+  session_id  TEXT NOT NULL,
+  created_at  TEXT NOT NULL,
+  PRIMARY KEY (thread_id, sdk, gateway_id)
+);
 
 CREATE TABLE IF NOT EXISTS thread_ref (
   thread_id      TEXT NOT NULL REFERENCES thread(id) ON DELETE CASCADE,

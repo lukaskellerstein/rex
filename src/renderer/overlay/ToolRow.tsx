@@ -11,13 +11,19 @@ import type { ToolGlyph, ToolMark } from "./toolRows.ts";
  * gutter, so a change is a pencil in both places and a refusal the same barred
  * circle.
  */
-export function ToolIcon({ glyph }: { glyph: ToolGlyph }): React.JSX.Element {
-  if (glyph === "denied") return <Blocked />;
-  if (glyph === "failed") return <Warning size={13} />;
-  if (glyph === "read") return <FileGlyph />;
-  if (glyph === "change") return <Pencil size={12} />;
-  if (glyph === "diff") return <TableGlyph />;
-  return <Terminal />;
+/**
+ * `size` is for the trace, where a tool is a message BLOCK and its glyph sits
+ * in the same corner as the answer's (`MESSAGE_ICON`). Omitted is the chat's
+ * strip, which is a row of small marks rather than a column of blocks and is
+ * read as a shape, not as a picture — so it keeps the sizes it was drawn at.
+ */
+export function ToolIcon({ glyph, size }: { glyph: ToolGlyph; size?: number }): React.JSX.Element {
+  if (glyph === "denied") return <Blocked size={size} />;
+  if (glyph === "failed") return <Warning size={size ?? 13} />;
+  if (glyph === "read") return <FileGlyph size={size} />;
+  if (glyph === "change") return <Pencil size={size ?? 12} />;
+  if (glyph === "diff") return <TableGlyph size={size} />;
+  return <Terminal size={size} />;
 }
 
 const BAD: ReadonlySet<ToolGlyph> = new Set(["failed", "denied"]);

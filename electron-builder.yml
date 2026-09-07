@@ -1,0 +1,161 @@
+# Spec 46 §13 and milestone 4 — REX as something a person installs.
+#
+# The whole reason spec 46 exists: everything before it assumed a reviewer who
+# runs `docker compose up` in another repository. After it, a person
+# double-clicks an installer, opens Settings, adds their key or points at LM
+# Studio, and REX works.
+#
+# **`python-dist/` is the thing that makes that true**, and `npm run bundle:python`
+# has to have produced it before a build. It carries a relocatable CPython plus
+# both Python packages, and it lands at `Resources/python/`, which is exactly
+# where `interpreterFor()` looks (`src/main/python.ts`). If those two ever
+# disagree, a packaged REX starts and neither child does.
+
+appId: com.lukaskellerstein.rex
+productName: REX
+copyright: Copyright © 2026 Lukas Kellerstein
+
+# **The Windows arm64 installer only works because `scripts/package.mjs` sets
+# `ELECTRON_BUILDER_7Z_FILTER=BCJ2` before this file is read.** That is an
+# environment variable, not a config key, so it cannot live here; the reason
+# it exists is documented there. Do not run `electron-builder` directly for a
+# Windows build — use `npm run package`.
+#
+# Two things that look like fixes and are not, both measured 2026-09-07:
+#
+#   - `compression: store` is silently overridden. The NSIS target routes the
+#     app archive through `configureDifferentialAwareArchiveOptions`, which
+#     forces `compression = "normal"` because `differentialPackage` defaults
+#     to on. The archive came out identical to the default.
+#   - `nsis.useZip: true` fails loudly instead: NSIS's zip plugin cannot open a
+#     payload this size ("Failed to decompress files. Error opening ZIP file").
+
+directories:
+  output: release
+  buildResources: build
+
+# `out/` is electron-vite's build, and it is the whole application.
+files:
+  - out/**/*
+  - package.json
+
+# §13 — the runtime and the two packages, outside the asar so a child process
+# can be spawned from them. An asar-packed interpreter cannot be executed.
+extraResources:
+  - from: python-dist
+    to: python
+    filter:
+      - "**/*"
+      # Never shipped: caches and test trees that are rebuilt or never read.
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+      - "!**/test/**"
+      - "!**/tests/**"
+
+  # §5.2 — the provider catalogue, which is DATA read from disk at runtime and
+  # not a Python import. `src/main/gateway/catalogue.ts` opens
+  # `packageRoot()/catalogue.json`, and in a packaged app `packageRoot()` is
+  # `Resources/` — so the file has to land there and nowhere else.
+  #
+  # Measured 2026-09-07 by leaving it out: the app started, the gateway served
+  # on 24334, and "Add a provider" listed nothing at all. It fails quietly by
+  # design (an empty list beats taking Settings down over a missing file), so
+  # the only symptom is a screen with no providers on it.
+  - from: local-gateway/catalogue.json
+    to: catalogue.json
+
+asar: true
+# `better-sqlite3` is native and must stay a real file on disk.
+asarUnpack:
+  - "**/*.node"
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch: [arm64]
+  # SPEC.md §9 — REX reads the documents a person points it at, and nothing else.
+  # An entitlement it does not need is an entitlement somebody has to explain.
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # **Signing and notarisation are deliberately not configured here.** They need
+  # an Apple Developer identity, and spec 46 milestone 4 says they are "named
+  # here and scoped in their own spec if they grow". An unsigned build is
+  # runnable on the machine that made it, which is what a milestone needs;
+  # shipping one to somebody else is a different job with a different owner.
+  identity: null
+
+win:
+  target:
+    # One installer per architecture. electron-builder has no universal x64+arm64
+    # NSIS target — #6571 is on its backlog and the combined installer #5461
+    # produces is broken — so each architecture is its own file and its own
+    # build machine: `bundle-python.mjs` stages the host's CPython, so there is
+    # no cross-build. Spec 49's workflow builds x64 on `windows-latest` and
+    # arm64 on `windows-11-arm`, each passing its `--<arch>`; a local
+    # `npm run package` builds the host's architecture only (`scripts/package.mjs`).
+    - target: nsis
+      arch: [x64, arm64]
+  # Two architectures need two file names. The default, `REX Setup 0.1.0.exe`,
+  # is the same for both and the second upload would overwrite the first.
+  artifactName: ${productName}-Setup-${version}-${arch}.${ext}
+  # §18.1 item 4 — nothing in this spec had ever run on Windows. The one line
+  # most likely to break is `interpreterFor()`, which looks for
+  # `Scripts/python.exe` there rather than `bin/python`; `scripts/bundle-python.mjs`
+  # stages that layout.
+  #
+  # **Validated on arm64, 2026-09-07**, in the Fusion VM — the only Windows
+  # machine here. That is the HARDER target: `litellm[proxy]` pulls a large
+  # stack of compiled wheels and Windows arm64 wheels are far patchier than
+  # x64. x64 is built by CI and has never run on a machine of its own; the
+  # arm64 VM runs x64 programs under emulation, which is where its first
+  # install test can happen.
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  # Stated rather than left to defaults, because the whole point of milestone 4
+  # is that a person double-clicks something. The icon comes from
+  # `build/icon.png` via `buildResources`.
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: REX
+  # Not a key here, but part of this installer: `build/installer.nsh`, which
+  # electron-builder includes by that name. It adds the "already installed"
+  # page — Reinstall (the default, and the repair) or Uninstall — that the
+  # stock assisted installer lacks: by itself it silently replaces an existing
+  # copy and offers no way out. The file explains how it hooks in.
+
+linux:
+  # Spec 46 §13 named AppImage. Measured on Ubuntu 26.04 arm64 on 2026-09-07 and
+  # changed, because both Linux failures that day were the wrapper's and a
+  # package fixes them at install time:
+  #
+  #   - the arm64 AppImage launcher links the unversioned `libz.so`, which only
+  #     the zlib DEV package provides, so it does not start at all
+  #     (electron-builder #7835, AppImageKit #964);
+  #   - Ubuntu 24.04 and later block unprivileged user namespaces, so Electron's
+  #     sandbox helper must be root-owned and setuid — an AppImage cannot do
+  #     that, and REX aborted with "The SUID sandbox helper binary was found,
+  #     but is not configured correctly". The deb's post-install script sets
+  #     the helper and installs an AppArmor profile that grants `userns`.
+  #
+  # `.deb` and `.rpm` together cover the Debian/Ubuntu and Fedora/RHEL families,
+  # which is most of desktop Linux. The deb needs `author` (with an email) and
+  # `homepage` in package.json — the build fails without them, and only on
+  # Linux, so `test/localGateway.spec.ts` asserts both.
+  target:
+    - target: deb
+      arch: [x64]
+    - target: rpm
+      arch: [x64]
+  # x64 because that is what Linux desktops run and what CI's `ubuntu-latest`
+  # builds. The recipe was validated on arm64 in the Fusion VM, where
+  # `node scripts/package.mjs --linux deb rpm --arm64` builds it; `.rpm` needs
+  # `rpmbuild` on the build host (`apt install rpm` on Ubuntu).
+  category: Office
+  # §7.3 — on a Linux box with no keyring, `safeStorage` falls back to a
+  # backend where items are "unprotected as they are encrypted via hardcoded
+  # plaintext password". REX says so before it stores a key rather than
+  # displaying a padlock it has not earned.

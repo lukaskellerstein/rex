@@ -1,7 +1,20 @@
 # REX 42 — the agent library
 
 **Version:** 3.0 · 2026-09-04
-**Status:** **proposal. Nothing in this spec is built.**
+**Status:** **built, and driven in a live window.** All three milestones are in
+the tree. `npm run test:library` is green — 44 TypeScript tests across
+`test/service.spec.ts`, `test/bridge.spec.ts` and `test/protocol.spec.ts`, and
+135 `pytest` tests in `agent-runner/` — every one of the 41 `*.spec.ts` files
+passes, `npm run typecheck` passes, and `nvim-tools --json --all` adds no
+finding (`ruff` and `basedpyright` now run, on §12's two marker files, and are
+clean). Driven on 2026-09-04 against an isolated database: one ASK answered
+through the pipe at $0.1377, one reply that **resumed** the same session with no
+replay, a gate refusal recorded as `denied` beside a plain `Bash` call recorded
+as neither, a hand-killed child restarted once and serving again in 275 ms, an
+`lsof` on the child showing no socket at all, and a scratch `uv` project calling
+`run()` directly (criterion 17). §17 records what the build changed. **Not yet
+driven live: ACT, DOCX and PPTX** — all three are `write`-profile runs, and they
+are the remainder of milestone 1's acceptance.
 **Depends on:** [`01-initial/SPEC.md`](../01-initial/SPEC.md) §3 (the main-process
 boundary — **this spec keeps I1–I3 and changes §1.2 and §12**), §8 (one thread,
 one agent, one session), §8.4 (the gate), §8.5 (session replay), §11 (the Vex
@@ -14,8 +27,8 @@ probe); [`31-how-the-agent-writes/SPEC.md`](../31-how-the-agent-writes/SPEC.md)
 (what the transcript draws).
 **Extended by:** [`43-the-local-gateway/SPEC.md`](../43-the-local-gateway/SPEC.md)
 (gateways with a URL), [`44-the-codex-agent/SPEC.md`](../44-the-codex-agent/SPEC.md),
-[`45-the-opencode-agent/SPEC.md`](../45-the-opencode-agent/SPEC.md),
-[`46-the-deep-agent/SPEC.md`](../46-the-deep-agent/SPEC.md) (one adapter each).
+[`47-the-opencode-agent/SPEC.md`](../47-the-opencode-agent/SPEC.md),
+[`48-the-deep-agent/SPEC.md`](../48-the-deep-agent/SPEC.md) (one adapter each).
 
 > [!note]
 > **The question this answers.** The reviewer, 2026-09-03:
@@ -43,8 +56,8 @@ probe); [`31-how-the-agent-writes/SPEC.md`](../31-how-the-agent-writes/SPEC.md)
 > the Claude CLI under today's SDK is a child that speaks JSON over pipes.
 >
 > **What changed in 3.0.** Version 2.0 was a sealed TypeScript directory,
-> `src/agent-gateway/`. The reviewer chose Python on 2026-09-04, so the
-> directory becomes a package, `agent-gateway/`, and the seam becomes a
+> `src/agent-runner/`. The reviewer chose Python on 2026-09-04, so the
+> directory becomes a package, `agent-runner/`, and the seam becomes a
 > process. Everything else — `AgentEvent`, `ToolPolicy`, the session shape, the
 > descriptor, the four rules — survives with the same names, now as Pydantic
 > models with generated TypeScript mirrors. This spec **changes spec 01 §1.2's
@@ -113,7 +126,7 @@ PyPI's `opencode-ai` is a stale alpha. OpenCode's server is plain HTTP and
 SSE, and the reviewer's own course drives it with a hand-written `httpx`
 client rather than a package. The reviewer, 2026-09-04: "having our own Python
 client for this OpenCode HTTP server is fine with me. I don't need to have
-some wrapper library just to communicate via HTTP." Spec 45 writes that
+some wrapper library just to communicate via HTTP." Spec 47 writes that
 client; it is about 300 lines for what REX needs.
 
 ---
@@ -139,7 +152,7 @@ flowchart TB
 
     PIPE(["stdin / stdout<br/><i>JSON lines — no port</i>"])
 
-    subgraph LIB["agent-gateway/ — the library (Python)"]
+    subgraph LIB["agent-runner/ — the library (Python)"]
         direction TB
         PROTO["protocol.py<br/><i>Pydantic models, the contract</i>"]
         LOOP["service.py<br/><i>asyncio loop, one task per run</i>"]
@@ -196,17 +209,17 @@ REX did not supply — and, new in 3.0, nothing that is not JSON.
 ### 3.1 Where it lives
 
 ```text
-agent-gateway/                  a sibling of src/, not inside it
-  pyproject.toml                name "agent-gateway", module agent_gateway, Python >=3.12
+agent-runner/                  a sibling of src/, not inside it
+  pyproject.toml                name "agent-runner", module agent_runner, Python >=3.12
   uv.lock
   .python-version               3.12
   ruff.toml                     the marker nvim-tools gates ruff on
   pyrightconfig.json            the marker it gates basedpyright on
   README.md                     how another project uses it (§3.3)
 
-  src/agent_gateway/
+  src/agent_runner/
     __init__.py                 the public surface, re-exported
-    __main__.py                 `python -m agent_gateway` — the service entry
+    __main__.py                 `python -m agent_runner` — the service entry
     protocol.py                 §4.2 — every message, as Pydantic models; the contract
     service.py                  §4 — the asyncio loop: read lines, dispatch, write lines
     types.py                    §5 — AgentSdk, GatewayKind, AgentAuth, GatewayRoute,
@@ -258,8 +271,8 @@ interchangeable.
   gateway store, no cache that outlives a run.
 
 Two things look like state and are not: an SDK's own cache (Claude's transcript
-files; in spec 45 an OpenCode server's data directory), which the library reads
-the way the SDK does; and the running OpenCode server process of spec 45, which
+files; in spec 47 an OpenCode server's data directory), which the library reads
+the way the SDK does; and the running OpenCode server process of spec 47, which
 is OpenCode's process and not REX's data.
 
 It may spawn processes, read the environment it is handed, and read files an
@@ -270,10 +283,10 @@ SDK keeps, because that is what running an agent SDK is.
 The package is usable the day milestone 0 lands, with no publishing:
 
 ```bash
-uv add --editable ~/Projects/Github/lukaskellerstein/rex/agent-gateway
+uv add --editable ~/Projects/Github/lukaskellerstein/rex/agent-runner
 ```
 
-and later, when it has its own repository, `uv add agent-gateway @ git+…`. A
+and later, when it has its own repository, `uv add agent-runner @ git+…`. A
 consumer that is itself Python calls `run()` directly and never starts the
 service; the pipe protocol is for a host in another language, which is what
 REX is. `README.md` in the package shows both.
@@ -292,7 +305,7 @@ types — and §12's second toolchain.
 ## 4. The transport
 
 One child, one pipe each way, one JSON object per line. Main spawns
-`python -m agent_gateway` once, at app start, and keeps it for the app's
+`python -m agent_runner` once, at app start, and keeps it for the app's
 lifetime. Every message is a UTF-8 line ending in `\n`; a message never
 contains a raw newline.
 
@@ -301,7 +314,7 @@ startup `service.py` duplicates fd 1 for its own writer and rebinds
 `sys.stdout` to `sys.stderr`, so a stray `print()` in an SDK or a LangChain
 deprecation notice lands in `rex.log` and never in the stream — the same
 trick every MCP stdio server plays. Every process the library spawns itself
-(spec 45's `opencode serve`) is given pipes that the launcher drains into
+(spec 47's `opencode serve`) is given pipes that the launcher drains into
 `stderr`; the CLIs the SDKs spawn read their own pipes and never see fd 1. A
 line on fd 1 that is not valid JSON is therefore a bug in the service, and it
 kills the child with the offending line in `rex.log` (§4.1).
@@ -324,9 +337,9 @@ what that reason recommends.
 
 ### 4.1 Lifecycle, in `service.ts`
 
-1. **Locate the interpreter.** In development, `agent-gateway/.venv/bin/python`;
+1. **Locate the interpreter.** In development, `agent-runner/.venv/bin/python`;
    if it is missing, refuse with one sentence — "Run `uv sync` in
-   `agent-gateway/`" — before any window opens an agent control. In a packaged
+   `agent-runner/`" — before any window opens an agent control. In a packaged
    app, `Resources/python/bin/python` (§14, later). Never `python` from `PATH`:
    a Mac app started from the Dock has a stunted `PATH`, which is why Vex
    carries `system-path.ts`.
@@ -393,8 +406,8 @@ The models in `protocol.py` are the source of truth. A script exports their
 JSON Schema and generates `src/shared/agent-protocol.ts`, which is committed:
 
 ```bash
-uv run python -m agent_gateway.protocol --schema > agent-gateway/schema.json
-npx json-schema-to-typescript agent-gateway/schema.json > src/shared/agent-protocol.ts
+uv run python -m agent_runner.protocol --schema > agent-runner/schema.json
+npx json-schema-to-typescript agent-runner/schema.json > src/shared/agent-protocol.ts
 ```
 
 `test/protocol.spec.ts` regenerates into a temporary file and fails if it
@@ -433,7 +446,7 @@ GatewayKind = Literal["original", "litellm", "envoy", "custom"]
 AgentAuth = Literal["inherit", "none", "environment"]
 ```
 
-**All four SDK names exist from this spec on**, so that specs 44 to 46 add an
+**All four SDK names exist from this spec on**, so that specs 44, 47 and 48 add an
 adapter and change no type. `list_sdks()` (§10) returns only the SDKs that have
 an adapter, which after this spec is one. A `run` naming an SDK with no adapter
 gets a `result` with `error: "No adapter for 'codex'"` before anything spawns.
@@ -591,7 +604,7 @@ class AgentAdapter(Protocol):
 `stop` is an `asyncio.Event` the service sets when a `stop` message arrives
 for that `run_id`; each adapter turns it into its SDK's own cancellation.
 `run.py` holds one map from `AgentSdk` to adapter. Adding an adapter is one
-entry in that map and one directory under `adapters/`, and specs 44 to 46 each
+entry in that map and one directory under `adapters/`, and specs 44, 47 and 48 each
 say so.
 
 ---
@@ -704,7 +717,7 @@ and `NotebookEdit`, `edit` becomes `Edit`.
 >   the SDK's `disallowed_tools` and the write-tool denials are the whole read
 >   guarantee. Denying unmapped names here would change behaviour, and this
 >   spec changes none.
-> - **For every later SDK, REX's policy denies `None`.** Specs 44 to 46 each
+> - **For every later SDK, REX's policy denies `None`.** Specs 44, 47 and 48 each
 >   bring a closed mapping, and an unmapped name is a visible refusal with a
 >   name in it, not a silent hole. The fall-through direction is the whole
 >   difference between a gate and a decoration.
@@ -892,7 +905,7 @@ src/shared/
 ```
 
 `runner.ts` and `capabilities.ts` are deleted; their contents live in
-`agent-gateway/src/agent_gateway/adapters/claude/`.
+`agent-runner/src/agent_runner/adapters/claude/`.
 
 `bridge.ts` exports `runAgent(input)` with **today's** `AgentRunInput` shape —
 `cwd`, `profile`, `prompt`, `sessionId`, `resume`, `model`, `style`,
@@ -916,10 +929,10 @@ change it needs to make here.
 
 ## 12. Development and tooling
 
-- **Python 3.12**, pinned in `agent-gateway/.python-version`. The machine has
+- **Python 3.12**, pinned in `agent-runner/.python-version`. The machine has
   3.14.5 on `PATH` and `uv` 0.11.15; 3.14 is too new for some wheels, and `uv`
   installs 3.12 itself.
-- **`uv sync` once**, in `agent-gateway/`. `npm run dev` spawns `.venv/bin/python`
+- **`uv sync` once**, in `agent-runner/`. `npm run dev` spawns `.venv/bin/python`
   and refuses with the `uv sync` sentence if it is missing (§4.1).
 - **Two test runners, one command each.** `uv run pytest` in the package;
   `node --test` for `test/service.spec.ts` (the TypeScript client, driven
@@ -931,8 +944,8 @@ change it needs to make here.
   `ruff.toml` and `pyrightconfig.json` exist — the same gate it applies to
   `biome.jsonc`. Both files come from `mac-setup`'s templates, as Vex's did;
   on a machine without `mac-setup`, copy Vex's own two files from its root.
-- **`.gitignore`** gains `agent-gateway/.venv/`, `__pycache__/` and
-  `agent-gateway/schema.json`'s sibling build output, if any. `schema.json`,
+- **`.gitignore`** gains `agent-runner/.venv/`, `__pycache__/` and
+  `agent-runner/schema.json`'s sibling build output, if any. `schema.json`,
   `catalogue.json` and the generated `agent-protocol.ts` are **committed**,
   because the drift test compares against them.
 - **Debugging.** The child's `stderr` is in `rex.log` under `agent-service`.
@@ -943,7 +956,7 @@ change it needs to make here.
 
 ## 13. Acceptance criteria
 
-1. `agent-gateway/` imports nothing of REX and nothing outside its declared
+1. `agent-runner/` imports nothing of REX and nothing outside its declared
    dependencies; `test_boundary.py` fails if that changes. It contains no HTTP
    server, no NATS client and no socket listener.
 2. REX imports no agent SDK. `grep -rn "claude-agent-sdk" src/ package.json`
@@ -990,8 +1003,8 @@ change it needs to make here.
 
 - **Any gateway with a URL.** The child environment, the three model slots,
   the session-per-gateway rule and the message evidence are spec 43.
-- **Any adapter but Claude.** Codex, OpenCode and Deep Agents are specs 44, 45
-  and 46, one each.
+- **Any adapter but Claude.** Codex, OpenCode and Deep Agents are specs 44, 47
+  and 48, one each.
 - **Any change on screen.** No new control, no new sheet, no new foot line.
 - **Bundling a Python runtime into a packaged app.** REX is not packaged today.
   When it is, Vex's `electron-app/scripts/bundle-python.mjs` is the model:
@@ -1071,7 +1084,7 @@ From `code.claude.com/docs/en/agent-sdk/python` and Vex's use of it:
   `runner.ts` before it is deleted: add a temporary `REX_RECORD_SDK=<file>`
   switch to `runner.ts` that appends every `SDKMessage` as one JSON line, run
   one ASK with a tool call, one with a denial, one stopped mid-turn and one
-  that errors, commit the four files under `agent-gateway/tests/fixtures/`,
+  that errors, commit the four files under `agent-runner/tests/fixtures/`,
   and remove the switch with `runner.ts` in milestone 1.
 - The `lsof` output of criterion 3.
 
@@ -1081,7 +1094,7 @@ From `code.claude.com/docs/en/agent-sdk/python` and Vex's use of it:
 
 ### 0 — the package and the pipe
 
-Create `agent-gateway/` with `pyproject.toml`, `.python-version`, `ruff.toml`,
+Create `agent-runner/` with `pyproject.toml`, `.python-version`, `ruff.toml`,
 `pyrightconfig.json`, `protocol.py`, `service.py` and an echo-only `run.py`;
 write `service.ts`; generate `agent-protocol.ts`; update the two rule files
 that say "TypeScript only".
@@ -1115,3 +1128,107 @@ Criterion 17: a scratch `uv` project that adds the package and runs one turn
 by calling `run()`; and criterion 3's `lsof` audit.
 
 *Done when:* the scratch project's turn answers, and the audit is empty.
+
+---
+
+## 17. What the build changed
+
+Written after milestones 0 to 2, on 2026-09-04. Nothing here contradicts §1 to
+§16; each entry is a place where following the spec exactly would have broken
+one of its own acceptance criteria, or a measurement §15.3 asked for.
+
+### 17.1 Four message shapes grew a field
+
+| Shape | Gained | Forced by |
+|:--|:--|:--|
+| `Started` (§7) | `tools: int \| None`, `plugins: list[str]` | §9's "the init log line: resolved model, style, tools, plugins — yes, as the `started` event". The line prints four numbers; the event has to carry four. |
+| `Error` (§7) | `cost_usd`, `duration_ms` | Criterion 10. `runner.ts` put both on the error row when the failure arrived as an unsuccessful `ResultMessage`. Without them a failed run draws no cost — and a failed run's cost is the one most worth seeing. |
+| `Stopped` (§7) | `cost_usd`, `duration_ms` | The same, for `reportStopped()`. |
+| `ready` (§4.2) | `library: str`, `sdks: dict[str, str]` | The debug report's version line read the npm manifest for `agent-sdk <version>`. After this spec no such manifest exists, so the number has to come from the interpreter that actually imported the SDK. |
+
+### 17.2 `session_exists` answers with a shape, not a boolean
+
+§4.2 gives the reply an `exists` field and §6.1 gives the adapter
+`session_exists(...) -> bool`. Both became `SessionState` — `exists`, plus the
+SDK's `summary` and `last_modified`, plus the transcript's `path` and `size`.
+
+The reason is spec 13's debug report, which prints the SDK's **record** and the
+**file** on separate lines and says why in its own comment: they can disagree,
+and every way they disagree is a different bug. A record with no file means the
+store moved; a file with no record means §8.5's replay is what will actually
+happen. A boolean collapses both into "resumable: yes", which is what hid them.
+The adapter's method is therefore `session_state`, because a method named
+`_exists` that returns a struct is a lie about itself.
+
+### 17.3 Two test files moved to Python, against criterion 16
+
+Criterion 16 asks that every existing test be unchanged. §11 deletes
+`runner.ts` and `capabilities.ts`. Two test files import from them, so the two
+cannot both hold:
+
+- **`test/errors.spec.ts` → `agent-runner/tests/test_errors.py`**, case for
+  case. `classifyError` and `deniedBy` are `errors.py` now.
+- **`test/models.spec.ts`** keeps its settings and migration tests, changes one
+  import to `bridge.ts`, and gains an `after()` that quits the child. Its
+  `nameModels` block moved to `agent-runner/tests/test_models.py`.
+
+One assertion changed deliberately. The version-gate hint (§9.2) said *"npm
+install @anthropic-ai/claude-agent-sdk@latest"*, and after this spec that
+package is installed nowhere. It now says `uv add claude-agent-sdk@latest` in
+`agent-runner/`. Naming a dependency that is not there is precisely the class
+of false diagnosis `EXECUTABLE_FAILURE` and `MODEL_NEEDS_NEWER_CLI` exist to
+stop — keeping the sentence verbatim would have been keeping it wrong.
+
+Everything else is untouched and green, `test/gate.spec.ts` included.
+
+### 17.4 The TypeScript is generated from the models, not from the schema
+
+§4.3 names `json-schema-to-typescript`, and notes that `CLAUDE.md` makes it a
+confirmation. The reviewer chose the other option on 2026-09-04: a
+`--typescript` flag on `agent_runner.protocol`, about 250 lines in
+`codegen.py`, reading the Pydantic models directly.
+
+It adds no npm dependency, and it gets the two hard parts right by
+construction — a discriminated union stays a union of named interfaces, and
+every field keeps its camelCase alias. `schema.json` is still generated and
+still committed; only the path from it to `.ts` is gone.
+
+Two consequences worth knowing:
+
+- **The catalogue is inlined into `agent-protocol.ts`** as
+  `export const CATALOGUE`. §10 wants the host to preview a route with no round
+  trip, which means the data has to be reachable from the host's own code; a
+  JSON file imported across the package boundary would need a bundler rule, a
+  loader attribute and a path that is right in both a build and a bare
+  `node --test` run. `catalogue.json` still exists beside `schema.json`.
+- **`src/shared/agent-protocol.ts` is excluded from biome**, with
+  `schema.json` and `catalogue.json`. The generator keeps the file inside
+  `lineWidth` itself; a formatter rewrapping a union would fail the drift test
+  for a reason nobody could act on, and would fail again on every biome bump.
+
+### 17.5 `RunRequest` lives in `types.py`
+
+§3.1 implies it belongs with `run()`. It cannot: `adapters/base.py` needs it to
+declare the interface, `run.py` imports the adapter registry, and the registry
+imports the adapters — so `run.py` holding `RunRequest` is an import cycle.
+`types.py` is where the other declarations of §5 already are.
+
+### 17.6 The measurements §15.3 asked for
+
+All against `claude-agent-sdk` 0.2.152 on 2026-09-04, on this machine.
+
+| Question | Answer |
+|:--|:--|
+| Does `get_server_info()` carry `models` and `available_output_styles`? | **Yes, both**, in the CLI's own initialize response. §9.4's `init`-message fallback is not needed and was not built. |
+| Does `settings=json.dumps({"outputStyle": …})` set the style? | **Yes.** Read back from `output_style`: `Explanatory` with the setting, `Busy Lukas` without it. |
+| Does `ClaudeAgentOptions.env` replace or merge? | **Merges.** `subprocess_cli.py:809-813` builds `{**inherited_env, …, **options.env}` (`CLAUDECODE` stripped), and a canary `CLAUDE_CONFIG_DIR` reached the CLI through an `env` naming something else entirely. **Spec 43 §6.2's warning is about the TypeScript binding and does not apply here** — an empty `env` is exactly today's behaviour. |
+| The exact `SdkPluginConfig` shape | `{"type": "local", "path": str}`, as §6 assumed. |
+| Startup, spawn to `ready` | About 480 ms cold, 275 ms on a restart. The capability probe answers in about 1.3 s through the pipe, so §9.4's ten-second budget was left alone. |
+| Criterion 3's `lsof` | The child has **no socket at all**. Electron's only listener is 9334, the debugger, which predates this spec. |
+
+The recorded-SDK-stream fixtures of §15.3's last row were not captured. The
+`REX_RECORD_SDK` switch would have had to be added to `runner.ts` before it was
+deleted, and criterion 10 is covered without it by splitting the path in two:
+`agent-runner/tests/test_events.py` asserts SDK blocks become the right
+`AgentEvent`s, and `test/bridge.spec.ts` asserts each `AgentEvent` becomes the
+row `runner.ts` wrote, field by field.

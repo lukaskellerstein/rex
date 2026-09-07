@@ -4,10 +4,14 @@ import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import { allowGenerationTools } from "./agent/gate.ts";
 import { allowGenerationServer } from "./agent/profiles.ts";
+import { agentService } from "./agent/service.ts";
 import { isAgentMode, userAgent, windowTitle } from "./agentMode.ts";
 import { type CdpStatus, chooseCdpPort, probeCdp } from "./cdp.ts";
 import { closeDatabase, openDatabase } from "./db/database.ts";
+import { keyCipherOf } from "./db/providers.ts";
 import { installDiagnostics } from "./diagnostics.ts";
+import { startBuiltinIfEnabled, stopBuiltin } from "./gateway/lifecycle.ts";
+import { unseal } from "./gateway/secrets.ts";
 import { registerIpc } from "./ipc.ts";
 import { openLogFile, record } from "./log.ts";
 import { generationAvailable } from "./pptx/media.ts";
@@ -145,6 +149,26 @@ void app.whenReady().then(() => {
 
   window = createWindow();
 
+  // Spec 42 §4.1 — the agent library is one child process, started here and
+  // kept for the app's lifetime. Started eagerly and not on the first ASK: a
+  // missing `.venv` is a setup step, and the reviewer should meet the sentence
+  // that names it before they have written a comment, not inside a run they
+  // waited for. Not awaited, for the same reason the CDP probe is not.
+  void agentService()
+    .ready()
+    .catch((error: unknown) => {
+      record("error", "agent-service", error instanceof Error ? error.message : String(error));
+    });
+
+  // Spec 46 §4.1 — "enabled means running". If the switch was left on, the
+  // gateway comes back with the app; if it was left off, nothing happens and
+  // nothing is spent. Not awaited, for the same reason above: 1.6 seconds is
+  // 1.6 seconds the window would spend showing nothing.
+  //
+  // The decryptor is passed in rather than imported by `lifecycle.ts`, so that
+  // the only file in `gateway/` needing `electron` is `secrets.ts` (§7).
+  startBuiltinIfEnabled(db, (providerId) => unseal(keyCipherOf(db, providerId)));
+
   // Not awaited: the window must not wait on a loopback fetch. The report is
   // asked for by a human, minutes later at the earliest.
   void probeCdp(cdpChoice).then((status) => {
@@ -173,5 +197,38 @@ void app.whenReady().then(() => {
  * days. Ctrl+C never leaked one — closing the window did.
  */
 app.on("window-all-closed", () => app.quit());
+
+/**
+ * Spec 42 §4.1 step 6 — the child is asked to end, and the quit waits for it.
+ *
+ * `before-quit` and not `will-quit`, because this is asynchronous and
+ * `will-quit` is the last chance to run anything at all. The quit is deferred
+ * once, the child is given `shutdown` and then five seconds to finish its runs,
+ * and then the quit is let through — whether or not it went cleanly, because a
+ * REX that will not quit is worse than a Python process that had to be killed.
+ */
+let childEnded = false;
+app.on("before-quit", (event) => {
+  if (childEnded) return;
+  event.preventDefault();
+  // Spec 46 §4.3 — **a gateway that outlives REX is a key server nobody is
+  // watching.** It holds every provider key in its process environment, so
+  // killing it here is the security boundary and not tidiness. Both children
+  // are ended together: neither waits on the other, and a proxy that refuses to
+  // die must not keep the agent library alive with it.
+  void Promise.allSettled([
+    agentService()
+      .quit()
+      .catch((error: unknown) => {
+        record("warn", "agent-service", `did not stop cleanly: ${String(error)}`);
+      }),
+    stopBuiltin().catch((error: unknown) => {
+      record("warn", "local-gateway", `did not stop cleanly: ${String(error)}`);
+    }),
+  ]).finally(() => {
+    childEnded = true;
+    app.quit();
+  });
+});
 
 app.on("will-quit", closeDatabase);

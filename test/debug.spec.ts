@@ -38,6 +38,11 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
     mode: null,
     model: null,
     style: null,
+    // Spec 43 §5.3 — the evidence a run leaves. Null here is what a fixture
+    // that was never produced by one honestly is.
+    sdk: null,
+    gatewayName: null,
+    baseUrl: null,
     content: null,
     toolName: null,
     toolInput: null,

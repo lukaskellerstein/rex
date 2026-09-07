@@ -15,9 +15,22 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { extname, join, resolve } from "node:path";
-import type { SdkPluginConfig } from "@anthropic-ai/claude-agent-sdk";
 import { v5 as uuidv5 } from "uuid";
+import type { CommonTool } from "../../shared/agent-protocol.ts";
 import type { Profile } from "../../shared/types.ts";
+
+/**
+ * A plugin directory, as the agent library takes one.
+ *
+ * Spec 42 §6 — plugins are **paths**, opaque across the pipe: REX resolves the
+ * marketplace refs and the adapter wraps each in whatever shape its own SDK
+ * wants. The shape is declared here rather than imported, because after spec 42
+ * nothing in `src/` imports an agent SDK at all.
+ */
+export interface PluginDirectory {
+  type: "local";
+  path: string;
+}
 
 /**
  * SPEC.md §8.1 — one thread, one agent, one session. Deterministic, so the
@@ -30,8 +43,15 @@ export function sessionIdFor(threadId: string): string {
 }
 
 export interface ProfileConfig {
-  /** Removed from the model's context. §8.4 is what actually enforces it. */
-  disallowedTools: string[];
+  /**
+   * Removed from the model's context. §8.4 is what actually enforces it.
+   *
+   * Spec 42 §6 — in the **common** vocabulary, not one SDK's names. `write`
+   * becomes `Write` and `NotebookEdit` inside the Claude adapter, and something
+   * else inside each of specs 44, 47 and 48, so the profile says what a tool does
+   * rather than what one SDK happens to call it.
+   */
+  disallowedTools: CommonTool[];
   /** A runaway guard, not a budget (§8.2). */
   maxTurns: number | undefined;
   plugins: string[];
@@ -70,7 +90,7 @@ const DECK_PLUGINS = {
 
 export const PROFILES: Record<Profile, ProfileConfig> = {
   read: {
-    disallowedTools: ["Write", "Edit", "NotebookEdit"],
+    disallowedTools: ["write", "edit"],
     maxTurns: 30,
     plugins: [...LSP_PLUGINS, ...DECK_PLUGINS.read],
   },
@@ -232,8 +252,8 @@ export function allowGenerationServer(): void {
 }
 
 /** `plugin-name@marketplace-name` → an SDK plugin config, or nothing. */
-export function resolvePluginRefs(refs: string[]): SdkPluginConfig[] {
-  const configs: SdkPluginConfig[] = [];
+export function resolvePluginRefs(refs: string[]): PluginDirectory[] {
+  const configs: PluginDirectory[] = [];
   for (const ref of refs) {
     const at = ref.lastIndexOf("@");
     if (at <= 0) {
@@ -276,7 +296,7 @@ export function pluginsForRepository(
   cwd: string,
   profile: Profile,
   documentPath?: string | null,
-): SdkPluginConfig[] {
+): PluginDirectory[] {
   const wanted = new Set<string>(["lsp-bash@claude-my-marketplace"]);
   for (const { plugin, files } of LANGUAGE_MARKERS) {
     if (files.some((file) => existsSync(join(cwd, file)))) wanted.add(plugin);
