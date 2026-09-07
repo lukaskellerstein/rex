@@ -50,6 +50,15 @@
  * An explicit `--x64` or `--arm64` on the command line still wins, and CI
  * always passes one. `REX_PACKAGE_DRY_RUN=1` prints the arguments it would
  * pass and exits, which is what the test uses.
+ *
+ * **Publishing is always off.** package.json's `homepage` points at GitHub
+ * (the .deb needs one), and from that electron-builder infers a GitHub
+ * publisher; on a push in CI its default `onTagOrDraft` then looks for a
+ * draft release and dies with "GitHub Personal Access Token is not set" —
+ * after the installer was built. Measured on the first run of spec 49's
+ * workflow, 2026-09-07: every pull-request job passed and every push job
+ * failed on that one line. REX's workflow publishes with `gh` itself, so
+ * electron-builder never publishes, unless a `--publish` flag says otherwise.
  */
 
 import { spawnSync } from "node:child_process";
@@ -71,6 +80,9 @@ const ARCH_FLAGS = new Set(["--x64", "--arm64", "--ia32", "--armv7l", "--univers
 const args = process.argv.slice(2);
 if (!args.some((arg) => ARCH_FLAGS.has(arg))) {
   args.push(process.arch === "arm64" ? "--arm64" : "--x64");
+}
+if (!args.some((arg) => arg === "-p" || arg === "--publish" || arg.startsWith("--publish="))) {
+  args.push("--publish", "never");
 }
 
 if (process.env.REX_PACKAGE_DRY_RUN) {
