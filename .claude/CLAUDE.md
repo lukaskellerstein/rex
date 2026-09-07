@@ -91,9 +91,11 @@ variable): skip step 2. State what you'll do and proceed.
   (`identity: null`); both need an Apple ID and are their own job. **Spec 49 — releases — is
   built, first run pending**: `.github/workflows/release.yml` builds the five
   installers on one runner per architecture and publishes a Release tagged
-  `v<version>-<run>` on every push to `main`; pull requests build only. It
-  has never run on GitHub — spec 49 §5 lists the three unknowns the first run
-  settles. Specs 47 and 48 — OpenCode and
+  `v<version>-<run>` on every push to `main`; pull requests run nothing,
+  `workflow_dispatch` builds by hand. First run 2026-09-07: all four runners
+  build, `windows-11-arm` has the MSVC ARM64 toolset, and electron-builder
+  must be told `--publish never` or a push dies after the build on a missing
+  token (spec 49 §5). Specs 47 and 48 — OpenCode and
   Deep Agents — are **proposals**; nothing in them is built. Both were
   **retargeted on 2026-09-07** onto the built-in gateway (47 → v4.0, 48 → v3.0);
   their old target `infra/envoy` on 26334 is gone, and both now wait on one
