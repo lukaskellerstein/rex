@@ -396,8 +396,11 @@ test("the Release workflow builds one installer per runner and publishes only fr
 
 // `bundle-python.mjs` stages the host's CPython, and electron-builder.yml now
 // lists both Windows architectures, so without this default the arm64 VM would
-// also produce an x64 installer with arm64 Python inside.
-test("`npm run package` builds the host's architecture unless told otherwise", async () => {
+// also produce an x64 installer with arm64 Python inside. And publishing is
+// always off: with `homepage` on GitHub, electron-builder infers a publisher
+// and a push in CI dies on a missing token AFTER the build — the first run of
+// spec 49's workflow, 2026-09-07, failed every push job on exactly that.
+test("`npm run package` builds the host's architecture and never publishes", async () => {
   const { execFileSync } = await import("node:child_process");
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
@@ -410,11 +413,16 @@ test("`npm run package` builds the host's architecture unless told otherwise", a
     }).trim();
   const host = process.arch === "arm64" ? "--arm64" : "--x64";
 
-  assert.equal(run("--win", "nsis"), `--win nsis ${host}`);
-  assert.equal(run("--dir"), `--dir ${host}`);
+  assert.equal(run("--win", "nsis"), `--win nsis ${host} --publish never`);
+  assert.equal(run("--dir"), `--dir ${host} --publish never`);
   assert.equal(
     run("--linux", "deb", "rpm", "--x64"),
-    "--linux deb rpm --x64",
-    "an explicit flag wins",
+    "--linux deb rpm --x64 --publish never",
+    "an explicit arch flag wins",
+  );
+  assert.equal(
+    run("--mac", "--arm64", "--publish", "always"),
+    "--mac --arm64 --publish always",
+    "an explicit publish flag wins",
   );
 });
