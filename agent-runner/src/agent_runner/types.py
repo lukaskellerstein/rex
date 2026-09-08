@@ -191,6 +191,21 @@ class RunRequest(Model):
     #: working copies. An adapter whose SDK makes `cwd` writable must therefore
     #: move the child's working directory, not widen the list.
     writable: list[str] = Field(default_factory=list)
+    #: Directories this run may READ, beyond `cwd`. Absolute paths.
+    #:
+    #: Spec 50 §3.2 added it, and it is `writable`'s twin: that field says what
+    #: may CHANGE, this one says what may be SEEN, and an ASK needs the second
+    #: without the first. REX's read prompt names each spec 22 working copy by
+    #: absolute path (`prompts.ts`), and those copies live under `~/.rex/work/`
+    #: — outside `cwd` — so an adapter that scopes reads to `cwd` alone cannot
+    #: open the very document it was asked about. Measured 2026-09-08: it
+    #: answered "not found" about a file that was there.
+    #:
+    #: **Empty does not mean "read anything".** It means there is nothing to
+    #: read beyond `cwd`. An adapter that does not scope reads at all ignores
+    #: this field, and that is not a failure — the field says the intent, and
+    #: what enforces it is the adapter's business (as with `writable`).
+    readable: list[str] = Field(default_factory=list)
     #: A runaway guard, not a budget. None is the SDK's own default.
     max_turns: int | None = None
     #: Spec 45 §6 — which REX comment thread is spending this, for the gateway.

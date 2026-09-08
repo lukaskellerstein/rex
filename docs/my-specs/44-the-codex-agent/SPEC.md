@@ -1,5 +1,7 @@
 # REX 44 — the Codex agent
 
+**Amended by [spec 50](../50-macos-completely/SPEC.md):** §9.3's platform gate is gone. It made Codex ACT a claim only macOS had earned, and REX is now macOS only, so there is nothing left for it to exclude. `ACT_PROVED` no longer exists.
+
 **Version:** 3.1 · 2026-09-05
 **Status:** **built.** Milestones 0, 1 and 2 all passed on
 2026-09-04; §10.0 records what the SDK actually does, including four places

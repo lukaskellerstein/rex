@@ -12,119 +12,51 @@ description: Project configuration — architecture, paths, dev environment
 - **Project**: REX — a desktop app for commenting on documents and discussing
   each comment with an AI agent (`SPEC.md` §1). Third in the family after
   **VEX** (*Visual EX*) and **DEX**; *Review EX* (`SPEC.md` §1.1).
-- **Status**: **built through spec 45, plus spec 46 milestones 0 to 4.**
+- **Status**: **built through spec 50** — macOS, completely, 2026-09-08.
+  **REX is a macOS app on Apple silicon, and nothing else.** Windows and Linux
+  were built, installed and validated in VMs on 2026-09-07 and removed the next
+  day: two of the three could not run every agent in every mode, and the claim
+  was worth less than the truth. Spec 50 §5 is the record of what those builds
+  measured — the Windows NSIS 7-Zip filter, the cp1252 stdout, the AppImage,
+  the `.deb`'s AppArmor profile, and above all that **there is no cross-build**,
+  because `bundle-python.mjs` installs the host's CPython and then executes it.
+  **All four SDKs are built and every one offers ASK and ACT.** No adapter has a
+  platform arm left. Codex and OpenCode had one until spec 50; Claude and Deep
+  Agents never did.
   `SPEC.md` in these files means `docs/my-specs/01-initial/SPEC.md`; the later
-  specs are `docs/my-specs/NN-*/SPEC.md`, indexed in the README. Spec 46, the
-  built-in gateway, is **in progress** — milestones 0 to 3 are built: the
-  rename, `local-gateway/`, the `builtin` kind, the `enabled` switch, the port,
-  the six providers with discovery, the Settings sheet, the `safeStorage` key
-  store, the traffic log, and milestone 3's code — three kinds only
-  (`original`/`builtin`/`litellm`), `stored` auth, §15's migration and §6's
-  remote model list, and milestone 4's packaging — `scripts/bundle-python.mjs`
-  plus `electron-builder.yml`, proven by launching the built `REX.app` and
-  watching both Python children run from inside it. `npm run package` produces
-  `release/REX-0.1.0-arm64.dmg` (470 MB) from an 806 MB `python-dist/` with
-  `polars` gone — re-run 2026-09-06, exit 0. §15's migration **has run** against
-  `~/.rex/rex.db`: `agent_gateway` holds `rex-original` and `rex-builtin` only,
-  and `setting.gateway.retired` names the two rows it deleted, `Envoy LMS` and
-  `Envoy Unsloth`. **Milestone 3 is complete on 2026-09-06**: `infra/` is
-  deleted, its six containers, three volumes and two networks are gone, three
-  of its four images are removed (`envoyproxy/ai-gateway-cli:latest` stays —
-  `ai-gateway-envoy-envoy-1` from the reviewer's own `ai-gateway` repo still
-  uses it), and spec 45's `gatewayTraces` channel went with it: it opened
-  `infra/observability`'s Grafana, nothing in the renderer called it any more,
-  and spec 46 §4.6's `gatewayTraffic` had replaced it.
-  **Windows arm64: built, installed from the NSIS wizard, and validated on
-  2026-09-07** in the `Windows 11 64-bit Arm` Fusion VM, driven headless over
-  `vmrun` (credentials are Lukas's; ask; UAC is off in that VM). `npm run
-  package` there produces `REX Setup 0.1.0.exe` (401 MB) from a 902 MB
-  `python-dist`; the install lands 16,087 files in ~100 s, and the installed
-  app spawns both children from `resources\python\python.exe` and serves on
-  24334. Three bugs it found, none catchable from macOS, all fixed:
-  (1) `src/main/python.ts` looked for `Scripts\python.exe` — that is a venv's
-  layout; python-build-standalone puts `python.exe` at the root, so
-  `venvLeafFor()` and `bundledLeafFor()` are now separate and
-  `test/localGateway.spec.ts` asserts both per platform; (2) both Python
-  children wrote cp1252 stdout, so LiteLLM's banner raised `UnicodeEncodeError`
-  and the gateway never bound — `PYTHONUTF8=1` + `PYTHONIOENCODING=utf-8` in
-  `gateway/local.ts` and `agent/service.ts`; (3) electron-builder's NSIS
-  installer silently omitted every PE binary and exited 0, because 7-Zip ≥23.01
-  applies its `ARM64` filter to arm64 executables and the bundled `nsis7z`
-  (7-Zip 19.00 SDK) cannot decode it — `scripts/package.mjs` sets
-  `ELECTRON_BUILDER_7Z_FILTER=BCJ2`, which is why `npm run package` must be
-  used and `electron-builder` never called directly. `compression: store` is
-  silently overridden by the differential-update path and `nsis.useZip` fails
-  outright; both measured. Windows build prerequisites:
-  `Microsoft.VisualStudio.Component.VC.Tools.ARM64` (the `VCTools` workload
-  omits it; `winget --force` with it in `--override` is the invocation that
-  applies it), and `bundle-python.mjs` reports 0 MB because `du` is absent.
-  **The installer has an "already installed" page** — `build/installer.nsh`,
-  which electron-builder includes by name, so no YAML key names it. Run the
-  setup on a machine with REX and it offers Reinstall (the default, and the
-  repair — every file replaced, `~/.rex` kept) or Uninstall, which runs the
-  installed uninstaller's own wizard and then closes the setup; a fresh
-  install skips the page. Driven end to end in the VM on 2026-09-07 with
-  SendKeys, both paths. `build/*` is gitignored, so the file is re-included
-  by name and `test/localGateway.spec.ts` asserts both the file and the
-  `.gitignore` line, because a missing file builds a working installer with
-  no page and no error.
-  No universal x64+arm64 installer: electron-builder #6571 is backlog and the
-  combined installer of #5461 is broken, so x64 is a second `arch` on a second,
-  x64 machine. **Linux: built, packaged and validated on 2026-09-07** in
-  `~/Virtual Machines.localized/rex-ubuntu.vmx` (Ubuntu 26.04 LTS arm64,
-  installed by cloud-init autoinstall; guest user `rex`, password in the
-  session that created it, not here; VNC on `127.0.0.1:5934` answers the
-  installer's one prompt). **The AppImage was dropped the same day**: its
-  arm64 launcher wants an unversioned `libz.so` (electron-builder #7835) and
-  Ubuntu 24.04+ blocks Electron's sandbox inside one, so REX never started.
-  `.deb` and `.rpm` replace it — x64 in the YAML, `--arm64` on the command
-  line for the VM — and the deb is proven: `apt install ./rex_0.1.0_arm64.deb`
-  put REX in `/opt/REX` with an AppArmor profile, and with Node, npm and uv
-  removed the installed app started both Python children from
-  `/opt/REX/resources/python/bin/python` and LiteLLM answered on 24334 in 5 s.
-  The deb needs `author` and `homepage` in package.json, guarded by a test.
-  Still unproven on Linux: an ASK end to end, and installing the `.rpm` (built,
-  not installed — no Fedora machine here). No cross-build exists — `bundle-python.mjs`
-  installs and then *executes* the host's CPython. Signing and notarisation are
-  unconfigured on purpose.
-  **What installing the DMG found, 2026-09-07** — the reason milestone 4 exists
-  as its own milestone. `local-gateway/catalogue.json` was never staged, so a
-  packaged REX listed **no providers at all** and nothing could be added. It is
-  data read from disk at `packageRoot()/catalogue.json` (`gateway/catalogue.ts`),
-  not a Python import, so `bundle-python.mjs` never carried it; and it fails
-  quietly by design, so the only symptom was an empty screen.
-  `electron-builder.yml` now stages it to `Resources/catalogue.json` and
-  `test/localGateway.spec.ts` guards the pair. **Verified from the rebuilt DMG
-  on a throwaway `REX_DB_PATH`**: six providers listed, LM Studio added,
-  discovery returned its models with windows and tool support, one ticked, and
-  `config.yaml` came out with the alias `lmstudio-google-gemma-4-e4b`,
-  `max_input_tokens: 122880` (§4.4 rule 3's reduction from 131072) and
-  `os.environ/REX_PROVIDER_*` rather than any key. Both children ran from
-  inside the bundle and the switch survived a restart. **Still unproven**: an
-  ASK answering end to end from the packaged app — the document frame is
-  sandboxed with scripting off, so the last step needs real mouse input.
-  **Spec 49 — releases — is built and has never run on GitHub**:
-  `.github/workflows/release.yml` builds macOS arm64, Windows x64 and arm64,
-  and Linux x64 `.deb` + `.rpm` on `macos-latest`, `windows-latest`,
-  `windows-11-arm` and `ubuntu-latest`, and a push to `main` publishes them as
-  a Release tagged `v<version>-<run>` with `.github/release-notes.md` as the
-  body; pull requests run nothing (they did on the first day, and only
-  doubled every build), `workflow_dispatch` builds by hand. `scripts/package.mjs`
-  defaults the architecture to the host's, because the YAML lists both
-  Windows architectures, and always passes `--publish never`: package.json's
-  `homepage` makes electron-builder infer a GitHub publisher, and the first
-  push run died after every build on "GitHub Personal Access Token is not
-  set" (PR #13). `REX_PACKAGE_DRY_RUN=1` prints its arguments. The first run
-  answered two of spec 49 §5's unknowns — `windows-11-arm` has the MSVC ARM64
-  toolset and `ubuntu-latest` builds the `.rpm` — and left one: the x64
-  installer on real x64 hardware.
-  Specs 47 and 48 are proposals and nothing in them exists yet, but both were
-  **retargeted on 2026-09-07** (47 to v4.0, 48 to v3.0) onto the built-in
-  gateway: `http://127.0.0.1:24334/v1`, `environment` auth, `REX_GATEWAY_KEY`.
-  Their old target, `infra/envoy` on 26334, no longer exists. Both now share
-  one open measurement — whether LiteLLM passes streaming `tool_calls` through
-  intact — recorded as spec 47 §10.0 and spec 48 §12.4 item 0; take it once and
-  write it in both. The numbers follow the build order.
+  specs are `docs/my-specs/NN-*/SPEC.md`, indexed in the README. In build order:
+  42 the agent library, 43 the local gateway, 44 Codex, 45 watching the gateway,
+  46 the built-in gateway, 47 OpenCode, 48 Deep Agents, 49 releases, 50 macOS.
+- **What spec 50 fixed, and the two lessons in it.** A Deep Agents ASK could not
+  read the document at all — it answered "not found" about a file that was
+  there. REX's ASK prompt names the spec 22 working copy by **absolute** path
+  (`prompts.ts`), the copy lives under `~/.rex/work/`, outside `cwd`, and
+  `for_ask()` built a `virtual_mode=True` backend, which re-roots an absolute
+  path inside itself. `RunRequest.readable` now carries those folders and
+  `for_ask()` speaks real paths with reads scoped to `cwd` plus them.
+  1. **Spec 48's 42 end-to-end checks missed it** because the harness wrote its
+     own prompt, with paths inside `cwd`. A proof that does not use REX's own
+     prompt is not a proof of REX.
+  2. **`FilesystemBackend`'s own methods ignore the permission rules** — called
+     directly it will read `/etc/hosts` under a deny-all rule. The rules are
+     enforced where the tool runs, so a test that calls the backend directly
+     measures nothing at all.
+- **Packaging and releases**: `npm run bundle:python` stages a relocatable
+  CPython 3.12 with both Python packages into `python-dist/`; `npm run package`
+  hands it to `electron-builder` and produces `release/REX-0.1.0-arm64.dmg`.
+  Both outputs are gitignored. `.github/workflows/release.yml` builds that DMG
+  on `macos-latest` for every push to `main` and publishes a Release tagged
+  `v<version>-<run>`; pull requests run nothing. electron-builder must be told
+  `--publish never` or a push dies after the build on a missing token — that is
+  what `scripts/package.mjs` is for, so never call `electron-builder` directly.
+  **`local-gateway/catalogue.json` must be staged**: it is data read from disk
+  at `packageRoot()/catalogue.json`, not a Python import, so `bundle-python.mjs`
+  never carries it, and without it a packaged REX lists **no providers at all**,
+  silently. `electron-builder.yml` stages it and a test guards the pair.
+  Signing and notarisation are deliberately unconfigured.
+- **Still unproven**: an ASK answering end to end from the **packaged** app —
+  the document frame is sandboxed with scripting off, so the last step needs
+  real mouse input.
 - **Architecture**: Electron, two processes (`SPEC.md` §3). The renderer holds
   the document view, the shadow-root overlay and the anchor resolver; the main
   process holds the thread service, the document renderers, the gate and

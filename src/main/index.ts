@@ -3,12 +3,14 @@
 import { join } from "node:path";
 import { app, BrowserWindow, shell } from "electron";
 import { allowGenerationTools } from "./agent/gate.ts";
+import { applyOpenCode, OPENCODE_EXECUTABLE_KEY } from "./agent/opencode.ts";
 import { allowGenerationServer } from "./agent/profiles.ts";
 import { agentService } from "./agent/service.ts";
 import { isAgentMode, userAgent, windowTitle } from "./agentMode.ts";
 import { type CdpStatus, chooseCdpPort, probeCdp } from "./cdp.ts";
 import { closeDatabase, openDatabase } from "./db/database.ts";
 import { keyCipherOf } from "./db/providers.ts";
+import { getSetting } from "./db/settings.ts";
 import { installDiagnostics } from "./diagnostics.ts";
 import { startBuiltinIfEnabled, stopBuiltin } from "./gateway/lifecycle.ts";
 import { unseal } from "./gateway/secrets.ts";
@@ -148,6 +150,14 @@ void app.whenReady().then(() => {
   );
 
   window = createWindow();
+
+  // Spec 47 §2.1 — where `opencode` is, resolved once, into this process's own
+  // environment. **Before the agent library starts**, because the child
+  // inherits it at spawn and re-resolving afterwards would reach a process that
+  // had already read it. The same mechanism spec 46 §7.1 uses for the gateway's
+  // master key, and for the same reason: main is the process that holds the
+  // answer, and the library must not go looking for one.
+  applyOpenCode(() => getSetting(db, OPENCODE_EXECUTABLE_KEY));
 
   // Spec 42 §4.1 — the agent library is one child process, started here and
   // kept for the app's lifetime. Started eagerly and not on the first ASK: a

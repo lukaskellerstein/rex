@@ -31,8 +31,30 @@ def test_the_original_gateway_resolves_to_no_url_and_no_token() -> None:
 
 
 def test_an_sdk_with_no_adapter_is_refused_by_name() -> None:
-    with pytest.raises(RouteError, match="No adapter for 'opencode'"):
-        resolve_route(ORIGINAL_GATEWAY, "opencode", {})
+    """Every declared SDK is built since spec 48, so the example is a made-up one.
+
+    The refusal still matters, and it is the one this test exists for: a fifth
+    name typed into a stored row — by a downgrade, a hand-edited database or a
+    future spec whose adapter is not written yet — is refused **by name**, not
+    somewhere inside an SDK that does not exist.
+    """
+    with pytest.raises(RouteError, match="No adapter for 'not-an-sdk'"):
+        resolve_route(ORIGINAL_GATEWAY, "not-an-sdk", {})  # type: ignore[arg-type]
+
+
+def test_the_sdk_spec_48_built_now_resolves() -> None:
+    """`deep-agents` was this test's refusal example until spec 48 built it."""
+    route = resolve_route(ORIGINAL_GATEWAY, "deep-agents", {})
+    assert route.sdk == "deep-agents"
+    assert route.base_url is None
+    assert route.token is None
+
+
+def test_the_sdk_spec_47_built_now_resolves() -> None:
+    """`opencode` was this test's refusal example until spec 47 built it."""
+    route = resolve_route(ORIGINAL_GATEWAY, "opencode", {})
+    assert route.sdk == "opencode"
+    assert route.base_url is None
 
 
 def test_the_sdk_spec_44_built_now_resolves() -> None:

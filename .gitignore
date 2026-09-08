@@ -33,9 +33,6 @@ build/*
 # 2026-09-07, when a Windows install produced a shortcut nobody would recognise.
 !build/icon.png
 # The Windows installer's "already installed" page (Reinstall or Uninstall).
-# electron-builder includes `build/installer.nsh` by name, so an ignored copy
-# would build fine here and vanish from every clone and every CI runner.
-!build/installer.nsh
 
 # electron-vite / vite
 .vite/

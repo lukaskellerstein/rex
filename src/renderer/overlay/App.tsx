@@ -5007,6 +5007,10 @@ export function App(): React.JSX.Element {
             refreshGateways(await window.rex.gatewayList());
           }}
           onHasEnv={(name) => window.rex.gatewayHasEnv(name)}
+          // Spec 47 §2.1 — app-wide, so it is main that holds it and not this
+          // gateway. The sheet only draws the answer.
+          onOpenCodeStatus={() => window.rex.openCodeStatus()}
+          onOpenCodeExecutable={(override) => window.rex.openCodeExecutable(override)}
           onClose={() => setGatewaysOpen(false)}
         />
       ) : null}

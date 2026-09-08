@@ -42,9 +42,14 @@ uvicorn) is not the one being repeated.
 - **The contract**: Pydantic models in `protocol.py`, camelCase on the wire;
   `src/shared/agent-protocol.ts` is generated from them and never edited by
   hand — `test/protocol.spec.ts` fails when the two drift.
-- **SDKs**: `claude-agent-sdk` 0.2.152 (spec 42), `openai-codex` (44), an own `httpx`
-  client for OpenCode's server (47), `deepagents` with `langchain-openai` and
-  `langchain-anthropic` (48). **Only `agent-runner/` imports an agent SDK.**
+- **SDKs, all four built**: `claude-agent-sdk` 0.2.152 (spec 42), `openai-codex`
+  (44), an own `httpx` client for OpenCode's server (47), and `deepagents`
+  0.7.13 with `langchain-openai` 1.6.0 and `langchain-anthropic` 1.7.1 (48).
+  **Only `agent-runner/` imports an agent SDK**, and `test_boundary.py` goes
+  further: each SDK may be imported only from its own adapter directory, which
+  is what stops the next caller reaching past `AgentAdapter` for one convenient
+  symbol. The LangChain stack is the biggest thing in the package and is pinned
+  to `adapters/deep_agents/` by that same rule.
 - **The gate stays in TypeScript.** The library asks `gate.ts` over the pipe
   before every tool call (spec 42 §8); no answer within thirty seconds is a
   deny.

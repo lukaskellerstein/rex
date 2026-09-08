@@ -19,12 +19,23 @@ def test_only_sdks_with_an_adapter_are_offered() -> None:
     """A choice a host offers must not fail after the reviewer has made it."""
     offered = [sdk.id for sdk in list_sdks()]
     assert offered == [sdk for sdk in ALL_SDKS if sdk in ADAPTERS]
-    assert offered == ["claude-agent", "codex"], "spec 42 built one adapter, spec 44 the second"
+    assert offered == ["claude-agent", "codex", "opencode", "deep-agents"], (
+        "spec 42 built the first adapter, spec 44 the second, spec 47 the third, spec 48 the fourth"
+    )
 
 
-def test_the_declared_vocabulary_is_wider_than_what_is_built() -> None:
-    """Specs 47 and 48 add an adapter and change no type."""
-    assert set(ALL_SDKS) - set(ADAPTERS) == {"opencode", "deep-agents"}
+def test_every_declared_sdk_is_now_built() -> None:
+    """Spec 48 added the last adapter and changed no type, as the three before it did.
+
+    This assertion was `== {"deep-agents"}` from spec 42 until spec 48 landed,
+    and it is now the empty set. The claim the whole seam was built for — four
+    SDKs, one vocabulary, no type moved — has been kept four times out of four.
+
+    **It is still worth asserting.** A fifth SDK widens `AgentSdk` before its
+    adapter exists, and this test is what says so: a name declared and not built
+    must never be offered to a reviewer.
+    """
+    assert set(ALL_SDKS) - set(ADAPTERS) == set()
 
 
 def test_the_second_adapter_added_a_control_and_no_type() -> None:
@@ -38,6 +49,41 @@ def test_the_second_adapter_added_a_control_and_no_type() -> None:
     assert "codex" in CATALOGUE["litellm"].routes
     assert "codex" in CATALOGUE["builtin"].routes
     assert "codex" in CATALOGUE["original"].routes
+
+
+def test_the_third_adapter_added_a_control_and_no_type() -> None:
+    """Spec 47 §8 — the same claim, kept a second time.
+
+    The routes were already there: spec 46's migration wrote the `opencode` row
+    for the built-in gateway before this adapter existed, so turning the SDK on
+    was adding an adapter and touching no gateway at all.
+    """
+    assert "opencode" in CATALOGUE["litellm"].routes
+    assert "opencode" in CATALOGUE["builtin"].routes
+    assert "opencode" in CATALOGUE["original"].routes
+    assert CATALOGUE["builtin"].routes["opencode"].base_url == "{url}/v1"
+    assert CATALOGUE["builtin"].routes["opencode"].auth == "environment"
+
+
+def test_the_fourth_adapter_added_a_control_and_no_type() -> None:
+    """Spec 48 §10 — the same claim, kept a fourth and last time.
+
+    Spec 48 §10 states outright that **spec 46 itself needs no change**, and
+    this is that sentence as a test: the `deep-agents` row of every kind was
+    written before the adapter existed, so turning the SDK on added an adapter
+    and touched no gateway.
+    """
+    assert "deep-agents" in CATALOGUE["litellm"].routes
+    assert "deep-agents" in CATALOGUE["builtin"].routes
+    assert "deep-agents" in CATALOGUE["original"].routes
+    # §4.1 — the OpenAI chat protocol, at the LiteLLM's `/v1`.
+    assert CATALOGUE["builtin"].routes["deep-agents"].base_url == "{url}/v1"
+    assert CATALOGUE["builtin"].routes["deep-agents"].auth == "environment"
+    assert CATALOGUE["builtin"].routes["deep-agents"].credential_env == "REX_GATEWAY_KEY"
+    # §4.2 — `Original` has no URL, so the model id names the provider and the
+    # note says which environment the key comes from.
+    assert CATALOGUE["original"].routes["deep-agents"].base_url is None
+    assert CATALOGUE["original"].routes["deep-agents"].auth == "inherit"
 
 
 def test_spec_43_adds_three_kinds_and_spec_46_adds_the_builtin() -> None:

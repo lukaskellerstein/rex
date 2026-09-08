@@ -24,7 +24,7 @@ import {
   resolveRoute,
   validateGateway,
 } from "../src/main/agent/bridge.ts";
-import type { AgentEvent } from "../src/shared/agent-protocol.ts";
+import type { AgentEvent, AgentSdk } from "../src/shared/agent-protocol.ts";
 import { CATALOGUE } from "../src/shared/agent-protocol.ts";
 
 /** Every draft carries these unless the event says otherwise. */
@@ -333,13 +333,33 @@ test("the Original gateway resolves to no URL and no token", () => {
 });
 
 test("an SDK with no adapter is refused by name", () => {
-  assert.throws(() => resolveRoute(ORIGINAL_GATEWAY, "opencode", {}), /No adapter for 'opencode'/);
+  // Every declared SDK has an adapter since spec 48, so the example is a
+  // made-up name. The refusal is still what this asserts: a fifth name reaching
+  // `resolveRoute` — from a downgrade, a hand-edited row, or a spec whose
+  // adapter is not written yet — is refused BY NAME rather than somewhere
+  // inside an SDK that does not exist.
+  assert.throws(
+    () => resolveRoute(ORIGINAL_GATEWAY, "not-an-sdk" as AgentSdk, {}),
+    /No adapter for 'not-an-sdk'/,
+  );
 });
 
 test("the SDK spec 44 built resolves, on the gateway that was already there", () => {
   const route = resolveRoute(ORIGINAL_GATEWAY, "codex", {});
   assert.equal(route.sdk, "codex");
   assert.equal(route.baseUrl, null);
+});
+
+test("the SDKs specs 47 and 48 built resolve on that same gateway", () => {
+  // Each was this file's refusal example in turn, and each stopped being one
+  // the day its adapter landed. Spec 48 is the last: `ALL_SDKS` is now exactly
+  // the set that has an adapter.
+  for (const sdk of ["opencode", "deep-agents"] as const) {
+    const route = resolveRoute(ORIGINAL_GATEWAY, sdk, {});
+    assert.equal(route.sdk, sdk);
+    assert.equal(route.baseUrl, null);
+    assert.equal(route.token, null);
+  }
 });
 
 test("a credential is read from the environment it was handed", () => {

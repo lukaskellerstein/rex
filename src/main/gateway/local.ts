@@ -193,18 +193,14 @@ export class LocalGateway {
         env: {
           ...process.env,
           PYTHONUNBUFFERED: "1",
-          // **Windows, or the gateway does not start at all.** Python's stdout
-          // defaults to the console code page there — cp1252 on this machine —
-          // and LiteLLM prints an ASCII-art banner through `click.echo` before
-          // it binds. The banner is not cp1252-encodable, so `show_banner`
-          // raises `UnicodeEncodeError`, uvicorn reports "Application startup
-          // failed", the child exits 3, and REX walks all ten ports finding
-          // nothing. Measured 2026-09-07 on the first Windows build.
-          //
-          // UTF-8 mode is the fix rather than swallowing the error: REX reads
-          // this child's stdout as UTF-8 (`setEncoding("utf8")` below), so the
-          // two ends now agree instead of agreeing only where the OS default
-          // happens to be UTF-8.
+          // **UTF-8 is stated, not inherited.** REX reads this child's stdout
+          // as UTF-8 (`setEncoding("utf8")` below), so the child's encoding has
+          // to be a decision. It is macOS's default today, and the cost of
+          // leaving it to the locale was measured on the Windows build REX no
+          // longer ships: stdout was cp1252, LiteLLM prints an ASCII-art banner
+          // through `click.echo` before it binds, `show_banner` raised
+          // `UnicodeEncodeError`, the child exited 3, and REX walked all ten
+          // ports finding nothing.
           PYTHONUTF8: "1",
           PYTHONIOENCODING: "utf-8",
           // §4.3 — the environment, never a file and never an argument. An
@@ -363,12 +359,11 @@ export async function owns(port: number, masterKey: string): Promise<boolean> {
 /**
  * The pid holding this port, or null when nothing does.
  *
- * `lsof` because there is no portable Node call for it. A failure — no `lsof`,
- * no permission, Windows — returns null, and `startedOn` then falls back to the
- * key alone rather than refusing to start at all.
+ * `lsof` because there is no Node call for it. A failure — no `lsof`, no
+ * permission — returns null, and `startedOn` then falls back to the key alone
+ * rather than refusing to start at all.
  */
 export function listeningPid(port: number): number | null {
-  if (process.platform === "win32") return null;
   try {
     const out = execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], {
       encoding: "utf8",
@@ -395,8 +390,8 @@ export function listeningPid(port: number): number | null {
  * that knows no models. Together they close both, and that is the difference
  * between §4.2's rule holding and being hoped for.
  *
- * Where the pid cannot be read — Windows, no `lsof`, no permission — the key
- * check stands alone and this says so in the log rather than silently weakening.
+ * Where the pid cannot be read — no `lsof`, no permission — the key check
+ * stands alone and this says so in the log rather than silently weakening.
  */
 export async function startedOn(
   port: number,
@@ -450,11 +445,6 @@ function isOurs(pid: number): boolean {
     process.kill(pid, 0);
   } catch {
     return false; // gone
-  }
-  if (process.platform === "win32") {
-    // No `ps`. A Windows equivalent belongs with the rest of the Windows work
-    // (§18.1 item 4); until then REX declines to kill on a pid alone.
-    return false;
   }
   try {
     const line = execFileSync("ps", ["-o", "command=", "-p", String(pid)], { encoding: "utf8" });

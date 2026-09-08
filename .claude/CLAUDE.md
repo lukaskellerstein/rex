@@ -41,67 +41,62 @@ variable): skip step 2. State what you'll do and proceed.
   comment with an AI agent. Select text → write a comment → **Ask** → one agent
   answers that one comment → keep chatting in the thread → **Apply** lets a
   second, write-capable agent make the change. `SPEC.md` §1.
-- **Status**: **built through spec 45, plus spec 46 milestones 0 to 4.** The
-  specs are the authority. `SPEC.md` in these files means
+- **Status**: **built through spec 50** — macOS, completely, 2026-09-08.
+  **REX is a macOS app on Apple silicon.** Windows and Linux were built,
+  installed and validated in VMs on 2026-09-07 and removed on 2026-09-08:
+  REX claimed three operating systems while two could not run every agent in
+  every mode, and one platform that is true beats three with footnotes. What
+  those builds measured is in spec 50 §5 — read it before anyone proposes
+  bringing them back, especially "there is no cross-build".
+  **All four agent SDKs are built, and every one offers ASK and ACT.** There is
+  no platform arm left in any adapter. `ALL_SDKS` and `ADAPTERS` are the same
+  set and the agent control has its four rows.
+  The specs are the authority. `SPEC.md` in these files means
   `docs/my-specs/01-initial/SPEC.md`; every later decision is a numbered spec
   under `docs/my-specs/NN-*/SPEC.md`, and the README's spec table indexes them.
-  Specs 42 to 45 — the agent library, the local gateway, the Codex agent and
-  watching the gateway — are **built**. Spec 46 — the built-in gateway — is
-  **in progress**: milestones 0 to 3 are built — the rename, `local-gateway/`,
-  the `builtin` kind, the switch, the port, the six providers, the Settings
-  screen, the encrypted key store, the traffic log, and milestone 3's code
-  (three kinds only, `stored` auth, §15's migration, §6's remote model list).
-  §15's migration **has run** against `~/.rex/rex.db` — verified 2026-09-06:
-  `agent_gateway` holds only `rex-original` and `rex-builtin`, its `CHECK`
-  lists three kinds, and `setting.gateway.retired` records the two rows it
-  deleted, `Envoy LMS` and `Envoy Unsloth`. **Milestone 3 is complete**:
-  `infra/` is deleted, its six containers, three volumes and two networks are
-  gone, and the dead spec 45 `gatewayTraces` channel that opened its Grafana
-  went with it. Milestone 4 is built
-  for macOS — `npm run bundle:python` stages a relocatable CPython with both
-  packages, `npm run package` makes a DMG, and installing that DMG on 2026-09-07
-  found and fixed the bug it exists to find: `local-gateway/catalogue.json` was
-  never staged, so a packaged REX listed **no providers**. It is now in
-  `electron-builder.yml`'s `extraResources` with a test guarding it.
-  **Windows arm64 is built, installed and validated — 2026-09-07, in the
-  `Windows 11 64-bit Arm` VMware Fusion VM, driven headless with `vmrun`**
-  (credentials are Lukas's; ask). Three real bugs found there, none catchable
-  from macOS: `python.ts` looked for `Scripts\python.exe` where the standalone
-  runtime keeps `python.exe` at its root; both Python children wrote cp1252
-  stdout, which killed LiteLLM's banner before it bound; and electron-builder's
-  NSIS installer **silently dropped every PE binary** because 7-Zip's `ARM64`
-  filter is undecodable by the bundled `nsis7z` (7-Zip 19.00 SDK). That last
-  one is fixed by `scripts/package.mjs` setting `ELECTRON_BUILDER_7Z_FILTER=BCJ2`
-  — **never run `electron-builder` directly for Windows, use `npm run package`.**
-  Windows prerequisites: `Microsoft.VisualStudio.Component.VC.Tools.ARM64` named
-  explicitly (the `VCTools` workload omits it), and `bundle-python.mjs` reports
-  0 MB there because `du` is absent. The installer's "already installed" page
-  — Reinstall or Uninstall — is `build/installer.nsh`, included by name and
-  guarded by a test, because `build/*` is gitignored and a missing include
-  builds fine with no page. No universal x64+arm64 installer exists
-  (electron-builder #6571 backlog, #5461 broken): x64 is a second `arch` and a
-  second, x64 build machine. **Linux is validated — 2026-09-07, Ubuntu 26.04
-  arm64 in `rex-ubuntu.vmx`**: the `.deb` installs to `/opt/REX` and the
-  installed app ran both Python children with Node and uv removed. The
-  AppImage was dropped that day — its arm64 launcher does not start
-  (electron-builder #7835) and Ubuntu 24.04+ blocks Electron's sandbox inside
-  one — so Linux ships `.deb` and `.rpm`. No cross-build
-  exists: `bundle-python.mjs` installs and then *executes* the host's CPython.
-  Signing and notarisation are deliberately unconfigured
-  (`identity: null`); both need an Apple ID and are their own job. **Spec 49 — releases — is
-  built, first run pending**: `.github/workflows/release.yml` builds the five
-  installers on one runner per architecture and publishes a Release tagged
-  `v<version>-<run>` on every push to `main`; pull requests run nothing,
-  `workflow_dispatch` builds by hand. First run 2026-09-07: all four runners
-  build, `windows-11-arm` has the MSVC ARM64 toolset, and electron-builder
-  must be told `--publish never` or a push dies after the build on a missing
-  token (spec 49 §5). Specs 47 and 48 — OpenCode and
-  Deep Agents — are **proposals**; nothing in them is built. Both were
-  **retargeted on 2026-09-07** onto the built-in gateway (47 → v4.0, 48 → v3.0);
-  their old target `infra/envoy` on 26334 is gone, and both now wait on one
-  shared measurement — does LiteLLM pass streaming `tool_calls` through intact
-  (spec 47 §10.0, spec 48 §12.4 item 0). The numbers follow the build
-  order, which is why they were renumbered on 2026-09-06.
+  In order: 42 the agent library, 43 the local gateway, 44 Codex, 45 watching
+  the gateway, 46 the built-in gateway, 47 OpenCode, 48 Deep Agents, 49
+  releases, 50 macOS.
+  - **Spec 46 — the built-in gateway** — is built through milestone 4: REX's own
+    LiteLLM on `127.0.0.1:24334`, six providers with discovery, the Settings
+    screen, the encrypted key store, the traffic log, §15's migration (which has
+    run against `~/.rex/rex.db`), and packaging. `npm run bundle:python` stages
+    a relocatable CPython with both Python packages; `npm run package` makes the
+    DMG. Installing that DMG is what found the bug it exists to find:
+    `local-gateway/catalogue.json` was never staged, so a packaged REX listed
+    **no providers**, silently. It is in `electron-builder.yml`'s
+    `extraResources` now, with a test guarding it.
+  - **Spec 47 — OpenCode** — is built, ASK and ACT. It is the one adapter that
+    owns a process beyond its pipe: `opencode serve`, leased per run. §7.4's
+    boundary is a **seatbelt** around that server, so a shell command aimed
+    outside `RunRequest.writable` gets `operation not permitted` — and ASK runs
+    inside it too. Two measurements bite hardest: a `write` tool call asks
+    permission under the name **`edit`**, so a ruleset denying `write` stops
+    nothing; and OpenCode **echoes the reviewer's own prompt back as a `text`
+    part**, so without a `messageID → role` map the question is stored as the
+    answer and the run looks entirely successful.
+  - **Spec 48 — Deep Agents** — is built, ASK and ACT. It is odd in the opposite
+    direction: a LangGraph graph **inside the service's own interpreter** — no
+    child, no CLI, no sandbox — so spec 42 §3.4's process boundary is the only
+    one there is. Its ACT boundary is the SDK's rules **plus a second check**,
+    because the SDK's matcher is textual: a symlink inside a writable directory
+    matched `<writable>/**` and the write reached the real file. The second
+    check resolves both sides with `Path.resolve()`.
+    **Spec 50 fixed its ASK**, which could not read the document at all: REX's
+    prompt names the working copy by absolute path, the copy lives outside
+    `cwd`, and the backend was `virtual_mode=True`, which re-roots an absolute
+    path inside itself. `RunRequest.readable` now carries those folders and
+    `for_ask()` speaks real paths. Two things to carry from it: **42 green
+    end-to-end checks missed it**, because the harness wrote its own prompt
+    instead of REX's; and **`FilesystemBackend`'s own methods ignore the
+    permission rules**, so a test that calls the backend directly measures
+    nothing.
+  - **Spec 49 — releases** — builds the DMG on `macos-latest` for every push to
+    `main` and publishes a Release tagged `v<version>-<run>`. Pull requests run
+    nothing. electron-builder must be told `--publish never` or a push dies
+    after the build on a missing token, which is why `npm run package` exists.
+  - Signing and notarisation are deliberately unconfigured (`identity: null`);
+    both need an Apple ID and are their own job.
 - **Milestone 0 passed.** `test/anchor.spec.ts` is the anchor spike, kept as
   the regression net for the one component that fails silently.
 - **Stack**: TypeScript for the app — Electron + React + `electron-vite`,
@@ -110,6 +105,16 @@ variable): skip step 2. State what you'll do and proceed.
   - `agent-runner/` (spec 42; called `agent-gateway/` until spec 46 §9 renamed
     it on 2026-09-06) — every agent SDK, run as one child of the main process
     and spoken to over stdin and stdout, one JSON line per message. No port.
+    **All four adapters since 2026-09-08**: `claude`, `codex`, `opencode` and
+    `deep_agents`. Two are odd in opposite directions. OpenCode has no Python
+    SDK, so `adapters/opencode/` carries REX's own `httpx` client and starts an
+    `opencode serve` child of its own — the ONE process this package owns beyond
+    a pipe, leased per run rather than cached. Deep Agents has no child at all:
+    it is a LangGraph graph in this interpreter, so the whole LangChain stack
+    lives in `adapters/deep_agents/` and there is no process between the model
+    client and the pipe. `test_boundary.py` pins `httpx` to the first directory
+    and `deepagents`/`langchain*`/`langgraph` to the second, by the same rule
+    that pins each SDK to its own adapter.
   - `local-gateway/` (spec 46) — REX's own LiteLLM, serving inference on one
     loopback port. It is a separate package precisely because `agent-runner/`
     may hold no HTTP server and `litellm[proxy]` is one.

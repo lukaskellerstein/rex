@@ -25,7 +25,6 @@ replacing it, and the item type the spec calls `todoList` is `plan`.
 import asyncio
 import contextlib
 import os
-import sys
 import traceback
 from pathlib import Path
 from typing import Any
@@ -122,19 +121,6 @@ def rex_codex_home() -> Path:
 #: gateway recipes use for the local models on this machine, on both the
 #: Anthropic and the Responses surface.
 ROUTED_CONTEXT_WINDOW = 122880
-
-#: The platforms REX has actually proved the §9.3 write boundary on.
-#:
-#: Codex's sandbox is a different mechanism on each operating system — seatbelt,
-#: landlock, and a Windows sandbox — so a proof on one is not a proof on
-#: another. §9.3 makes ACT a gate rather than a feature flag: a platform without
-#: the proof advertises Codex ASK and not ACT, and Claude ACT is unaffected.
-#:
-#: Proved on macOS 2026-09-04: with `cwd` set to one working copy and a second
-#: named in `writable_roots`, a run that was told to append to all three targets
-#: read the repository, wrote both working copies, and got `operation not
-#: permitted` on the repository. §10 records it.
-ACT_PROVED = frozenset({"darwin"})
 
 
 class CodexAdapter:
@@ -524,7 +510,6 @@ class CodexAdapter:
         """
         _ = cwd
         refusal = self.validate(route)
-        act = sys.platform in ACT_PROVED
         return RouteCapabilities(
             models=[
                 ModelChoice(
@@ -541,18 +526,16 @@ class CodexAdapter:
             # §8 — a Codex turn reports tokens and no dollar cost.
             supports_cost=False,
             supports_ask=refusal is None,
-            supports_act=refusal is None and act,
+            # §9.3 was a platform gate: Codex's sandbox is a different mechanism
+            # on each operating system, so a proof on macOS was not a proof
+            # elsewhere and ACT was offered on macOS alone. Spec 50 made macOS
+            # the only platform, so the gate has nothing left to exclude.
+            # Proved 2026-09-04: with `cwd` at one working copy and a second in
+            # `writable_roots`, a run told to append to all three targets wrote
+            # both copies and got `operation not permitted` on the repository.
+            supports_act=refusal is None,
             supports_resume=True,
-            error=refusal
-            or (
-                None
-                if act
-                else (
-                    f"Codex can answer on {sys.platform} but cannot make changes: REX has only "
-                    "proved the write boundary on macOS, and Codex's sandbox is a different "
-                    "mechanism on each platform. Claude ACT is unaffected."
-                )
-            ),
+            error=refusal,
         )
 
     async def session_state(self, route: ResolvedRoute, cwd: str, session_id: str) -> SessionState:
@@ -607,4 +590,4 @@ async def _quietly_interrupt(turn: Any) -> None:
         await turn.interrupt()
 
 
-__all__ = ["ACT_PROVED", "CodexAdapter", "rex_codex_home"]
+__all__ = ["CodexAdapter", "rex_codex_home"]

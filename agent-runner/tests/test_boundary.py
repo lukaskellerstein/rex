@@ -15,13 +15,53 @@ from pathlib import Path
 PACKAGE = Path(__file__).resolve().parent.parent / "src" / "agent_runner"
 
 #: Everything the package is allowed to import from outside itself.
-DECLARED = {"claude_agent_sdk", "openai_codex", "pydantic"}
+#:
+#: `httpx` arrived with spec 47 and is the only dependency that adapter adds
+#: (§9, criterion 15). OpenCode publishes no usable Python SDK, so REX's client
+#: IS the binding — which makes an HTTP library a dependency here in a way it is
+#: not for the two adapters whose SDK spawns a CLI.
+#:
+#: The five LangChain names arrived with spec 48. `deepagents`,
+#: `langchain_openai` and `langchain_anthropic` are the three that spec §3 names
+#: and `uv add` installed; `langchain` and `langgraph` come with them and are
+#: imported directly for `AgentMiddleware`, `ToolMessage` and `InMemorySaver`,
+#: which §3's own table says is what they are for.
+DECLARED = {
+    "claude_agent_sdk",
+    "deepagents",
+    "httpx",
+    "langchain",
+    "langchain_anthropic",
+    "langchain_core",
+    "langchain_openai",
+    "langgraph",
+    "openai_codex",
+    "pydantic",
+}
 
 #: Spec 42 §2 rule 2 — each SDK is reachable from its own adapter and nowhere
 #: else. The directory each module may be imported from, by module root.
+#:
+#: `httpx` is in the table for the same reason the three SDKs are, even though it
+#: is a library rather than an SDK: spec 47 §9 makes it that adapter's own, and
+#: the moment a second module reaches for it the "no HTTP client outside the one
+#: adapter that needs one" rule has quietly stopped being true. `verify.py` says
+#: so in its own words and uses `urllib` on purpose.
 SDK_HOMES = {
     "claude_agent_sdk": "adapters/claude",
     "openai_codex": "adapters/codex",
+    "httpx": "adapters/opencode",
+    # Spec 48 §11 — the whole LangChain stack belongs to one adapter. It is the
+    # biggest dependency in the package by far, and the rule that keeps it from
+    # spreading is the same rule that keeps the three SDKs where they are: a
+    # `ChatOpenAI` imported by `verify.py` for one convenient probe would make
+    # every future caller's shortest path go through LangChain.
+    "deepagents": "adapters/deep_agents",
+    "langchain": "adapters/deep_agents",
+    "langchain_anthropic": "adapters/deep_agents",
+    "langchain_core": "adapters/deep_agents",
+    "langchain_openai": "adapters/deep_agents",
+    "langgraph": "adapters/deep_agents",
 }
 
 #: Names that would mean the library had grown the shape spec 01 §12 rejected.

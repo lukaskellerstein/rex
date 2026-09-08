@@ -30,6 +30,7 @@ from uuid import uuid4
 from pydantic import TypeAdapter, ValidationError
 
 from .adapters import ADAPTERS
+from .adapters.opencode.server import REGISTRY as OPENCODE_SERVERS
 from .describe import list_kinds, list_sdks
 from .events import AgentEvent, RunResult
 from .policy import ToolCall
@@ -298,13 +299,17 @@ class Service:
         for pending in list(self._policies.values()):
             if not pending.done():
                 pending.set_result("The agent library is shutting down.")
-        if not self._tasks:
-            return
-        with contextlib.suppress(TimeoutError):
-            await asyncio.wait_for(
-                asyncio.gather(*self._tasks, return_exceptions=True),
-                SHUTDOWN_GRACE_SECONDS,
-            )
+        if self._tasks:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    asyncio.gather(*self._tasks, return_exceptions=True),
+                    SHUTDOWN_GRACE_SECONDS,
+                )
+        # Spec 47 §5.1 and criterion 4 — the OpenCode servers are the one thing
+        # the library owns that outlives a run, so they are the one thing that
+        # has to be closed by name. After the runs, so a server is not killed
+        # out from under a turn that is still finishing.
+        await OPENCODE_SERVERS.close()
 
 
 async def _stdin_reader() -> asyncio.StreamReader:

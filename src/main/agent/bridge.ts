@@ -124,6 +124,17 @@ export interface AgentRunInput {
    * the caller.
    */
   writable?: string[];
+  /**
+   * Spec 50 §3.2 — directories this run may READ, beyond `cwd`.
+   *
+   * `writable`'s twin, and the ASK half of the same idea: REX's read prompt
+   * names each spec 22 working copy by absolute path, and those copies live
+   * under `~/.rex/work/`, outside the repository. An adapter that scopes reads
+   * to `cwd` alone cannot open the document the prompt just named — which is
+   * exactly what a Deep Agents ASK did, answering "not found" about a file that
+   * was there.
+   */
+  readable?: string[];
   /** Spec 11 §6.4.2 — the document under review, so only a deck pays for the design plugins. */
   documentPath?: string | null;
   onMessage: (draft: MessageDraft) => void;
@@ -514,6 +525,7 @@ function requestFor(input: AgentRunInput, runId: string): RunMessage {
     // answer is a subprocess spent on nothing.
     plugins: input.plugins ?? (pluginsSupported(route.sdk) ? resolvePlugins(input) : []),
     writable: input.writable ?? [],
+    readable: input.readable ?? [],
     maxTurns: config.maxTurns ?? null,
     // Spec 45 §6 — who is spending this, for the gateway's dashboards. Ids
     // only: a header lands in a span and a span is stored for months, so no

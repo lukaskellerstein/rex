@@ -1,5 +1,7 @@
 # REX 46 — the built-in gateway
 
+**Amended by [spec 50](../50-macos-completely/SPEC.md):** §13's packaging is macOS only. The Windows and Linux builds this spec describes were made, installed and validated on 2026-09-07 and removed on 2026-09-08; spec 50 §5 keeps what they measured.
+
 **Version:** 1.0 · 2026-09-06
 **Status:** **proposal. Nothing in this spec is built.**
 **Depends on:** [`42-the-agent-library/SPEC.md`](../42-the-agent-library/SPEC.md)
