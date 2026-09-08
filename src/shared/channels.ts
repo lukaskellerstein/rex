@@ -223,6 +223,17 @@ export const COMMAND = {
   /** Whether a named variable is set. **True or false, never the value.** */
   gatewayHasEnv: "gateway:has-env",
   /**
+   * Spec 47 §2.1 — where the `opencode` program is, and the override for it.
+   *
+   * App-wide and **not part of a route**: every OpenCode route must use the same
+   * server version, so a per-gateway override would let two gateways disagree
+   * about which program REX is talking to. A path is not a secret, so unlike a
+   * key this one does come back to the screen — a reviewer who typed a path must
+   * be able to see the one REX resolved.
+   */
+  openCodeStatus: "opencode:status",
+  openCodeExecutable: "opencode:executable",
+  /**
    * Spec 46 §12 — the built-in gateway, its providers and its models.
    *
    * > **No channel returns a secret.** `gateway:secret:set` takes a value and
@@ -606,6 +617,27 @@ export type GatewayVerifyRequest = GatewayTarget;
 // file, and it has no counterpart coming back (§12's warning).
 
 /** §4.1 and §8 — what the Gateways tab draws about REX's own gateway. */
+/**
+ * Spec 47 §2.1 — what REX found when it looked for `opencode`.
+ *
+ * `path` and `version` are both nullable and mean different things. No path is
+ * "REX could not find the program"; a path with no version is "it is there and
+ * would not say what it is", which is a program that is probably not OpenCode.
+ * Collapsing the two into `available: boolean` would hide the second, and the
+ * second is the one a reviewer can act on.
+ */
+export interface OpenCodeStatus {
+  /** The reviewer's override, exactly as they typed it. Empty means auto-detect. */
+  override: string;
+  path: string | null;
+  /** Which of §2.1's three steps answered. */
+  source: "override" | "bundled" | "installed" | "none";
+  /** `opencode --version`, or null when it could not be asked. */
+  version: string | null;
+  /** What to do about it, or null when there is nothing to do. */
+  problem: string | null;
+}
+
 export interface BuiltinState {
   /** The switch, as stored. True even while the child is still starting. */
   enabled: boolean;
@@ -744,10 +776,6 @@ export interface GatewaySecret {
 /** §7.3 — what this machine will actually do with a key, said before it stores one. */
 export interface GatewayStorageHealth {
   available: boolean;
-  /** The Linux backend's own name. Null elsewhere. */
-  backend: string | null;
-  /** True when a key would be saved **without real protection**. */
-  unprotected: boolean;
   warning: string | null;
 }
 
@@ -1167,6 +1195,10 @@ export interface RexApi {
   gatewayDefault(choice: { sdk: AgentSdk; gatewayId: string; model: string | null }): Promise<void>;
   /** Whether a named variable is set. **True or false, never the value.** */
   gatewayHasEnv(name: string): Promise<boolean>;
+  /** Spec 47 §2.1 — the resolved `opencode`, its version, and the override. */
+  openCodeStatus(): Promise<OpenCodeStatus>;
+  /** Sets the override. Empty restores auto-detect. Answers the new status. */
+  openCodeExecutable(override: string): Promise<OpenCodeStatus>;
   // ── Spec 46 §12 — the built-in gateway ────────────────────────
 
   /** On or off, the port it got, whether it is running, and why not. */

@@ -144,6 +144,7 @@ export interface RunRequest {
   disallowed: CommonTool[];
   plugins: string[];
   writable: string[];
+  readable: string[];
   maxTurns: number | null;
   threadId: string;
   profile: string;
@@ -397,6 +398,7 @@ export interface RunMessage {
   disallowed: CommonTool[];
   plugins: string[];
   writable: string[];
+  readable: string[];
   maxTurns: number | null;
   threadId: string;
   profile: string;
@@ -634,6 +636,18 @@ export const CATALOGUE: DescribeResult = {
     {
       "id": "codex",
       "label": "Codex",
+      "supportsPlugins": false,
+      "supportsStyles": false
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "supportsPlugins": false,
+      "supportsStyles": false
+    },
+    {
+      "id": "deep-agents",
+      "label": "Deep Agents",
       "supportsPlugins": false,
       "supportsStyles": false
     }

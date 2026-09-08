@@ -67,6 +67,8 @@ const api: RexApi = {
   gatewayTest: (request) => ipcRenderer.invoke(COMMAND.gatewayTest, request),
   gatewayDefault: (choice) => ipcRenderer.invoke(COMMAND.gatewayDefault, choice),
   gatewayHasEnv: (name) => ipcRenderer.invoke(COMMAND.gatewayHasEnv, name),
+  openCodeStatus: () => ipcRenderer.invoke(COMMAND.openCodeStatus),
+  openCodeExecutable: (override) => ipcRenderer.invoke(COMMAND.openCodeExecutable, override),
   // Spec 46 §12. **There is no `gatewaySecretGet`, and there never will be**:
   // a key goes in and a boolean comes back, so the renderer cannot ask for one
   // even by mistake. Everything exposed here is reachable by document content.

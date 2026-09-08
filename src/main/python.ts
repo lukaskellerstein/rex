@@ -43,35 +43,24 @@ export function bundledInterpreter(): string | null {
 }
 
 /**
- * Where a **venv** keeps its interpreter: `Scripts\python.exe` on Windows,
- * `bin/python` everywhere else.
+ * Where a **venv** keeps its interpreter. The development layout, beside a
+ * `pyproject.toml`.
  *
- * This is the development layout, the one beside a `pyproject.toml`.
+ * Kept as its own function beside `bundledLeafFor` even though the two now
+ * agree, because they answer different questions and once gave different
+ * answers: on Windows a venv put `python.exe` under `Scripts\` while a
+ * python-build-standalone runtime put it at the root, and writing them as one
+ * function meant a packaged REX could not spawn either Python child. Windows is
+ * gone (spec 50), the trap is not — a runtime layout and a venv layout are two
+ * facts, and merging them is how they were confused.
  */
 function venvLeafFor(): string {
-  return process.platform === "win32" ? join("Scripts", "python.exe") : join("bin", "python");
+  return join("bin", "python");
 }
 
-/**
- * Where the **staged runtime** keeps its interpreter — which is NOT the same
- * place, and that difference is the bug spec 46 §18.1 item 4 predicted.
- *
- * A python-build-standalone distribution puts `python.exe` at its ROOT on
- * Windows; `Scripts\` holds pip and its friends and no interpreter at all. On
- * POSIX both layouts agree on `bin/`, which is exactly why macOS could never
- * catch this and why the two were written as one function.
- *
- * **Measured 2026-09-07**, on the first Windows arm64 package ever built:
- * `resources\python\Scripts\python.exe` did not exist, `resources\python\python.exe`
- * did. A packaged Windows REX would have started and then failed to spawn
- * either Python child — the agent library and the gateway both.
- *
- * `scripts/bundle-python.mjs` has always known this: its own existence check
- * uses `python.exe` at the root on Windows. The two files disagreed, which is
- * the failure its comment warns about in so many words.
- */
+/** Where the **staged runtime** keeps its interpreter. See `venvLeafFor`. */
 function bundledLeafFor(): string {
-  return process.platform === "win32" ? "python.exe" : join("bin", "python");
+  return join("bin", "python");
 }
 
 /**

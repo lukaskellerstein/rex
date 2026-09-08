@@ -52,6 +52,7 @@ function runMessage(runId: string, prompt: string): RunMessage {
     session: { mode: "seed", id: "s1" },
     // Spec 44 §9.3 — a read run may change nothing, so it names nothing.
     writable: [],
+    readable: [],
     model: null,
     style: null,
     systemPrompt: "",

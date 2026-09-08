@@ -99,7 +99,12 @@ async def test_describe_answers_the_id_it_was_asked_with(child: Child) -> None:
     assert reply["id"] == "q1"
     assert reply["ok"] is True
     assert reply["value"]["kind"] == "describe"
-    assert [sdk["id"] for sdk in reply["value"]["describe"]["sdks"]] == ["claude-agent", "codex"]
+    assert [sdk["id"] for sdk in reply["value"]["describe"]["sdks"]] == [
+        "claude-agent",
+        "codex",
+        "opencode",
+        "deep-agents",
+    ]
 
 
 async def test_a_run_streams_its_events_and_ends_in_one_result(child: Child) -> None:

@@ -41,6 +41,7 @@ import {
   type GroupListRequest,
   type GroupUpdateRequest,
   type InitialTarget,
+  type OpenCodeStatus,
   type ProviderDescriptor,
   type RenderResultRequest,
   type ThreadApplyRequest,
@@ -99,6 +100,13 @@ import {
   sessionExists,
   verifyRoute,
 } from "./agent/bridge.ts";
+import {
+  applyOpenCode,
+  OPENCODE_EXECUTABLE_KEY,
+  openCodeVersion,
+  problemWith,
+  resolveOpenCode,
+} from "./agent/opencode.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
 import {
   askPrompt,
@@ -109,6 +117,7 @@ import {
   withEvents,
 } from "./agent/prompts.ts";
 import { beginRun, endRun, HELD_REASON, isHeld, stopRun } from "./agent/runs.ts";
+import { restartAgentService } from "./agent/service.ts";
 import { eventsSinceLastAnswer, renderTranscript, replayPrompt } from "./agent/transcript.ts";
 import { type ApplyContext, confirmApply, locatePassage, startApply, viewOf } from "./apply.ts";
 import type { CdpStatus } from "./cdp.ts";
@@ -435,6 +444,26 @@ export function registerIpc(
   };
 
   /**
+   * Spec 50 §3.2 — the folders the ASK prompt tells the agent to read.
+   *
+   * `askPrompt` writes `Read it at: <working copy>` (spec 34 §7), and a copy
+   * lives under `~/.rex/work/<documentId>/` — outside `cwd`. The prompt has
+   * named it since spec 34; this is the same fact said in a form an adapter can
+   * act on, rather than only in prose the model has to obey.
+   *
+   * Directories, not files, because that is what `readable` means and because a
+   * copy's directory holds only that copy.
+   */
+  const readableRoots = (thread: Thread): string[] => {
+    const roots = new Set<string>();
+    for (const record of documentsOf(db, thread)) {
+      const meta = copyFor(record.id, record.ref);
+      if (meta) roots.add(dirname(currentPath(meta)));
+    }
+    return [...roots];
+  };
+
+  /**
    * SPEC.md §8.4 backstop — a `read` session that changed a file is a bug in
    * the gate, and has to reach the UI rather than a log line.
    */
@@ -558,6 +587,8 @@ export function registerIpc(
       result = await agents.run(() =>
         runAgent({
           cwd,
+          // Spec 50 §3.2 — where the prompt just told it to read.
+          readable: readableRoots(thread),
           profile: "read",
           prompt,
           sessionId,
@@ -1800,6 +1831,40 @@ export function registerIpc(
   handle(COMMAND.gatewayHasEnv, (_event, name: string): boolean => {
     const value = process.env[name];
     return typeof value === "string" && value.length > 0;
+  });
+
+  // ── Spec 47 §2.1 — the `opencode` program ─────────────────────
+  //
+  // A path, not a credential, so unlike every key in this file it does come
+  // back to the screen: a reviewer who typed one has to be able to read what
+  // REX resolved, and "auto-detect found nothing" and "your path is wrong" are
+  // different sentences with different fixes.
+
+  const openCodeStatus = (): OpenCodeStatus => {
+    const override = getSetting(db, OPENCODE_EXECUTABLE_KEY) ?? "";
+    const found = resolveOpenCode(override);
+    const version = found.path ? openCodeVersion(found.path) : null;
+    return {
+      override,
+      path: found.path,
+      source: found.source,
+      version,
+      problem: problemWith(found, override, version),
+    };
+  };
+
+  handle(COMMAND.openCodeStatus, (): OpenCodeStatus => openCodeStatus());
+
+  handle(COMMAND.openCodeExecutable, (_event, override: string): OpenCodeStatus => {
+    setSetting(db, OPENCODE_EXECUTABLE_KEY, (override ?? "").trim());
+    // **The library's child already read the old value.** It inherits the
+    // variable at spawn, so changing this setting has to reach it, and the only
+    // way it can is a restart. Cheap — the child holds no run state between
+    // turns — and the alternative is a reviewer fixing a path and being told the
+    // old one is still wrong.
+    applyOpenCode(() => getSetting(db, OPENCODE_EXECUTABLE_KEY));
+    void restartAgentService();
+    return openCodeStatus();
   });
 
   // ── Spec 46 §12 — the built-in gateway ────────────────────────

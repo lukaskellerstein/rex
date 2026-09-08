@@ -102,7 +102,7 @@ Anything changed is a bug in the gate. Surface it, do not merely log it.
 write a file, and that attempt must be denied.
 
 **Project test suite** — one script per file: `npm run test:<name>` runs
-`node --test test/<name>.spec.ts`. There are 41, and there is no `npm test`.
+`node --test test/<name>.spec.ts`. There are 50, and there is no `npm test`.
 Run the ones that cover what you touched, and `npm run test:anchor` for
 anything near the resolver. **`npm run test:library`** runs the three seam
 suites (`test:service`, `test:bridge`, `test:protocol`) and `uv run pytest` in

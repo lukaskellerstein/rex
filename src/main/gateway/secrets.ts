@@ -25,22 +25,20 @@ import { app, safeStorage } from "electron";
 import { record as logLine } from "../log.ts";
 
 /**
- * §7.3 — on Linux, `safeStorage` can silently be **no storage at all**.
+ * §7.3 — what this machine will do with a key, asked before one is stored.
  *
- * With no keyring available it falls back to a backend called `basic_text`, and
- * Electron's own documentation says items are then *"unprotected as they are
- * encrypted via hardcoded plaintext password"*.
+ * On macOS the answer is the Keychain, and `isEncryptionAvailable()` is still
+ * asked rather than assumed: a machine that says no gets a sentence and no
+ * stored key. Displaying a padlock REX has not earned would be worse than
+ * either.
  *
- * So REX asks, and when the answer is `basic_text` it **says so before it
- * stores a key**. Storing it anyway while displaying a padlock would be the
- * worst of the three options.
+ * This check once carried a second case. On Linux `safeStorage` falls back to a
+ * `basic_text` backend that Electron's own docs call *"unprotected … encrypted
+ * via hardcoded plaintext password"*, and REX warned about it. Spec 50 removed
+ * Linux, and the warning with it.
  */
 export interface StorageHealth {
   available: boolean;
-  /** The OS backend's own name, on Linux. Null elsewhere. */
-  backend: string | null;
-  /** True when a key would be saved without real protection. */
-  unprotected: boolean;
   /** What to tell the person, or null when there is nothing to say. */
   warning: string | null;
 }
@@ -48,9 +46,13 @@ export interface StorageHealth {
 /**
  * Is encryption real on this machine, and does the person need to be told?
  *
- * `isEncryptionAvailable()` is only meaningful **after the app's `ready` event**
- * on Linux and Windows, so this is never called at module load — every caller
- * reaches it through an IPC handler, which is by definition after ready.
+ * `isEncryptionAvailable()` is only meaningful **after the app's `ready` event**,
+ * so this is never called at module load — every caller reaches it through an
+ * IPC handler, which is by definition after ready.
+ *
+ * On macOS the answer is the Keychain and it is available; the check stays
+ * because a machine can still refuse it, and a key REX cannot encrypt is a key
+ * REX will not store.
  */
 export function storageHealth(): StorageHealth {
   if (!app.isReady()) {
@@ -58,38 +60,19 @@ export function storageHealth(): StorageHealth {
     // a refusal to store a key the machine can perfectly well protect.
     return {
       available: false,
-      backend: null,
-      unprotected: false,
       warning: "REX has not finished starting, so it cannot check how keys will be protected yet.",
     };
   }
 
-  const available = safeStorage.isEncryptionAvailable();
-  const backend = process.platform === "linux" ? safeStorage.getSelectedStorageBackend() : null;
-  const unprotected = backend === "basic_text";
-
-  if (!available) {
+  if (!safeStorage.isEncryptionAvailable()) {
     return {
       available: false,
-      backend,
-      unprotected: false,
       warning:
         "This machine offers no way to encrypt a key, so REX will not store one. " +
-        "On Linux, installing a keyring (gnome-keyring or kwallet) is what provides it.",
+        "The macOS Keychain is what provides it.",
     };
   }
-  if (unprotected) {
-    return {
-      available: true,
-      backend,
-      unprotected: true,
-      warning:
-        "No keyring is running, so this key will be saved WITHOUT real protection — " +
-        "Electron falls back to a hardcoded password that anyone reading the file can undo. " +
-        "Install gnome-keyring or kwallet and add the key again to fix it.",
-    };
-  }
-  return { available: true, backend, unprotected: false, warning: null };
+  return { available: true, warning: null };
 }
 
 /**
@@ -97,24 +80,12 @@ export function storageHealth(): StorageHealth {
  *
  * The refusal is the point. A machine with no encryption available gets an
  * error a person can read, not a database row that looks encrypted and is not.
- * The `basic_text` case is different and deliberately does NOT refuse: it is
- * real (if weak) encryption, the person has been warned by `storageHealth`,
- * and refusing would leave them unable to use REX at all.
  */
 export function seal(value: string): Buffer {
   const health = storageHealth();
   if (!health.available) {
     throw new Error(
       health.warning ?? "This machine cannot encrypt a key, so REX will not store one.",
-    );
-  }
-  if (health.unprotected) {
-    // Recorded so the debug report can show that a key was stored weakly.
-    // The VALUE never appears — §14 rule 3.
-    logLine(
-      "warn",
-      "gateway-secrets",
-      "storing a credential with the basic_text backend (no keyring)",
     );
   }
   return safeStorage.encryptString(value);

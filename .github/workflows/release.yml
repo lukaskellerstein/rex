@@ -1,12 +1,11 @@
-# Spec 49 — REX's installers, built by GitHub and published as a Release.
+# Spec 49 — REX's installer, built by GitHub and published as a Release.
 #
-# One job per platform AND architecture, because `bundle-python.mjs` stages the
-# host's CPython and then executes it: there is no cross-build, so the runner
-# must be the architecture it ships. The repo is public, so the arm64 runners
-# are free.
+# **macOS only** (spec 50). There is no cross-build — `bundle-python.mjs`
+# stages the host's CPython and then executes it — so the runner must be the
+# architecture it ships, and `macos-latest` is arm64.
 #
-#   push to main (a merged PR)  → build all four, then publish one Release
-#   workflow_dispatch           → build all four, keep them as artifacts, no Release
+#   push to main (a merged PR)  → build, then publish one Release
+#   workflow_dispatch           → build, keep it as an artifact, no Release
 #
 # Pull requests do not run it. The first version did, as a pre-merge check,
 # and the reviewer's flow squash-merges a PR the moment it is opened, so the
@@ -47,18 +46,6 @@ jobs:
             runner: macos-latest
             artifact: macos-arm64
             args: --mac dmg --arm64
-          - name: Windows x64
-            runner: windows-latest
-            artifact: windows-x64
-            args: --win nsis --x64
-          - name: Windows arm64
-            runner: windows-11-arm
-            artifact: windows-arm64
-            args: --win nsis --arm64
-          - name: Linux x64
-            runner: ubuntu-latest
-            artifact: linux-x64
-            args: --linux deb rpm --x64
     steps:
       - uses: actions/checkout@v4
 
@@ -72,28 +59,19 @@ jobs:
         with:
           enable-cache: true
 
-      # `fpm` builds the .rpm with the host's `rpmbuild`; the .deb needs nothing.
-      - name: Install rpmbuild
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm
-
       - run: npm ci
 
       # `npm run package` is build + bundle:python + scripts/package.mjs, and the
-      # extra arguments reach package.mjs. The arch flag is stated even though
-      # package.mjs would default to the host's: a matrix row that disagrees
-      # with its runner must fail loudly, not ship the wrong Python.
+      # extra arguments reach package.mjs. The arch flag is stated rather than
+      # left to the runner: a row that disagrees with its machine must fail
+      # loudly, not ship the wrong Python.
       - name: Build and package
         run: npm run package -- ${{ matrix.args }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: rex-${{ matrix.artifact }}
-          path: |
-            release/*.dmg
-            release/*.exe
-            release/*.deb
-            release/*.rpm
+          path: release/*.dmg
           if-no-files-found: error
           retention-days: 14
 

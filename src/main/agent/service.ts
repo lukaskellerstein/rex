@@ -155,14 +155,13 @@ export class AgentService {
         // Nothing is added but buffering and encoding: routing and credentials
         // travel in `run` messages, per run, never in the child's environment.
         //
-        // **UTF-8 is not optional on Windows.** The protocol is JSON lines and
-        // REX decodes this pipe as UTF-8, but Python's stdout defaults to the
-        // console code page there — cp1252 on the machine this was measured on.
-        // An agent answer containing an em-dash, a curly quote or an accented
-        // name would then be mangled or raise `UnicodeEncodeError` mid-stream.
-        // The gateway child hit exactly this and died on LiteLLM's banner
-        // (`gateway/local.ts`); this side had not been exercised yet, which is
-        // luck rather than correctness.
+        // **UTF-8 is stated, not inherited.** The protocol is JSON lines and
+        // REX decodes this pipe as UTF-8, so the child's encoding has to be a
+        // decision rather than whatever the locale happens to be. It is macOS's
+        // default today; it was cp1252 on the Windows build REX no longer ships,
+        // where LiteLLM's banner raised `UnicodeEncodeError` and the gateway
+        // never bound (`gateway/local.ts`). Two ends that agree by luck are two
+        // ends that disagree eventually.
         env: {
           ...process.env,
           PYTHONUNBUFFERED: "1",
@@ -430,4 +429,25 @@ let shared: AgentService | null = null;
 export function agentService(): AgentService {
   shared ??= new AgentService();
   return shared;
+}
+
+/**
+ * End this child and start a fresh one. Spec 47 §2.1's only caller.
+ *
+ * **A child reads its environment once, at spawn.** Almost nothing REX changes
+ * reaches it that way — routing and credentials travel in `run` messages, per
+ * run, exactly so that nothing has to be restarted — but the `opencode` program
+ * path does, because `capabilities` and `session_state` need it and carry no
+ * request. So a reviewer who fixes a wrong path has to get a child that reads
+ * the new one, and the alternative is being told the old path is still wrong.
+ *
+ * Cheap, because the child holds no run state between turns: every session lives
+ * in an SDK's own store or in `~/.rex/rex.db`. `quit()` sets `quitting`, so the
+ * old child's exit does not trip the crash-loop restart on the way out.
+ */
+export async function restartAgentService(): Promise<void> {
+  const previous = shared;
+  shared = null;
+  if (previous) await previous.quit();
+  await agentService().ready();
 }

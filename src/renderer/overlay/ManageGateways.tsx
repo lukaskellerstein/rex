@@ -26,6 +26,7 @@ import type {
   GatewayListResponse,
   GatewayRouteDraft,
   GatewayView,
+  OpenCodeStatus,
 } from "../../shared/channels.ts";
 import { recoverValues } from "../../shared/gateways.ts";
 import { ORIGINAL_GATEWAY_ID } from "./gatewayChoices.ts";
@@ -97,6 +98,14 @@ interface Props {
   ) => Promise<{ ok: boolean; detail: string }>;
   onDefault: (gatewayId: string) => Promise<void>;
   onHasEnv: (name: string) => Promise<boolean>;
+  /**
+   * Spec 47 §2.1 — where the `opencode` program is, and the override for it.
+   *
+   * Passed in rather than reached for, exactly as every other side effect on
+   * this screen is: the panel is JSX and main is what looks at a disk.
+   */
+  onOpenCodeStatus: () => Promise<OpenCodeStatus>;
+  onOpenCodeExecutable: (override: string) => Promise<OpenCodeStatus>;
   /** `buildRoutes` and `validateGateway`, handed in so this file stays JSX only. */
   buildRoutes: (kind: string, values: Record<string, string>) => Partial<Record<AgentSdk, unknown>>;
   validate: (
@@ -310,6 +319,16 @@ export function ManageGateways(props: Props): React.JSX.Element {
     return () => clearInterval(tick);
   }, [busy]);
   const [envSet, setEnvSet] = useState<Record<string, boolean>>({});
+  /**
+   * Spec 47 §2.1 — the detected `opencode`, and what the reviewer typed.
+   *
+   * Two pieces of state and not one: `openCode` is what main resolved and
+   * `executableDraft` is the field being typed into. Binding the field to the
+   * resolved value would rewrite what a reviewer was half way through typing
+   * every time the answer came back.
+   */
+  const [openCode, setOpenCode] = useState<OpenCodeStatus | null>(null);
+  const [executableDraft, setExecutableDraft] = useState<string | null>(null);
 
   const kind = useMemo(
     () => props.descriptor.kinds.find((entry) => entry.id === editing?.kind),
@@ -377,10 +396,38 @@ export function ManageGateways(props: Props): React.JSX.Element {
     }
   }, [preview, envSet, props.onHasEnv]);
 
+  /**
+   * §2.1 — the row appears when this gateway has an OpenCode route, and asks
+   * main for the program only then.
+   *
+   * Every gateway kind has an `opencode` route in its template, so the question
+   * is whether THIS gateway offers one — a `custom`-shaped gateway with only a
+   * Claude URL filled in does not, and a row about a program it will never run
+   * is a row that teaches the reviewer to ignore rows.
+   */
+  const showsOpenCode = editing !== null && preview.opencode !== undefined;
+
+  useEffect(() => {
+    if (!showsOpenCode || openCode !== null) return;
+    void props.onOpenCodeStatus().then(setOpenCode);
+  }, [showsOpenCode, openCode, props.onOpenCodeStatus]);
+
+  const saveExecutable = async (): Promise<void> => {
+    if (executableDraft === null) return;
+    setBusy("opencode");
+    try {
+      setOpenCode(await props.onOpenCodeExecutable(executableDraft));
+      setExecutableDraft(null);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const closeEditor = (): void => {
     setEditing(null);
     setVerified(null);
     setTested(null);
+    setExecutableDraft(null);
   };
 
   /**
@@ -759,6 +806,48 @@ export function ManageGateways(props: Props): React.JSX.Element {
                   </span>
                 </label>
               ))}
+
+              {/*
+                Spec 47 §2.1 — the OpenCode server program.
+
+                **App-wide, and deliberately not part of this gateway**, which
+                is why it sits below the routes rather than among them: every
+                OpenCode route must use the same server version, and a
+                per-gateway override would let two gateways disagree about which
+                program REX is talking to. It appears here because here is where
+                a reviewer finds out they need one.
+
+                No package contains it, so REX reports what it found and links
+                nothing it would have to install — §2.1 is explicit that REX does
+                not install software during a run.
+              */}
+              {showsOpenCode ? (
+                <label className="rex-field">
+                  <span className="rex-label">OPENCODE EXECUTABLE</span>
+                  <input
+                    className="rex-field-input"
+                    type="text"
+                    value={executableDraft ?? openCode?.override ?? ""}
+                    placeholder="Auto-detect"
+                    spellCheck={false}
+                    onChange={(event) => setExecutableDraft(event.currentTarget.value)}
+                    onBlur={() => void saveExecutable()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void saveExecutable();
+                    }}
+                  />
+                  <span className="rex-meta">
+                    {busy === "opencode"
+                      ? "Looking…"
+                      : (openCode?.problem ??
+                        (openCode
+                          ? `${openCode.version ?? "found"} · ${openCode.path ?? ""}${
+                              openCode.source === "override" ? "" : " (auto-detected)"
+                            }`
+                          : "Looking…"))}
+                  </span>
+                </label>
+              ) : null}
 
               {/*
                 RED MEANS "THIS DOES NOT WORK", and `ok` is not that question.

@@ -87,7 +87,12 @@ rather than vanishing from it.
   must be a version whose type stripping is on by default — 22.18+, 23.6+, or
   any 24.
 - A toolchain that can rebuild a native module, because `better-sqlite3` is one.
-  Developed on macOS.
+- **macOS on Apple silicon.** REX is a macOS app (spec 50). It was built for
+  Windows and Linux too, and both were installed and validated in VMs on
+  2026-09-07; support for them was removed on 2026-09-08, because REX claimed
+  three operating systems while two of them could not run every agent in every
+  mode. One platform that is true beats three with footnotes. Spec 50 §5 keeps
+  what those builds measured.
 
 ### Install and run
 
@@ -554,9 +559,10 @@ predecessors rather than restating them:
 | 44 | [the Codex agent](docs/my-specs/44-the-codex-agent/SPEC.md) | the agent control appears, and Codex is its second row: a Responses route, a read-only sandbox for ASK, and ACT held behind a write-boundary proof |
 | 45 | [watching the gateway](docs/my-specs/45-watching-the-gateway/SPEC.md) | every request through the gateway kept and searchable, with its cost, its latency and the REX run, thread and profile that spent it; three containers beside the gateway in `infra/`, development infrastructure that ships nothing, and a comment card that links to its own traffic. **Retired by spec 46**: `infra/` and its containers are gone, and REX renders the traffic itself |
 | 46 | [the built-in gateway](docs/my-specs/46-the-builtin-gateway/SPEC.md) | REX ships its own LiteLLM and runs it on a switch, on one loopback port; model providers — LM Studio, Ollama, Unsloth, OpenAI, OpenRouter, Anthropic — are added in a Settings screen instead of a YAML file, every key is stored encrypted, an existing LiteLLM is asked what it serves, and one model name serves all four SDKs |
-| 47 | [the OpenCode agent](docs/my-specs/47-the-opencode-agent/SPEC.md) | a loopback OpenCode server REX owns and drives with its own small HTTP client, a private provider per gateway, a project mirror so ASK never writes into the repository, and permission requests answered by REX's gate |
-| 48 | [the deep agent](docs/my-specs/48-the-deep-agent/SPEC.md) | LangChain Deep Agents inside the agent service, on the OpenAI chat route of the built-in gateway; a read-only backend for ASK, a composite one for ACT, no shell, and a fresh graph seeded with the replay on every send |
-| 49 | [releases](docs/my-specs/49-releases/SPEC.md) | every merge to `main` builds the five installers — macOS arm64, Windows x64 and arm64, Linux `.deb` and `.rpm` — on one GitHub runner per architecture and publishes them as a Release tagged `v<version>-<run>`, with an install guide for unsigned builds |
+| 47 | [the OpenCode agent](docs/my-specs/47-the-opencode-agent/SPEC.md) | the agent control's third row: a loopback OpenCode server REX owns and drives with its own small HTTP client, a private provider per gateway, a project mirror so ASK never writes into the repository, and permission requests answered by REX's gate. **ASK and ACT are both built and proved end to end** — a seatbelt around the OpenCode server makes the reviewed repository unwritable by the operating system rather than by a promise |
+| 48 | [the deep agent](docs/my-specs/48-the-deep-agent/SPEC.md) | the agent control's fourth and last row: LangChain Deep Agents as a graph inside the agent service itself — no child process, no CLI and no shell — on the OpenAI chat route of the built-in gateway, with the SDK's own filesystem rules plus REX's path check as the write boundary, and a fresh graph seeded with the replay on every send. **ASK and ACT are both built and proved end to end**, with the boundary in the SDK's rules and a path check rather than an operating-system sandbox |
+| 49 | [releases](docs/my-specs/49-releases/SPEC.md) | every merge to `main` builds the installer on a GitHub runner and publishes it as a Release tagged `v<version>-<run>`, with an install guide for unsigned builds. Five installers until spec 50 cut it to one |
+| 50 | [macOS, completely](docs/my-specs/50-macos-completely/SPEC.md) | one platform, no footnotes: Windows and Linux removed — the builds, the installers, the platform branches and the claim — and the one thing that was actually broken fixed. A Deep Agents ASK could not read the document REX told it to read, because the prompt names the working copy by absolute path and the backend was rooted at the workspace; `RunRequest.readable` is what carries those folders now |
 
 ## Contributing
 

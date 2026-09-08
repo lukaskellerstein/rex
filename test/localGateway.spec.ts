@@ -186,25 +186,16 @@ test("the provider catalogue is staged where the reader looks for it", async () 
   assert.equal(staged.providers.length, 6, "spec 46 §5.1 — six providers");
 });
 
-// ── §18.1 item 4 — the two Windows layouts, which are NOT the same ──
+// ── The staged runtime and the development venv are two questions ──
 //
-// Spec 46 predicted `interpreterFor()` as the likeliest single line to break on
-// Windows. It was right, and the reason is subtler than the prediction:
-//
-//   a VENV on Windows       → `.venv\Scripts\python.exe`
-//   the STAGED runtime      → `python-dist\python.exe`   ← at the ROOT
-//
-// python-build-standalone puts the interpreter at its root on Windows;
-// `Scripts\` holds pip and no interpreter at all. On POSIX both layouts are
-// `bin/`, so one function served both and macOS could never tell them apart.
-//
-// **Measured 2026-09-07** on the first Windows arm64 package ever built:
-// `resources\python\Scripts\python.exe` did not exist and
-// `resources\python\python.exe` did, so a packaged REX would have spawned
-// neither Python child. The first version of this test asserted
-// `Scripts\python.exe` for BOTH cases — it encoded the same wrong assumption as
-// the code, and passed while the bug shipped. Hence two leaves below, not one.
-test("the packaged interpreter follows each platform's own layout", async () => {
+// They agree on macOS — `bin/python` both times — and they did NOT agree on
+// the Windows build REX no longer ships: a venv put `python.exe` under
+// `Scripts\\` while a python-build-standalone runtime put it at the root, so a
+// packaged REX spawned neither Python child. The first version of this test
+// asserted one leaf for both cases: it encoded the same wrong assumption as
+// the code and passed while the bug shipped. Two functions and two assertions,
+// so a future runtime layout cannot be assumed to be a venv's.
+test("the packaged interpreter and the development venv stay two questions", async () => {
   const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { dirname, join } = await import("node:path");
@@ -214,59 +205,28 @@ test("the packaged interpreter follows each platform's own layout", async () => 
   // declares `resourcesPath` as a required string, so `& { resourcesPath?: … }`
   // stays required and `delete` will not typecheck against it.
   const proc = process as unknown as { resourcesPath?: string };
-  const platformWas = Object.getOwnPropertyDescriptor(process, "platform");
   const resourcesWas = proc.resourcesPath;
   // `REX_PYTHON` wins over every branch below (§13), so a machine that happens
   // to have it set would pass without ever reaching the code under test.
   const overrideWas = process.env.REX_PYTHON;
   delete process.env.REX_PYTHON;
 
-  // [platform, where the STAGED runtime keeps it, where a VENV keeps it]
-  const cases = [
-    ["win32", "python.exe", join("Scripts", "python.exe")],
-    ["darwin", join("bin", "python"), join("bin", "python")],
-    ["linux", join("bin", "python"), join("bin", "python")],
-  ] as const;
-
   try {
-    for (const [platform, bundledLeaf, venvLeaf] of cases) {
-      Object.defineProperty(process, "platform", { value: platform, configurable: true });
+    const resources = mkdtempSync(join(tmpdir(), "rex-staged-"));
+    const staged = join(resources, "python", "bin", "python");
+    mkdirSync(dirname(staged), { recursive: true });
+    writeFileSync(staged, "");
+    proc.resourcesPath = resources;
+    assert.equal(interpreterFor("/anywhere"), staged, "the staged runtime, at bin/python");
 
-      const resources = mkdtempSync(join(tmpdir(), `rex-${platform}-`));
-      const staged = join(resources, "python", bundledLeaf);
-      mkdirSync(dirname(staged), { recursive: true });
-      writeFileSync(staged, "");
-      proc.resourcesPath = resources;
-
-      assert.equal(interpreterFor("/anywhere"), staged, `${platform}: wrong staged interpreter`);
-
-      // With nothing staged, the development venv — which on Windows is the
-      // OTHER layout, and the whole point of keeping two leaves.
-      delete proc.resourcesPath;
-      assert.equal(
-        interpreterFor(join("/rex", "agent-runner")),
-        join("/rex", "agent-runner", ".venv", venvLeaf),
-        `${platform}: wrong development venv`,
-      );
-
-      rmSync(resources, { recursive: true, force: true });
-    }
-
-    // The regression itself, stated once so it cannot be re-broken quietly:
-    // on Windows the two answers must DIFFER.
-    Object.defineProperty(process, "platform", { value: "win32", configurable: true });
-    const res = mkdtempSync(join(tmpdir(), "rex-win-both-"));
-    mkdirSync(join(res, "python", "Scripts"), { recursive: true });
-    writeFileSync(join(res, "python", "python.exe"), "");
-    proc.resourcesPath = res;
+    delete proc.resourcesPath;
     assert.equal(
-      interpreterFor("/anywhere"),
-      join(res, "python", "python.exe"),
-      "win32: the staged runtime is python.exe at the root, never Scripts\\python.exe",
+      interpreterFor(join("/rex", "agent-runner")),
+      join("/rex", "agent-runner", ".venv", "bin", "python"),
+      "the development venv, at .venv/bin/python",
     );
-    rmSync(res, { recursive: true, force: true });
+    rmSync(resources, { recursive: true, force: true });
   } finally {
-    if (platformWas) Object.defineProperty(process, "platform", platformWas);
     if (resourcesWas === undefined) delete proc.resourcesPath;
     else proc.resourcesPath = resourcesWas;
     if (overrideWas === undefined) delete process.env.REX_PYTHON;
@@ -274,104 +234,22 @@ test("the packaged interpreter follows each platform's own layout", async () => 
   }
 });
 
-// ── The Windows installer's "already installed" page ────────────
-//
-// `build/installer.nsh` turns "run the setup again and it silently reinstalls"
-// into a choice: Reinstall or Uninstall. electron-builder picks the file up BY
-// NAME (`nsis.include` defaults to it), so nothing in `electron-builder.yml`
-// refers to it, and without it the build still succeeds — with no page and no
-// error. It can go missing two quiet ways: deleted, or swallowed by `build/*`
-// in `.gitignore` so it never reaches a clone or a CI runner. Nothing else
-// would notice either, hence this test.
-test("the Windows installer's already-installed page is present and tracked", async () => {
-  const { readFileSync } = await import("node:fs");
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-
-  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const page = readFileSync(join(root, "build", "installer.nsh"), "utf8");
-  assert.match(
-    page,
-    /^!macro customWelcomePage$/m,
-    "the page hooks the assisted installer's customWelcomePage macro",
-  );
-  assert.match(
-    page,
-    /^\s*Page custom rexPageCreate rexPageLeave$/m,
-    "the page declares its create and leave functions",
-  );
-  assert.match(
-    page,
-    /\$\{UNINSTALL_FILENAME\}/,
-    "Uninstall runs electron-builder's own uninstaller, never a second one",
-  );
-
-  const ignore = readFileSync(join(root, ".gitignore"), "utf8");
-  assert.match(
-    ignore,
-    /^!build\/installer\.nsh$/m,
-    "`build/*` is ignored, so the include must be re-included by name or it never leaves this machine",
-  );
-});
-
-// ── Linux ships packages, not an AppImage ───────────────────────
-//
-// Measured on Ubuntu 26.04 arm64 on 2026-09-07: the arm64 AppImage launcher
-// wants an unversioned `libz.so` that only the zlib dev package provides
-// (electron-builder #7835), and Ubuntu 24.04+ blocks Electron's sandbox inside
-// an AppImage, so REX never started. The deb's post-install script sets the
-// sandbox helper and installs an AppArmor profile; installed, REX ran with
-// Node, npm and uv removed from the machine. The deb build also needs `author`
-// (with an email) and `homepage` in package.json, and fails without them ONLY
-// on Linux — so they are asserted here, where every platform runs the test.
-test("Linux ships .deb and .rpm, and package.json carries what the deb needs", async () => {
-  const { readFileSync } = await import("node:fs");
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-
-  const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const builder = readFileSync(join(root, "electron-builder.yml"), "utf8");
-  const linux = builder.slice(builder.indexOf("\nlinux:"));
-  assert.match(linux, /target:\s*deb\b/, "a .deb for the Debian and Ubuntu family");
-  assert.match(linux, /target:\s*rpm\b/, "an .rpm for the Fedora and RHEL family");
-  assert.doesNotMatch(
-    linux,
-    /target:\s*AppImage/,
-    "no AppImage: its arm64 launcher does not start, and Ubuntu 24.04+ blocks its sandbox",
-  );
-
-  const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  assert.match(
-    pkg.author ?? "",
-    /<[^@\s]+@[^>\s]+>/,
-    "the deb's maintainer is `author`, and needs the <email>",
-  );
-  assert.match(pkg.homepage ?? "", /^https?:\/\//, "the deb needs a homepage URL");
-});
-
 // ── Spec 49 — the Release workflow ──────────────────────────────
 //
-// One runner per platform AND architecture, because there is no cross-build;
-// a Release only from a push to main; and Windows file names that carry the
-// architecture, or the second upload replaces the first. String checks, like
-// the ones above — a YAML parser is not a dependency this repo has — on the
-// very file GitHub reads.
-test("the Release workflow builds one installer per runner and publishes only from main", async () => {
+// One runner, because REX is macOS only (spec 50) and there is no cross-build;
+// and a Release only from a push to main. String checks — a YAML parser is not
+// a dependency this repo has — on the very file GitHub reads.
+test("the Release workflow builds the macOS installer and publishes only from main", async () => {
   const { existsSync, readFileSync } = await import("node:fs");
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
 
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const workflow = readFileSync(join(root, ".github", "workflows", "release.yml"), "utf8");
-  const rows = [
-    ["macos-latest", "--mac dmg --arm64"],
-    ["windows-latest", "--win nsis --x64"],
-    ["windows-11-arm", "--win nsis --arm64"],
-    ["ubuntu-latest", "--linux deb rpm --x64"],
-  ] as const;
-  for (const [runner, args] of rows) {
-    assert.ok(workflow.includes(`runner: ${runner}`), `${runner} builds`);
-    assert.ok(workflow.includes(`args: ${args}`), `${runner} states its own architecture`);
+  assert.ok(workflow.includes("runner: macos-latest"), "macOS builds");
+  assert.ok(workflow.includes("args: --mac dmg --arm64"), "and states its own architecture");
+  for (const gone of ["windows-latest", "windows-11-arm", "--win nsis", "--linux deb"]) {
+    assert.ok(!workflow.includes(gone), `spec 50 removed ${gone}`);
   }
   assert.match(
     workflow,
@@ -386,21 +264,19 @@ test("the Release workflow builds one installer per runner and publishes only fr
   );
   assert.ok(existsSync(join(root, ".github", "release-notes.md")), "and the guide exists");
 
+  // Spec 50 — one platform, said in the one file a person reads before installing.
   const builder = readFileSync(join(root, "electron-builder.yml"), "utf8");
-  assert.match(
-    builder,
-    /artifactName: \$\{productName\}-Setup-\$\{version\}-\$\{arch\}\.\$\{ext\}/,
-    "two Windows architectures need two file names",
-  );
+  for (const gone of ["\nwin:", "\nnsis:", "\nlinux:"]) {
+    assert.ok(!builder.includes(gone), `electron-builder still has a ${gone.trim()} block`);
+  }
 });
 
-// `bundle-python.mjs` stages the host's CPython, and electron-builder.yml now
-// lists both Windows architectures, so without this default the arm64 VM would
-// also produce an x64 installer with arm64 Python inside. And publishing is
-// always off: with `homepage` on GitHub, electron-builder infers a publisher
-// and a push in CI dies on a missing token AFTER the build — the first run of
-// spec 49's workflow, 2026-09-07, failed every push job on exactly that.
-test("`npm run package` builds the host's architecture and never publishes", async () => {
+// Publishing is always off: with `homepage` on GitHub, electron-builder infers
+// a publisher and a push in CI dies on a missing token AFTER the build — the
+// first run of spec 49's workflow, 2026-09-07, failed every push job on exactly
+// that. The architecture default that used to live here went with Windows
+// (spec 50): `electron-builder.yml` names one target and one arch.
+test("`npm run package` never publishes unless told to", async () => {
   const { execFileSync } = await import("node:child_process");
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
@@ -411,15 +287,8 @@ test("`npm run package` builds the host's architecture and never publishes", asy
       env: { ...process.env, REX_PACKAGE_DRY_RUN: "1" },
       encoding: "utf8",
     }).trim();
-  const host = process.arch === "arm64" ? "--arm64" : "--x64";
-
-  assert.equal(run("--win", "nsis"), `--win nsis ${host} --publish never`);
-  assert.equal(run("--dir"), `--dir ${host} --publish never`);
-  assert.equal(
-    run("--linux", "deb", "rpm", "--x64"),
-    "--linux deb rpm --x64 --publish never",
-    "an explicit arch flag wins",
-  );
+  assert.equal(run("--dir"), "--dir --publish never");
+  assert.equal(run("--mac", "dmg", "--arm64"), "--mac dmg --arm64 --publish never");
   assert.equal(
     run("--mac", "--arm64", "--publish", "always"),
     "--mac --arm64 --publish always",

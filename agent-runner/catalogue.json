@@ -165,6 +165,18 @@
       "label": "Codex",
       "supportsPlugins": false,
       "supportsStyles": false
+    },
+    {
+      "id": "opencode",
+      "label": "OpenCode",
+      "supportsPlugins": false,
+      "supportsStyles": false
+    },
+    {
+      "id": "deep-agents",
+      "label": "Deep Agents",
+      "supportsPlugins": false,
+      "supportsStyles": false
     }
   ]
 }
