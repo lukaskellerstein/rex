@@ -120,3 +120,6 @@ release/
 # seeded page is 2.5 MB of editor payload, re-made from them by seed-canvas.mjs
 # on every change, and must never be edited by hand.
 design/rex-settings-page.html
+
+# Claude Code worktree sessions: claude -w <name>
+.worktrees/

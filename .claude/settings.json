@@ -9,9 +9,7 @@
       "BashOutput",
       "Edit",
       "EnterPlanMode",
-      "EnterWorktree",
       "ExitPlanMode",
-      "ExitWorktree",
       "Glob",
       "Grep",
       "KillShell",
@@ -41,6 +39,8 @@
     ],
     "deny": [],
     "ask": [
+      "EnterWorktree",
+      "ExitWorktree",
       "Read(./secrets/**)",
       "Read(./.secrets/**)",
       "Read(./**/.env)",
@@ -72,6 +72,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-guard.py\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -81,6 +91,16 @@
           {
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/playwright-pre.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-guard.py\"",
             "timeout": 10
           }
         ]
@@ -115,6 +135,28 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/playwright-cleanup.py\"",
             "timeout": 10
+          }
+        ]
+      }
+    ],
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-create.sh\"",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/worktree-remove.sh\"",
+            "timeout": 30
           }
         ]
       }
