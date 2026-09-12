@@ -18,95 +18,52 @@ can see what you intend to verify. Example:
 > - [ ] The modal displays the correct data
 > - [ ] Browser closed after testing
 
-`SPEC.md` §13 already gives a DoD for each milestone — when the change belongs to
-a milestone, use its acceptance criteria as the checklist rather than inventing
-one. They are written as checks, not opinions.
+When the change belongs to a spec, use that spec's acceptance criteria as the
+checklist.
 
 ## 4b. Test
 
-**UI changes** — drive a REX window with Playwright. This is an Electron app,
-so the MCP server **attaches** to the app over CDP rather than launching its
-own browser:
+**UI changes** — drive a REX window with Playwright. The MCP server
+`playwright-rex` attaches to the app over CDP on 9334:
 
 1. Check who holds the port: `curl -s http://localhost:9334/json/version`.
    `pw-agent` in the `User-Agent` means an agent instance — attach to it. No
-   marker means the instance is Lukas's own: the PreToolUse gate denies every
-   `browser_*` call on it, and step 2 is how you get your own.
+   marker means the instance is the user's own: do not quit it, restart it or
+   drive it.
 2. If nothing answers, start your own instance **only** through
-   `.claude/hooks/playwright-launch.sh npm run dev` — never bare. The wrapper
-   sets `PW_AGENT=1`, so the window is born on the `playwright` desktop with
-   the title `REX [agent]` (spec 20) and never appears on Lukas's screen.
+   `.claude/hooks/playwright-launch.sh npm run dev` — never bare.
 3. Drive it via `mcp__playwright-rex__browser_navigate` and the other
    `browser_*` tools, and verify the change is visible **and** functional — take
    a snapshot, don't just assert the page loaded.
 4. **Close the browser when done.**
 
-> [!important]
-> **A 9334 answer without `pw-agent` is Lukas's own REX**, started with
-> `npm run dev` — spec 13 §2.1 gives every run the port. Do not quit it,
-> restart it, or drive it. The gate denies `browser_*` calls on it and the
-> wrapper refuses a busy port; to proceed, either ask Lukas (the denial
-> message names the consent command) or test on a second instance's own port —
-> `REX_CDP_PORT=9444 .claude/hooks/playwright-launch.sh npm run dev` — knowing
-> the MCP is pinned to 9334, so a second instance is reachable only by raw CDP.
->
-> Two things follow from spec 13 and are worth knowing before debugging blind:
->
-> - **`~/.rex/rex.log`** holds this run's errors — renderer console included —
->   and can be read with no debugger at all. Start there.
-> - **The reviewer can hand you the whole state**: the `B` key, or the bug
->   button in the top bar, copies a report naming the port, the open document,
->   the frame's state and the recent errors. If they are reporting a bug and did
->   not paste one, ask for it before guessing.
->
-> A second REX cannot have the port — Chromium fails to bind it and runs on
-> with no debugger, silently. That is why the wrapper refuses a busy port
-> instead of launching into it.
+If the user's REX holds 9334, ask, or launch a second instance with
+`REX_CDP_PORT=9444 .claude/hooks/playwright-launch.sh npm run dev` and reach it
+by raw CDP — the MCP is pinned to 9334. Before any script attaches to a CDP
+port, run `python3 .claude/hooks/pw.py owns-port <port>`: exit 1 means the
+instance is the user's.
 
-> An agent window is born on the `playwright` desktop (spec 20) and is closed
-> automatically at session end by `.claude/hooks/`. That is a safety net, not a
-> substitute for closing it yourself when the test is finished.
+To debug, read `~/.rex/rex.log` first. The user's `B` key copies a debug report;
+ask for it when a bug report comes without one.
 
-**Anchoring changes** — anchoring is the one component that **fails silently**,
-so a green run proves nothing unless it includes the sample documents in
-`~/Projects/Github/lukaskellerstein/documentation-sample`:
+**Anchoring changes** — run `npm run test:anchor`, then check anchors by hand on
+the sample documents in `documentation-sample` (`one/sample-document.md`,
+`two/sample-report.md`, and the `.docx` beside each). A passage that moved must
+report `moved` or `orphaned`. **An anchor that reports `ok` on the wrong place
+is a failure.**
 
-- `one/sample-document.md` — 263 lines, 15 headings, a badge row of linked
-  images, a Mermaid fence, 4 images, 19 table rows, and links to files that do
-  not exist (`CONTRIBUTING.md`, `LICENSE`)
-- `two/sample-report.md` — 349 lines, YAML front matter, an HTML `<table>`
-  inside the Markdown, 18 headings, a Mermaid fence, 68 table rows
-- `one/sample-document.docx` — a **different** document from the Markdown
-  beside it: a quarterly business review, 45 blocks, 4 images as data URIs,
-  4 tables, h1 and h2 headings. Through mammoth it is HTML with **no**
-  `data-src-line` and no ids — the hand-written-HTML shape, where every anchor
-  falls back to text and structure, and the shape the region gate runs on
-- `two/sample-report.docx` — the same report as `two/sample-report.md`,
-  through mammoth
-
-All are read-only. The acceptance bar from `SPEC.md` §13 Milestone 0: every
-anchor must report `ok`, `moved` or `orphaned`, and each classification must be
-correct by inspection. **A reworded passage must be `moved` or `orphaned` — never
-silently resolved to the wrong place.** A wrong-place resolution that reports
-`ok` is the failure this whole test exists to catch.
-
-**Agent changes** — the `read` profile carries a hard guarantee that it cannot
-write. Verify it the way `SPEC.md` §8.4 specifies, as a backstop to the gate:
+**Agent changes** — an ASK must not write. After a read session, run this in
+the document's repository:
 
 ```bash
-git status --porcelain          # in the document's repository, after a read session
+git status --porcelain
 ```
 
-Anything changed is a bug in the gate. Surface it, do not merely log it.
-`SPEC.md` §13 Milestone 3 also requires a deliberate attempt to make the agent
-write a file, and that attempt must be denied.
+Anything changed is a bug in the gate. Surface it — `SPEC.md` §8.4.
 
-**Project test suite** — one script per file: `npm run test:<name>` runs
-`node --test test/<name>.spec.ts`. There are 50, and there is no `npm test`.
-Run the ones that cover what you touched, and `npm run test:anchor` for
-anything near the resolver. **`npm run test:library`** runs the three seam
-suites (`test:service`, `test:bridge`, `test:protocol`) and `uv run pytest` in
-`agent-runner/`; a change on either side of the pipe runs both.
+**Project test suite** — run the suites that cover what you touched:
+`npm run test:<name>`. A change on either side of the pipe runs
+`npm run test:library`; a change to the gateway runs `npm run test:gateway`.
 
 **Every code change** — repo-wide lint / format / type check:
 
@@ -117,11 +74,6 @@ nvim-tools --json --all
 Your change must not add findings, measured against the baseline you took in the
 Understand step. How to read the output (including `gated-off`), and why this
 never replaces the project's own suite: [`machine-tools.md`](machine-tools.md).
-
-`tsc` runs, because `tsconfig.json` exists. **`ruff` and `basedpyright` run
-too**, since spec 42 gave `agent-runner/` its `ruff.toml` and
-`pyrightconfig.json` (§12). A Python finding is now a finding like any other.
-See [`09-code-quality.md`](09-code-quality.md).
 
 **Non-testable changes** (docs, config, IaC only): explicitly state why no
 runtime test is needed.

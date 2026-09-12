@@ -1,0 +1,46 @@
+# Spec 57 — a pull request into main must raise `version`.
+#
+# Every version on main is one Release, tagged `v<version>` (release.yml). A
+# pull request that leaves `version` where main has it would merge code that
+# never ships, so this check fails it and says what to run:
+#
+#   npm version patch --no-git-tag-version      (or minor, or major)
+#
+# The rules themselves live in scripts/check-version.ts, where
+# test/version.spec.ts can reach them. This file only runs the script.
+#
+# It blocks a merge only because a ruleset on main names "Version bump" as a
+# required status check — spec 57 §5. Without that ruleset it is a red mark the
+# merge button ignores.
+#
+# Do not put `[skip ci]` in a pull request's commits: GitHub then never starts
+# this check, and a required check that never starts blocks the merge forever.
+
+name: Version
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    # The ruleset matches this name, not the job id. Rename both or neither.
+    name: Version bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The whole history, so `origin/main:package.json` can be read.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 22.18 or newer runs a `.ts` file directly; `22` resolves to the newest 22.x.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check that the version was raised
+        run: node scripts/check-version.ts "origin/${{ github.base_ref }}"

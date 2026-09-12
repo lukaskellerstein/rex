@@ -1,21 +1,26 @@
 # Spec 49 — REX's installer, built by GitHub and published as a Release.
+# Spec 57 — one version, one Release.
 #
 # **macOS only** (spec 50). There is no cross-build — `bundle-python.mjs`
 # stages the host's CPython and then executes it — so the runner must be the
 # architecture it ships, and `macos-latest` is arm64.
 #
-#   push to main (a merged PR)  → build, then publish one Release
-#   workflow_dispatch           → build, keep it as an artifact, no Release
+# A Release is tagged `v<package.json version>`, and the tag is the gate: a
+# version is published once, by the first run on main that finds its tag
+# missing. Every other run on main publishes nothing.
 #
-# Pull requests do not run it. The first version did, as a pre-merge check,
-# and the reviewer's flow squash-merges a PR the moment it is opened, so the
-# PR run only doubled every build (2026-09-07). The one time it earned its
-# keep was that first day: the PR run passed on all four runners while the
-# push run failed one step later, which is how the publish bug was found.
+#   push to main, new version        → build, then publish `v<version>`
+#   push to main, version released   → nothing runs past the version job
+#   workflow_dispatch on main        → build; publish if the version is new
+#   workflow_dispatch on a branch    → build, keep it as an artifact, no Release
 #
-# Every merge to main is a Release, tagged `v<package.json version>-<run number>`
-# so two merges of the same version never collide. Bump `version` in
-# package.json to change the number people see.
+# So a failed Release retries itself on the next push, or by hand with
+# workflow_dispatch, because its tag was never made.
+#
+# Pull requests do not build. The first version did, as a pre-merge check,
+# and the PR run only doubled every build (2026-09-07). What a pull request
+# runs instead is version.yml, which fails it when `version` was not raised —
+# so on a protected main every merge is a new version and every merge ships.
 
 name: Release
 
@@ -27,15 +32,42 @@ on:
 concurrency:
   group: release-${{ github.ref }}
   # Never cancel a merge's build: a half-published Release is worse than a
-  # slow one. Two merges in a row simply queue.
+  # slow one. Two merges in a row simply queue, and the second finds the tag.
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
+  version:
+    name: Is this version released?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+      publish: ${{ steps.read.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: read
+        run: |
+          version=$(node -p "require('./package.json').version")
+          publish=false
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "Not main: build only, no Release." >> "$GITHUB_STEP_SUMMARY"
+          elif git ls-remote --exit-code --tags origin "refs/tags/v${version}" > /dev/null; then
+            echo "v${version} is already released. Raise \`version\` to publish." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "v${version} is new: build and publish." >> "$GITHUB_STEP_SUMMARY"
+            publish=true
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "publish=${publish}" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.name }}
+    needs: version
+    if: needs.version.outputs.publish == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -77,8 +109,8 @@ jobs:
 
   release:
     name: Publish the Release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
+    if: needs.version.outputs.publish == 'true'
+    needs: [version, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -94,14 +126,13 @@ jobs:
       - name: Create the Release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          version=$(node -p "require('./package.json').version")
-          tag="v${version}-${{ github.run_number }}"
           ls -la dist
           # `--notes-file` is the install guide; `--generate-notes` appends the
           # list of merged pull requests since the previous Release below it.
-          gh release create "$tag" dist/* \
+          gh release create "v${VERSION}" dist/* \
             --target "${{ github.sha }}" \
-            --title "REX ${version} (build ${{ github.run_number }})" \
+            --title "REX ${VERSION}" \
             --notes-file .github/release-notes.md \
             --generate-notes

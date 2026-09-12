@@ -2,6 +2,8 @@
 
 **Amended by [spec 50](../50-macos-completely/SPEC.md):** one installer, not five. The workflow builds macOS arm64 on `macos-latest` and nothing else.
 
+**Amended by [spec 57](../57-one-version-one-release/SPEC.md):** one version, one Release. Tagged `v<version>` rather than `v<version>-<run>`, published only while that tag does not exist, and a pull request into `main` must raise `version`. Spec 57 §4 lists every row of this spec it changes.
+
 **Status: built 2026-09-07, first run pending.** The workflow exists and is
 tested on this machine as far as a workflow can be; its first run on GitHub is
 the acceptance test, and §7 says what that run must show.
