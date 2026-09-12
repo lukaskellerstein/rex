@@ -32,7 +32,7 @@ height on the oversized mark and leaves the word small.
 
 ## Treatments
 
-Each lockup ships in three:
+Every variant ships in three:
 
 - **`color`** — the full artwork. The default.
 - **`white`** — a white silhouette, for dark backgrounds and photos.
@@ -42,6 +42,18 @@ Each lockup ships in three:
 The silhouettes are cut from the alpha channel, which is lossless here: every
 counter in the artwork (the R's bowl, the E gaps) is genuinely transparent in
 the source rather than painted light, so the silhouette still reads as an R.
+
+The three lockups that mix the mark with the letters — `combined/`, `full/` and
+`stacked/` — ship in a fourth:
+
+- **`on-dark`** — the colour mark, and the letters turned white. For a dark
+  background that should still carry the red mark: a dark-mode README header, a
+  dark About box, a slide. `white` throws the artwork away to survive the same
+  background; this keeps it.
+
+The other two variants have no fourth treatment, and neither is an oversight.
+`mark/` carries no letters to lighten. `wordmark/` is nothing but letters, so
+its on-dark version would be byte-for-byte the white silhouette — use `white`.
 
 ## Naming
 
@@ -53,11 +65,18 @@ The number is the **width in pixels**; height follows the master's aspect ratio.
 No suffix means the master — the largest available. Nothing is upscaled, so the
 master is the true resolution ceiling.
 
+`on-dark` is the one treatment whose name contains a hyphen, so the last `-`
+does not always start the width: `rex-combined-on-dark.png` is a master and
+`rex-combined-on-dark-512.png` is 512px wide.
+
 | Variant | Widths available |
 |:--|:--|
 | `full`, `combined`, `wordmark` | 1024, 512, 256, 128 |
 | `mark` | 512, 256, 128, 64, 32 |
 | `stacked` | 512, 256, 128 |
+
+An `on-dark` file has the same pixel dimensions as the `color` file beside it.
+Only the colour of the letters differs.
 
 ## Icons
 
@@ -112,3 +131,16 @@ oversized initial beside the word. The mark and the letters are each flush-cut
 at their own bottom edge, though — verified on the source, where the ink count
 holds constant through the final row of both — so bottom-aligning the two
 trimmed images is true baseline alignment.
+
+### How `on-dark` is composed
+
+The letters are one flat navy — `#0F0F24` over 99% of the wordmark's opaque
+pixels — so turning them white is a `-colorize` of the wordmark and nothing
+more. The mark is never touched.
+
+The script colorizes the **wordmark half**, before any lockup is built, and then
+runs the same compose recipe twice. So the two treatments cannot drift apart:
+the cap-height match, the 35px gap and the stacked ratio are computed once and
+applied to both. Recolouring the finished lockups instead would mean separating
+the letters from the mark by colour, inside a composed image, when the halves
+are already separate one step earlier.

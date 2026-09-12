@@ -46,55 +46,89 @@ magick "$SRC" -channel A -level '1.96%,96.1%' +channel "$TMP/clean.png"
 # The source is one horizontal lockup, 2172x724: the R mark, a clean 54px
 # transparent gap at x=808..861, then the REX wordmark. Split mid-gap, then
 # -trim each half to its own ink.
-magick "$TMP/clean.png" -trim +repage "$TMP/full.png"
-magick "$TMP/clean.png" -crop 835x724+0+0 +repage -trim +repage "$TMP/mark.png"
-magick "$TMP/clean.png" -crop 1337x724+835+0 +repage -trim +repage "$TMP/wordmark.png"
+magick "$TMP/clean.png" -crop 835x724+0+0 +repage "$TMP/half-mark.png"
+magick "$TMP/clean.png" -crop 1337x724+835+0 +repage "$TMP/half-word.png"
+magick "$TMP/half-mark.png" -trim +repage "$TMP/mark.png"
+magick "$TMP/half-word.png" -trim +repage "$TMP/wordmark.png"
 
-# Stacked lockup: mark centred above the wordmark. The wordmark is set to 125%
-# of the mark's width and separated by 15% of the mark's height — the ratio that
-# balances the two optically (100% leaves the wordmark looking undersized, 150%
-# lets it dominate the mark).
+# The letters are one flat navy — #0F0F24 over 99% of the wordmark's opaque
+# pixels — so the on-dark treatment is the same artwork with that navy turned
+# white, and the mark left in colour. It is built from the wordmark *half*, so
+# every lockup below is composed from the same recipe for both treatments and
+# their geometry cannot drift apart.
+magick "$TMP/half-word.png" -fill white -colorize 100 "$TMP/half-word-on-dark.png"
+
 MARK_W=$(magick identify -format '%w' "$TMP/mark.png")
 MARK_H=$(magick identify -format '%h' "$TMP/mark.png")
-magick "$TMP/wordmark.png" -resize "$((MARK_W * 125 / 100))x" "$TMP/wm-scaled.png"
-magick -background none \
-  "$TMP/mark.png" \
-  \( -size "1x$((MARK_H * 15 / 100))" xc:none \) \
-  "$TMP/wm-scaled.png" \
-  -gravity center -append +repage "$TMP/stacked.png"
-
-# Combined lockup: the mark serves as the word's R, so it reads "REX" once
-# instead of the default lockup's redundant "R REX". The wordmark has its own
-# transparent letter gaps — R|E at x=338..372 and E|X at x=672..680 — so "EX"
-# starts at x=373 within the trimmed wordmark.
-#
-# Two numbers make this read as a word rather than as a mark next to text:
-# the mark is matched to the wordmark's cap height exactly (any taller and it
-# reads as an oversized initial), and the space between them is 35px at that
-# cap height, which is the wordmark's own native R-to-E gap.
-#
-# The append is a plain bottom-align. In the source lockup the mark deliberately
-# drops below the wordmark's baseline (mark y=103..603 against text y=211..543),
-# but the mark and the letters are each flush-cut at their own bottom edge, so
-# bottom-aligning the two trimmed images is true baseline alignment.
 WM_H=$(magick identify -format '%h' "$TMP/wordmark.png")
 WM_W=$(magick identify -format '%w' "$TMP/wordmark.png")
-magick "$TMP/wordmark.png" -crop "$((WM_W - 373))x${WM_H}+373+0" +repage "$TMP/ex.png"
 magick "$TMP/mark.png" -resize "x${WM_H}" "$TMP/mark-cap.png"
-magick -background none \
-  "$TMP/mark-cap.png" \
-  \( -size "35x1" xc:none \) \
-  "$TMP/ex.png" \
-  -gravity south +append +repage "$TMP/combined.png"
+
+# Compose the three lockups that carry both the mark and the letters, from one
+# treatment of the wordmark half. $1 names that treatment's masters in $TMP —
+# empty for the colour artwork, "-on-dark" for the white letters.
+lockups() {
+  local tag="$1" half="$2"
+
+  # Full lockup: the source's own geometry. The two halves are re-appended in
+  # place before the trim, so the mark keeps the overhang it has in the source.
+  magick "$TMP/half-mark.png" "$half" +append +repage -trim +repage "$TMP/full$tag.png"
+  magick "$half" -trim +repage "$TMP/wordmark$tag.png"
+
+  # Stacked lockup: mark centred above the wordmark. The wordmark is set to 125%
+  # of the mark's width and separated by 15% of the mark's height — the ratio
+  # that balances the two optically (100% leaves the wordmark looking
+  # undersized, 150% lets it dominate the mark).
+  magick "$TMP/wordmark$tag.png" -resize "$((MARK_W * 125 / 100))x" "$TMP/wm-scaled$tag.png"
+  magick -background none \
+    "$TMP/mark.png" \
+    \( -size "1x$((MARK_H * 15 / 100))" xc:none \) \
+    "$TMP/wm-scaled$tag.png" \
+    -gravity center -append +repage "$TMP/stacked$tag.png"
+
+  # Combined lockup: the mark serves as the word's R, so it reads "REX" once
+  # instead of the default lockup's redundant "R REX". The wordmark has its own
+  # transparent letter gaps — R|E at x=338..372 and E|X at x=672..680 — so "EX"
+  # starts at x=373 within the trimmed wordmark.
+  #
+  # Two numbers make this read as a word rather than as a mark next to text:
+  # the mark is matched to the wordmark's cap height exactly (any taller and it
+  # reads as an oversized initial), and the space between them is 35px at that
+  # cap height, which is the wordmark's own native R-to-E gap.
+  #
+  # The append is a plain bottom-align. In the source lockup the mark
+  # deliberately drops below the wordmark's baseline (mark y=103..603 against
+  # text y=211..543), but the mark and the letters are each flush-cut at their
+  # own bottom edge, so bottom-aligning the two trimmed images is true baseline
+  # alignment.
+  magick "$TMP/wordmark$tag.png" -crop "$((WM_W - 373))x${WM_H}+373+0" +repage "$TMP/ex$tag.png"
+  magick -background none \
+    "$TMP/mark-cap.png" \
+    \( -size "35x1" xc:none \) \
+    "$TMP/ex$tag.png" \
+    -gravity south +append +repage "$TMP/combined$tag.png"
+}
+
+lockups "" "$TMP/half-word.png"
+lockups "-on-dark" "$TMP/half-word-on-dark.png"
 
 # --- 3. Colour treatments + size ladders --------------------------------------
 # white/black are silhouettes taken from the alpha channel. That is lossless
 # here because every counter in the artwork (both R bowls, the E gaps) is
 # genuinely transparent rather than painted dark — verified against the source.
+ladder() { # ladder <master> <dir> <variant> <treatment> <widths...>
+  local master="$1" dir="$2" variant="$3" treatment="$4"
+  shift 4
+
+  cp "$master" "$dir/rex-$variant-$treatment.png"
+  for w in "$@"; do
+    magick "$master" -resize "${w}x" "$dir/rex-$variant-$treatment-${w}.png"
+  done
+}
+
 emit() {
   local variant="$1" dir="$2"
   shift 2
-  local widths=("$@")
   local master="$TMP/$variant.png"
 
   for treatment in color white black; do
@@ -104,11 +138,17 @@ emit() {
       white) magick "$master" -fill white -colorize 100 "$base" ;;
       black) magick "$master" -fill black -colorize 100 "$base" ;;
     esac
-    cp "$base" "$dir/rex-$variant-$treatment.png"
-    for w in "${widths[@]}"; do
-      magick "$base" -resize "${w}x" "$dir/rex-$variant-$treatment-${w}.png"
-    done
+    ladder "$base" "$dir" "$variant" "$treatment" "$@"
   done
+
+  # Only the three lockups that mix the mark with the letters get on-dark.
+  # mark/ has no letters to lighten, and wordmark/ is nothing but letters, so
+  # its on-dark version would be byte-for-byte the white silhouette above.
+  case "$variant" in
+    full | combined | stacked)
+      ladder "$TMP/$variant-on-dark.png" "$dir" "$variant" on-dark "$@"
+      ;;
+  esac
   echo "  $variant  $(magick identify -format '%wx%h' "$master")  ->  $dir/"
 }
 
