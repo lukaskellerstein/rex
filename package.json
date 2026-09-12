@@ -1,7 +1,7 @@
 {
   "name": "rex",
-  "version": "0.1.0",
-  "description": "Review EX \u2014 comment on documents and discuss each comment with an AI agent",
+  "version": "0.2.0",
+  "description": "Review EX — comment on documents and discuss each comment with an AI agent",
   "author": "Lukas Kellerstein <lukas.kellerstein@gmail.com>",
   "homepage": "https://github.com/lukaskellerstein/rex",
   "private": true,
@@ -76,6 +76,7 @@
     "test:traffic": "node --test test/traffic.spec.ts",
     "test:providers": "node --test test/providerStore.spec.ts",
     "test:local-gateway": "node --test test/localGateway.spec.ts",
+    "test:version": "node --test test/version.spec.ts",
     "bundle:python": "node scripts/bundle-python.mjs",
     "package": "npm run build && npm run bundle:python && node scripts/package.mjs",
     "package:dir": "npm run build && node scripts/package.mjs --dir"

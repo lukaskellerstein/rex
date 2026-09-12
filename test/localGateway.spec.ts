@@ -236,10 +236,11 @@ test("the packaged interpreter and the development venv stay two questions", asy
 
 // ── Spec 49 — the Release workflow ──────────────────────────────
 //
-// One runner, because REX is macOS only (spec 50) and there is no cross-build;
-// and a Release only from a push to main. String checks — a YAML parser is not
-// a dependency this repo has — on the very file GitHub reads.
-test("the Release workflow builds the macOS installer and publishes only from main", async () => {
+// One runner, because REX is macOS only (spec 50) and there is no cross-build.
+// When it publishes is spec 57's, and test/version.spec.ts guards that. String
+// checks — a YAML parser is not a dependency this repo has — on the very file
+// GitHub reads.
+test("the Release workflow builds the macOS installer", async () => {
   const { existsSync, readFileSync } = await import("node:fs");
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
@@ -251,11 +252,6 @@ test("the Release workflow builds the macOS installer and publishes only from ma
   for (const gone of ["windows-latest", "windows-11-arm", "--win nsis", "--linux deb"]) {
     assert.ok(!workflow.includes(gone), `spec 50 removed ${gone}`);
   }
-  assert.match(
-    workflow,
-    /if: github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/,
-    "a Release only from a merge to main",
-  );
   assert.match(workflow, /contents: write/, "the publish job may write a Release");
   assert.match(
     workflow,

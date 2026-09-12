@@ -47,24 +47,10 @@ This machine runs "no config, no tool": a formatter or linter acts on this repo
 only if the repo carries that tool's own config file. If `:w` changes nothing and
 the gutter stays empty, the marker file is missing — not the editor broken.
 
-This repo carries `biome.jsonc` (the JS/TS family — formatter *and* live linter),
-`tsconfig.json` (tsc), `.editorconfig` (shfmt) and `.markdownlint-cli2.yaml`
-(markdown). `nvim-tools` gates each tool on its file — `tsc` on `tsconfig.json`
-exactly as it gates `basedpyright` on `pyrightconfig.json` and `ruff` on
-`ruff.toml`, and both Python packages carry both of those — `agent-runner/`
-since spec 42 and `local-gateway/` since spec 46 — so a Python finding is a
-finding like any other.
-
-One file is deliberately outside biome: `src/shared/agent-protocol.ts` is
-generated from `agent-runner/src/agent_runner/protocol.py` and compared byte
-for byte by `test/protocol.spec.ts`, so a formatter rewrapping it would break
-that test for a reason nobody could act on. The generator keeps it inside
-`lineWidth` itself. `agent-runner/schema.json` and `catalogue.json` are
-excluded for the same reason.
-
-The file must stay `biome.jsonc`, not `biome.json`: biome silently ignores a
-`.json` config containing comments and falls back to its full defaults, which
-reintroduces every rule the template turned off.
+This repo carries `biome.jsonc` (JS/TS — keep the `.jsonc` name), `tsconfig.json`
+(tsc), `.editorconfig` (shfmt) and `.markdownlint-cli2.yaml` (markdown). Both
+Python packages carry `ruff.toml` and `pyrightconfig.json`. Generated files are
+excluded in `biome.jsonc`; never format them by hand.
 
 The contract, and the skill that applies it, are in mac-setup:
 `projects/tooling.md` and `/lint-format-lsp`.
