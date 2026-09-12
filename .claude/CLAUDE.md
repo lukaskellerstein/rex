@@ -46,7 +46,7 @@ Where to read, when you need it:
 | What | Where |
 |:--|:--|
 | What REX does, how to install and run it | [`README.md`](../README.md) |
-| **The specs — the authority on what REX is** | [`docs/my-specs/`](../docs/my-specs/). `SPEC.md` in these files means `docs/my-specs/01-initial/SPEC.md`; every later decision is a numbered spec, indexed in the README's spec table |
+| **The specs — the authority on what REX is** | [`docs/my-specs/`](../docs/my-specs/). `SPEC.md` in these files means `docs/my-specs/01-initial/SPEC.md`; every later decision is a numbered spec, one folder each, in build order |
 | Architecture and the three invariants | `SPEC.md` §3, and the README's *How it works* |
 | What REX will and will not do to each file format | [`docs/FORMATS.md`](../docs/FORMATS.md) |
 | Stack, commands, ports, external paths | [`rules/01-project-config.md`](rules/01-project-config.md), [`rules/10-tech-stack.md`](rules/10-tech-stack.md) |
