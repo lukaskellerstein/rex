@@ -16,19 +16,25 @@ committing them.
 
 | Directory | Variant | Master size | Use for |
 |:--|:--|:--|:--|
-| `combined/` | mark **as** the R, then EX | 1088×333 | **the default lockup** — README headers, docs, About box |
-| `full/` | mark + wordmark, horizontal | 1656×501 | when the mark needs to stand apart from the word — a title card, a wide banner |
+| `full/` | mark + wordmark, horizontal | 1656×501 | **the README header** — the mark, then the whole word. Also title cards and wide banners |
+| `combined/` | mark **as** the R, then EX | 1088×333 | a tight horizontal strip, and anywhere the repeated R distracts — the About box, docs |
 | `mark/` | the **R** alone | 524×501 | app icon, avatar, favicon source, anywhere too small for text |
 | `wordmark/` | **REX** alone | 1078×333 | when the mark already appears nearby, or in a tight horizontal strip |
 | `stacked/` | mark above wordmark | 655×778 | square-ish and vertical spaces — splash screen, centred hero |
 | `icon/` | the mark, padded square | 1024×1024 | app icons and touch icons |
 | `favicon.ico` | multi-resolution ICO | 64/48/32/24/16 | browser tabs |
 
-`combined/` is the default rather than `full/` because `full/` reads "R REX" —
-the mark and the wordmark both supply an R. `combined/` drops the wordmark's own
-navy R and lets the mark be the letter, so the lockup reads the name once. It is
-also the more legible of the two at any given height, since `full/` spends that
+The two differ by one letter. `full/` reads "R REX" — the mark and the wordmark
+both supply an R — while `combined/` drops the wordmark's own navy R and lets
+the mark be the letter, so the lockup reads the name once. `combined/` is also
+the more legible of the two at any given height, since `full/` spends that
 height on the oversized mark and leaves the word small.
+
+The README header uses `full/` all the same, because the family does. VEX's
+header is its V mark followed by the whole word, and the three projects are
+read side by side. The repeated R is the price of that, and the whole word in
+white is what the dark theme then shows. `combined/` remains the better choice
+wherever the strip is tight or the repetition distracts.
 
 ## Treatments
 

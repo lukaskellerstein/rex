@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/combined/rex-combined-on-dark-512.png">
-    <img src="docs/logo/combined/rex-combined-color-512.png" alt="REX" width="300">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/full/rex-full-on-dark-1024.png">
+    <img src="docs/logo/full/rex-full-color-1024.png" alt="REX" width="420">
   </picture>
 </p>
 
@@ -20,8 +20,10 @@ comment with an AI agent. Third in the family after **VEX** and **DEX**.
 
 The logo kit — every lockup, treatment and icon size — is in
 [`docs/logo/`](docs/logo/README.md), generated from `docs/logo/rex-logo.png` by
-`docs/logo/build.sh`. The header above swaps itself in GitHub's dark theme: the
-navy letters go white and the mark stays red, which is the `on-dark` treatment.
+`docs/logo/build.sh`. The header above is the `full` lockup, the same shape VEX
+uses: the mark, then the whole word. It swaps itself in GitHub's dark theme —
+all three letters go white and the mark stays red, which is the `on-dark`
+treatment.
 
 ## What it does
 
