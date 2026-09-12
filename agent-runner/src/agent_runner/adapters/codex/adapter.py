@@ -25,6 +25,7 @@ replacing it, and the item type the spec calls `todoList` is `plan`.
 import asyncio
 import contextlib
 import os
+import shutil
 import traceback
 from pathlib import Path
 from typing import Any
@@ -111,6 +112,48 @@ def rex_codex_home() -> Path:
     home = Path(os.environ.get("REX_CODEX_HOME") or Path.home() / ".rex" / "codex-home")
     home.mkdir(parents=True, exist_ok=True)
     return home
+
+
+def ask_scratch(run_id: str) -> Path:
+    """Spec 56 §3.1 — the one writable path an ASK has, and it holds nothing.
+
+    An ASK needs the network to check a citation, and §2.2 measured that only
+    `workspace_write` has a network switch. `workspace_write` makes `cwd`
+    writable whatever else is said (§2.3), so the working directory has to be
+    somewhere losing every byte of is free. This is that somewhere: empty when
+    the child starts, removed when the run ends, and read by nobody.
+
+    `RunRequest.writable` says the rule this follows in its own words — *an
+    adapter whose SDK makes `cwd` writable must move the child's working
+    directory, not widen the list*. Spec 44 §9.3 already does it for ACT, which
+    moves onto the working copies because ACT has something to write. ASK has
+    nothing, so it moves onto a void.
+
+    Per run and never shared: two comments answered at once must not be able to
+    see each other's scratch.
+    """
+    scratch = _ask_scratch_root() / run_id
+    scratch.mkdir(parents=True, exist_ok=True)
+    return scratch
+
+
+def _ask_scratch_root() -> Path:
+    return Path.home() / ".rex" / "work" / "ask"
+
+
+def discard_ask_scratch(cwd: str) -> None:
+    """Remove an ASK's throwaway, and refuse to remove anything else.
+
+    The guard is the point rather than a formality: this is called with whatever
+    working directory the run had, and an ACT's is one of the reviewer's working
+    copies. So it deletes only a direct child of the scratch root and never
+    follows a link out of it.
+    """
+    path = Path(cwd)
+    root = _ask_scratch_root()
+    if path.parent != root or not path.is_dir() or path.is_symlink():
+        return
+    shutil.rmtree(path, ignore_errors=True)
 
 
 #: The window a routed run tells Codex to assume, in tokens.
@@ -219,25 +262,89 @@ class CodexAdapter:
 
     # ── §6 — threads, sessions and profiles ─────────────────────
 
+    def _config(self, request: RunRequest, sandbox_config: dict[str, Any]) -> dict[str, Any]:
+        """Everything this run tells the CLI, beside the sandbox it was handed.
+
+        Its own method since spec 56 so the `web_search` switch can be asserted
+        without spawning a child — that switch is the difference between a
+        working answer and a counterfeit one, and it is decided from one field.
+        """
+        config: dict[str, Any] = {
+            **self._provider(
+                request.route,
+                attribution_headers(request.thread_id, request.run_id, request.profile),
+            ),
+            **sandbox_config,
+            # Belt and braces beside `CODEX_HOME`: measured not to take at
+            # 0.147.0, kept because it costs nothing and is what a future
+            # version would honour.
+            "mcp_servers": {},
+            "plugins": {},
+            # The CLI's own name for the option. `web_search_mode` is not a
+            # config key at 0.147.0 — milestone 0, §10.2.
+            #
+            # Spec 56 §3.2 — on and off by ROUTE, because the tool is HOSTED.
+            # `live` puts `{"type": "web_search", "external_web_access": true}`
+            # in the request, with no schema and no parameters: the model's own
+            # endpoint runs it. Codex's own endpoint does. A gateway in front of
+            # a local model does not, and it fails silently — measured
+            # 2026-09-11, LM Studio accepted the tool, dropped it, and the model
+            # then wrote a counterfeit tool call into its answer as prose, with
+            # HTTP 200 and no error anywhere. So a routed run keeps `disabled`
+            # and reaches the web through the shell instead (§3.3).
+            "web_search": "disabled" if request.route.base_url else "live",
+        }
+        if request.route.base_url:
+            # §10.0.4 — Codex compacts a conversation when it thinks the window
+            # is full, and for a model it has never heard of it assumes a small
+            # one. On a local model that reads as an agent forgetting things
+            # mid-thread for no visible reason. Only for a routed run: on
+            # Codex's own endpoint the CLI knows its own models' windows.
+            config["model_context_window"] = ROUTED_CONTEXT_WINDOW
+        return config
+
     def _sandbox(self, request: RunRequest) -> tuple[Sandbox, dict[str, Any], str]:
         """The sandbox, its settings, and the directory the child runs in.
 
         `request.disallowed` is spec 42 §6's common vocabulary. There is no
         per-tool disallow list to map it onto here, so the presence of `write`
-        selects the read-only sandbox and its absence the workspace-write one.
-        That is the whole mapping, and §9.2 is why it is enough: read-only stops
-        the write before the tool runs, where Claude's list only hides the tool.
+        says which of the two shapes below is built.
 
-        For a writing run the working directory **moves**. Codex makes `cwd`
-        writable implicitly — measured 2026-09-04, and it is the finding that
-        decided this design — so leaving it on the reviewer's repository would
-        make the repository writable however carefully `writable_roots` was
-        filled. §9.3's answer is to run the child in the first working copy and
-        name the rest, which leaves the repository readable by absolute path and
-        not writable at all.
+        **Either way the working directory moves.** Codex makes `cwd` writable
+        implicitly — measured 2026-09-04, re-measured under `codex sandbox` on
+        2026-09-11 (spec 56 §2.3), and it is the finding that decided both
+        designs — so leaving it on the reviewer's repository would make the
+        repository writable however carefully `writable_roots` was filled.
+        Naming a writable root elsewhere does not suppress it either. Spec 44
+        §9.3's answer for ACT is to run the child in the first working copy and
+        name the rest; spec 56 §3.1's answer for ASK is to run it in an empty
+        throwaway and name nothing.
+
+        **ASK is `workspace_write` too, since spec 56.** It reads oddly and it
+        is the only shape that works: `network_access` exists nowhere but under
+        `sandbox_workspace_write`, and beside `read_only` it is ignored (§2.2).
+        An ASK that cannot reach the network cannot check a citation, which is
+        ordinary review work and what REX's own read prompt has always asked
+        for. What the reviewer owns is no less protected than it was: with
+        `writable_roots` empty and `cwd` on the throwaway, the repository, the
+        working copies, `~/.rex` and the home directory are all refused — §7
+        of spec 56 is the measurement.
         """
         if "write" in request.disallowed:
-            return Sandbox.read_only, {}, request.cwd
+            return (
+                Sandbox.workspace_write,
+                {
+                    "sandbox_workspace_write": {
+                        # Nothing beyond the throwaway `cwd`, which is the point.
+                        "writable_roots": [],
+                        # Spec 56 §3.1 — the whole reason this is not read-only.
+                        "network_access": True,
+                        "exclude_slash_tmp": True,
+                        "exclude_tmpdir_env_var": True,
+                    }
+                },
+                str(ask_scratch(request.run_id)),
+            )
 
         return (
             Sandbox.workspace_write,
@@ -272,9 +379,6 @@ class CodexAdapter:
         duration_ms: int | None = None
         error: str | None = None
         answered = False
-        #: The one refusal that ends the turn, kept so the reason survives the
-        #: interrupt that follows it.
-        refusal: str | None = None
 
         def report_stopped() -> RunResult:
             emit(StoppedEvent())
@@ -322,28 +426,7 @@ class CodexAdapter:
             )
 
         sandbox, sandbox_config, cwd = self._sandbox(request)
-        config = {
-            **self._provider(
-                request.route,
-                attribution_headers(request.thread_id, request.run_id, request.profile),
-            ),
-            **sandbox_config,
-            # Belt and braces beside `CODEX_HOME`: measured not to take at
-            # 0.147.0, kept because it costs nothing and is what a future
-            # version would honour.
-            "mcp_servers": {},
-            "plugins": {},
-            # The CLI's own name for the option. `web_search_mode` is not a
-            # config key at 0.147.0 — milestone 0, §10.2.
-            "web_search": "disabled",
-        }
-        if request.route.base_url:
-            # §10.0.4 — Codex compacts a conversation when it thinks the window
-            # is full, and for a model it has never heard of it assumes a small
-            # one. On a local model that reads as an agent forgetting things
-            # mid-thread for no visible reason. Only for a routed run: on
-            # Codex's own endpoint the CLI knows its own models' windows.
-            config["model_context_window"] = ROUTED_CONTEXT_WINDOW
+        config = self._config(request, sandbox_config)
 
         watcher: asyncio.Task[None] | None = None
         try:
@@ -387,9 +470,7 @@ class CodexAdapter:
                     payload = event.payload
 
                     if isinstance(payload, ItemStartedNotification):
-                        refusal = await self._judge(payload.item.root, ask_policy, emit, denials)
-                        if refusal is not None:
-                            await _quietly_interrupt(turn)
+                        await self._judge(payload.item.root, ask_policy, emit, denials)
 
                     elif isinstance(payload, ItemCompletedNotification):
                         for produced in item_events(payload.item.root):
@@ -426,6 +507,9 @@ class CodexAdapter:
         finally:
             if watcher is not None:
                 watcher.cancel()
+            # Spec 56 §3.1 — the throwaway goes when the run does. Whatever an
+            # ASK wrote there, nobody reads it.
+            discard_ask_scratch(cwd)
 
         # A late interrupt can end the stream cleanly, with nothing thrown.
         # `answered` is what keeps a stop pressed on the last millisecond of a
@@ -433,12 +517,14 @@ class CodexAdapter:
         if not answered and stop.is_set():
             return report_stopped()
 
-        # A refusal ends the turn, and it is the run's error however the turn
-        # itself reported ending. Never over a real error the run already has:
-        # the gateway's own failure is the more useful sentence.
-        if refusal is not None and error is None:
-            error = refusal
-
+        # Spec 56 §3.4 — a refusal stops the command, NOT the run. It used to
+        # end the turn and become the run's error, which threw away every step
+        # before it: the reported failure discarded six good steps and the
+        # answer because the seventh call was denied. §9.2 is why that trade was
+        # always wrong here — the sandbox is the primary boundary and has
+        # already refused the action by the time REX sees it, so ending the turn
+        # buys no safety and only loses the work. The denial is emitted, the
+        # trace draws it, and `denials` still carries it to the host.
         if error is not None:
             emit(ErrorEvent(text=error, duration_ms=duration_ms))
         else:
@@ -469,7 +555,7 @@ class CodexAdapter:
         ask_policy: AskPolicy,
         emit: Emit,
         denials: list[Denial],
-    ) -> str | None:
+    ) -> None:
         """§9.1 — ask the host about a tool call that has just started.
 
         Where this runs is the honest part. The Codex SDK's approval handler is
@@ -477,20 +563,23 @@ class CodexAdapter:
         reader thread, and `deny_all` means the CLI never sends one — measured,
         §10.2. So the question is asked at `item/started`, which is after the
         sandbox has already decided and before the item completes: **the sandbox
-        is what stops the write; the policy is what makes the attempt visible**
-        and what ends a turn that should not continue.
+        is what stops the write; the policy is what makes the attempt visible.**
+
+        Spec 56 §3.4 — and visible is ALL it makes it. This used to return a
+        sentence that interrupted the turn and became the run's error. Since the
+        sandbox has already refused the action, that ended runs for no safety at
+        all, and it is what cost the reviewer an answer six good steps in.
         """
         call = policy_call_of(item)
         if call is None:
-            return None
+            return
         name, tool_input = call
         item_type = getattr(item, "type", "")
         reason = await ask_policy(ToolCall(name=name, common=common_tool(str(item_type)), input=tool_input))
         if reason is None:
-            return None
+            return
         denials.append(Denial(tool_name=name, reason=reason))
         emit(DeniedEvent(name=name, reason=reason))
-        return f"{name} was not allowed, so the run was ended. {reason}"
 
     def _refuse(self, emit: Emit, session_id: str, reason: str) -> RunResult:
         emit(ErrorEvent(text=reason))

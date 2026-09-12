@@ -10,6 +10,9 @@ boundary that is not there.
 import asyncio
 import os
 import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 
 import pytest
 from openai_codex import Sandbox
@@ -19,10 +22,13 @@ from agent_runner.adapters.codex.adapter import (
     ROUTED_CONTEXT_WINDOW,
     TOKEN_VARIABLE,
     CodexAdapter,
+    ask_scratch,
+    discard_ask_scratch,
     rex_codex_home,
 )
 from agent_runner.adapters.codex.errors import route_hint
-from agent_runner.events import RunResult
+from agent_runner.events import Denial, RunResult
+from agent_runner.policy import ToolCall
 from agent_runner.types import NewSession, ResolvedRoute, RunRequest
 
 ADAPTER = CodexAdapter()
@@ -104,11 +110,84 @@ def test_a_route_that_needs_no_credential_changes_nothing_about_the_environment(
 # ── §6 and §9.2 — the sandbox ───────────────────────────────────
 
 
-def test_a_read_run_gets_the_read_only_sandbox_and_stays_in_the_repository() -> None:
-    sandbox, config, cwd = ADAPTER._sandbox(_request())
-    assert sandbox is Sandbox.read_only
-    assert config == {}
-    assert cwd == "/repo"
+def test_a_read_run_can_reach_the_network_and_may_write_only_its_throwaway() -> None:
+    """Spec 56 §3.1 — an ASK needs the web, and only `workspace_write` has a switch.
+
+    Measured 2026-09-11 under `codex sandbox`: `network_access` beside
+    `read_only` is ignored, and `workspace_write` makes `cwd` writable whatever
+    `writable_roots` says. So the mode changes and the working directory moves
+    onto something losing is free. What the reviewer owns is refused either way.
+    """
+    request = _request(run_id="sandbox-shape-under-test")
+    sandbox, config, cwd = ADAPTER._sandbox(request)
+    assert sandbox is Sandbox.workspace_write
+    settings = config["sandbox_workspace_write"]
+    assert settings["network_access"] is True, "an ASK that cannot fetch cannot check a citation"
+    assert settings["writable_roots"] == [], "the throwaway cwd is the only writable path"
+    assert settings["exclude_slash_tmp"] is True
+    assert settings["exclude_tmpdir_env_var"] is True
+
+    # The repository is NOT the working directory, which is the whole reason
+    # this shape is safe: `cwd` is implicitly writable and must hold nothing.
+    assert cwd != request.cwd
+    assert Path(cwd).parent == Path.home() / ".rex" / "work" / "ask"
+    assert Path(cwd).is_dir() and not any(Path(cwd).iterdir()), "born empty"
+    discard_ask_scratch(cwd)
+
+
+async def test_a_denial_is_recorded_and_emitted_and_does_not_end_the_run() -> None:
+    """Spec 56 §3.4 — a refusal stops the command, not the run.
+
+    Thread ef3df7aa, 2026-09-11: six good steps and the answer were discarded
+    because the seventh call was denied. §9.2 is why that was always the wrong
+    trade here — the sandbox has already refused the action by the time `_judge`
+    is asked, so ending the turn buys nothing and loses the work.
+    """
+    events: list[object] = []
+    denials: list[Denial] = []
+
+    async def deny_everything(call: ToolCall) -> str:
+        return f"no {call.name} in a read session"
+
+    item = SimpleNamespace(type="commandExecution", command="curl -o x https://example.com")
+    await ADAPTER._judge(item, deny_everything, events.append, denials)
+
+    # Recorded for the host, drawn in the trace...
+    assert [d.tool_name for d in denials] == ["command_execution"]
+    assert [getattr(event, "type", "") for event in events] == ["denied"]
+    # ...and nothing asks the caller to interrupt the turn.
+    assert (await ADAPTER._judge(item, deny_everything, events.append, denials)) is None, (
+        "a sentence here is what used to kill the run"
+    )
+
+
+def test_web_search_is_on_for_codex_own_endpoint_and_off_for_every_gateway() -> None:
+    """Spec 56 §3.2 — the tool is hosted, so only an endpoint that runs it gets it.
+
+    Measured 2026-09-11: `live` adds `{"type": "web_search",
+    "external_web_access": true}` to the request. It carries no schema, so the
+    model's server executes it. LM Studio accepted it, dropped it, and the model
+    wrote a counterfeit tool call as prose — HTTP 200, no error. A routed run
+    must therefore stay `disabled` and use the shell.
+    """
+    assert ADAPTER._config(_request(route=ORIGINAL), {})["web_search"] == "live"
+    for route in (KEYED, OPEN):
+        config = ADAPTER._config(_request(route=route), {})
+        assert config["web_search"] == "disabled", f"{route.gateway_name} cannot run a hosted tool"
+
+
+def test_the_throwaway_is_removed_and_nothing_else_ever_is() -> None:
+    """The guard matters: this is called with whatever cwd the run had."""
+    scratch = ask_scratch("run-under-test")
+    (scratch / "left-behind.txt").write_text("scratch", encoding="utf8")
+    discard_ask_scratch(str(scratch))
+    assert not scratch.exists()
+
+    # An ACT's cwd is one of the reviewer's working copies. It must survive.
+    with TemporaryDirectory() as other:
+        (Path(other) / "keep.md").write_text("a working copy", encoding="utf8")
+        discard_ask_scratch(other)
+        assert (Path(other) / "keep.md").exists()
 
 
 def test_a_write_run_runs_in_the_first_working_copy_and_names_the_rest() -> None:

@@ -1,0 +1,334 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #8fb4f0; text-decoration: none; }
+    a:hover { color: #b7cff6; }
+    * { box-sizing: border-box; }
+    .m { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 1040px; height: 900px; display: flex; flex-direction: column; background: #0e1012; color: #f4f6f7; font: 13px/1.5 'DM Sans', system-ui, sans-serif;">
+
+  <div style="display: flex; align-items: center; gap: 10px; flex: none; height: 52px; padding: 0 20px; border-bottom: 1px solid #2b3035;">
+    <button type="button" style="display: flex; align-items: center; gap: 6px; flex: none; height: 24px; padding: 0 8px 0 5px; border: 0; border-radius: 2px; background: none; color: #98a0a8; font: inherit; font-size: 12.5px; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.5 4 5.5 8l4 4"/>
+      </svg>
+      Trace
+    </button>
+    <span style="flex: none; color: #414850;">/</span>
+    <span style="overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap;">{{title}}</span>
+    <div style="flex-grow: 1;"></div>
+    <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M4 4l8 8M12 4l-8 8"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Identity. The id is on screen and copyable, because "which chat is this"
+       is the first thing anybody asks of a trace. It says CHAT and not
+       "session": REX already has a session_id and it means the SDK's own
+       session cache, one per chat and SDK and gateway. -->
+  <div style="display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 20px; border-bottom: 1px solid #2b3035; background: #131619;">
+    <span style="flex: none; color: #6e767e; font-size: 11px;">chat</span>
+    <span class="m" style="flex: none; color: #f4f6f7; font-size: 12px;">{{chatId}}</span>
+    <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 2px; background: none; color: #6e767e; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+        <rect x="5.4" y="2.4" width="8.2" height="8.2" rx="1"/><path d="M10.6 13.6H2.4V5.4"/>
+      </svg>
+    </button>
+    <span style="flex: none; color: #414850;">·</span>
+    <span style="flex: none; color: #98a0a8; font-size: 12px;">{{document}}</span>
+    <div style="flex-grow: 1;"></div>
+    <span style="flex: none; color: #98a0a8; font-size: 12px;">{{totals}}</span>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 8px; flex: none; padding: 10px 20px; border-bottom: 1px solid #2b3035;">
+    <sc-for list="{{pickers}}" as="p" hint-placeholder-count="2">
+      <button type="button" style="display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px; border: 1px solid #414850; border-radius: 2px; background: #191c1f; color: #ccd1d6; font: inherit; font-size: 12px; cursor: pointer;">
+        <span style="color: #6e767e;">{{p.label}}</span>
+        <span class="m" style="font-size: 11.5px;">{{p.value}}</span>
+        <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="#6e767e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 6.5 8 10.5 12 6.5"/>
+        </svg>
+      </button>
+    </sc-for>
+
+    <button type="button" onClick="{{toggleFailed}}" style="display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 9px; border: 1px solid {{failedChip.edge}}; border-radius: 2px; background: {{failedChip.bg}}; color: {{failedChip.fg}}; font: inherit; font-size: 12px; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M8 3.2v5.4M8 11.4h.01"/><circle cx="8" cy="8" r="6.1"/>
+      </svg>
+      Failed only
+    </button>
+
+    <div style="flex-grow: 1;"></div>
+
+    <div style="display: flex; align-items: center; gap: 7px; flex: none; width: 240px; height: 26px; padding: 0 9px; border: 1px solid #414850; border-radius: 2px; background: #08090a;">
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#6e767e" stroke-width="1.4" stroke-linecap="round">
+        <circle cx="7.2" cy="7.2" r="4.3"/><path d="M10.4 10.4 13.6 13.6"/>
+      </svg>
+      <span style="color: #6e767e; font-size: 12px;">Search prompts and replies</span>
+    </div>
+  </div>
+
+  <div style="flex-grow: 1; min-height: 0; padding: 12px 20px 20px; overflow: auto;">
+    <ul style="display: flex; flex-direction: column; gap: 7px; margin: 0; padding: 0; list-style: none;">
+      <sc-for list="{{turns}}" as="t" hint-placeholder-count="4">
+        <li style="border: 1px solid {{t.edge}}; border-left: 2px solid {{t.rail}}; border-radius: 2px; background: {{t.bg}};">
+
+          <div style="display: flex; align-items: center; gap: 10px; padding: 9px 10px 5px;">
+            <span style="flex: none; color: #f4f6f7; font-size: 13px; font-weight: 600;">{{t.name}}</span>
+            <!--
+              REX's own `.rex-sent` pill, copied exactly: 1px 6px, a 999px
+              radius, the ground colour as its text, 9px/700 at .09em. ASK is
+              #4d84e8 and ACT is `--lost` #d05744 — spec 33 §3.3, where ACT
+              took the write agent's red and the amber went to NOTE.
+            -->
+            <span style="flex: none; padding: 1px 6px; border-radius: 999px; background: {{t.modeBg}}; color: #0e1012; font-size: 9px; font-weight: 700; letter-spacing: .09em;">{{t.mode}}</span>
+            <span class="m" style="flex: none; color: #6e767e; font-size: 10.5px;">{{t.id}}</span>
+            <div style="flex-grow: 1;"></div>
+            <span class="m" style="flex: none; color: #98a0a8; font-size: 11.5px;">{{t.span}}</span>
+            <span class="m" style="flex: none; color: {{t.durationFg}}; font-size: 11.5px;">{{t.duration}}</span>
+            <button type="button" onClick="{{t.toggle}}" style="display: flex; align-items: center; justify-content: center; flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate({{t.spin}});">
+                <path d="M4 6.5 8 10.5 12 6.5"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- WHO answered: agent, gateway, model, output style. The four you
+               compare when two turns disagree. -->
+          <div style="display: flex; align-items: center; gap: 7px; padding: 0 10px 5px;">
+            <sc-for list="{{t.who}}" as="w" hint-placeholder-count="4">
+              <span style="flex: none; color: #6e767e; font-size: 11px;">{{w.label}}</span>
+              <span class="m" style="flex: none; color: {{w.fg}}; font-size: 11px;">{{w.value}}</span>
+              <span style="flex: none; color: #2b3035;">|</span>
+            </sc-for>
+            <div style="flex-grow: 1;"></div>
+            <span class="m" style="flex: none; color: #98a0a8; font-size: 11px;">{{t.tokens}}</span>
+            <span class="m" style="flex: none; color: {{t.costFg}}; font-size: 11px;">{{t.cost}}</span>
+          </div>
+
+          <div style="display: flex; align-items: center; gap: 8px; padding: 0 10px 9px;">
+            <sc-for list="{{t.facts}}" as="f" hint-placeholder-count="4">
+              <span style="display: flex; align-items: center; gap: 5px; flex: none; color: {{f.fg}}; font-size: 11.5px;">
+                <sc-if value="{{f.isExchanges}}" hint-placeholder-val="{{ true }}">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2.6 5.4h8.2M8.4 3 10.8 5.4 8.4 7.8M13.4 10.6H5.2M7.6 8.2 5.2 10.6l2.4 2.4"/>
+                  </svg>
+                </sc-if>
+                <sc-if value="{{f.isMessages}}" hint-placeholder-val="{{ true }}">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2.6 4.2h10.8v6.2H7.4L4.6 12.6v-2.2H2.6z"/>
+                  </svg>
+                </sc-if>
+                <sc-if value="{{f.isTools}}" hint-placeholder-val="{{ true }}">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.4 2.6a3.2 3.2 0 0 0-3 4.3L3 11.3l1.7 1.7 4.4-4.4a3.2 3.2 0 0 0 4.3-3l-2 2-1.7-.4-.4-1.7z"/>
+                  </svg>
+                </sc-if>
+                <sc-if value="{{f.isImage}}" hint-placeholder-val="{{ true }}">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2.4" y="3.4" width="11.2" height="9.2" rx="1"/><path d="m2.4 10.4 3-2.6 3.2 2.6 2-1.6 3 2.2"/>
+                  </svg>
+                </sc-if>
+                <sc-if value="{{f.isFailed}}" hint-placeholder-val="{{ false }}">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+                    <path d="M8 3.2v5.4M8 11.4h.01"/><circle cx="8" cy="8" r="6.1"/>
+                  </svg>
+                </sc-if>
+                {{f.text}}
+              </span>
+            </sc-for>
+            <div style="flex-grow: 1;"></div>
+            <button type="button" style="flex: none; height: 22px; padding: 0 9px; border: 1px solid #4d84e8; border-radius: 2px; background: none; color: #8fb4f0; font: inherit; font-size: 11.5px; cursor: pointer;">Open turn</button>
+          </div>
+
+          <!-- Expanded: a BRIEF list of what happened. No JSON at this level —
+               a message here is 40 KB and the question is only "what did it
+               do", which is one line each. -->
+          <sc-if value="{{t.open}}" hint-placeholder-val="{{ false }}">
+            <div style="padding: 9px 10px 10px; border-top: 1px solid #2b3035; background: #131619;">
+              <ol style="display: flex; flex-direction: column; gap: 3px; margin: 0; padding: 0; list-style: none;">
+                <sc-for list="{{t.steps}}" as="s" hint-placeholder-count="6">
+                  <li style="display: flex; align-items: baseline; gap: 9px; padding: 3px 6px; border-radius: 2px; background: {{s.bg}};">
+                    <span class="m" style="flex: none; width: 20px; color: #4a5058; font-size: 10.5px; text-align: right;">{{s.n}}</span>
+                    <span class="m" style="flex: none; width: 66px; color: {{s.roleFg}}; font-size: 10.5px;">{{s.role}}</span>
+                    <span style="overflow: hidden; flex-grow: 1; color: #ccd1d6; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap;">{{s.text}}</span>
+                    <span class="m" style="flex: none; color: #6e767e; font-size: 10.5px;">{{s.size}}</span>
+                  </li>
+                </sc-for>
+              </ol>
+            </div>
+          </sc-if>
+        </li>
+      </sc-for>
+    </ul>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { failedOnly: false, open: 4 };
+  }
+
+  all() {
+    return [
+      {
+        n: 4, mode: 'act', id: 'run-4', span: '12:04:31 → 12:05:44', duration: '73.2 s',
+        agent: 'claude', gateway: 'Built-in', model: 'gemma-4-e4b', style: 'default',
+        tokens: '26.9k in · 2.1k out', cost: 'free', failed: 1,
+        facts: [['exchanges', '5 exchanges'], ['messages', '31 messages'], ['tools', '3 tool calls'], ['image', '1 image'], ['failed', '1 failed']],
+        steps: [
+          ['user', 'Apply the rewrite to the working copy and show me the diff.', '212 B'],
+          ['assistant', 'thinking · the quote is two paragraphs above the edit', '640 B'],
+          ['assistant', 'Read(~/.rex/work/9f2c/sample-report.md, offset 140)', '96 B'],
+          ['tool', 'Read → 30 lines', '4.8 KB'],
+          ['assistant', 'Edit(sample-report.md) · 1 replacement', '308 B'],
+          ['tool', 'APIConnectionError — LM Studio refused the connection', 'failed'],
+          ['assistant', 'One replacement in sample-report.md, line 148. Diff ready.', '184 B']
+        ]
+      },
+      {
+        n: 3, mode: 'ask', id: 'run-3', span: '12:04:17 → 12:04:20', duration: '2.1 s',
+        agent: 'claude', gateway: 'Built-in', model: 'gemma-4-26b-a4b-qat', style: 'default',
+        tokens: '7.9k in · 0.3k out', cost: 'free', failed: 0,
+        facts: [['exchanges', '2 exchanges'], ['messages', '6 messages'], ['tools', '1 tool call']],
+        steps: [
+          ['user', 'Does the third paragraph still hold now the measurement moved?', '188 B'],
+          ['assistant', 'Read(~/.rex/work/9f2c/sample-report.md)', '92 B'],
+          ['tool', 'Read → 263 lines', '9.1 KB'],
+          ['assistant', 'Line 148 reads “roughly forty checks”; spec 50 §5 measured 42.', '204 B']
+        ]
+      },
+      {
+        n: 2, mode: 'ask', id: 'run-2', span: '12:01:52 → 12:01:56', duration: '3.8 s',
+        agent: 'claude', gateway: 'Built-in', model: 'gemma-4-26b-a4b-qat', style: 'terse',
+        tokens: '5.2k in · 0.4k out', cost: 'free', failed: 0,
+        facts: [['exchanges', '1 exchange'], ['messages', '4 messages']],
+        steps: [
+          ['user', 'Is the region gate mentioned anywhere else in this file?', '164 B'],
+          ['assistant', 'Once, in the paragraph above. Nowhere else.', '96 B']
+        ]
+      },
+      {
+        n: 1, mode: 'ask', id: 'run-1', span: '11:59:10 → 11:59:18', duration: '8.4 s',
+        agent: 'claude', gateway: 'Original', model: 'claude-opus-5', style: 'default',
+        tokens: '4.1k in · 0.6k out', cost: '$0.0214', failed: 0,
+        facts: [['exchanges', '3 exchanges'], ['messages', '8 messages'], ['tools', '2 tool calls']],
+        steps: [
+          ['user', 'What is this paragraph actually claiming?', '142 B'],
+          ['assistant', 'Grep("region gate")', '78 B'],
+          ['tool', 'Grep → 2 matches', '412 B'],
+          ['assistant', 'That the resolver survives an edit two paragraphs away.', '188 B']
+        ]
+      }
+    ];
+  }
+
+  factLook(kind) {
+    if (kind === 'exchanges') return { fg: '#ccd1d6', isExchanges: true };
+    if (kind === 'tools') return { fg: '#d9b23a', isTools: true };
+    if (kind === 'image') return { fg: '#66ad93', isImage: true };
+    if (kind === 'failed') return { fg: '#eda393', isFailed: true };
+    return { fg: '#98a0a8', isMessages: true };
+  }
+
+  roleFg(role) {
+    if (role === 'user') return '#8fb4f0';
+    if (role === 'assistant') return '#66ad93';
+    if (role === 'tool') return '#d9b23a';
+    return '#6e767e';
+  }
+
+  renderVals() {
+    const failedOnly = this.state.failedOnly;
+    let list = this.all();
+    if (failedOnly) list = list.filter((t) => t.failed > 0);
+
+    let exchanges = 0;
+    let failed = 0;
+    for (const t of this.all()) {
+      exchanges += parseInt(t.facts[0][1], 10);
+      failed += t.failed;
+    }
+
+    return {
+      title: '“the anchor never survives a reword”',
+      chatId: '9f2c41d8-7b10-4e63-a4c2-1d9f0b6e5a33',
+      document: 'two/sample-report.md',
+      totals: this.all().length + ' turns · ' + exchanges + ' exchanges · ' + failed + ' failed',
+      pickers: [
+        { label: 'Mode', value: 'all 2' },
+        { label: 'Model', value: 'all 3' }
+      ],
+      toggleFailed: () => this.setState({ failedOnly: !failedOnly }),
+      failedChip: failedOnly
+        ? { bg: '#3a2721', edge: '#a04b39', fg: '#eda393' }
+        : { bg: '#191c1f', edge: '#414850', fg: '#98a0a8' },
+
+      turns: list.map((t) => {
+        const open = this.state.open === t.n;
+        return {
+          name: 'Turn ' + t.n,
+          id: t.id,
+          mode: t.mode.toUpperCase(),
+          modeBg: t.mode === 'act' ? '#d05744' : '#4d84e8',
+          span: t.span,
+          duration: t.duration,
+          durationFg: t.failed > 0 ? '#eda393' : '#ccd1d6',
+          who: [
+            { label: 'agent', value: t.agent, fg: '#ccd1d6' },
+            { label: 'gateway', value: t.gateway, fg: '#ccd1d6' },
+            { label: 'model', value: t.model, fg: '#f4f6f7' },
+            { label: 'style', value: t.style, fg: '#ccd1d6' }
+          ],
+          tokens: t.tokens,
+          cost: t.cost,
+          costFg: t.cost === 'free' ? '#66ad93' : '#d9b23a',
+          facts: t.facts.map(([kind, text]) => {
+            const look = this.factLook(kind);
+            return {
+              text: text, fg: look.fg,
+              isExchanges: !!look.isExchanges, isMessages: !!look.isMessages,
+              isTools: !!look.isTools, isImage: !!look.isImage, isFailed: !!look.isFailed
+            };
+          }),
+          steps: t.steps.map(([role, text, size], i) => ({
+            n: String(i + 1),
+            role: role,
+            roleFg: this.roleFg(role),
+            text: text,
+            size: size,
+            bg: size === 'failed' ? '#3a2721' : 'transparent'
+          })),
+          open: open,
+          spin: open ? '180deg' : '0deg',
+          edge: t.failed > 0 ? '#4a3229' : '#3b4249',
+          // Neutral unless something failed. The rail cannot carry the mode as
+          // well: ACT's colour IS the failure red, and gold means NOTE.
+          rail: t.failed > 0 ? '#d05744' : '#3b4249',
+          bg: open ? '#2b3947' : '#22262a',
+          toggle: () => this.setState({ open: open ? 0 : t.n })
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #8fb4f0; text-decoration: none; }
+    a:hover { color: #b7cff6; }
+    * { box-sizing: border-box; }
+    /* Every machine value in REX is set in mono. Declared once here so the
+       artboard is not 41 copies of the same font stack. */
+    .m { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 1040px; height: 780px; display: flex; flex-direction: column; background: #0e1012; color: #f4f6f7; font: 13px/1.5 'DM Sans', system-ui, sans-serif;">
+
+  <div style="display: flex; align-items: center; gap: 12px; flex: none; height: 52px; padding: 0 20px; border-bottom: 1px solid #2b3035;">
+    <span style="flex: none; font-size: 15px; font-weight: 600;">Trace</span>
+    <span style="flex: none; color: #6e767e; font-size: 12px;">every chat REX has run</span>
+    <div style="flex-grow: 1;"></div>
+    <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M4 4l8 8M12 4l-8 8"/>
+      </svg>
+    </button>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 8px; flex: none; padding: 11px 20px; border-bottom: 1px solid #2b3035; background: #131619;">
+    <sc-for list="{{pickers}}" as="p" hint-placeholder-count="3">
+      <button type="button" style="display: flex; align-items: center; gap: 7px; height: 26px; padding: 0 9px; border: 1px solid #414850; border-radius: 2px; background: #191c1f; color: #ccd1d6; font: inherit; font-size: 12px; cursor: pointer;">
+        <span style="color: #6e767e;">{{p.label}}</span>
+        <span class="m" style="font-size: 11.5px;">{{p.value}}</span>
+        <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="#6e767e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 6.5 8 10.5 12 6.5"/>
+        </svg>
+      </button>
+    </sc-for>
+    <div style="flex-grow: 1;"></div>
+    <span style="color: #98a0a8; font-size: 12px;">{{totals}}</span>
+  </div>
+
+  <!-- Column heads, because this level IS a table: one row per chat and the
+       same six numbers on every one. -->
+  <div style="display: flex; align-items: center; gap: 12px; flex: none; padding: 7px 20px; border-bottom: 1px solid #2b3035; color: #6e767e; font-size: 10.5px; letter-spacing: .05em;">
+    <span style="flex-grow: 1;">CHAT</span>
+    <span style="flex: none; width: 58px; text-align: right;">TURNS</span>
+    <span style="flex: none; width: 76px; text-align: right;">EXCHANGES</span>
+    <span style="flex: none; width: 104px; text-align: right;">TOKENS</span>
+    <span style="flex: none; width: 62px; text-align: right;">COST</span>
+    <span style="flex: none; width: 66px; text-align: right;">TIME</span>
+    <span style="flex: none; width: 54px; text-align: right;">FAILED</span>
+  </div>
+
+  <div style="flex-grow: 1; min-height: 0; padding: 8px 20px 20px; overflow: auto;">
+    <ul style="display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none;">
+      <sc-for list="{{chats}}" as="c" hint-placeholder-count="6">
+        <li style="border: 1px solid {{c.edge}}; border-left: 2px solid {{c.rail}}; border-radius: 2px; background: {{c.bg}};">
+          <button type="button" style="display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer;">
+            <div style="flex-grow: 1; min-width: 0;">
+              <div style="overflow: hidden; color: #f4f6f7; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap;">{{c.name}}</div>
+              <div style="display: flex; align-items: center; gap: 8px; margin-top: 2px;">
+                <span class="m" style="flex: none; color: #6e767e; font-size: 10.5px;">{{c.id}}</span>
+                <span style="flex: none; color: #414850;">·</span>
+                <span style="overflow: hidden; color: #98a0a8; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap;">{{c.document}}</span>
+                <span style="flex: none; padding: 0 6px; border: 1px solid {{c.agentEdge}}; border-radius: 2px; color: {{c.agentFg}}; font-size: 10.5px;">{{c.agent}}</span>
+              </div>
+            </div>
+            <span class="m" style="flex: none; width: 58px; color: #ccd1d6; font-size: 11.5px; text-align: right;">{{c.turns}}</span>
+            <span class="m" style="flex: none; width: 76px; color: #98a0a8; font-size: 11.5px; text-align: right;">{{c.exchanges}}</span>
+            <span class="m" style="flex: none; width: 104px; color: #98a0a8; font-size: 11.5px; text-align: right;">{{c.tokens}}</span>
+            <span class="m" style="flex: none; width: 62px; color: #98a0a8; font-size: 11.5px; text-align: right;">{{c.cost}}</span>
+            <span class="m" style="flex: none; width: 66px; color: #98a0a8; font-size: 11.5px; text-align: right;">{{c.when}}</span>
+            <span class="m" style="flex: none; width: 54px; color: {{c.failedFg}}; font-size: 11.5px; text-align: right;">{{c.failed}}</span>
+            <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="#6e767e" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex: none;">
+              <path d="M6 3.5 10.5 8 6 12.5"/>
+            </svg>
+          </button>
+        </li>
+      </sc-for>
+    </ul>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const rows = [
+      { name: 'the anchor never survives a reword', id: '9f2c41d8', document: 'two/sample-report.md', agent: 'claude', turns: '4', exchanges: '11', tokens: '38.2k / 3.1k', cost: 'free', when: '12:04', failed: '1' },
+      { name: 'the table loses its header on export', id: '3ab70c19', document: 'one/sample-document.docx', agent: 'codex', turns: '2', exchanges: '5', tokens: '12.9k / 1.4k', cost: '$0.0142', when: '11:58', failed: '0' },
+      { name: 'the badge row wraps on a narrow pane', id: 'c81e4402', document: 'one/sample-document.md', agent: 'claude', turns: '3', exchanges: '8', tokens: '21.4k / 2.2k', cost: 'free', when: '11:52', failed: '0' },
+      { name: 'the deck notes are not in the export', id: '5d0a9b73', document: 'three/sample-deck.pptx', agent: 'opencode', turns: '1', exchanges: '3', tokens: '8.1k / 0.6k', cost: 'free', when: '11:31', failed: '0' },
+      { name: 'summarise the watershed report', id: 'e4471f65', document: 'one/sample-document.pdf', agent: 'deep_agents', turns: '2', exchanges: '6', tokens: '17.7k / 1.9k', cost: '$0.0308', when: 'yesterday', failed: '2' },
+      { name: 'the figure caption reads as body text', id: '7bc2d8a0', document: 'two/sample-report.docx', agent: 'claude', turns: '1', exchanges: '2', tokens: '5.4k / 0.4k', cost: 'free', when: 'yesterday', failed: '0' }
+    ];
+
+    const agentEdge = { claude: '#3b4249', codex: '#4a4026', opencode: '#2b3947', deep_agents: '#3b4249' };
+    const agentFg = { claude: '#98a0a8', codex: '#d9b23a', opencode: '#8fb4f0', deep_agents: '#66ad93' };
+
+    let turns = 0;
+    let exchanges = 0;
+    let failed = 0;
+    for (const r of rows) {
+      turns += parseInt(r.turns, 10);
+      exchanges += parseInt(r.exchanges, 10);
+      failed += parseInt(r.failed, 10);
+    }
+
+    return {
+      totals: rows.length + ' chats · ' + turns + ' turns · ' + exchanges + ' exchanges · ' + failed + ' failed',
+      pickers: [
+        { label: 'Document', value: 'all 6' },
+        { label: 'Agent', value: 'all 4' },
+        { label: 'When', value: '2 days' }
+      ],
+      chats: rows.map((r, i) => ({
+        name: r.name,
+        id: r.id,
+        document: r.document,
+        agent: r.agent,
+        agentEdge: agentEdge[r.agent] || '#3b4249',
+        agentFg: agentFg[r.agent] || '#98a0a8',
+        turns: r.turns,
+        exchanges: r.exchanges,
+        tokens: r.tokens,
+        cost: r.cost,
+        when: r.when,
+        failed: r.failed,
+        failedFg: r.failed === '0' ? '#4a5058' : '#eda393',
+        edge: r.failed === '0' ? '#3b4249' : '#4a3229',
+        rail: r.failed === '0' ? '#3b4249' : '#d05744',
+        bg: i === 0 ? '#2b3947' : '#22262a'
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

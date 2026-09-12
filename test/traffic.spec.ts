@@ -21,7 +21,8 @@ const dir = join(work, "traffic");
 process.env.REX_GATEWAY_DIR = work;
 after(() => rmSync(work, { recursive: true, force: true }));
 
-const { clearTraffic, threadTraffic, trafficSize } = await import("../src/main/gateway/traffic.ts");
+const { clearTraffic, exchangeBodies, runTraffic, threadTraffic, trafficByThread, trafficSize } =
+  await import("../src/main/gateway/traffic.ts");
 
 /** Exactly what `rex_trace.py` writes — snake_case, one JSON object per line. */
 const LINES = [
@@ -147,8 +148,127 @@ test("the size is the whole log, counted in days and bytes", () => {
   assert.ok(size.bytes > 0);
 });
 
-test("clearing removes every day", () => {
+// ── Spec 51 §9.2 — the reader the four depths need ──────────────
+
+test("depth 1 totals every thread, and counts turns rather than requests", () => {
+  // The two are different numbers on purpose: a turn makes several exchanges,
+  // and each one re-sends the whole conversation. `t-1` is one turn in two.
+  const totals = trafficByThread();
+  assert.equal(totals.get("t-1")?.exchanges, 2);
+  assert.equal(totals.get("t-1")?.runs, 1);
+  assert.equal(totals.get("t-1")?.tokensIn, 1062 + 42687);
+  assert.equal(totals.get("t-1")?.failed, 0);
+  assert.equal(totals.get("t-2")?.failed, 1);
+  assert.equal(totals.get("t-nothing"), undefined);
+});
+
+test("depth 2 and 3 read a turn by its run id, which is the join key", () => {
+  // §9.3's warning: the id here is `x-rex-run`, and `message.run_id` is the same
+  // string. A different one on either side joins NOTHING and draws an empty
+  // grid rather than an error, which is why this is pinned.
+  assert.equal(runTraffic("t-1", "r-1").length, 2);
+  assert.equal(runTraffic("t-1", "r-2").length, 0, "another turn's rows are not this turn's");
+  assert.equal(runTraffic("t-2", "r-2").length, 1);
+});
+
+test("a turn's rows carry the message count and leave the bodies behind", () => {
+  // A request body is the whole request since §3, so a list of five hundred
+  // rows would be five hundred whole conversations. The COUNT is what the rail
+  // draws, and it is computed here rather than by shipping the messages.
+  const day = join(dir, "2026-09-08.jsonl");
+  writeFileSync(
+    day,
+    `${JSON.stringify({
+      ...LINES[0],
+      thread: "t-5",
+      run: "r-5",
+      request_body: { model: "m", messages: [{ role: "system" }, { role: "user" }] },
+    })}\n`,
+  );
+  const row = runTraffic("t-5", "r-5")[0];
+  assert.equal(row?.messages, 2);
+  assert.equal(row?.hasBody, true, "the row still says a body exists");
+  assert.equal("requestBody" in (row as object), false, "and does not carry it");
+  rmSync(day);
+});
+
+test("depth 4 fetches one body by the row's own id", () => {
+  const row = runTraffic("t-1", "r-1")[0];
+  const bodies = exchangeBodies(row?.id ?? "");
+  assert.equal(bodies?.problem, null);
+  assert.deepEqual(bodies?.request, [{ role: "user", content: "what does this mean?" }]);
+});
+
+test("a row id that no longer exists is null, not a wrong body", () => {
+  // Retention deletes a day and every row in it. A missing row must read as
+  // missing: **a body may be absent, it may never be wrong** (§10 rule 4).
+  assert.equal(exchangeBodies("2020-01-01#7"), null);
+});
+
+test("an overflowed body is read back from its own file", () => {
+  // §3.1 rule 3 — it used to be DELETED and replaced by `{"omitted": …}`, which
+  // is the one loss depth 4 cannot draw around.
+  const day = join(dir, "2026-09-08.jsonl");
+  mkdirSync(join(dir, "overflow", "2026-09-08"), { recursive: true });
+  writeFileSync(
+    join(dir, "overflow", "2026-09-08", "big.json"),
+    JSON.stringify({ model: "m", messages: [{ role: "user", content: "the whole thing" }] }),
+  );
+  writeFileSync(
+    day,
+    `${JSON.stringify({
+      ...LINES[0],
+      thread: "t-3",
+      run: "r-3",
+      request_body: { overflow: "rex-overflow:overflow/2026-09-08/big.json", chars: 250000 },
+      response: { ok: true },
+    })}\n`,
+  );
+
+  const row = runTraffic("t-3", "r-3")[0];
+  const bodies = exchangeBodies(row?.id ?? "");
+  assert.ok(bodies, "the row is there to read");
+  assert.equal(bodies.problem, null);
+  const request = bodies.request as { messages: Array<{ content: string }> };
+  assert.equal(request.messages[0]?.content, "the whole thing");
+  rmSync(day);
+  rmSync(join(dir, "overflow"), { recursive: true, force: true });
+});
+
+test("an overflow file that has gone says so, and shows no body", () => {
+  const day = join(dir, "2026-09-08.jsonl");
+  writeFileSync(
+    day,
+    `${JSON.stringify({
+      ...LINES[0],
+      thread: "t-4",
+      run: "r-4",
+      request_body: { overflow: "rex-overflow:overflow/2026-09-08/gone.json", chars: 250000 },
+    })}\n`,
+  );
+  const row = runTraffic("t-4", "r-4")[0];
+  const bodies = exchangeBodies(row?.id ?? "");
+  assert.equal(bodies?.request, undefined);
+  assert.match(bodies?.problem ?? "", /could not be read/);
+  rmSync(day);
+});
+
+test("a row written before spec 51 still reads, and its message count is null", () => {
+  // The log holds real rows in the OLD shape: `request_body` is a bare messages
+  // array. The new reader must not crash on them — it draws them as a row.
+  const row = threadTraffic("t-1")[0];
+  assert.equal(row?.messages, null, "an array is not an object with `messages`");
+  assert.ok(row?.requestBody, "and the body is still there to read");
+});
+
+test("clearing removes every day, and everything the rows pointed at", () => {
+  // §3 — a body in `overflow/` and an image in `blobs/` are files of their own,
+  // so clearing only the `.jsonl` leaves the bulk of the log behind while
+  // Settings reports it as gone.
+  mkdirSync(join(dir, "blobs", "2026-09-06"), { recursive: true });
+  writeFileSync(join(dir, "blobs", "2026-09-06", "abc.b64"), "an image");
   clearTraffic();
   assert.equal(trafficSize().days, 0);
+  assert.equal(trafficSize().bytes, 0, "the blobs went too");
   assert.equal(threadTraffic("t-1").length, 0);
 });

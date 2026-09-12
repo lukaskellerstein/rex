@@ -40,14 +40,15 @@ import {
 } from "./anchoring.ts";
 import { enrichDocument } from "./enrich.ts";
 import {
+  answerLinkClicks,
   applyPaperView,
   applyZoom,
   forwardKeysToParent,
-  jumpToFragmentsInsteadOfNavigating,
   srcdocFor,
   zoomFromInside,
 } from "./frame.ts";
 import { GapLayer } from "./GapLayer.tsx";
+import { LinkTip, type LinkTipView } from "./LinkTip.tsx";
 import { ModeStrip } from "./ModeStrip.tsx";
 import { mermaidPass } from "./mermaid.ts";
 import { OriginalPane } from "./OriginalPane.tsx";
@@ -149,6 +150,23 @@ interface Props {
   onPenCancel: () => void;
   onSurfaceReady: (pane: DocumentVersion, surface: DocumentSurface | null) => void;
   onSelectionChanged: (pane: DocumentVersion) => void;
+  /**
+   * Spec 53 §5.2 — a link that is not a place in this document.
+   *
+   * `line` is the source line the link sits on, which is what Back comes home
+   * to. The pane does not decide what the link means: resolving it reads the
+   * filesystem, which is main's (invariant I2).
+   */
+  onFollowLink: (pane: DocumentVersion, href: string, line: number | null) => void;
+  /**
+   * Spec 53 §4.7 — the pointer came to rest on a link, or left one.
+   *
+   * Reported rather than answered here: saying where a link goes means asking
+   * main, and the answer is worth caching for the life of the document.
+   */
+  onHoverLink: (pane: DocumentVersion, link: { href: string; rect: ScopeRect } | null) => void;
+  /** What to draw, once `App` has an answer. Null while there is nothing to say. */
+  linkTip: { pane: DocumentVersion; view: LinkTipView } | null;
   /** Spec 10 §2 — a figure was clicked, and wants to be read at a real size. */
   onPreview: (figure: PreviewFigure) => void;
   /**
@@ -367,6 +385,16 @@ export function DocumentView(props: Props): React.JSX.Element {
    * which re-runs it. Measured on 2026-08-26: `Maximum update depth exceeded`,
    * thirty-three times, the first time the second pane was opened.
    */
+  /**
+   * Spec 53 §5.2 — read through a ref for the reason the block above gives: the
+   * link listener is attached once per frame load, and this callback is rebuilt
+   * on every render of the shell.
+   */
+  const followRef = useRef(props.onFollowLink);
+  followRef.current = props.onFollowLink;
+  const hoverRef = useRef(props.onHoverLink);
+  hoverRef.current = props.onHoverLink;
+
   const originalSurfaceReady = useCallback(
     (surface: DocumentSurface | null) => onSurfaceReady("original", surface),
     [onSurfaceReady],
@@ -374,6 +402,14 @@ export function DocumentView(props: Props): React.JSX.Element {
   const originalSelectionChanged = useCallback(
     () => onSelectionChanged("original"),
     [onSelectionChanged],
+  );
+  const originalFollowLink = useCallback(
+    (href: string, line: number | null) => followRef.current("original", href, line),
+    [],
+  );
+  const originalHoverLink = useCallback(
+    (link: { href: string; rect: ScopeRect } | null) => hoverRef.current("original", link),
+    [],
   );
   const originalDrawn = useCallback((strokes: Stroke[]) => onDrawn("original", strokes), [onDrawn]);
   const originalProbe = useCallback(
@@ -487,6 +523,12 @@ export function DocumentView(props: Props): React.JSX.Element {
       const inner = frame.contentDocument;
       if (!view || !inner) return;
 
+      // Built here rather than at the handover below, because the link listener
+      // needs it: `scrollToFragment` is the one place that knows REX's rule for
+      // bringing a place into view, and a second copy of that rule inside this
+      // effect is a second convention waiting to drift.
+      const surface = new FrameSurface(frame, doc.ref.value);
+
       const follow = (): void => setScroll({ x: view.scrollX, y: view.scrollY });
       follow();
       view.addEventListener("scroll", follow, { passive: true });
@@ -498,7 +540,11 @@ export function DocumentView(props: Props): React.JSX.Element {
         (event: MouseEvent) => setPointer({ x: event.clientX, y: event.clientY }),
         { passive: true },
       );
-      jumpToFragmentsInsteadOfNavigating(inner);
+      answerLinkClicks(inner, {
+        fragment: (id) => surface.scrollToFragment(id),
+        follow: (href, line) => followRef.current("current", href, line),
+        hover: (link) => hoverRef.current("current", link),
+      });
       zoomFromInside(inner, zoomCommands);
       forwardKeysToParent(inner, wantsArrows);
 
@@ -548,7 +594,7 @@ export function DocumentView(props: Props): React.JSX.Element {
       // Left alone, the frame inherits the reader's own preference, the
       // document's media query decides, and REX renders rather than restyles.
 
-      onSurfaceReady("current", new FrameSurface(frame, doc.ref.value));
+      onSurfaceReady("current", surface);
     };
 
     // `load` cannot await, so the async work is fired and the `live` flag is
@@ -739,6 +785,9 @@ export function DocumentView(props: Props): React.JSX.Element {
             onFrameReady={setOriginalFrame}
             onSurfaceReady={originalSurfaceReady}
             onSelectionChanged={originalSelectionChanged}
+            onFollowLink={originalFollowLink}
+            onHoverLink={originalHoverLink}
+            linkTip={props.linkTip?.pane === "original" ? props.linkTip.view : null}
             resolved={props.originalResolved}
             threads={props.threads}
             activeId={props.activeId}
@@ -912,6 +961,18 @@ export function DocumentView(props: Props): React.JSX.Element {
                 onZoomBy={props.onZoomBy}
               />
             ) : null}
+
+            {/*
+              §4.7 — over every other layer, and under none of them. It answers
+              a question the reviewer asked with the pointer, so it has to be
+              the thing they can see.
+            */}
+            <LinkTip
+              tip={props.linkTip?.pane === "current" ? props.linkTip.view : null}
+              scrollX={scroll.x}
+              scrollY={scroll.y}
+              paneHeight={paneRef.current?.clientHeight ?? 0}
+            />
 
             {props.picking ? (
               <PickLayer

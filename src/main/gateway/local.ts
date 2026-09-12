@@ -129,6 +129,23 @@ export class LocalGateway {
   }
 
   /**
+   * Spec 51 §6 defect 2 — record a start that failed somewhere else.
+   *
+   * `start()` sets `down` for every way it can fail itself, but a boot start
+   * does more than call it: `rebuildConfig` writes `config.yaml` first, and a
+   * failure there never reached this object. `startBuiltinIfEnabled` logged it
+   * and returned, so `down` stayed null and Settings drew **"Starting…"
+   * forever** — a screen saying the gateway is on its way when nothing is
+   * coming.
+   *
+   * Ignored while a child is actually running: a later failure of something
+   * else must not label a working gateway as down.
+   */
+  fail(reason: string): void {
+    if (this.child === null) this.down = reason;
+  }
+
+  /**
    * Start on the first port that will have us, and return it.
    *
    * **A busy port is never adopted** (§4.2). If something already answers on

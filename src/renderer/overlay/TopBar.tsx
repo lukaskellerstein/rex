@@ -11,7 +11,16 @@ import { useEffect, useRef, useState } from "react";
 // copied into src/, so there is one source of truth for the brand.
 import logo from "../../../docs/logo/mark/rex-mark-color-128.png";
 import type { OpenedDocument, WorkspaceRef } from "../../shared/types.ts";
-import { Bug, ChevronDown, Cog, PanelLeft, PanelRight } from "./Icons.tsx";
+import {
+  Bug,
+  Chart,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Cog,
+  PanelLeft,
+  PanelRight,
+} from "./Icons.tsx";
 
 interface Props {
   doc: OpenedDocument | null;
@@ -34,6 +43,8 @@ interface Props {
    * section that is not about gateways behind a control named for gateways.
    */
   onSettings: () => void;
+  /** Spec 51 §5.1 — Traffic, the one screen not reached from a comment. */
+  onTrace: () => void;
   /**
    * Whether the workspace panel is on screen — `null` when there is no
    * workspace, and so no panel to hide.
@@ -44,6 +55,18 @@ interface Props {
    */
   explorerShown: boolean | null;
   onExplorer: () => void;
+  /**
+   * Spec 53 §4.3 — the way back, beside the workspace toggle and before the
+   * path, which is where a browser puts it.
+   *
+   * Disabled and dimmed rather than hidden when there is nowhere to go. A
+   * control that appears and disappears is a control nobody learns the position
+   * of, and these two are the pair `⌘[` and `⌘]` teach.
+   */
+  canBack: boolean;
+  canForward: boolean;
+  onBack: () => void;
+  onForward: () => void;
   /** Whether the comments panel is on screen. Always available. */
   commentsShown: boolean;
   onComments: () => void;
@@ -173,6 +196,27 @@ export function TopBar(props: Props): React.JSX.Element {
           <PanelLeft />
         </button>
       )}
+
+      <button
+        type="button"
+        className="rex-icon-button rex-nav"
+        data-tip="Back — ⌘["
+        aria-label="Back"
+        disabled={!props.canBack}
+        onClick={props.onBack}
+      >
+        <ChevronLeft />
+      </button>
+      <button
+        type="button"
+        className="rex-icon-button rex-nav"
+        data-tip="Forward — ⌘]"
+        aria-label="Forward"
+        disabled={!props.canForward}
+        onClick={props.onForward}
+      >
+        <ChevronRight />
+      </button>
 
       {props.doc ? (
         <span className="rex-path" title={props.doc.ref.value}>
@@ -319,6 +363,29 @@ export function TopBar(props: Props): React.JSX.Element {
         showed the reviewer nothing on 2026-08-29, which is why every icon in
         this bar carries the attribute the overlay's own CSS draws.
       */}
+      {/*
+        Spec 51 §5.1 — Traffic, depth 1. **Reached from the app and not from a
+        comment**, which is what makes it the one screen that can answer "what
+        has REX run at all". It sits beside Settings because it is about REX
+        rather than about the document, which is the rule the last two buttons
+        in this bar already follow.
+
+        It says TRAFFIC and never "trace". The comment card's own `traffic`
+        button opens the same feature one level in, so the two gestures name one
+        thing — and the chat's trace sheet, which answers a different question,
+        keeps its own name. Calling both "trace" is what sent the reviewer to
+        the wrong screen on 2026-09-09.
+      */}
+      <button
+        type="button"
+        className="rex-icon-button rex-traffic-open"
+        data-tip="Traffic — every chat REX has run"
+        aria-label="Open traffic"
+        onClick={props.onTrace}
+      >
+        <Chart size={14} />
+      </button>
+
       <button
         type="button"
         className="rex-icon-button rex-settings-open"

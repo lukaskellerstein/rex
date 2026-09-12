@@ -32,16 +32,16 @@ import { agentCwd } from "./threads.ts";
 const HOME = homedir();
 
 /** `~/…`, per rules/11 — a home directory is noise in something a human reads. */
-function tilde(path: string): string {
+export function tilde(path: string): string {
   return path.startsWith(HOME) ? `~${path.slice(HOME.length)}` : path;
 }
 
-function clip(text: string, limit: number): string {
+export function clip(text: string, limit: number): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > limit ? `${flat.slice(0, limit)}…` : flat;
 }
 
-function bytes(size: number): string {
+export function bytes(size: number): string {
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
@@ -333,7 +333,7 @@ function libraryLines(): string[] {
  * this file, and the pairing in `badStepsOf` is exactly the part worth testing
  * without an app around it.
  */
-function versionLine(appVersion: string): string {
+export function versionLine(appVersion: string): string {
   return [
     `rex ${appVersion}`,
     `electron ${process.versions.electron}`,

@@ -14,6 +14,7 @@
 // about REX's own `Message` rows, and knows nothing about any SDK.
 
 import type { Message } from "../../shared/types.ts";
+import { tagsFor } from "./tags.ts";
 
 const ROLE_LABEL: Record<string, string> = {
   user: "User",
@@ -88,12 +89,26 @@ export function eventsSinceLastAnswer(messages: readonly Message[]): string[] {
  * lines the opening ASK prompt began with. A replayed session is a fresh one,
  * and the transcript it gets holds the reviewer's notes rather than the
  * prompts, so this is the only place it can learn the location.
+ *
+ * Spec 54 §5 — the suffix is chosen from the transcript and nothing else,
+ * because only text that goes *inside* a tag can close it early. The header and
+ * the message sit outside `rex-discussion` and already carry their own frames,
+ * so neither is wrapped again and neither forces a rename.
  */
 export function replayPrompt(
   transcript: string,
   message: string,
   header: readonly string[] = [],
 ): string {
+  const tags = tagsFor(transcript);
   const top = header.length > 0 ? `${header.join("\n")}\n\n` : "";
-  return `${top}This conversation continues an earlier discussion. Here is the transcript so far:\n\n${transcript}\n\nThe user now asks: ${message}`;
+  return [
+    `${top}This conversation continues an earlier discussion. Here is the transcript so far:`,
+    "",
+    ...tags.block("discussion", transcript),
+    "",
+    "The user now asks:",
+    "",
+    message,
+  ].join("\n");
 }

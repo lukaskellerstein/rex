@@ -248,6 +248,14 @@ function AddProvider(props: {
   );
 }
 
+/**
+ * How long "Saved" stays up.
+ *
+ * `CopyText`'s number, for `CopyText`'s job: long enough to be seen, short
+ * enough that it is gone before the next thing is touched.
+ */
+const SAVED_FLASH_MS = 1400;
+
 /** One provider, its key state, and the models it offers. */
 function ProviderCard(props: {
   provider: GatewayProviderView;
@@ -266,6 +274,21 @@ function ProviderCard(props: {
   const [asking, setAsking] = useState(false);
   const [key, setKey] = useState("");
   const [showKey, setShowKey] = useState(false);
+  /**
+   * What the save is doing, and what it did.
+   *
+   * Reported 2026-09-09: *"clicking on save models does nothing"*. It did
+   * everything — the models reached `gateway_model`, all four routes and
+   * `config.yaml`, and LiteLLM restarted with them three times, which the log
+   * shows. **The screen said nothing**, so a click that rewrote the config and
+   * restarted a server was indistinguishable from a click that missed.
+   *
+   * `props.busy` was the only feedback and it merely greys the button. A save
+   * takes about 1.6 seconds — long enough to doubt, short enough that a
+   * greyed-out button is the only thing you could have noticed.
+   */
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<number | null>(null);
 
   /**
    * The live props, without them being the reason to ask again.
@@ -290,6 +313,40 @@ function ProviderCard(props: {
       setAsking(false);
     }
   }, []);
+
+  /**
+   * Save the ticks, and say so.
+   *
+   * The `finally` is what makes "Saving…" honest: a save that throws — a
+   * provider removed underneath it, a gateway that will not restart — must
+   * still put the button back. The error itself is the parent's to show;
+   * `settingsWork` already catches it into the notice bar.
+   */
+  const save = useCallback(async (): Promise<void> => {
+    const picked = tickedModels(rows);
+    setSaving(true);
+    setSaved(null);
+    try {
+      await props.onModels(picked);
+      setSaved(picked.length);
+    } finally {
+      setSaving(false);
+    }
+  }, [rows, props.onModels]);
+
+  // The confirmation is a flash, not a state. It answers "did that click do
+  // anything" and then gets out of the way, which is the same job — and the
+  // same 1400ms — as the copy tick everywhere else in REX.
+  useEffect(() => {
+    if (saved === null) return;
+    const timer = window.setTimeout(() => setSaved(null), SAVED_FLASH_MS);
+    return () => window.clearTimeout(timer);
+  }, [saved]);
+
+  // A tick changed after a save, so the "Saved" flash is about a list that no
+  // longer matches the screen. It goes at once rather than waiting out its
+  // timer and confirming the wrong thing.
+  useEffect(() => setSaved(null), [rows]);
 
   // Asked once when the card appears, so a person opening Models sees a list
   // rather than a button they have to find. A paid provider is only LISTED by
@@ -421,9 +478,26 @@ function ProviderCard(props: {
 
       <div className="rex-set-foot">
         <span className="rex-set-dim">
-          {asking ? "Asking…" : askedAgo(props.provider.listedAt)}
+          {/*
+            One line, three states, and the save's is the one that was missing.
+            It says what the gateway now SERVES rather than "Saved", because the
+            number is the thing a person came here to change and a bare word
+            would not tell them the ticks they meant were the ticks that went.
+          */}
+          {saving
+            ? "Saving — the gateway restarts to pick the models up…"
+            : saved !== null
+              ? `Saved. The gateway now serves ${saved} model${saved === 1 ? "" : "s"}.`
+              : asking
+                ? "Asking…"
+                : askedAgo(props.provider.listedAt)}
         </span>
-        <button type="button" className="rex-button" disabled={asking} onClick={() => void ask()}>
+        <button
+          type="button"
+          className="rex-button"
+          disabled={asking || saving}
+          onClick={() => void ask()}
+        >
           Refresh
         </button>
         {canTick && rows.length > 0 ? (
@@ -440,11 +514,11 @@ function ProviderCard(props: {
         <span className="rex-spacer" />
         <button
           type="button"
-          className="rex-button rex-button-go"
-          disabled={props.busy}
-          onClick={() => void props.onModels(tickedModels(rows))}
+          className={saved !== null ? "rex-button rex-button-done" : "rex-button rex-button-go"}
+          disabled={props.busy || saving}
+          onClick={() => void save()}
         >
-          Save models
+          {saving ? "Saving…" : saved !== null ? "Saved" : "Save models"}
         </button>
       </div>
     </div>

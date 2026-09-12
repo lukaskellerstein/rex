@@ -25,12 +25,21 @@ import {
   withEvents,
   writeInstructions,
 } from "../src/main/agent/prompts.ts";
+import { tagsFor } from "../src/main/agent/tags.ts";
 import {
   eventsSinceLastAnswer,
   renderTranscript,
   replayPrompt,
 } from "../src/main/agent/transcript.ts";
 import type { Anchor, AnchorTarget, Message, Thread } from "../src/shared/types.ts";
+
+/**
+ * Spec 54 §5 — the tags a builder chooses when nothing in the thread spells
+ * one. Every fixture below is ordinary prose, so this is what they all get, and
+ * asserting the bare names keeps the assertions readable. `tags.spec.ts` owns
+ * the collision case.
+ */
+const BARE = tagsFor("");
 
 /** Spec 06 §7.1 needs a real source file — the section's range is computed. */
 const work = mkdtempSync(join(tmpdir(), "rex-prompts-"));
@@ -91,19 +100,21 @@ function promptFor(targets: AnchorTarget[]): string {
   });
 }
 
-test("a one-document comment carries its passages and no per-file headings", () => {
+test("a one-document comment carries its places inside one document block", () => {
   const prompt = promptFor([
     target("d1", anchorQuoting("The retry budget is 3.")),
     target("d1", anchorQuoting("No retry is attempted.")),
   ]);
 
-  assert.match(prompt, /## Highlighted passages/);
-  assert.match(prompt, /1\. The retry budget is 3\./);
-  assert.match(prompt, /2\. No retry is attempted\./);
-  // One document is already named at the top; a lone `### file.md` would read
-  // as if a second heading were missing.
-  assert.equal(prompt.includes("###"), false);
+  assert.match(prompt, /^<rex-document path="does-not-exist\.md">$/m);
+  assert.match(prompt, /<rex-section n="1">\nThe retry budget is 3\.\n<\/rex-section>/);
+  assert.match(prompt, /<rex-section n="2">\nNo retry is attempted\.\n<\/rex-section>/);
+  // Spec 54 §4 — one tag per place, holding the pick itself. The list beside a
+  // section is gone, and so are the two tags that wrapped it.
+  assert.equal(prompt.includes("<rex-passages"), false);
+  assert.equal(prompt.includes("<rex-file"), false);
   assert.match(prompt, /These three do not agree with each other\./);
+  assert.equal((prompt.match(/<rex-document /g) ?? []).length, 1);
 });
 
 test("targets in two documents are grouped, and keep their own numbers", () => {
@@ -113,13 +124,15 @@ test("targets in two documents are grouped, and keep their own numbers", () => {
     target("d1", anchorQuoting("No retry is attempted.")),
   ]);
 
-  assert.match(prompt, /### does-not-exist\.md/);
-  assert.match(prompt, /### shared\/components\.md/);
+  assert.match(prompt, /<rex-document path="does-not-exist\.md">/);
+  assert.match(prompt, /<rex-document path="shared\/components\.md">/);
   // The number is the target's position in the comment, not its position in its
-  // group: it is the number the reviewer saw in the panel and on the outline.
-  assert.match(prompt, /1\. The retry budget is 3\./);
-  assert.match(prompt, /2\. Retries are capped at five\./);
-  assert.match(prompt, /3\. No retry is attempted\./);
+  // document: it is the number the reviewer saw in the panel and on the outline.
+  // So document one holds 1 and 3 while document two holds 2.
+  assert.match(prompt, /<rex-section n="1">\nThe retry budget is 3\./);
+  assert.match(prompt, /<rex-section n="2">\nRetries are capped at five\./);
+  assert.match(prompt, /<rex-section n="3">\nNo retry is attempted\./);
+  assert.ok(prompt.indexOf('n="3"') < prompt.indexOf("shared/components.md"));
 });
 
 test("a target outside the repository root is written absolute", () => {
@@ -130,7 +143,7 @@ test("a target outside the repository root is written absolute", () => {
 
   // A relative path that climbs out of the tree tells the agent less than the
   // real one, so it is not written as `../somewhere-else/api.md`.
-  assert.match(prompt, /### \/tmp\/somewhere-else\/api\.md/);
+  assert.match(prompt, /<rex-document path="\/tmp\/somewhere-else\/api\.md">/);
   assert.equal(prompt.includes("../somewhere-else"), false);
 });
 
@@ -150,7 +163,9 @@ test("a target with no text is described rather than dropped", () => {
   // Spec 04 dropped these, so a comment about a table and a paragraph reached
   // the agent as a comment about a paragraph — and it answered confidently
   // about the half it could see.
-  assert.match(prompt, /2\. \(no text — an element anchor: figure:nth-of-type\(2\)\)/);
+  // Spec 54 §4 — no text and no way to get any, so the attributes are the whole
+  // of what REX knows and there is no body to write.
+  assert.match(prompt, /<rex-section n="2" element="figure:nth-of-type\(2\)"\/>/);
 });
 
 // ── Spec 06 §7.1 — the two scopes that cover more than one element ──
@@ -170,13 +185,11 @@ test("a document target says so, and asks to be read in full", () => {
   };
   const prompt = promptFor([target("d1", wholeDocument)]);
 
-  assert.match(prompt, /1\. the whole document/);
+  // Spec 54 §4 — a whole-document pick is a fact about the document, so it is
+  // an attribute on `rex-document` and there is nothing inside it.
+  assert.match(prompt, /<rex-document path="does-not-exist\.md" whole="yes"\/>/);
   assert.match(prompt, /Read the document in full before answering\./);
-  // §7.1 — there is no line, and a wrong one sends the agent to the wrong
-  // place. A document anchor carries no `source`, so the header cannot appear.
-  assert.equal(/^Line:/m.test(prompt), false);
-  // The surrounding section of the whole document is the whole document.
-  assert.equal(prompt.includes("## Surrounding section"), false);
+  assert.equal(prompt.includes("<rex-section"), false);
   // Without the extent it would read "(no text and no element — a stored
   // position only)", which is true of the anchor and useless about the comment.
   assert.equal(prompt.includes("no text and no element"), false);
@@ -222,7 +235,12 @@ test("a section names its line range on Markdown, and omits it on DOCX", () => {
   });
   // Lines 3 to 10: the heading, through the last line before `## FAQ`. The `###`
   // inside it does not end the run, because only a same-or-higher rank does.
-  assert.match(withLine, /Section "Roadmap" — lines 3–10/);
+  // Spec 54 §4 — the body is the section itself, read from the file, and the
+  // range is an attribute. An h3 inside it does not end the run.
+  assert.match(withLine, /<rex-section n="1" lines="3-10">/);
+  assert.match(withLine, /## Roadmap\n\nPlanned for v1\.1\./);
+  assert.match(withLine, /An h3 does not end an h2's run\./);
+  assert.equal(withLine.includes("## FAQ"), false, "the run stops at the next h2");
 
   // DOCX carries no `data-src-line`, so there is no line to start from and the
   // section is named by its heading alone. A range that had to be guessed is
@@ -232,8 +250,10 @@ test("a section names its line range on Markdown, and omits it on DOCX", () => {
     documentPaths: new Map([["d4", file]]),
     repositoryRoot: work,
   });
-  assert.match(withoutLine, /1\. Section "Roadmap"$/m);
-  assert.equal(withoutLine.includes("lines"), false);
+  // No `data-src-line`, so there is no range to compute and the stored heading
+  // text is all there is. A range that had to be guessed is never printed.
+  assert.match(withoutLine, /<rex-section n="1">\nRoadmap\n<\/rex-section>/);
+  assert.equal(withoutLine.includes("lines="), false);
 });
 
 test("a drawn comment reads as any other — the pen leaves no trace in the prompt", () => {
@@ -251,8 +271,8 @@ test("a drawn comment reads as any other — the pen leaves no trace in the prom
   assert.equal(prompt.includes("circle"), false);
   assert.equal(prompt.includes("drew"), false);
   // The places themselves still arrive, in the order the panel left them in.
-  assert.match(prompt, /1\. The retry budget is 3\./);
-  assert.match(prompt, /2\. No retry is attempted\./);
+  assert.match(prompt, /<rex-section n="1">\nThe retry budget is 3\./);
+  assert.match(prompt, /<rex-section n="2">\nNo retry is attempted\./);
 });
 
 test("a section target is named by its heading, not quoted as one", () => {
@@ -269,10 +289,10 @@ test("a section target is named by its heading, not quoted as one", () => {
     target("d1", section),
   ]);
 
-  // `Section "3. Findings"`, not a bare `3. Findings`: the anchor stores the
-  // heading's text (§4.3), and printing it bare tells the agent the comment is
-  // about a title rather than about everything under it.
-  assert.match(prompt, /2\. Section "3\. Findings"/);
+  // The file cannot be read, so there is no range and the stored heading text
+  // is the body. Spec 54 §4: the tag says it is a section, so the word does
+  // not have to be written into REX's prose any more.
+  assert.match(prompt, /<rex-section n="2">\n3\. Findings\n<\/rex-section>/);
   // A section is not a document, so it gets no read-in-full instruction.
   assert.equal(prompt.includes("Read the document in full"), false);
 });
@@ -286,11 +306,15 @@ test("a section target is named by its heading, not quoted as one", () => {
 // question first.
 
 test("§4.2 — the instruction and the discussion are two sections, never one", () => {
-  const parts = writeInstructions("YOU: is 1024 right?\nREX: it is the default.", "make it 2048");
+  const parts = writeInstructions(
+    "YOU: is 1024 right?\nREX: it is the default.",
+    "make it 2048",
+    BARE,
+  );
   const prompt = parts.join("\n");
 
-  assert.match(prompt, /## The discussion/);
-  assert.match(prompt, /## What to do/);
+  assert.match(prompt, /<rex-discussion>/);
+  assert.match(prompt, /<rex-instruction>/);
   assert.match(prompt, /make it 2048/);
   // The conversation is still carried: ACT mid-thread means "yes, do that", and
   // "that" is only in the transcript.
@@ -306,16 +330,18 @@ test("§4.2 — the instruction and the discussion are two sections, never one",
  * its mind.
  */
 test("§4.2 — the instruction comes after the discussion, not before it", () => {
-  const prompt = writeInstructions("YOU: what about 4096?", "make it 2048").join("\n");
+  const prompt = writeInstructions("YOU: what about 4096?", "make it 2048", BARE).join("\n");
   assert.ok(
-    prompt.indexOf("## What to do") > prompt.indexOf("## The discussion"),
+    prompt.indexOf("<rex-instruction>") > prompt.indexOf("<rex-discussion>"),
     "the order must be the last thing the agent reads",
   );
 });
 
 test("§4.2 — an empty discussion is fine, because ACT no longer waits for one", () => {
-  const prompt = writeInstructions("", "set the tile size to 2048").join("\n");
-  assert.match(prompt, /## What to do\nset the tile size to 2048$/);
+  const prompt = writeInstructions("", "set the tile size to 2048", BARE).join("\n");
+  // An empty discussion collapses to one self-closing tag (spec 54 §3).
+  assert.match(prompt, /^<rex-discussion\/>/);
+  assert.match(prompt, /<rex-instruction>\nset the tile size to 2048\n<\/rex-instruction>$/);
 });
 
 // ── Spec 24 §6 — a reply that points somewhere new ─────────────
@@ -345,19 +371,18 @@ test("§6.1 — a follow-up lists only the new places, numbered on", () => {
     text: "Look — 4 says the opposite. Read it.",
   });
 
-  assert.match(prompt, /^## New passages/m);
-  assert.match(prompt, /2 more places/);
+  assert.match(prompt, /^The reviewer has pointed at 2 more places/m);
   // The range the agent already knows, named, so `4.` reads as a continuation.
   assert.match(prompt, /1 to 3/);
-  assert.match(prompt, /4\. Retries are capped at five\./);
-  assert.match(prompt, /5\. The gateway retries twice\./);
+  assert.match(prompt, /<rex-section n="4">\nRetries are capped at five\./);
+  assert.match(prompt, /<rex-section n="5">\nThe gateway retries twice\./);
   // The opening three are NOT relisted: on a resumed session the agent has
   // them, and repeating them buries the two that matter.
   assert.equal(prompt.includes("The retry budget is 3."), false);
   assert.equal(prompt.includes("1."), false);
-  assert.match(prompt, /## Comment\nLook — 4 says the opposite\. Read it\.$/);
+  assert.match(prompt, /<rex-comment>\nLook — 4 says the opposite\. Read it\.\n<\/rex-comment>$/);
   // The text comes last, after the places, as in the opening prompt.
-  assert.ok(prompt.indexOf("## Comment") > prompt.indexOf("5. The gateway"));
+  assert.ok(prompt.indexOf("<rex-comment>") > prompt.indexOf("The gateway retries twice."));
 });
 
 test("§6.1 — a single new document is still named, because nothing else names it", () => {
@@ -374,12 +399,12 @@ test("§6.1 — a single new document is still named, because nothing else names
   });
   // The opening prompt says `Document: …` at its top, so `passageSection` skips
   // a lone heading there. A follow-up has no such line.
-  assert.match(prompt, /### shared\/components\.md/);
+  assert.match(prompt, /<rex-document path="shared\/components\.md">/);
   assert.match(prompt, /1 more place\b/);
-  assert.match(prompt, /2\. Retries are capped at five\./);
+  assert.match(prompt, /<rex-section n="2">\nRetries are capped at five\./);
 });
 
-test("§6.1 — with nothing new the follow-up is the bare text", () => {
+test("§6.1 and spec 54 §4.3 — with nothing new the follow-up is the text, framed", () => {
   const prompt = followUpPrompt({
     thread: grownThread(),
     documentPaths: PATHS,
@@ -387,9 +412,11 @@ test("§6.1 — with nothing new the follow-up is the bare text", () => {
     from: 5,
     text: "Are you sure?",
   });
-  // An ordinary reply does not grow a heading — `thread:reply` has always sent
-  // the text alone, and still does.
-  assert.equal(prompt, "Are you sure?");
+  // Spec 24 made this the bare text. Spec 54 §4.3 wraps it and nothing else:
+  // if the reviewer's words are tagged on some turns and not on others, the
+  // system prompt's "what the reviewer asks for is the text in <rex-comment>"
+  // is false half the time. There is still no passage list and no prose.
+  assert.equal(prompt, "<rex-comment>\nAre you sure?\n</rex-comment>");
 });
 
 test("§6.1 — a new whole-document place asks to be read in full", () => {
@@ -412,7 +439,7 @@ test("§6.1 — a new whole-document place asks to be read in full", () => {
     from: 1,
     text: "Read it all.",
   });
-  assert.match(prompt, /2\. the whole document/);
+  assert.match(prompt, /<rex-document path="shared\/components\.md" whole="yes"\/>/);
   assert.match(prompt, /Read the document in full before answering\./);
 });
 
@@ -421,16 +448,16 @@ test("§6.2 — the ACT list marks the places this instruction added", () => {
     thread: grownThread(),
     documentPaths: PATHS,
     repositoryRoot: ROOT,
-    heading: "## The passages under discussion",
+    tags: BARE,
     addedWith: "m2",
   }).join("\n");
 
   // Every place is listed — the ACT prompt is built fresh each run — and the
   // new ones say so, because `## The discussion` never mentions passages.
-  assert.match(lines, /1\. The retry budget is 3\.$/m);
-  assert.match(lines, /4\. Retries are capped at five\. — added with this instruction$/m);
-  assert.match(lines, /5\. The gateway retries twice\. — added with this instruction$/m);
-  assert.equal((lines.match(/added with this instruction/g) ?? []).length, 2);
+  assert.match(lines, /<rex-section n="1">\nThe retry budget is 3\./);
+  assert.match(lines, /<rex-section n="4" added="yes">\nRetries are capped at five\./);
+  assert.match(lines, /<rex-section n="5" added="yes">\nThe gateway retries twice\./);
+  assert.equal((lines.match(/added="yes"/g) ?? []).length, 2);
 });
 
 test("§6.2 — a null `addedWith` marks nothing, not everything", () => {
@@ -440,10 +467,10 @@ test("§6.2 — a null `addedWith` marks nothing, not everything", () => {
     thread: grownThread(),
     documentPaths: PATHS,
     repositoryRoot: ROOT,
-    heading: "## The passages under discussion",
+    tags: BARE,
     addedWith: null,
   }).join("\n");
-  assert.equal(lines.includes("added with this instruction"), false);
+  assert.equal(lines.includes('added="yes"'), false);
 });
 
 // ── Spec 34 — the copy is permanent ──────────────────────────────
@@ -460,10 +487,13 @@ test("spec 34 §7 — the opening prompt names the document, and says once where
   });
 
   // The name is the reviewer's own path; the location is REX's copy.
-  assert.match(prompt, /^Document: does-not-exist\.md$/m);
-  assert.match(prompt, /^Read it at: \/tmp\/rex-work\/d1-id\/does-not-exist\.md$/m);
-  assert.match(prompt, /REX's copy, the current version/);
-  assert.equal(prompt.includes("Also read at"), false, "one document, no second list");
+  // The name is the reviewer's own path; the location is REX's copy, and both
+  // are attributes of the one document block.
+  assert.match(
+    prompt,
+    /<rex-document path="does-not-exist\.md" read-at="\/tmp\/rex-work\/d1-id\/does-not-exist\.md">/,
+  );
+  assert.match(prompt, /Each `read-at` is REX's copy and is the current version/);
 });
 
 test("spec 34 §7 — a second document's copy is listed too, and a deck's absence is not", () => {
@@ -482,14 +512,21 @@ test("spec 34 §7 — a second document's copy is listed too, and a deck's absen
     ]),
   });
 
-  assert.match(prompt, /^Also read at:$/m);
-  assert.match(prompt, /^ {2}shared\/components\.md → \/tmp\/rex-work\/d2-id\/components\.md$/m);
-  assert.equal(prompt.includes("api.md →"), false);
+  // Spec 54 §4 — every document names its own copy, so `Also read at:` is gone
+  // and with it the three lines it repeated. The sentence is said once.
+  assert.match(
+    prompt,
+    /<rex-document path="shared\/components\.md" read-at="\/tmp\/rex-work\/d2-id\/components\.md">/,
+  );
+  // d3 has no copy — a deck, say — so it carries no `read-at` at all.
+  assert.match(prompt, /<rex-document path="\/tmp\/somewhere-else\/api\.md">/);
+  assert.equal(prompt.includes("Also read at"), false);
+  assert.equal((prompt.match(/Each `read-at`/g) ?? []).length, 1);
 });
 
 test("spec 34 §7 — without a copy the opening prompt is exactly what it was", () => {
   const before = promptFor([target("d1", anchorQuoting("The retry budget is 3."))]);
-  assert.equal(before.includes("Read it at"), false);
+  assert.equal(before.includes("read-at"), false);
   assert.equal(before.includes("Also read at"), false);
 });
 
@@ -506,6 +543,7 @@ function message(partial: Partial<Message> & Pick<Message, "role" | "kind">): Me
     sdk: null,
     gatewayName: null,
     baseUrl: null,
+    runId: null,
     content: null,
     toolName: null,
     toolInput: null,
@@ -559,10 +597,13 @@ test("spec 34 §7 — a replayed session is told where the document is, once, at
 
   assert.match(
     prompt,
-    /^Document: does-not-exist\.md\nRead it at: \/tmp\/rex-work\/d1-id\/does-not-exist\.md\n/,
+    /^<rex-document path="does-not-exist\.md" read-at="\/tmp\/rex-work\/d1-id\/does-not-exist\.md"\/>/,
   );
   assert.match(prompt, /\n\nThis conversation continues an earlier discussion/);
-  assert.match(prompt, /The user now asks: And now\?$/);
+  // Spec 54 §5.1 — the transcript is framed, and the message is not wrapped
+  // again: it arrives already carrying its own tags.
+  assert.match(prompt, /<rex-discussion>\nUser: earlier\.\n\nAssistant: yes\.\n<\/rex-discussion>/);
+  assert.match(prompt, /The user now asks:\n\nAnd now\?$/);
   // Without a header the replay is exactly what it was.
   assert.match(replayPrompt("t", "m"), /^This conversation continues/);
 });

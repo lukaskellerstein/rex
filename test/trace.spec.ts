@@ -12,8 +12,10 @@ import {
   foldSize,
   PREVIEW_MAX,
   previewOf,
+  stepsOfTurn,
   textOf,
   traceOf,
+  turnsOf,
 } from "../src/renderer/overlay/trace.ts";
 import type { AnchorTarget, Message, ThreadWithMessages } from "../src/shared/types.ts";
 
@@ -413,4 +415,107 @@ test("spec 37 §3 — placesByMessage: the places with no message are the first 
     ],
   );
   assert.deepEqual(placesByMessage([]), { startedWith: [], byMessage: new Map() });
+});
+
+// ── Spec 51 §5.2 — turns ────────────────────────────────────────
+//
+// **A turn is `message.run_id` and nothing else.** Not a time window, not "from
+// one user message to the next": both of those are guesses that look exactly as
+// confident as the truth, and the id is on the row.
+
+test("blocks group into turns by their run id, oldest first", () => {
+  // Every row a run produces carries the run — the reviewer's send, the tool
+  // calls, the results and the answer. That is `model` and `style`'s rule, and
+  // it is what makes the group complete rather than a subset.
+  const turns = turnsOf(
+    thread([
+      you("what does this mean?", { runId: "r-1" }),
+      ["tool_call", { runId: "r-1", toolName: "Read", toolInput: { file_path: PATH } }],
+      ["tool_result", { runId: "r-1", content: "30 lines" }],
+      said("it means the deadline moved.", { runId: "r-1" }),
+      you("change it then", { runId: "r-2", mode: "act" }),
+      said("done.", { runId: "r-2" }),
+    ]),
+  );
+
+  assert.equal(turns.length, 2);
+  assert.deepEqual(
+    turns.map((turn) => [turn.runId, turn.number]),
+    [
+      ["r-1", 1],
+      ["r-2", 2],
+    ],
+  );
+  // The reviewer's own send is the only row that carries a mode, and the turn
+  // takes its pill from it.
+  assert.equal(turns[0]?.mode, "ask");
+  assert.equal(turns[1]?.mode, "act");
+  assert.equal(turns[0]?.toolCalls, 1);
+});
+
+test("rows written before the column group together, and are not hidden", () => {
+  // A chat from last week has real machinery in it. A sheet that dropped it
+  // would say REX had never run.
+  const turns = turnsOf(thread([you("older"), said("answer"), call("Read", { path: PATH })]));
+  assert.equal(turns.length, 1);
+  assert.equal(turns[0]?.runId, null);
+  assert.equal(turns[0]?.number, 0, "it is not the first turn of anything");
+  assert.equal(turns[0]?.entries.length, 3);
+});
+
+test("a turn's cost stays null until a row reports one", () => {
+  // Spec 43 §8.1 — a missing cost is drawn as unknown, never as `$0.00`. A sum
+  // seeded at zero would make "the SDK said nothing" and "the SDK said zero"
+  // the same value.
+  const quiet = turnsOf(thread([you("hello", { runId: "r-1" })]));
+  assert.equal(quiet[0]?.costUsd, null);
+
+  const priced = turnsOf(
+    thread([
+      you("hello", { runId: "r-1" }),
+      ["completed", { runId: "r-1", costUsd: 0, durationMs: 120 }],
+    ]),
+  );
+  assert.equal(priced[0]?.costUsd, 0, "a reported zero IS a number");
+  assert.equal(priced[0]?.durationMs, 120);
+});
+
+test("the step list is one line per block, and never JSON", () => {
+  // At depth 2 a message is 40 KB and the question is only "what did it do".
+  const turn = turnsOf(
+    thread([
+      you("check it", { runId: "r-1" }),
+      [
+        "tool_call",
+        { runId: "r-1", toolName: "Read", toolInput: { file_path: PATH, offset: 140 } },
+      ],
+      ["tool_result", { runId: "r-1", content: "30 lines" }],
+    ]),
+  )[0];
+  const steps = stepsOfTurn(turn as NonNullable<typeof turn>);
+  assert.deepEqual(
+    steps.map((step) => step.role),
+    ["you", "read"],
+  );
+  for (const step of steps) {
+    assert.equal(step.text.includes("\n"), false, "one line");
+    assert.ok(step.text.length <= PREVIEW_MAX, "and a cut one");
+  }
+});
+
+test("a refused or failed step is marked, and says failed instead of a size", () => {
+  const turn = turnsOf(
+    thread([
+      you("do it", { runId: "r-1" }),
+      ["tool_call", { runId: "r-1", toolName: "Bash", toolInput: { command: "rm -rf /" } }],
+      [
+        "tool_result",
+        { runId: "r-1", content: "The read profile cannot write.", denied: true, isError: true },
+      ],
+    ]),
+  )[0];
+  const steps = stepsOfTurn(turn as NonNullable<typeof turn>);
+  assert.equal(steps[1]?.failed, true);
+  assert.equal(steps[1]?.size, "failed");
+  assert.equal(turn?.failed, 1);
 });

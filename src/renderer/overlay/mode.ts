@@ -30,6 +30,30 @@ export function modeOf(profile: Profile): Mode {
   return profile === "write" ? "act" : "ask";
 }
 
+/**
+ * Spec 51 — the three API surfaces, in the words a person would use.
+ *
+ * Here beside `MODE_LABEL` because it is the same kind of thing: a stored value
+ * and the one word every screen must call it. Two screens naming the same
+ * surface differently is the bug this file exists to prevent.
+ *
+ * `Anthropic` and `OpenAI` and not the paths, because the path is the machine's
+ * answer and the vendor is the reader's — and it is the vendor whose message
+ * shape they are about to read.
+ */
+export const API_LABEL: Record<string, string> = {
+  anthropic: "Anthropic",
+  "openai-chat": "OpenAI chat",
+  "openai-responses": "OpenAI responses",
+};
+
+/** The endpoint behind each, for the tooltip that says what it really means. */
+export const API_PATH: Record<string, string> = {
+  anthropic: "/v1/messages",
+  "openai-chat": "/v1/chat/completions",
+  "openai-responses": "/v1/responses",
+};
+
 export const MODE_LABEL: Record<Mode, string> = {
   ask: "ASK",
   act: "ACT",

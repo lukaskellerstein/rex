@@ -25,6 +25,7 @@ import Database from "better-sqlite3";
 import {
   migrateCommentOrder,
   migrateMessageDenied,
+  migrateMessageRunId,
   migrateNoteFlag,
   migrateThreadLanes,
   migrateThreadStroke,
@@ -504,5 +505,68 @@ test("a table with no status CHECK is left exactly as it was", () => {
   // there is nothing to rebuild and nothing to risk.
   const db = openWithStroke("lanes-uncheck.db");
   assert.equal(migrateThreadLanes(db), false);
+  db.close();
+});
+
+// ── Spec 51 §4 — `message.run_id`, the join key ─────────────────
+//
+// Depth 3 IS the join between REX's own rows and the gateway's traffic log, and
+// this column is the key. Without it the grid draws nothing and reports no
+// error, which is the failure mode the whole spec is written against.
+
+/** A `message` table as it stood before the column existed. */
+function openWithoutRunId(name: string): Database.Database {
+  const db = new Database(join(work, name));
+  db.exec(`CREATE TABLE message (
+             id         TEXT PRIMARY KEY,
+             thread_id  TEXT NOT NULL,
+             seq        INTEGER NOT NULL,
+             role       TEXT NOT NULL,
+             kind       TEXT NOT NULL,
+             mode       TEXT,
+             content    TEXT,
+             created_at TEXT NOT NULL
+           )`);
+  return db;
+}
+
+const messageColumns = (db: Database.Database): string[] =>
+  db
+    .prepare<[], { name: string }>("PRAGMA table_info(message)")
+    .all()
+    .map((row) => row.name);
+
+test("run_id is added to a database that predates turns", () => {
+  const db = openWithoutRunId("run-id.db");
+  assert.equal(messageColumns(db).includes("run_id"), false);
+
+  assert.equal(migrateMessageRunId(db), true);
+  assert.equal(messageColumns(db).includes("run_id"), true);
+  db.close();
+});
+
+test("the second run changes nothing, which is every open after the first", () => {
+  const db = openWithoutRunId("run-id-twice.db");
+  migrateMessageRunId(db);
+  const afterFirst = messageColumns(db);
+
+  assert.equal(migrateMessageRunId(db), false);
+  assert.deepEqual(messageColumns(db), afterFirst);
+  db.close();
+});
+
+test("existing rows are NULL, and are not guessed at", () => {
+  // Nothing in an old row records which run produced it. A guess from
+  // timestamps would group rows that never ran together and would look exactly
+  // as confident as the truth, so those rows group under "before turns were
+  // recorded" instead.
+  const db = openWithoutRunId("run-id-null.db");
+  db.prepare(
+    "INSERT INTO message (id, thread_id, seq, role, kind, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run("m1", "t1", 0, "user", "text", "older", "2026-09-01T00:00:00.000Z");
+
+  migrateMessageRunId(db);
+  const row = db.prepare<[], { run_id: string | null }>("SELECT run_id FROM message").get();
+  assert.equal(row?.run_id, null);
   db.close();
 });

@@ -19,6 +19,7 @@ import type { ResolvedRoute } from "../../shared/agent-protocol.ts";
 import { runAgent } from "../agent/bridge.ts";
 import { sessionIdFor } from "../agent/profiles.ts";
 import { DOCX_WRITE_SYSTEM_PROMPT, writeInstructions } from "../agent/prompts.ts";
+import type { Tags } from "../agent/tags.ts";
 import type { MessageDraft } from "../db/queries.ts";
 import { openPackage } from "../ooxml/package.ts";
 import type { MediaResolver } from "../pptx/media.ts";
@@ -43,6 +44,8 @@ export interface DocxApplyInput {
   instruction: string;
   transcript: string;
   passages: string[];
+  /** Spec 54 §5.1 — the tags `apply.ts` framed the passages with. */
+  tags: Tags;
   model: string | null;
   /** Spec 31 §2.3 — the output style the plan is written in. */
   style: string | null;
@@ -74,16 +77,21 @@ function buildPrompt(input: {
   passages: string[];
   instruction: string;
   transcript: string;
+  tags: Tags;
 }): string {
   return [
-    `Document: ${input.documentPath}`,
-    `Its text, to read: ${input.sidecarPath}`,
-    `Write your plan to: ${input.planPath}`,
+    ...input.tags.block(
+      "document",
+      [`Its text, to read: ${input.sidecarPath}`, `Write your plan to: ${input.planPath}`].join(
+        "\n",
+      ),
+      { path: input.documentPath },
+    ),
     "",
     ...input.passages,
     // The same tail the prose path uses, so a Word file and a Markdown file are
     // told what to do the same way.
-    ...writeInstructions(input.transcript, input.instruction),
+    ...writeInstructions(input.transcript, input.instruction, input.tags),
   ].join("\n");
 }
 
@@ -127,6 +135,7 @@ export async function runDocxApply(input: DocxApplyInput): Promise<DocxApplyResu
       passages: input.passages,
       instruction: input.instruction,
       transcript: input.transcript,
+      tags: input.tags,
     }),
     sessionId: sessionIdFor(input.runKey),
     resume: false,

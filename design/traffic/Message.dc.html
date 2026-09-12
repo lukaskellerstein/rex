@@ -1,0 +1,253 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #8fb4f0; text-decoration: none; }
+    a:hover { color: #b7cff6; }
+    * { box-sizing: border-box; }
+    .m { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 720px; height: 900px; display: flex; flex-direction: column; background: #0e1012; color: #f4f6f7; font: 13px/1.5 'DM Sans', system-ui, sans-serif;">
+
+  <div style="display: flex; align-items: center; gap: 10px; flex: none; height: 48px; padding: 0 16px; border-bottom: 1px solid #2b3035;">
+    <button type="button" style="display: flex; align-items: center; gap: 6px; flex: none; height: 24px; padding: 0 8px 0 5px; border: 0; border-radius: 2px; background: none; color: #98a0a8; font: inherit; font-size: 12.5px; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.5 4 5.5 8l4 4"/>
+      </svg>
+      Turn 4
+    </button>
+    <span style="flex: none; color: #414850;">/</span>
+    <span style="flex: none; font-size: 14px; font-weight: 600;">Message 5</span>
+    <span class="m" style="flex: none; padding: 1px 7px; border: 1px solid #3b4249; border-radius: 2px; color: #66ad93; font-size: 10.5px;">assistant</span>
+    <div style="flex-grow: 1;"></div>
+    <div style="display: flex; gap: 2px; flex: none;">
+      <button type="button" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 1px solid #414850; border-radius: 2px; background: #191c1f; color: #98a0a8; cursor: pointer;">
+        <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 3.5 5.5 8l4.5 4.5"/>
+        </svg>
+      </button>
+      <button type="button" style="display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: 1px solid #414850; border-radius: 2px; background: #191c1f; color: #98a0a8; cursor: pointer;">
+        <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 3.5 10.5 8 6 12.5"/>
+        </svg>
+      </button>
+    </div>
+    <span style="flex: none; color: #6e767e; font-size: 11.5px;">5 of 7</span>
+  </div>
+
+  <!-- Where this message sits, exactly. It is the string you paste when you
+       ask somebody else to look at the same thing. -->
+  <div style="display: flex; align-items: center; gap: 9px; flex: none; padding: 8px 16px; border-bottom: 1px solid #2b3035; background: #131619;">
+    <span style="flex: none; color: #6e767e; font-size: 11px;">path</span>
+    <span class="m" style="flex: none; color: #ccd1d6; font-size: 11.5px;">exchange 3 · messages[4]</span>
+    <div style="flex-grow: 1;"></div>
+    <span class="m" style="flex: none; color: #6e767e; font-size: 11px;">{{weight}}</span>
+  </div>
+
+  <!-- The Readable / JSON switch belongs HERE, on one message, and not on a
+       whole exchange: this is the level where a JSON tree is short enough to
+       read on the screen it is drawn on. -->
+  <div style="display: flex; align-items: center; gap: 8px; flex: none; padding: 9px 16px; border-bottom: 1px solid #2b3035;">
+    <div style="display: flex; gap: 1px; flex: none; padding: 2px; border: 1px solid #2b3035; border-radius: 2px; background: #0e1012;">
+      <button type="button" onClick="{{showReadable}}" style="height: 23px; padding: 0 11px; border: 0; border-radius: 2px; background: {{tabReadable.bg}}; color: {{tabReadable.fg}}; font: inherit; font-size: 11.5px; font-weight: {{tabReadable.weight}}; cursor: pointer;">Readable</button>
+      <button type="button" onClick="{{showJson}}" style="height: 23px; padding: 0 11px; border: 0; border-radius: 2px; background: {{tabJson.bg}}; color: {{tabJson.fg}}; font: inherit; font-size: 11.5px; font-weight: {{tabJson.weight}}; cursor: pointer;">JSON</button>
+    </div>
+
+    <sc-if value="{{onJson}}" hint-placeholder-val="{{ true }}">
+      <button type="button" onClick="{{collapseAll}}" style="flex: none; height: 23px; padding: 0 9px; border: 1px solid #414850; border-radius: 2px; background: #191c1f; color: #ccd1d6; font: inherit; font-size: 11.5px; cursor: pointer;">Collapse all</button>
+      <button type="button" onClick="{{expandAll}}" style="flex: none; height: 23px; padding: 0 9px; border: 1px solid #414850; border-radius: 2px; background: #191c1f; color: #ccd1d6; font: inherit; font-size: 11.5px; cursor: pointer;">Expand all</button>
+    </sc-if>
+
+    <div style="flex-grow: 1;"></div>
+    <button type="button" style="display: flex; align-items: center; gap: 6px; flex: none; height: 23px; padding: 0 9px; border: 1px solid #414850; border-radius: 2px; background: #191c1f; color: #ccd1d6; font: inherit; font-size: 11.5px; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+        <rect x="5.4" y="2.4" width="8.2" height="8.2" rx="1"/><path d="M10.6 13.6H2.4V5.4"/>
+      </svg>
+      Copy
+    </button>
+  </div>
+
+  <!-- Tight metrics on purpose: 17px lines, an 11px face, a 12px indent and a
+       30px gutter. The first version breathed at 21px and a screenful held
+       barely twenty lines, which is what makes a tree feel like a wall. -->
+  <!--
+    Each row is written on ONE source line, with no whitespace between the
+    spans, and the container is `nowrap` rather than `pre`.
+
+    That is not a style preference. The first version set `white-space: pre` on
+    a block whose spans sat on their own indented source lines — so every source
+    newline became a real line break and every source indent became leading
+    spaces. One JSON row drew as five, each one further right than the last. The
+    conditional key was an `sc-if`, which added two more breaks of its own; the
+    key, the colon, the value and the tail each landed on a line.
+
+    So: no `sc-if` in a row, no whitespace between tags, and the pieces that may
+    be absent are empty strings instead of branches.
+  -->
+  <sc-if value="{{onJson}}" hint-placeholder-val="{{ true }}">
+    <div style="flex-grow: 1; min-height: 0; padding: 8px 0; overflow: auto; background: #08090a;">
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="20"><div style="display: flex; align-items: center; height: 17px; background: {{l.bg}};"><span class="m" style="flex: none; width: 30px; padding-right: 8px; color: #4a5058; font-size: 10px; text-align: right; user-select: none;">{{l.n}}</span><button type="button" onClick="{{l.toggle}}" style="display: flex; align-items: center; justify-content: center; flex: none; width: 13px; height: 17px; padding: 0; border: 0; background: none; color: #6e767e; cursor: {{l.cursor}}; opacity: {{l.arrow}};"><svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate({{l.spin}});"><path d="M6 3.5 10.5 8 6 12.5"/></svg></button><span class="m" style="overflow: hidden; flex-grow: 1; min-width: 0; padding-left: {{l.indent}}; font-size: 11px; white-space: nowrap; text-overflow: ellipsis;"><span style="color: #8fb4f0;">{{l.key}}</span><span style="color: #6e767e;">{{l.sep}}</span><span style="color: {{l.valColor}};">{{l.val}}</span><span style="color: #4a5058;">{{l.tail}}</span></span></div></sc-for>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{onReadable}}" hint-placeholder-val="{{ false }}">
+    <div style="flex-grow: 1; min-height: 0; padding: 12px 16px; overflow: auto;">
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+
+        <div style="border: 1px dashed #414850; border-radius: 2px; background: #131619;">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 7px 10px;">
+            <span class="m" style="flex: none; color: #8b9298; font-size: 10.5px;">thinking</span>
+            <div style="flex-grow: 1;"></div>
+            <span class="m" style="flex: none; color: #6e767e; font-size: 10.5px;">640 chars</span>
+          </div>
+          <p style="margin: 0; padding: 0 10px 10px; color: #8b9298; font-size: 12.5px; font-style: italic;">The quote is two paragraphs above the edit the comment is really about. If I rewrite from the quote alone I will change the wrong paragraph, so read the file first and find the sentence that names the figure.</p>
+        </div>
+
+        <div style="border: 1px solid #4a4026; border-radius: 2px; background: #131619;">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-bottom: 1px solid #2b3035;">
+            <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="#d9b23a" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="flex: none;">
+              <path d="M10.4 2.6a3.2 3.2 0 0 0-3 4.3L3 11.3l1.7 1.7 4.4-4.4a3.2 3.2 0 0 0 4.3-3l-2 2-1.7-.4-.4-1.7z"/>
+            </svg>
+            <span class="m" style="flex: none; color: #6e767e; font-size: 10.5px;">tool_use</span>
+            <span class="m" style="flex: none; color: #d9b23a; font-size: 12px; font-weight: 500;">Read</span>
+            <div style="flex-grow: 1;"></div>
+            <span class="m" style="flex: none; color: #6e767e; font-size: 10.5px;">toolu_01AbCdEf</span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 1px; padding: 8px 10px;">
+            <sc-for list="{{args}}" as="a" hint-placeholder-count="3">
+              <div style="display: flex; align-items: baseline; gap: 10px;">
+                <span class="m" style="flex: none; width: 76px; color: #8fb4f0; font-size: 11px;">{{a.key}}</span>
+                <span class="m" style="overflow: hidden; color: {{a.fg}}; font-size: 11px; text-overflow: ellipsis; white-space: nowrap;">{{a.value}}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</x-dc>
+
+<script data-dc-script>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { tab: 'json', shut: {} };
+  }
+
+  source() {
+    return [
+      { id: 'root', d: 0, node: true, val: '{', shut: '{ … }' },
+      { a: ['root'], d: 1, key: '"role"', val: '"assistant"', kind: 'string' },
+      { id: 'content', a: ['root'], d: 1, node: true, key: '"content"', val: '[', shut: '[ … ]', tail: '2 blocks' },
+
+      { id: 'b0', a: ['root', 'content'], d: 2, node: true, val: '{', shut: '{ … },', tail: 'thinking' },
+      { a: ['root', 'content', 'b0'], d: 3, key: '"type"', val: '"thinking"', kind: 'string' },
+      { a: ['root', 'content', 'b0'], d: 3, key: '"thinking"', val: '"The quote is two paragraphs above the…"', kind: 'string', tail: '640 chars' },
+      { a: ['root', 'content', 'b0'], d: 3, key: '"signature"', val: '"ErUBCkYIBRgCKkD1x9…"', kind: 'string', tail: '96 chars' },
+      { a: ['root', 'content', 'b0'], d: 2, val: '},' },
+
+      { id: 'b1', a: ['root', 'content'], d: 2, node: true, val: '{', shut: '{ … }', tail: 'tool_use · Read' },
+      { a: ['root', 'content', 'b1'], d: 3, key: '"type"', val: '"tool_use"', kind: 'string' },
+      { a: ['root', 'content', 'b1'], d: 3, key: '"id"', val: '"toolu_01AbCdEf"', kind: 'string' },
+      { a: ['root', 'content', 'b1'], d: 3, key: '"name"', val: '"Read"', kind: 'string' },
+      { id: 'input', a: ['root', 'content', 'b1'], d: 3, node: true, key: '"input"', val: '{', shut: '{ … }', tail: '3 keys' },
+      { a: ['root', 'content', 'b1', 'input'], d: 4, key: '"file_path"', val: '"~/.rex/work/9f2c/sample-report.md"', kind: 'string' },
+      { a: ['root', 'content', 'b1', 'input'], d: 4, key: '"offset"', val: '140', kind: 'number' },
+      { a: ['root', 'content', 'b1', 'input'], d: 4, key: '"limit"', val: '30', kind: 'number' },
+      { a: ['root', 'content', 'b1', 'input'], d: 3, val: '}' },
+      { a: ['root', 'content', 'b1'], d: 2, val: '}' },
+
+      { a: ['root', 'content'], d: 1, val: ']' },
+      { a: ['root'], d: 0, val: '}' }
+    ];
+  }
+
+  colour(kind) {
+    if (kind === 'string') return '#66ad93';
+    if (kind === 'number') return '#d9b23a';
+    if (kind === 'atom') return '#eda393';
+    return '#6e767e';
+  }
+
+  renderVals() {
+    const shut = this.state.shut;
+    const tab = this.state.tab;
+    const nodeIds = this.source().filter((r) => r.node).map((r) => r.id);
+
+    const lines = [];
+    let n = 0;
+    for (const row of this.source()) {
+      const anc = row.a || [];
+      let hidden = false;
+      for (const id of anc) { if (shut[id]) hidden = true; }
+      if (hidden) continue;
+
+      n += 1;
+      const id = row.id;
+      const isShut = id ? !!shut[id] : false;
+      const isNode = !!row.node;
+      // The separator and the tail carry their own spacing as non-breaking
+      // spaces. A trailing ordinary space collapses at a span boundary, which
+      // is how `"role":"assistant"` loses the gap after its colon.
+      lines.push({
+        n: String(n),
+        indent: (row.d * 12) + 'px',
+        isNode: isNode,
+        arrow: isNode ? '1' : '0',
+        cursor: isNode ? 'pointer' : 'default',
+        spin: isNode && !isShut ? '90deg' : '0deg',
+        key: row.key || '',
+        sep: row.key ? ': ' : '',
+        val: isShut && row.shut ? row.shut : row.val,
+        valColor: this.colour(row.kind),
+        tail: row.tail ? '  ' + row.tail : '',
+        bg: id === 'b1' ? '#131619' : 'transparent',
+        toggle: isNode ? () => {
+          const next = Object.assign({}, this.state.shut);
+          next[id] = !next[id];
+          this.setState({ shut: next });
+        } : () => {}
+      });
+    }
+
+    const on = { bg: '#3b6fd4', fg: '#ffffff', weight: '600' };
+    const off = { bg: 'transparent', fg: '#98a0a8', weight: '400' };
+
+    return {
+      onJson: tab === 'json',
+      onReadable: tab === 'readable',
+      tabJson: tab === 'json' ? on : off,
+      tabReadable: tab === 'readable' ? on : off,
+      showJson: () => this.setState({ tab: 'json' }),
+      showReadable: () => this.setState({ tab: 'readable' }),
+      weight: '1.1 KB · 2 blocks',
+      lines: lines,
+      collapseAll: () => {
+        const next = {};
+        for (const id of nodeIds) { next[id] = true; }
+        next.root = false;
+        this.setState({ shut: next });
+      },
+      expandAll: () => this.setState({ shut: {} }),
+      args: [
+        { key: 'file_path', value: '"~/.rex/work/9f2c/sample-report.md"', fg: '#66ad93' },
+        { key: 'offset', value: '140', fg: '#d9b23a' },
+        { key: 'limit', value: '30', fg: '#d9b23a' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

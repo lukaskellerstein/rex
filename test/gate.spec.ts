@@ -431,7 +431,7 @@ test("§3.6 — a refusal says what the command would do", () => {
     ["rm -rf build", "rm deletes files"],
     ["python -c 'x'", "can write any file"],
     ["ls | xargs rm", "run another command"],
-    ["curl -o page.html https://example.com", "WebFetch"],
+    ["curl -o page.html https://example.com", "write the response to a file"],
     ["sed -i 's/a/b/' x.md", "sed -i rewrites the file"],
     ["less README.md", "waits for a keypress"],
   ];
@@ -444,6 +444,76 @@ test("§3.6 — a refusal says what the command would do", () => {
   // The default is the honest one: REX admitting it cannot tell.
   const unknown = bash("xsltproc -o out.xml sheet.xsl in.xml");
   assert.ok(unknown?.includes("cannot tell whether 'xsltproc' writes"), String(unknown));
+});
+
+// ── spec 56 §3.3 — curl, where the unit is the flag ──────────────
+//
+// Thread ef3df7aa, 2026-09-11: the reviewer asked "What is it?" about a
+// glossary whose introduction cites an Anthropic article. The agent read the
+// file, read its neighbour, searched the repository, and then tried to open the
+// citation. The gate refused every `curl` and told it to use `WebFetch` — a
+// tool the Codex adapter does not have — and the run died with no answer.
+//
+// So the binary is allowed and the FLAGS are judged, which is the shape §6.5
+// already uses for `sort -o` and `tree -o`.
+
+test("§3.3 — curl may fetch a page", () => {
+  for (const command of [
+    "curl https://example.com",
+    "curl -s https://example.com",
+    "curl -sL --max-time 15 https://www.anthropic.com/engineering/a-page",
+    "curl -sSL -H 'Accept: text/html' https://example.com",
+    "curl -I https://example.com",
+    "curl --compressed -A 'rex' https://example.com",
+    "curl -X GET https://example.com",
+    "curl --request HEAD https://example.com",
+  ]) {
+    assert.equal(bash(command), null, `${command} → ${bash(command)}`);
+  }
+});
+
+test("§3.3 — curl may not write a file, send a body, or use another method", () => {
+  const cases: Array<[string, string]> = [
+    ["curl -o page.html https://example.com", "write the response to a file"],
+    ["curl -O https://example.com/a.zip", "write the response to a file"],
+    ["curl --output page.html https://example.com", "writes the response to a file"],
+    ["curl --output-dir /tmp -O https://example.com/a", "writes the response to a file"],
+    ["curl --create-dirs -o a/b.html https://example.com", "writes the response to a file"],
+    ["curl -d 'a=1' https://example.com", "send a body"],
+    ["curl --data-raw 'a=1' https://example.com", "sends a body"],
+    ["curl --data-binary @file https://example.com", "sends a body"],
+    ["curl -F file=@x.md https://example.com", "send a body"],
+    ["curl -T upload.md https://example.com", "send a body"],
+    ["curl --upload-file x https://example.com", "sends a body"],
+    ["curl -X POST https://example.com", "CHANGE something"],
+    ["curl --request DELETE https://example.com", "CHANGE something"],
+    ["curl --request=PUT https://example.com", "CHANGE something"],
+    ["curl -D headers.txt https://example.com", "write a file beside the response"],
+    ["curl -c jar.txt https://example.com", "write a file beside the response"],
+    ["curl -K flags.txt", "write a file beside the response"],
+    ["curl --dump-header h.txt https://example.com", "writes a second file"],
+    ["curl --trace t.log https://example.com", "writes a second file"],
+    ["curl --config flags.txt", "somewhere REX cannot read"],
+  ];
+  for (const [command, phrase] of cases) {
+    const reason = bash(command);
+    assert.ok(reason?.includes(phrase), `${command} → ${reason}`);
+  }
+});
+
+test("§3.3 — a bundled short flag is read letter by letter", () => {
+  // `-sLo out.html` is ONE word, and a rule looking for a bare `-o` passes it.
+  // This is the case the guard exists for.
+  assert.ok(bash("curl -sLo out.html https://example.com")?.includes("write the response"));
+  assert.ok(bash("curl -fsSLo /tmp/x https://example.com")?.includes("write the response"));
+  // …and a bundle of reading flags is still a fetch.
+  assert.equal(bash("curl -fsSL https://example.com"), null);
+});
+
+test("§3.3 — wget still names the tool that replaces it", () => {
+  const reason = bash("wget https://example.com");
+  assert.ok(reason?.includes("curl"), String(reason));
+  assert.ok(!reason?.includes("WebFetch"), "Codex has no WebFetch to be sent to");
 });
 
 // ── §6.8 — gh, where the unit is the command pair ────────────────

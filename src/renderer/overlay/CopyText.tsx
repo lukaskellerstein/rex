@@ -32,9 +32,18 @@ interface Props {
   text: string;
   /** What the tooltip calls it: `question`, `answer`, `step`. */
   what: string;
+  /**
+   * A word beside the glyph, for when two copies sit next to each other.
+   *
+   * Depth 4 offers one value in two forms — the JSON structure and the text —
+   * and two identical glyphs a few pixels apart is a choice nobody can make.
+   * Everywhere else there is one copy and the glyph alone is the whole control,
+   * so this is left out and nothing changes.
+   */
+  label?: string;
 }
 
-export function CopyText({ text, what }: Props): React.JSX.Element {
+export function CopyText({ text, what, label }: Props): React.JSX.Element {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -59,12 +68,17 @@ export function CopyText({ text, what }: Props): React.JSX.Element {
   return (
     <button
       type="button"
-      className={copied ? "rex-copy rex-copy-done" : "rex-copy"}
+      className={[copied ? "rex-copy rex-copy-done" : "rex-copy", label ? "rex-copy-named" : ""]
+        .filter(Boolean)
+        .join(" ")}
       aria-label={`Copy this ${what} to the clipboard`}
-      data-tip={copied ? undefined : "Copy"}
+      // With a word beside it the tip says which of the two this is; without
+      // one there is nothing to tell apart and `Copy` is the whole story.
+      data-tip={copied ? undefined : label ? `Copy the ${what}` : "Copy"}
       onClick={copy}
     >
       {copied ? <Check size={12} /> : <Copy />}
+      {label ? <span className="rex-copy-label">{label}</span> : null}
     </button>
   );
 }
