@@ -28,8 +28,12 @@ from claude_agent_sdk import (
     ClaudeSDKClient,
     HookJSONOutput,
     HookMatcher,
+    PermissionResult,
+    PermissionResultAllow,
+    PermissionResultDeny,
     ResultMessage,
     SystemMessage,
+    ToolPermissionContext,
     UserMessage,
 )
 
@@ -297,9 +301,31 @@ class ClaudeAdapter:
             # The repository's own `.claude/` is part of what "run in this
             # directory" means.
             setting_sources=["project"],
+            # Spec 52 — and the one place that sentence above goes too far. The
+            # same switch that brings in the repository's `CLAUDE.md`, skills
+            # and agents also brings in its `sandbox`, its permission rules and
+            # its permission mode. Those are not context, they are REX's own
+            # boundary, and no reviewed repository may set it: `gate.ts` does.
+            #
+            # Measured 2026-09-10 against a repository whose settings say
+            # `sandbox.enabled: true` — every `gh` call came back
+            # `deny network-outbound api.github.com:443`, and the model's own
+            # `dangerouslyDisableSandbox` retry became a permission question
+            # nobody could answer, so the tool result read `Run outside of the
+            # sandbox`. `--settings` outranks project settings, so this is what
+            # settles it.
+            sandbox={"enabled": False},
             disallowed_tools=claude_tools_for(request.disallowed),
             plugins=[{"type": "local", "path": path} for path in request.plugins],
             hooks={"PreToolUse": [HookMatcher(matcher=".*", hooks=[_policy_hook(emit, ask_policy, denials)])]},
+            # The hook is the gate and answers before a tool runs. This answers
+            # the CLI's own permission PROMPT, which is a different question and
+            # one a headless run could not answer at all: a repository carrying
+            # `permissions.ask` for a command REX allows produced `Claude
+            # requested permissions to use Bash, but you haven't granted it
+            # yet.` and the call simply failed. An allow from the hook does not
+            # always prevent it — measured 2026-09-10.
+            can_use_tool=_permission_prompt(emit, ask_policy, denials),
             env=self._env(
                 request.route,
                 request.model,
@@ -450,6 +476,53 @@ def _policy_hook(emit: Emit, ask_policy: AskPolicy, denials: list[Denial]):
         return _deny(reason)
 
     return hook
+
+
+def _permission_prompt(emit: Emit, ask_policy: AskPolicy, denials: list[Denial]):
+    """The CLI's permission PROMPT, answered by the same policy.
+
+    Spec 52 §4. The hook above is asked before every tool call and is REX's
+    gate. This is asked only when the CLI's own rules say a call needs a
+    person's approval, and an interactive session is where that person would
+    be. A headless run has none, so the call used to come back as a failure
+    whose whole text was the prompt's title — `Run outside of the sandbox`, or
+    `Claude requested permissions to use Bash, but you haven't granted it yet.`
+    Neither is a denial and neither is a tool that went wrong, which is why
+    every surface drew a run that had simply lost three steps.
+
+    Asking the policy a second time is deliberate rather than wasteful. The
+    same question gets the same answer, `gate.ts` is the only authority either
+    path consults, and writing `allow` here instead would make this the one
+    place in REX where something runs because nobody looked.
+    """
+
+    async def prompt(
+        tool_name: str,
+        tool_input: dict[str, Any],
+        context: ToolPermissionContext,
+    ) -> PermissionResult:
+        # §8's rule that a denial says WHICH agent made the call holds here too:
+        # the context carries the subagent's id exactly as the hook's input does.
+        subagent_id = getattr(context, "agent_id", None) or None
+        reason = await ask_policy(
+            ToolCall(
+                name=tool_name,
+                common=common_tool(tool_name),
+                input=tool_input,
+                subagent_id=subagent_id,
+            )
+        )
+        if reason is None:
+            return PermissionResultAllow(updated_input=tool_input)
+
+        # Unreachable while the hook runs first and denies the same call, and
+        # written out anyway: a prompt REX answered by staying silent is the
+        # failure this whole function exists to remove.
+        denials.append(Denial(tool_name=tool_name, reason=reason, subagent_id=subagent_id))
+        emit(DeniedEvent(name=tool_name, reason=reason, subagent_id=subagent_id))
+        return PermissionResultDeny(message=reason)
+
+    return prompt
 
 
 def _cost_of(message: ResultMessage, route: ResolvedRoute) -> float | None:

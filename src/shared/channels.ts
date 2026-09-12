@@ -22,6 +22,7 @@ import type {
   CommentMove,
   DocumentRef,
   DocumentVersion,
+  LinkResolution,
   Message,
   OpenedDocument,
   PaperView,
@@ -61,6 +62,16 @@ export const COMMAND = {
    */
   docInitial: "doc:initial",
   docOpen: "doc:open",
+  /**
+   * Spec 53 §5.3 — a link the reviewer clicked in the document.
+   *
+   * Two channels because they do two things. `linkResolve` reads the
+   * filesystem and answers; `linkExternal` acts. Keeping the side effect in its
+   * own command is what lets main re-check the scheme at the moment it hands
+   * the string to the operating system (§4.6).
+   */
+  linkResolve: "link:resolve",
+  linkExternal: "link:external",
   /** Spec 02 §7 — the workspace explorer and the reference graph. */
   workspacePick: "workspace:pick",
   workspaceTree: "workspace:tree",
@@ -273,6 +284,38 @@ export const COMMAND = {
   gatewayTrafficClear: "gateway:traffic:clear",
   gatewayTrafficBodies: "gateway:traffic:bodies",
   /**
+   * Spec 51 §5 — the trace, at four depths. One channel per depth, and each is
+   * a READ that joins `rex.db` to the gateway's log in main.
+   *
+   * Three and not four. Depths 2 and 3 share one: the renderer already holds
+   * this chat's `message` rows, `trace.ts` groups them into turns, and what it
+   * is missing is the same list of exchanges either way — so one read serves
+   * both and depth 3 filters it to one run without going back to main.
+   *
+   * They are separate channels rather than one that takes a depth, because each
+   * answers a different question with a different cost: depth 1 walks the whole
+   * log, depth 4 reads one body out of one line. `traceMessage` is the only one
+   * that ever carries a request body, and it carries exactly one.
+   */
+  traceChats: "trace:chats",
+  traceTurns: "trace:turns",
+  traceMessage: "trace:message",
+  /**
+   * Spec 55 §3 — this chat, or this turn, as text on the clipboard.
+   *
+   * Two channels and not one with a nullable run id, for the reason
+   * `debugSnapshot` is not an argument on `debugCopy`: **null is already a
+   * turn.** The rows written before spec 51 have no run id and group into a
+   * real turn a reviewer can open, so a null could not also have meant "the
+   * whole chat" without one of the two meanings going quietly missing.
+   *
+   * Main builds the text and writes the clipboard, as it does for the other two
+   * reports: the database path, the traffic log and the versions are main's,
+   * and a renderer copy needs the window focused.
+   */
+  traceCopyChat: "trace:copy-chat",
+  traceCopyTurn: "trace:copy-turn",
+  /**
    * Spec 27 §4.7 — how the reviewer last left the Markdown page.
    *
    * Read once, when the overlay mounts, and written on every switch. It is one
@@ -304,6 +347,19 @@ export const EVENT = {
    * engines; this is the sentence between them.
    */
   renderRequest: "render:request",
+  /**
+   * Spec 51 §6 defect 1 — the built-in gateway has settled, one way or another.
+   *
+   * The gateway takes about 1.6 seconds to come up, and nothing told the
+   * renderer when it had. `refreshGateways` and `setBuiltin` ran only on a
+   * click, so a Settings screen opened during that second and a half showed
+   * **"Starting…" until something else happened to ask** — for a gateway that
+   * had been serving requests the whole time.
+   *
+   * Main *sending* is invariant I3's answer for anything that is not a command,
+   * and §10 rule 2 names it as the fix. Not an HTTP endpoint, and not a poll.
+   */
+  gatewaySettled: "gateway:settled",
 } as const;
 
 // ── Request and response payloads ───────────────────────────────
@@ -779,8 +835,19 @@ export interface GatewayStorageHealth {
   warning: string | null;
 }
 
+/** Spec 51 — the three API surfaces one model is reachable on (spec 46 §4.5). */
+export type TrafficApi = "anthropic" | "openai-chat" | "openai-responses";
+
 /** §4.6 — one request through the gateway, as the traffic sheet draws it. */
 export interface GatewayTrafficRow {
+  /**
+   * Spec 51 — `<day>#<line>`, so depth 4 can ask for this row's body later.
+   *
+   * Stable because the log is append-only. When retention deletes the day, the
+   * row goes with it and the lookup correctly finds nothing — where an index
+   * into a filtered list would have shifted and shown a different row's body.
+   */
+  id: string;
   at: string;
   thread: string | null;
   run: string | null;
@@ -793,6 +860,27 @@ export interface GatewayTrafficRow {
   cost: number | null;
   /** Null on success. **Failures are recorded too**, unlike in Grafana. */
   error: string | null;
+  /**
+   * Spec 51 — how many messages this exchange SENT.
+   *
+   * The number a turn is read for: every exchange re-sends the whole
+   * conversation, so the count grows down a turn, and the growth IS the loop.
+   * Null on a row written before the whole request was recorded.
+   */
+  messages: number | null;
+  /**
+   * Spec 51 — which of spec 46 §4.5's three surfaces this request went to.
+   *
+   * One `model_name` answers `/v1/messages`, `/v1/chat/completions` and
+   * `/v1/responses`, so the model cannot say which an SDK picked — and the two
+   * shapes are genuinely different: Anthropic puts a tool call in a `tool_use`
+   * block and its result in a USER message, OpenAI puts the call in
+   * `tool_calls` and its result in a TOOL message. Null when REX could not
+   * place it, which is never guessed.
+   */
+  api: TrafficApi | null;
+  /** Whether a body was recorded at all, apart from whether it was shipped. */
+  hasBody: boolean;
   requestBody?: unknown;
   response?: unknown;
 }
@@ -817,6 +905,83 @@ export interface GatewayTrafficSize {
   bytes: number;
   days: number;
   bodies: boolean;
+}
+
+// ── Spec 51 — the trace, at four depths ─────────────────────────
+
+/**
+ * §5.1 — one chat, as depth 1 lists it.
+ *
+ * **Both halves of the join are on this row, and they answer different
+ * questions.** `turns`, `costUsd` and the token counts are REX's own record and
+ * exist for every chat; `exchanges` and `failed` are the built-in gateway's, so
+ * a chat answered through `Original` has real turns and **zero exchanges**. That
+ * is not a gap — nothing went through REX's gateway, so REX's gateway recorded
+ * nothing, and the screen says so rather than drawing a dash.
+ */
+export interface TraceChat {
+  threadId: string;
+  name: string;
+  documentId: string;
+  documentTitle: string | null;
+  sdk: AgentSdk | null;
+  turns: number;
+  /** Rows from before spec 51, which belong to no turn REX can name. */
+  untracked: number;
+  /** Requests the built-in gateway saw. Zero for a chat that never used it. */
+  exchanges: number;
+  failed: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  durationMs: number;
+  updatedAt: string;
+}
+
+/**
+ * §5.2 and §5.3 — this chat's exchanges, and whether there are any to have.
+ *
+ * The rows are bodiless. A request body is the whole request since spec 51 §3,
+ * so a chat with five hundred of them is megabytes, and depths 2 and 3 draw
+ * counts. Depth 4 fetches the one body it is about to show.
+ */
+export interface TraceTurnsResult {
+  /**
+   * The chat itself, because **depth 1 crosses documents and depth 2 is reached
+   * from it.**
+   *
+   * The renderer holds `ThreadWithMessages` only for the document that is open,
+   * so a chat picked at depth 1 is one it has never loaded — measured against
+   * the running app on 2026-09-09, where depth 2 opened as nothing at all. The
+   * turns come from these rows, so they have to arrive with them.
+   *
+   * Null when the comment has been deleted since depth 1 listed it.
+   */
+  thread: ThreadWithMessages | null;
+  /**
+   * The document that chat is about, so depth 2 can open depth 3.
+   *
+   * Depth 3 is the trace sheet, and the sheet covers the DOCUMENT pane — it
+   * carries the card's composer and the comment beside it. So a turn opened for
+   * a chat about another document has to open that document first, and this is
+   * the reference that does it.
+   */
+  documentRef: DocumentRef | null;
+  /** False for an external LiteLLM, which REX does not ask to load a callback. */
+  available: boolean;
+  reason: string | null;
+  rows: GatewayTrafficRow[];
+  /** Whether bodies are being captured, so an empty depth 4 reads correctly. */
+  bodies: boolean;
+}
+
+/** §5.4 — one exchange's request and response, whole. */
+export interface TraceMessageResult {
+  /** Undefined when capture was off. `null` is a body that was recorded as null. */
+  request?: unknown;
+  response?: unknown;
+  /** Why a body is missing, when it is missing for a reason worth saying. */
+  problem: string | null;
 }
 
 /**
@@ -1094,6 +1259,10 @@ export interface RexApi {
    * before.
    */
   docOpen(ref: DocumentRef, version?: DocumentVersion): Promise<OpenedDocument>;
+  /** Spec 53 §5.3 — what a clicked `href` in `from` points at. */
+  linkResolve(from: string, href: string): Promise<LinkResolution>;
+  /** Spec 53 §4.6 — hand a URL to the system. Main checks the scheme again. */
+  linkExternal(url: string): Promise<void>;
   workspacePick(): Promise<WorkspaceRef | null>;
   /** `reveal` lists what the scan prunes, so an exclusion can be taken back. */
   workspaceTree(ref: WorkspaceRef, reveal?: boolean): Promise<WorkspaceTree>;
@@ -1230,9 +1399,25 @@ export interface RexApi {
   /** §8 rule 5 — capture request and response bodies, on or off. */
   gatewayTrafficBodies(capture: boolean): Promise<GatewayTrafficSize>;
 
+  // ── Spec 51 — the trace, at four depths ─────────────────────
+
+  /** §5.1 — every chat REX has run, both halves of the join on each row. */
+  traceChats(): Promise<TraceChat[]>;
+  /** §5.2 and §5.3 — one chat's exchanges, without their bodies. */
+  traceTurns(threadId: string): Promise<TraceTurnsResult>;
+  /** §5.4 — one exchange's request and response, whole, by its row id. */
+  traceMessage(rowId: string): Promise<TraceMessageResult>;
+  /** Spec 55 §3.2 — this chat's turns, on the clipboard, and returned to be read. */
+  traceCopyChat(threadId: string): Promise<string>;
+  /** §3.1 — one turn. `runId` is null for the rows written before spec 51. */
+  traceCopyTurn(threadId: string, runId: string | null): Promise<string>;
+
   /** Spec 27 §4.7 — the paper the reviewer last read on. */
   paperView(): Promise<PaperView>;
   paperViewSet(view: PaperView): Promise<void>;
+
+  /** Spec 51 §6 — the built-in gateway is up, or is not and here is why. */
+  onGatewaySettled(listener: (state: BuiltinState) => void): () => void;
 
   onStreamStep(listener: (message: Message) => void): () => void;
   onStreamCost(listener: (event: CostEvent) => void): () => void;

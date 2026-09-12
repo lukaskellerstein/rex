@@ -30,6 +30,7 @@ import {
   NO_GENERATION_NOTE,
   writeInstructions,
 } from "../agent/prompts.ts";
+import type { Tags } from "../agent/tags.ts";
 import type { MessageDraft } from "../db/queries.ts";
 import { openPackage } from "../ooxml/package.ts";
 import { ensureSidecar, renderSlidePage } from "../render/pptx.ts";
@@ -86,6 +87,8 @@ export interface DeckApplyInput {
   transcript: string;
   /** What the reviewer highlighted, already described. */
   passages: string[];
+  /** Spec 54 §5.1 — the tags `apply.ts` framed the passages with. */
+  tags: Tags;
   model: string | null;
   /** Spec 31 §2.3 — the output style the plan is written in. */
   style: string | null;
@@ -96,6 +99,14 @@ export interface DeckApplyInput {
    * code and does not change with the gateway; only the PLAN is a model's work.
    */
   route?: ResolvedRoute;
+  /**
+   * Spec 51 §4 — the turn this deck run belongs to.
+   *
+   * One ACT can edit several decks, and they are one turn: the reviewer gave
+   * one instruction. So every deck's requests carry the same `x-rex-run`, the
+   * same id `startApply` stamps on the rows, and depth 3 shows them together.
+   */
+  runId?: string;
   /** §7.4.2 — the renderer's diagram drawer, passed down from the IPC layer. */
   resolver: MediaResolver;
   /** Spec 17 §2.6 — the reviewer's Stop, handed on to the agent. */
@@ -116,16 +127,21 @@ function buildPrompt(input: {
   passages: string[];
   instruction: string;
   transcript: string;
+  tags: Tags;
 }): string {
   return [
-    `Deck: ${input.deckPath}`,
-    `Its text, to read: ${input.sidecarPath}`,
-    `Write your plan to: ${input.planPath}`,
+    ...input.tags.block(
+      "document",
+      [`Its text, to read: ${input.sidecarPath}`, `Write your plan to: ${input.planPath}`].join(
+        "\n",
+      ),
+      { path: input.deckPath },
+    ),
     "",
     ...input.passages,
     // Spec 12 §4.2 — the same tail the prose path uses, so a deck and a
     // Markdown file are told what to do the same way.
-    ...writeInstructions(input.transcript, input.instruction),
+    ...writeInstructions(input.transcript, input.instruction, input.tags),
   ].join("\n");
 }
 
@@ -174,6 +190,7 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
       passages: input.passages,
       instruction: input.instruction,
       transcript: input.transcript,
+      tags: input.tags,
     }),
     // §8.1 — one turn, one session, and the id has to be a UUID the SDK will
     // accept. The run key is what makes it unique across the decks in one run.
@@ -181,6 +198,8 @@ export async function runDeckApply(input: DeckApplyInput): Promise<DeckApplyResu
     resume: false,
     // Spec 43 §5.5 — a run-scoped id, and its session is never stored.
     route: input.route,
+    // Spec 51 §4 — the turn, so the wire and the rows name the same one.
+    ...(input.runId ? { runId: input.runId } : {}),
     // Spec 44 §9.3 — a deck run writes its plan, and the media server writes
     // what it generates, both under the same cache directory (§6.4.3). The
     // deck itself is rewritten by REX afterwards from the plan.

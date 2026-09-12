@@ -467,6 +467,18 @@ export const Cross = (p: Props): React.JSX.Element => (
 );
 
 /**
+ * Spec 51 §5.3 — an image inside a recorded request.
+ *
+ * A new glyph because it is a new idea: REX has never had to say "this message
+ * carried a picture, and the picture is not in this line". Spec 51 §3.1 rule 4
+ * moves a base64 payload to a file beside the log, and this is what marks the
+ * message it came out of.
+ */
+export const Picture = (p: Props): React.JSX.Element => (
+  <Line {...p} size={p.size ?? 11} d="M2.4 3.4h11.2v9.2H2.4zM2.4 10.4l3-2.6 3.2 2.6 2-1.6 3 2.2" />
+);
+
+/**
  * "There is more here" — the button that opens a menu.
  *
  * Vertical, and never horizontal. A row of dots at the end of a line reads as

@@ -231,6 +231,30 @@ export function migrateMessageStyle(db: Db): boolean {
 }
 
 /**
+ * Spec 51 §4 — `message.run_id`, the turn a row belongs to.
+ *
+ * `migrateMessageStyle`'s shape exactly, and NULL for every existing row for the
+ * same reason: until this spec no row named a run, so nobody recorded one.
+ *
+ * Not backfilled, and it could not be. A run is a fact about how rows were
+ * produced together, and nothing in an old row records it — a guess from
+ * timestamps would group rows that never ran together and would look exactly as
+ * confident as the truth. Old rows group under "before turns were recorded".
+ *
+ * Both this and the `run_id` line in `schema.sql` are needed: the schema runs on
+ * every open and makes a fresh database, this fixes an existing one.
+ */
+export function migrateMessageRunId(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(message)")
+    .all()
+    .some((row) => row.name === "run_id");
+  if (present) return false;
+  db.exec("ALTER TABLE message ADD COLUMN run_id TEXT");
+  return true;
+}
+
+/**
  * Spec 31 §2.1 — `thread.style`, the style this chat is having.
  *
  * NULL is the CLI's own default, which is what every comment made before spec

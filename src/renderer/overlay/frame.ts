@@ -7,6 +7,7 @@
 // `OriginalPane` both call them.
 
 import type { OpenedDocument, PaperView } from "../../shared/types.ts";
+import { type ScopeRect, toDocumentRect } from "../anchor/pick.ts";
 import { LANE_RESERVE } from "./marginLane.ts";
 import { prepareDocumentHtml } from "./sanitise.ts";
 
@@ -89,22 +90,58 @@ export function applyPaperView(inner: Document | null, view: PaperView): void {
 // and a pane where links are dead, ⌘+ does nothing and `P` is ignored is a pane
 // that reads as broken.
 
+/** Spec 53 §5.2 — what the overlay does with a link the frame caught. */
+export interface LinkActions {
+  /** A place in this document. False when nothing here carries the id. */
+  fragment(id: string): boolean;
+  /**
+   * Anything else — another file, a URL, a target that turns out not to exist.
+   *
+   * `line` is the source line of the block the link sits in, or null in a
+   * format that stamps none. It is the link's OWN line and not the top of the
+   * screen, because that is the sentence the reviewer was reading when they
+   * left, and §4.3 promises to bring them back to it.
+   */
+  follow(href: string, line: number | null): void;
+  /**
+   * Spec 53 §4.7 — the pointer came to rest on a link, or left one.
+   *
+   * `rect` is in the document's OWN coordinates, because that is the frame the
+   * overlay's layers draw in and the only one that survives a scroll. Null when
+   * the pointer left, so the tip goes away.
+   */
+  hover(link: { href: string; rect: ScopeRect } | null): void;
+}
+
 /**
- * Fragment links, which `<base href>` breaks.
+ * Every link in the document, answered here and never by the browser.
  *
- * The document sits in a srcdoc iframe, and its own images and stylesheets can
- * only find themselves through a `<base href="rex-doc://…/">` (sanitise.ts).
- * That same base also resolves `#installation` against `rex-doc://…/`, so a
- * table-of-contents link stops being a jump inside the page and becomes a
- * navigation to a URL that 404s. Measured on 2026-08-21: all nine links in
- * `sample-document.md` were dead this way even after the headings gained their
- * ids, and the only symptom was a 404 in the console.
+ * Two failures this exists to stop, both measured:
+ *
+ * 1. **A fragment, which `<base href>` breaks.** The document's images and
+ *    stylesheets can only find themselves through a `<base
+ *    href="rex-doc://…/">` (sanitise.ts), and that same base resolves
+ *    `#installation` against `rex-doc://…/` — so a table-of-contents link stops
+ *    being a jump inside the page and becomes a navigation to a URL that 404s.
+ *    2026-08-21: all nine links in `sample-document.md` were dead this way even
+ *    after the headings gained their ids, and the only symptom was a 404.
+ * 2. **Anything else, which destroys the page.** Until spec 53 every non-
+ *    fragment link was left to the browser. A cross-file `.md` link fetched the
+ *    file, got `application/octet-stream`, and aborted as a download the sandbox
+ *    forbids — nothing happened at all. An `https://` link was worse: the frame
+ *    navigated, the renderer's `frame-src 'self' rex-doc:` refused it, and the
+ *    reviewer was left looking at an EMPTY document pane with the top bar still
+ *    naming the file. Measured 2026-09-10, spec 53 §1.2.
+ *
+ * So `preventDefault` runs for every link, before anything is resolved.
+ * Resolution needs main and is therefore asynchronous, and the browser will not
+ * wait for an answer.
  *
  * The iframe runs no script (spec 01 §5.4 step 2), so the renderer scrolls it
  * from outside — the same reaching-in the anchor resolver has always done, and
  * the mechanism spec 03 §4.1 describes.
  */
-export function jumpToFragmentsInsteadOfNavigating(inner: Document): void {
+export function answerLinkClicks(inner: Document, actions: LinkActions): void {
   inner.addEventListener("click", (event: MouseEvent) => {
     // Not `event.target instanceof Element`. The target belongs to the iframe's
     // realm and `Element` here is the overlay's own constructor, so instanceof
@@ -113,13 +150,68 @@ export function jumpToFragmentsInsteadOfNavigating(inner: Document): void {
     const start = event.target as Element | null;
     const link = typeof start?.closest === "function" ? start.closest("a[href]") : null;
     const href = link?.getAttribute("href");
-    if (!href?.startsWith("#") || href.length < 2) return;
+    if (href === null || href === undefined || href.length === 0) return;
 
-    const heading = inner.getElementById(decodeURIComponent(href.slice(1)));
-    if (!heading) return;
     event.preventDefault();
-    heading.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    if (href.startsWith("#")) {
+      // A bare `#` is a link to the top of the page, which is what the browser
+      // would have done and what nothing else here can express.
+      if (href.length < 2) {
+        inner.defaultView?.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      if (actions.fragment(decodeURIComponent(href.slice(1)))) return;
+      // A fragment that names nothing here may still be this document's own
+      // spelling of a place in another file. `follow` decides, and says so.
+    }
+
+    actions.follow(href, lineOfLink(link));
   });
+
+  /*
+    §4.7 — the same links, on hover.
+
+    `mouseover` and `mouseout` rather than `mousemove`: they fire once when the
+    pointer crosses a boundary instead of on every pixel, and they bubble, so
+    one pair on the document answers for every link in it. A link that wraps
+    several inline elements sends one `mouseover` per child, which is why the
+    `<a>` and not the target decides whether anything changed.
+
+    Both layers that cover the document swallow the pointer while they are on,
+    so no tip appears during a pick or a drawing. That is the right answer and
+    it costs nothing here.
+  */
+  let over: Element | null = null;
+  inner.addEventListener("mouseover", (event: MouseEvent) => {
+    const start = event.target as Element | null;
+    const link = typeof start?.closest === "function" ? start.closest("a[href]") : null;
+    if (link === over) return;
+    over = link;
+    const href = link?.getAttribute("href");
+    if (!link || !href) {
+      actions.hover(null);
+      return;
+    }
+    actions.hover({
+      href,
+      rect: toDocumentRect(inner.defaultView, link.getBoundingClientRect()),
+    });
+  });
+  inner.addEventListener("mouseout", (event: MouseEvent) => {
+    const start = event.relatedTarget as Element | null;
+    const to = typeof start?.closest === "function" ? start.closest("a[href]") : null;
+    if (to === over) return;
+    over = to;
+    actions.hover(null);
+  });
+}
+
+/** The `data-src-line` of the block a link sits in (spec 03 §5.3). */
+function lineOfLink(link: Element | null): number | null {
+  const block = link?.closest("[data-src-line]");
+  const line = Number.parseInt(block?.getAttribute("data-src-line") ?? "", 10);
+  return Number.isFinite(line) ? line : null;
 }
 
 /** One wheel notch, or one press of ⌘+. */
@@ -202,16 +294,21 @@ export function forwardKeysToParent(
   const forward = (event: KeyboardEvent): void => {
     if (event.ctrlKey || event.metaKey) {
       /*
-        Spec 28 §5.3 — the F chord is the one ⌘/ctrl combination forwarded.
+        Spec 28 §5.3 and spec 53 §5.7 — three ⌘/ctrl combinations are forwarded,
+        and no others.
 
-        Nothing inside the frame answers it, so the copy cannot double an
-        effect the way a forwarded ⌘+ would double the zoom. The modifiers
-        travel with it, because ⌘F and ⌘⇧F are two different things (§4.1,
-        §4.2), and the original is stopped so Chromium does not act on it.
+        `F` finds, `[` goes back and `]` goes forward. Nothing inside the frame
+        answers any of the three, so a copy cannot double an effect the way a
+        forwarded ⌘+ would double the zoom. The modifiers travel with them,
+        because ⌘F and ⌘⇧F are two different things (§4.1, §4.2), and the
+        original is stopped so Chromium does not act on it.
+
+        This matters most right after a link: following one leaves the focus
+        inside the frame, and ⌘[ is the very next thing the reviewer presses.
       */
-      if (event.type !== "keydown" || event.altKey || (event.key !== "f" && event.key !== "F")) {
-        return;
-      }
+      const forwarded =
+        event.key === "f" || event.key === "F" || event.key === "[" || event.key === "]";
+      if (event.type !== "keydown" || event.altKey || !forwarded) return;
       event.preventDefault();
       document.dispatchEvent(
         new KeyboardEvent("keydown", {

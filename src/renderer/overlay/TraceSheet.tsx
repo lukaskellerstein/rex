@@ -564,7 +564,16 @@ export function TraceSheet(props: Props): React.JSX.Element {
       */}
       <header className="rex-trace-bar">
         <span className={`rex-token ${props.tokenClass}`}>{props.number}</span>
-        <span className="rex-label">TRACE</span>
+        {/*
+          Spec 51 — the word, and only the word, changed here.
+          It said TRACE, and spec 51 brought a second screen that the design
+          also called Trace. Two screens with one name is how a reviewer opens
+          the wrong one, which happened on 2026-09-09. So the four-depth feature
+          is TRAFFIC — what went over the wire — and this stays what it always
+          was: **this chat's detail**, REX's own record of what the agent did.
+          Nothing about its behaviour moved.
+        */}
+        <span className="rex-label">CHAT</span>
         <span className="rex-trace-name">{commentName(props.thread)}</span>
 
         {steps.length > 0 ? <StepBars steps={steps} /> : null}
@@ -574,7 +583,9 @@ export function TraceSheet(props: Props): React.JSX.Element {
         ) : null}
 
         <DebugCopy
-          threadId={props.thread.id}
+          copy={() => window.rex.debugCopy(props.thread.id)}
+          what="comment"
+          subject={props.thread.id}
           className="rex-trace-action"
           doneClassName="rex-trace-action-done"
           withLabel

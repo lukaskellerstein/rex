@@ -17,6 +17,7 @@ import type {
   Anchor,
   AnchorState,
   DiagramPart,
+  DocumentPlace,
   FindMark,
   LineRange,
   SearchContext,
@@ -367,6 +368,18 @@ export interface DocumentSurface {
   scrollBy(dx: number, dy: number): void;
   /** §3.3 — a panel row clicked while its document is open scrolls to it. */
   scrollToAnchor(anchor: Anchor): void;
+
+  /**
+   * Spec 53 §4.2 — a `#fragment`, in this document.
+   *
+   * False when nothing here carries the id, which is the honest answer and the
+   * one the notice bar needs: the file opened, the place in it does not exist.
+   */
+  scrollToFragment(id: string): boolean;
+  /** Spec 53 §4.4 — put the reviewer back where a history entry says they were. */
+  scrollToPlace(place: DocumentPlace): void;
+  /** Spec 53 §5.4 — where the reviewer is now, to remember before leaving. */
+  placeHere(): DocumentPlace | null;
 
   /** §5.6.1 — the boxes to outline after an Apply, from `data-src-line`. */
   boxesForLines(ranges: LineRange[]): Promise<ScopeRect[]>;
@@ -1598,6 +1611,50 @@ export class FrameSurface implements DocumentSurface {
     scrollToAnchorIn(view, this.index, anchor);
   }
 
+  // ── Spec 53 — following a link, and getting back ────────────
+
+  scrollToFragment(id: string): boolean {
+    const view = this.frame.contentWindow;
+    const doc = this.frame.contentDocument;
+    if (!view || !doc) return false;
+    // `getElementById` first, then `name`: a hand-written HTML document can
+    // still carry `<a name="…">`, which is what a fragment meant before ids.
+    const target =
+      doc.getElementById(id) ?? doc.querySelector(`a[name="${CSS.escape(id)}"]`) ?? null;
+    if (!target) return false;
+    bringIntoView(view, target.getBoundingClientRect());
+    return true;
+  }
+
+  scrollToPlace(place: DocumentPlace): void {
+    const view = this.frame.contentWindow;
+    const doc = this.frame.contentDocument;
+    if (!view || !doc) return;
+
+    const block = place.line === null ? null : blockAtOrAbove(doc, place.line);
+    if (block) {
+      bringIntoView(view, block.getBoundingClientRect());
+      return;
+    }
+    // §4.4 — the fallback, for a format that stamps no line at all. `zoom`
+    // takes part in layout, so an offset read at 1.5 is 1.5× the same place at
+    // 1 and has to be rescaled when the reviewer changed the zoom in between.
+    const scale = place.zoom === 0 ? 1 : zoomOf(doc) / place.zoom;
+    view.scrollTo({ top: place.scrollY * scale, behavior: "smooth" });
+  }
+
+  placeHere(): DocumentPlace | null {
+    const view = this.frame.contentWindow;
+    const doc = this.frame.contentDocument;
+    if (!view || !doc || !this.sourceFile) return null;
+    return {
+      path: this.sourceFile,
+      line: topVisibleLine(doc),
+      scrollY: view.scrollY,
+      zoom: zoomOf(doc),
+    };
+  }
+
   async boxesForLines(ranges: LineRange[]): Promise<ScopeRect[]> {
     const view = this.frame.contentWindow;
     const doc = this.frame.contentDocument;
@@ -1683,6 +1740,58 @@ export class FrameSurface implements DocumentSurface {
 /**
  * §3.3 — bring an anchor into view, without touching the document's own tree.
  */
+/**
+ * Spec 53 §4.4 — REX's one rule for bringing a place into view.
+ *
+ * A third of the way down and not at the top edge, which is what
+ * `scrollToAnchorIn` has always done and for the reason written there: a
+ * passage pinned to the top reads as if its context has been cut off. The
+ * reviewer asked for "the middle of the screen" and meant the same thing. Two
+ * conventions in one app would read as a bug, so there is one, and it is this
+ * function.
+ */
+function bringIntoView(view: Window, rect: DOMRect): void {
+  view.scrollTo({ top: rect.top + view.scrollY - view.innerHeight / 3, behavior: "smooth" });
+}
+
+/**
+ * The block a source line falls in, or the nearest one above it.
+ *
+ * `data-src-line` marks where a block *starts* (§5.3), so a line in the middle
+ * of a paragraph has no element of its own and an exact lookup would answer
+ * nothing for most lines in the file.
+ */
+function blockAtOrAbove(doc: Document, line: number): Element | null {
+  let best: Element | null = null;
+  let bestLine = Number.NEGATIVE_INFINITY;
+  for (const element of doc.querySelectorAll("[data-src-line]")) {
+    const at = Number.parseInt(element.getAttribute("data-src-line") ?? "", 10);
+    if (!Number.isFinite(at) || at > line || at <= bestLine) continue;
+    best = element;
+    bestLine = at;
+  }
+  return best;
+}
+
+/**
+ * The source line of the first block on screen, for a departure with no click
+ * to ask (§5.4 rule 2).
+ */
+function topVisibleLine(doc: Document): number | null {
+  for (const element of doc.querySelectorAll("[data-src-line]")) {
+    if (element.getBoundingClientRect().bottom < 0) continue;
+    const at = Number.parseInt(element.getAttribute("data-src-line") ?? "", 10);
+    return Number.isFinite(at) ? at : null;
+  }
+  return null;
+}
+
+/** What `applyZoom` last set on this page. */
+function zoomOf(doc: Document): number {
+  const zoom = Number.parseFloat(doc.documentElement.style.zoom);
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+}
+
 function scrollToAnchorIn(view: Window, index: TextIndex, anchor: Anchor): void {
   const resolution = resolveAnchor(index, anchor);
   if (!resolution) return;
@@ -1704,7 +1813,5 @@ function scrollToAnchorIn(view: Window, index: TextIndex, anchor: Anchor): void 
     resolution.kind === "range"
       ? resolution.range.getBoundingClientRect()
       : (target as Element).getBoundingClientRect();
-  // A third of the way down rather than at the very top: a passage pinned to
-  // the top edge reads as if its context has been cut off.
-  view.scrollTo({ top: rect.top + view.scrollY - view.innerHeight / 3, behavior: "smooth" });
+  bringIntoView(view, rect);
 }

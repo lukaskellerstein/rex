@@ -35,7 +35,12 @@ import type {
 } from "../shared/types.ts";
 import { runAgent } from "./agent/bridge.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
-import { type PassagePlace, passageSection, writeInstructions } from "./agent/prompts.ts";
+import {
+  type PassagePlace,
+  passageSection,
+  writeInstructions,
+  writeTags,
+} from "./agent/prompts.ts";
 import { beginRun, endRun, HELD_REASON, isHeld } from "./agent/runs.ts";
 import { renderTranscript } from "./agent/transcript.ts";
 import type { Db } from "./db/database.ts";
@@ -320,6 +325,8 @@ function writePrompt(input: {
   /** Spec 24 §6.2 — the message being sent, so the places it added are marked. */
   addedWith: string | null;
 }): string {
+  // Spec 54 §5.1 — one prompt, one suffix, chosen before a byte is written.
+  const tags = writeTags(input);
   const copies = new Map(input.files.map((file) => [file.original, file.copy]));
   const bases = new Map(input.files.map((file) => [file.original, basePath(file.meta)]));
   const locate = (documentPath: string, anchor: Anchor): PassagePlace =>
@@ -376,13 +383,13 @@ function writePrompt(input: {
       thread: input.thread,
       documentPaths: pathsOf(input.db, input.thread),
       repositoryRoot: input.root,
-      heading: "## The passages under discussion",
+      tags,
       locate,
       addedWith: input.addedWith,
     }),
   );
 
-  parts.push(...writeInstructions(input.transcript, input.instruction));
+  parts.push(...writeInstructions(input.transcript, input.instruction, tags));
   return parts.join("\n");
 }
 
@@ -427,6 +434,14 @@ export interface ApplyOptions {
   route?: ResolvedRoute;
   /** §5.3 — what every row this run writes says about where it came from. */
   evidence?: SendEvidence;
+  /**
+   * Spec 51 §4 — this turn's id. An Apply is one turn exactly as an Ask is.
+   *
+   * Minted by `ipc.ts` before the reviewer's instruction is recorded, because
+   * that message opens the turn. Absent means nothing is joining this run to
+   * the traffic log, and `runAgent` mints its own for the header.
+   */
+  runId?: string;
 }
 
 /**
@@ -525,6 +540,8 @@ async function startDeckApply(
   model: string | null,
   style: string | null,
   route: ResolvedRoute | undefined,
+  /** Spec 51 §4 — and the turn. Every deck in one ACT shares it. */
+  runId: string | null,
 ): Promise<string> {
   const { db } = context;
   for (const file of others) {
@@ -537,6 +554,9 @@ async function startDeckApply(
 
   const run = createApplyRun(db, thread.id);
   const transcript = transcriptBefore(db, thread.id, instruction);
+  // Spec 54 §5.1 — the passages are built here and the prompt in `pptx/run.ts`,
+  // so the two share one object rather than each choosing its own suffix.
+  const tags = writeTags({ thread, transcript, instruction });
   const previews: DeckPreview[] = [];
 
   for (const [position, deckPath] of decks.entries()) {
@@ -548,16 +568,18 @@ async function startDeckApply(
         deckPath,
         instruction,
         transcript,
+        tags,
         passages: passageSection({
           thread,
           documentPaths: pathsOf(db, thread),
           repositoryRoot: dirname(deckPath),
-          heading: "## The passages under discussion",
+          tags,
           addedWith,
         }),
         model,
         style,
         route,
+        ...(runId ? { runId } : {}),
         resolver: context.resolver,
         signal: controller.signal,
         onMessage: (message) => context.record(thread.id, message),
@@ -627,18 +649,20 @@ export async function startApply(
   const style = options.style ?? null;
   const route = options.route;
   const evidence = options.evidence ?? { sdk: null, gatewayName: null, baseUrl: null };
+  const runId = options.runId ?? null;
   /**
-   * Spec 25 §5 and spec 43 §5.3 — every message this run produces says which
-   * agent, gateway, URL, model and style ran it.
+   * Spec 25 §5, spec 43 §5.3 and spec 51 §4 — every message this run produces
+   * says which agent, gateway, URL, model and style ran it, and which turn it
+   * belongs to.
    *
    * Stamped once, here, rather than at each of the dozen `record` calls below
-   * and in `startDeckApply`: all five belong to the run, so the run's own
+   * and in `startDeckApply`: all six belong to the run, so the run's own
    * context is the honest place to put them. `confirmApply` keeps the plain one
    * — accepting a diff is the reviewer's act and no agent was involved.
    */
   const context: ApplyContext = {
     ...outer,
-    record: (id, message) => outer.record(id, { ...message, model, style, ...evidence }),
+    record: (id, message) => outer.record(id, { ...message, model, style, runId, ...evidence }),
   };
   const { db } = context;
   const thread = getThread(db, threadId);
@@ -668,6 +692,7 @@ export async function startApply(
       model,
       style,
       route,
+      runId,
     );
   }
 
@@ -690,6 +715,9 @@ export async function startApply(
 
   const run = createApplyRun(db, threadId);
   const transcript = transcriptBefore(db, threadId, instruction);
+  // Spec 54 §5.1 — shared with `docx/run.ts`, which writes the rest of the
+  // prompt these passages go into.
+  const tags = writeTags({ thread, transcript, instruction });
   const documentIds = documentIdsByPath(db, thread);
 
   const touched: string[] = [];
@@ -724,11 +752,12 @@ export async function startApply(
         workingPath: currentPath(meta),
         instruction,
         transcript,
+        tags,
         passages: passageSection({
           thread,
           documentPaths: pathsOf(db, thread),
           repositoryRoot: root,
-          heading: "## The passages under discussion",
+          tags,
           addedWith,
         }),
         model,
@@ -876,6 +905,9 @@ export async function startApply(
         // thread back out of the session id would give the wrong answer. This
         // is also the run whose cost is worth comparing against an ASK's.
         threadId,
+        // Spec 51 §4 — the same string `context.record` stamps on every row
+        // above, so `x-rex-run` and `message.run_id` name one turn.
+        ...(runId ? { runId } : {}),
         model,
         style,
         signal: controller.signal,

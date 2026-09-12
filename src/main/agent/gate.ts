@@ -112,6 +112,15 @@ const READ_ONLY: ReadonlySet<string> = new Set([
   "git",
   "gh",
   "nvim-tools",
+  // Spec 56 §3.3 — fetching a page, and only fetching it. `GUARDS` refuses
+  // every form that writes a file or sends a body; what is left prints the
+  // response on stdout, which is the one thing the read prompt asks for.
+  //
+  // It is here because a read session has to be able to check a citation, and
+  // on the Codex adapter this is the only road to the web: its own `web_search`
+  // is a hosted tool that a local model cannot run (§2.1), and MCP is broken
+  // for custom providers at 0.147.0 (spec 44 §14).
+  "curl",
 ]);
 
 /**
@@ -354,6 +363,68 @@ function bundles(word: string, letter: string): boolean {
   return !word.startsWith("--") && new RegExp(`^-[a-zA-Z]*${letter}`).test(word);
 }
 
+/** The only two methods that ask a server for something without changing it. */
+const READING_METHODS = new Set(["GET", "HEAD"]);
+
+/**
+ * Long options that make `curl` write a file or send a body. Matched with and
+ * without an `=value`, so `--data-raw x` and `--data-raw=x` are the same word.
+ */
+const CURL_REFUSED_LONG: Array<[RegExp, string]> = [
+  [
+    /^--(output|output-dir|remote-name|remote-name-all|create-dirs)$/,
+    "writes the response to a file",
+  ],
+  [/^--data(-raw|-binary|-urlencode|-ascii)?$/, "sends a body"],
+  [/^--(form|form-string|form-escape|upload-file)$/, "sends a body"],
+  [/^--(dump-header|cookie-jar|trace|trace-ascii|trace-config|etag-save)$/, "writes a second file"],
+  [
+    /^--(config|remote-header-name|xattr)$/,
+    "takes its instructions, or its filename, from somewhere REX cannot read",
+  ],
+];
+
+/**
+ * Spec 56 §3.3 — `curl` may read a page and may do nothing else.
+ *
+ * The short flags are checked with `bundles` because `-sLo out.html` is one
+ * word, and a rule that only looked for a bare `-o` would pass it. `-X` is the
+ * one flag whose VALUE decides: `-X GET` is a fetch and `-X POST` is not, so
+ * the next word is read rather than the flag alone.
+ *
+ * What is deliberately NOT refused: `-s`, `-L`, `-H`, `--max-time`, `-A`, `-I`,
+ * `--compressed`. Each shapes a request that still comes back on stdout, and an
+ * agent that cannot follow a redirect cannot check a citation.
+ */
+function curlDenial(words: string[]): string | null {
+  for (let at = 1; at < words.length; at++) {
+    const word = words[at] ?? "";
+    const name = word.startsWith("--") ? (word.split("=")[0] ?? word) : word;
+
+    for (const [pattern, why] of CURL_REFUSED_LONG) {
+      if (pattern.test(name)) return `curl ${name} ${why}. Drop it and the page is returned to you`;
+    }
+
+    if (bundles(word, "o") || bundles(word, "O") || bundles(word, "J")) {
+      return "curl -o and -O write the response to a file. Drop them and the page is returned to you";
+    }
+    if (bundles(word, "d") || bundles(word, "F") || bundles(word, "T")) {
+      return "curl -d, -F and -T send a body, and a read session sends nothing. Fetch the page instead";
+    }
+    if (bundles(word, "D") || bundles(word, "c") || bundles(word, "K")) {
+      return "curl -D, -c and -K write a file beside the response, or read the flags from one";
+    }
+
+    if (word === "-X" || name === "--request") {
+      const method = (word.includes("=") ? word.split("=")[1] : words[at + 1]) ?? "";
+      if (!READING_METHODS.has(method.toUpperCase())) {
+        return `curl -X ${method || "(none)"} asks the server to CHANGE something. A read session may GET and HEAD`;
+      }
+    }
+  }
+  return null;
+}
+
 const UNIQ_VALUE_FLAGS = new Set([
   "-f",
   "-s",
@@ -449,6 +520,8 @@ const AWK_ESCAPES = /[>|]|system|close|getline|ENVIRON/;
 /** Every guard for a binary whose read-only-ness depends on its arguments. */
 const GUARDS: Record<string, (words: string[]) => string | null> = {
   gh: ghDenial,
+
+  curl: curlDenial,
 
   find: (words) =>
     words.some((word) => FIND_ACTIONS.test(word))
@@ -746,8 +819,9 @@ const WHY_REFUSED: Record<string, string> = {
   parallel: `parallel ${RUNS_ANOTHER}`,
   nohup: `nohup ${RUNS_ANOTHER}, and it outlives the run`,
   open: "open launches an application, which a headless run cannot show you",
-  curl: "curl -o writes and -d sends. Use WebFetch, which fetches a page without either",
-  wget: "wget writes what it downloads. Use WebFetch instead",
+  // `curl` is not here: spec 56 §3.3 moved it to `READ_ONLY` with a guard, so
+  // its refusals name the flag that was actually used.
+  wget: "wget writes what it downloads. Use curl without -o, which prints the page instead",
   make: `make ${BUILDS}`,
   npm: `npm ${BUILDS}`,
   npx: `npx ${RUNS_ANOTHER}`,

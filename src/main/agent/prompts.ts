@@ -12,26 +12,34 @@ import {
 } from "../../shared/diagram.ts";
 import {
   type Anchor,
-  type AnchorTarget,
   type DiagramRef,
   ELEMENT_QUOTE_MAX,
   type LineRange,
   type Message,
   type Thread,
 } from "../../shared/types.ts";
+import { type Attributes, FRAME_NOTE, type Tags, tagsFor } from "./tags.ts";
 
 export const READ_SYSTEM_PROMPT = `You answer questions about a document. The user has highlighted a passage and
 written a comment about it. Answer that comment.
+
+${FRAME_NOTE}
 
 You have read-only access to the repository containing the document. Use it.
 Read the surrounding sections, other documents, the source code, and the git
 history whenever they help you give a correct and specific answer. You cannot
 change any file, and you should not try.
 
-You may also search and fetch the web to check a claim the document makes. Do
-that when the comment asks whether something is still true, still current, or
-consistent with what is published elsewhere. You still cannot write anything,
-anywhere, by any route.
+You may also fetch the web to check a claim the document makes. Do that when the
+comment asks whether something is still true, still current, or consistent with
+what is published elsewhere, and whenever the passage cites a source you can
+open. You still cannot write anything, anywhere, by any route.
+
+Fetch with whichever of these you actually have. If you have a \`WebFetch\` or
+\`web_search\` tool, use it. Otherwise use the shell: \`curl -sL --max-time 15
+<url>\` prints a page to stdout. The flags that write a file or send a body —
+\`-o\`, \`-O\`, \`-d\`, \`-F\`, \`-T\`, \`-X POST\` — are refused, and that is
+the only thing about \`curl\` that is refused.
 
 If the reviewer asks you to change a file, say that this message was sent in
 ASK, that ASK cannot write, and that the same request sent with the switch on
@@ -53,7 +61,10 @@ If the answer depends on something you cannot determine, say so plainly rather
 than guessing.`;
 
 export const WRITE_SYSTEM_PROMPT = `You are applying a change to one or more documents that was agreed in a
-discussion. The full discussion is given below.
+discussion. The full discussion is given below, inside <rex-discussion>, and
+what to do is inside <rex-instruction>.
+
+${FRAME_NOTE}
 
 Make the smallest change that achieves what was agreed. Do not reformat
 surrounding text, do not fix unrelated issues, and do not improve prose that
@@ -81,7 +92,10 @@ Edit the source file, not the rendered output.`;
  * instruction unless told otherwise.
  */
 export const DECK_WRITE_SYSTEM_PROMPT = `You are proposing a change to a PowerPoint deck that was agreed in a
-discussion. The full discussion is given below.
+discussion. The full discussion is given below, inside <rex-discussion>, and
+what to do is inside <rex-instruction>.
+
+${FRAME_NOTE}
 
 You do not edit the deck. You cannot: it is a zip, and REX is the only thing
 that writes into it. What you produce is a PLAN, as one JSON file, and REX
@@ -184,7 +198,10 @@ real picture from the web, a file already on this machine, or Mermaid source.`;
  * paragraph is addressed by two things at once, not one.
  */
 export const DOCX_WRITE_SYSTEM_PROMPT = `You are proposing a change to a Word document that was agreed in a
-discussion. The full discussion is given below.
+discussion. The full discussion is given below, inside <rex-discussion>, and
+what to do is inside <rex-instruction>.
+
+${FRAME_NOTE}
 
 You do not edit the document. You cannot: it is a zip of XML, and REX is the
 only thing that writes into it. What you produce is a PLAN, as one JSON file,
@@ -247,57 +264,97 @@ Rules that decide whether a plan runs at all:
 - Make the smallest change the discussion actually calls for. Leaving the
   document alone is a correct outcome when nothing was agreed.`;
 
-/** §8.6 — inlining the section is a head start, not a limit. */
-const SECTION_MAX = 2000;
+/**
+ * Spec 54 §9 — the heading rank of every line, with fenced code excluded.
+ *
+ * `# from PyPI` inside a ```bash fence is a shell comment, not an h1. Every
+ * scanner here used to match it with a bare `/^#{1,6}\s/`, so a section holding
+ * a shell or Python fence was cut at its first comment line and its range was
+ * short by a dozen lines. Nothing said so — the agent was handed a section that
+ * stopped mid-fence and answered about the half it could see.
+ *
+ * `null` is "not a heading". A fence line is never one, and neither is anything
+ * between a fence and its close.
+ */
+function headingRanks(lines: readonly string[]): Array<number | null> {
+  const ranks: Array<number | null> = [];
+  let fence: { marker: string; length: number } | null = null;
+
+  for (const line of lines) {
+    const rail = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      // CommonMark: a fence closes on the same character, at least as long, and
+      // with nothing after it. An info string only ever opens one.
+      if (rail && rail[0] === fence.marker && rail.length >= fence.length) {
+        if (/^ {0,3}(?:`{3,}|~{3,})\s*$/.test(line)) fence = null;
+      }
+      ranks.push(null);
+      continue;
+    }
+    if (rail) {
+      fence = { marker: rail[0], length: rail.length };
+      ranks.push(null);
+      continue;
+    }
+    const heading = /^(#{1,6})\s/.exec(line);
+    ranks.push(heading ? heading[1].length : null);
+  }
+  return ranks;
+}
 
 /**
- * The text around the anchor, taken from the *source* file so that the agent
- * reads what it would have to edit rather than the rendered output.
+ * Spec 54 §4 — what the reviewer picked, as text.
+ *
+ * The body of `rex-section` is the **selection itself**, never the section
+ * around it. Before 2026-09-11 REX inlined up to 2000 characters of enclosing
+ * section as a head start and put a truncated copy of the pick beside it; the
+ * reviewer read one of those prompts and asked what the second block was for.
+ * It was the address. An address is an attribute, so both are gone.
+ *
+ * Where the file can be read and the pick has a line range, the text comes from
+ * the FILE, at full length. The stored quote is the fallback, and for a block
+ * pick it is capped at `ELEMENT_QUOTE_MAX` — which is what `truncated` reports,
+ * because a table cut at 320 characters that does not say so is read as the
+ * whole table.
  */
-export function enclosingSection(sourcePath: string, anchor: Anchor): string | null {
-  let source: string;
-  try {
-    source = readFileSync(sourcePath, "utf8");
-  } catch {
-    return null;
-  }
-
-  if (anchor.source) {
-    const lines = source.split("\n");
-    const start = findSectionStart(lines, anchor.source.line - 1);
-    const end = findSectionEnd(lines, anchor.source.line - 1);
-    return lines.slice(start, end).join("\n").slice(0, SECTION_MAX);
-  }
-
-  // No `data-src-line` — tier 1 HTML (§5.4). Find the prose in the file by its
-  // opening words, allowing for the line wrapping the file may have.
-  const exact = anchor.quote?.exact;
-  if (!exact) return null;
-  const words = exact.split(/\s+/).slice(0, 8).map(escapeRegExp);
-  if (words.length === 0) return null;
-
-  const probe = new RegExp(words.join("\\s+"));
-  const at = source.search(probe);
-  if (at === -1) return null;
-  return source.slice(Math.max(0, at - SECTION_MAX / 2), at + SECTION_MAX / 2);
+interface Selected {
+  text: string | null;
+  lines: LineRange | null;
+  truncated: boolean;
 }
 
-function findSectionStart(lines: string[], from: number): number {
-  for (let i = Math.min(from, lines.length - 1); i >= 0; i--) {
-    if (/^#{1,6}\s/.test(lines[i])) return i;
+function selectedText(anchor: Anchor, documentPath: string | null): Selected {
+  const quote = anchor.quote?.exact ?? null;
+  const range = documentPath ? sectionLineRange(documentPath, anchor) : null;
+
+  // A section extent names a heading and means everything under it, so its text
+  // is the file's own lines rather than the heading the anchor stored.
+  if (range && documentPath) {
+    const source = readSource(documentPath);
+    if (source !== null) {
+      return {
+        text: source
+          .split("\n")
+          .slice(range.from - 1, range.to)
+          .join("\n"),
+        lines: range,
+        truncated: false,
+      };
+    }
   }
-  return 0;
+
+  const line = anchor.source?.line ?? null;
+  return {
+    text: quote,
+    lines: line === null ? null : { from: line, to: line },
+    truncated: quote !== null && quote.length >= ELEMENT_QUOTE_MAX,
+  };
 }
 
-function findSectionEnd(lines: string[], from: number): number {
-  for (let i = from + 1; i < lines.length; i++) {
-    if (/^#{1,6}\s/.test(lines[i])) return i;
-  }
-  return lines.length;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** §3.1 — one line, or a range. Never a range whose ends are equal. */
+function lineSpan(range: LineRange | null): string | null {
+  if (!range) return null;
+  return range.from === range.to ? String(range.from) : `${range.from}-${range.to}`;
 }
 
 /**
@@ -325,38 +382,72 @@ function displayPath(repositoryRoot: string, path: string): string {
  * (§4.3), and printing that bare would tell the agent the comment is about a
  * title rather than about the section under it.
  */
-function describeTarget(anchor: Anchor, documentPath: string | null): string {
-  if (anchor.extent === "document") return "the whole document";
-  // Spec 29 §5.8 — a diagram part is told in the words of the source and the
-  // line it is on now, which is a sentence the agent can act on in the file it
-  // may edit. Before the quote, which a diagram part never has.
-  if (anchor.diagram) return describeDiagramTarget(anchor, documentPath);
+function placeBlock(input: {
+  anchor: Anchor;
+  documentPath: string | null;
+  /** The reviewer's own number for this place, as the chips and outlines say it. */
+  n: number;
+  place: PassagePlace | null;
+  added: boolean;
+  tags: Tags;
+}): string[] {
+  const { anchor, documentPath, tags } = input;
+  // Spec 24 §6.2 — the discussion an ACT prompt carries never mentions places,
+  // so without this the agent sees five and a conversation that spoke of three.
+  const common = {
+    n: input.n,
+    added: input.added ? "yes" : null,
+    // Spec 16 §5.4 — a passage only the ORIGINAL has. The agent would otherwise
+    // be handed text it cannot find in the file it may edit.
+    version: input.place?.version === "original" ? "original" : null,
+  };
 
-  const quote = anchor.quote?.exact?.trim();
-  if (anchor.extent === "section") {
-    const named = quote ? `Section "${quote}"` : "(a section whose heading has no text)";
-    const range = documentPath ? sectionLineRange(documentPath, anchor) : null;
-    return range ? `${named} — lines ${range.from}–${range.to}` : named;
-  }
-  // Spec 06 §4.4 — a quote at the cap is an OPENING, not a passage.
-  //
-  // `createElementAnchor` truncates at `ELEMENT_QUOTE_MAX` so a long table does
-  // not store a copy of itself. Printed bare, a comment on an eight-paragraph
-  // block reached the agent as 320 characters cut mid-word, with nothing to say
-  // the block went on — so the agent answered about the opening and left the
-  // rest of what the reviewer pointed at unread. The clause costs one line and
-  // is the difference between a truncated quote and a truncated question.
-  if (quote) {
-    return quote.length >= ELEMENT_QUOTE_MAX
-      ? `${quote}… — the OPENING of the block this comment is on, not all of it. The comment is about the whole block; read on past this quote.`
-      : quote;
+  // Spec 16 §6.7 — a gap has no text of its own, so it is not a section at all.
+  // It is named by both its sides: naming only the block above would let an
+  // edit to that block move the insertion point.
+  if (anchor.gap) {
+    const between = input.place?.between ?? null;
+    return [
+      tags.selfClosing("insert", {
+        ...common,
+        after: neighbourQuote(anchor.gap.after ?? null),
+        before: neighbourQuote(anchor.gap.before ?? null),
+        lines:
+          between && between.after !== null && between.before !== null
+            ? `${between.after}-${between.before}`
+            : null,
+      }),
+    ];
   }
 
-  const named = anchor.element?.id ? `#${anchor.element.id}` : anchor.element?.css;
-  const region = anchor.region ? ", a region of it" : "";
-  return named
-    ? `(no text — an element anchor: ${named}${region})`
-    : "(no text and no element — a stored position only)";
+  // Spec 29 §5.8 — a diagram part, in the words of the source and the line it
+  // is on now. Its body is the declaring line, not the whole fence.
+  if (anchor.diagram) return diagramBlock(anchor, documentPath, common, tags);
+
+  const selected = selectedText(anchor, documentPath);
+  const attributes = {
+    ...common,
+    lines: lineSpan(
+      selected.lines ??
+        (input.place?.line ? { from: input.place.line, to: input.place.line } : null),
+    ),
+    // Spec 06 §4.4 — a quote at the cap is an OPENING, not the whole pick.
+    // `createElementAnchor` truncates at `ELEMENT_QUOTE_MAX` so a long table
+    // does not store a copy of itself; unsaid, 320 characters cut mid-word read
+    // as the whole block and the agent answers about the opening.
+    truncated: selected.truncated ? "yes" : null,
+    element: selected.text
+      ? null
+      : anchor.element?.id
+        ? `#${anchor.element.id}`
+        : anchor.element?.css,
+    region: anchor.region ? "yes" : null,
+  };
+
+  // No text and no way to get any — a figure, a region, a stored position. The
+  // attributes are the whole of what REX knows, so there is no body to write.
+  if (!selected.text) return [tags.selfClosing("section", attributes)];
+  return tags.block("section", selected.text, attributes);
 }
 
 /**
@@ -374,7 +465,12 @@ function describeTarget(anchor: Anchor, documentPath: string | null): string {
  * that stated it — and the stored line is the last resort, as it is for every
  * anchor.
  */
-function describeDiagramTarget(anchor: Anchor, documentPath: string | null): string {
+function diagramBlock(
+  anchor: Anchor,
+  documentPath: string | null,
+  common: Attributes,
+  tags: Tags,
+): string[] {
   const ref = anchor.diagram as DiagramRef;
   const file = documentPath ? readSource(documentPath) : null;
   const fence = file ? locateFence(file, ref) : null;
@@ -387,55 +483,54 @@ function describeDiagramTarget(anchor: Anchor, documentPath: string | null): str
     fence?.fenceLine ?? (anchor.source ? anchor.source.line - ref.lines.from : null);
   const lines = found?.lines ?? ref.lines;
   const at = (line: number): string => String(fenceLine === null ? line : fenceLine + line);
-  const where =
-    lines.from === lines.to ? `line ${at(lines.from)}` : `lines ${at(lines.from)}–${at(lines.to)}`;
+  const where = lines.from === lines.to ? at(lines.from) : `${at(lines.from)}-${at(lines.to)}`;
   const span =
     fence && fenceLine !== null
-      ? ` at lines ${fenceLine + 1}–${fenceLine + fence.source.split("\n").length}`
-      : "";
+      ? `${fenceLine + 1}-${fenceLine + fence.source.split("\n").length}`
+      : null;
 
-  const text = (fence && found ? textOfLines(fence.source, lines) : ref.text)
-    .split("\n")
-    .map((line) => `       ${line}`)
-    .join("\n");
+  // Spec 54 §4 — the body is the part's own source, as the file holds it now.
+  // Everything REX knows *about* the part is an attribute, so the body stays
+  // pure document text.
+  const body = fence && found ? textOfLines(fence.source, lines) : ref.text;
 
   const part = found?.part ?? ref.part;
   const label = parts && found ? partLabel(parts, part) : describeRefLabel(ref);
-  const quoted = label ? `, labelled ${JSON.stringify(label)}` : "";
-  let head: string;
+  let describes: string;
   switch (part.kind) {
     case "node":
-      head = `the node ${part.id}${quoted} — declared on ${where}:`;
+      describes = `node ${part.id}`;
       break;
     case "edge":
-      head = `the edge from ${part.from} to ${part.to}${quoted} — ${where}:`;
+      describes = `edge ${part.from} to ${part.to}`;
       break;
     case "subgraph":
-      head = `the subgraph ${part.id}${label ? `, titled ${JSON.stringify(label)}` : ""} — ${where}:`;
+      describes = `subgraph ${part.id}`;
       break;
     case "lines":
-      head = `${where}:`;
+      describes = "lines";
       break;
   }
 
-  const out = [`In the Mermaid diagram (${ref.type || "mermaid"})${span}:`, `   ${head}`, text];
-  if (part.kind === "node" && parts) {
-    const others = (parts.nodes.get(part.id)?.mentions ?? []).filter((l) => l !== lines.from);
-    if (others.length > 0) {
-      const named = others.map(at);
-      const list =
-        named.length === 1
-          ? named[0]
-          : `${named.slice(0, -1).join(", ")} and ${named[named.length - 1]}`;
-      out.push(`   It is also mentioned on line${others.length === 1 ? "" : "s"} ${list}.`);
-    }
-  }
-  if (!fence && file) {
-    out.push(
-      "   This diagram is not in the file any more as it was; the lines above are what it said.",
-    );
-  }
-  return out.join("\n");
+  // A node's other mentions: the agent has to change all of them, and a node is
+  // declared once but referred to on every edge that touches it.
+  const alsoOn =
+    part.kind === "node" && parts
+      ? (parts.nodes.get(part.id)?.mentions ?? []).filter((l) => l !== lines.from).map(at)
+      : [];
+
+  return tags.block("section", body, {
+    ...common,
+    lines: where,
+    diagram: ref.type || "mermaid",
+    fence: span,
+    part: describes,
+    label,
+    also: alsoOn.length > 0 ? alsoOn.join(",") : null,
+    // The fence moved or went: the body is what the part said, not what the
+    // file says now, and an agent told otherwise would edit the wrong lines.
+    stale: !fence && file ? "yes" : null,
+  });
 }
 
 /** The label a stored ref alone can give, through the one-fence scan `describeRef` does. */
@@ -470,41 +565,21 @@ not about a passage.`;
 const LOOKING_AT_THE_ORIGINAL = `The reviewer is looking at that passage in the original and asking for a change
 to the current version. The current version is the file you may edit.`;
 
-/** How much of a gap's neighbour is quoted back, so the agent can find it. */
+/**
+ * How much of a gap's neighbour is quoted back, so the agent can find it.
+ *
+ * Spec 16 §6.7 — "insert here" is the one pick where there is nothing to show,
+ * so both sides are named: a gap that named only the block above would let an
+ * edit to that block move the insertion point, and a bare line number moves the
+ * moment anything above it changes. Spec 54 §4 puts them in attributes, so the
+ * text is escaped rather than tagged.
+ */
 const NEIGHBOUR_MAX = 160;
 
 function neighbourQuote(side: { quote: { exact: string } | null } | null): string | null {
   const text = side?.quote?.exact?.replace(/\s+/g, " ").trim();
   if (!text) return null;
   return text.length > NEIGHBOUR_MAX ? `${text.slice(0, NEIGHBOUR_MAX)}…` : text;
-}
-
-/**
- * Spec 16 §6.7 — a gap, named by both its sides and the lines between them.
- *
- * "Insert here" is the one instruction where the agent cannot see what the
- * reviewer pointed at, so both neighbours are quoted: a gap that named only the
- * block above would let an edit to that block move the insertion point, and a
- * bare line number moves the moment anything above it changes.
- */
-function describeGapTarget(anchor: Anchor, name: string, place: PassagePlace | null): string[] {
-  const gap = anchor.gap;
-  const above = neighbourQuote(gap?.after ?? null);
-  const below = neighbourQuote(gap?.before ?? null);
-  const between = place?.between ?? null;
-
-  const where =
-    between && between.after !== null && between.before !== null
-      ? ` between line ${between.after} and line ${between.before}`
-      : "";
-  const sides = [above ? `after “${above}”` : null, below ? `before “${below}”` : null].filter(
-    (part): part is string => part !== null,
-  );
-
-  return [
-    `A NEW passage, to be inserted in ${name}${where}${sides.length > 0 ? ` — ${sides.join(" and ")}` : ""}`,
-    "   Nothing is there now. The reviewer is asking you to write it.",
-  ];
 }
 
 /**
@@ -529,7 +604,8 @@ function sectionLineRange(documentPath: string, anchor: Anchor): LineRange | nul
   }
 
   const lines = source.split("\n");
-  const rank = /^(#{1,6})\s/.exec(lines[from - 1] ?? "")?.[1].length;
+  const ranks = headingRanks(lines);
+  const rank = ranks[from - 1];
   // Not a Markdown heading any more — the file was edited under the anchor, or
   // it never was one. Either way there is nothing here to measure.
   if (!rank) return null;
@@ -537,8 +613,8 @@ function sectionLineRange(documentPath: string, anchor: Anchor): LineRange | nul
   // §4.2 — the run ends at the next heading of the same or higher rank, so the
   // section is the line before it. `lines[i]` is line number `i + 1`.
   for (let i = from; i < lines.length; i++) {
-    const next = /^(#{1,6})\s/.exec(lines[i]);
-    if (next && next[1].length <= rank) return { from, to: i };
+    const next = ranks[i];
+    if (next !== null && next <= rank) return { from, to: i };
   }
   return { from, to: lines.length };
 }
@@ -571,8 +647,39 @@ function sectionLineRange(documentPath: string, anchor: Anchor): LineRange | nul
  * `pptx/run.ts` — so a deck and a Markdown file are told what to do the same
  * way.
  */
-export function writeInstructions(transcript: string, instruction: string): string[] {
-  return ["## The discussion", transcript, "", "## What to do", instruction.trim()];
+export function writeInstructions(transcript: string, instruction: string, tags: Tags): string[] {
+  return [
+    ...tags.block("discussion", transcript),
+    "",
+    ...tags.block("instruction", instruction.trim()),
+  ];
+}
+
+/**
+ * Spec 54 §5 — the tags for one ACT prompt, chosen before anything is written.
+ *
+ * Exported because the deck path builds its passages in `apply.ts` and its
+ * prompt in `pptx/run.ts`: one prompt must have one suffix, so the two places
+ * share the object rather than each making its own.
+ */
+export function writeTags(input: {
+  thread: Thread;
+  transcript: string;
+  instruction: string;
+}): Tags {
+  return tagsFor(input.transcript, input.instruction, ...threadSources(input.thread));
+}
+
+/**
+ * Every string in a thread that came from a document or from the reviewer.
+ *
+ * `JSON.stringify` over the targets rather than a walk of each anchor shape: a
+ * quote, an element selector, a diagram's stored source and a gap's two
+ * neighbours are all in there, and a new field added to `Anchor` later is in
+ * there too, without anyone having to remember this function exists.
+ */
+function threadSources(thread: Thread): string[] {
+  return [thread.note, JSON.stringify(thread.targets)];
 }
 
 /**
@@ -594,8 +701,8 @@ export function passageSection(input: {
   thread: Thread;
   documentPaths: ReadonlyMap<string, string>;
   repositoryRoot: string;
-  /** The `##` line the list sits under. Null when the caller wrote its own. */
-  heading: string | null;
+  /** Spec 54 §5.1 — the caller's tags, so one prompt carries one suffix. */
+  tags: Tags;
   /**
    * Where this passage sits *now*, when the caller can work it out. Apply
    * passes one; Ask passes one only while a working copy exists, because a read
@@ -617,76 +724,126 @@ export function passageSection(input: {
    */
   addedWith?: string | null;
   /**
-   * Spec 24 §6.1 — a `### file.md` heading even for a single document. The
-   * opening prompt names the document at its top; a follow-up has no such line,
-   * so the heading is the only thing that says where a new place is.
+   * Spec 34 §7 — where the agent READS each document: REX's working copy. The
+   * paths stay the reviewer's own, because those are the names the prompt uses.
    */
-  nameEveryDocument?: boolean;
+  readAt?: ReadonlyMap<string, string>;
 }): string[] {
-  const { thread, documentPaths, repositoryRoot } = input;
+  const { thread, documentPaths, repositoryRoot, tags } = input;
   const from = input.from ?? 0;
   if (thread.targets.length <= from) return [];
 
-  const groups = new Map<string, string[]>();
+  // One group per document, in the order the reviewer's places first mention
+  // it, each holding that document's picks.
+  const groups = new Map<
+    string,
+    { name: string; copy: string | null; whole: boolean; places: string[] }
+  >();
   let anyOriginal = false;
-
-  // Spec 24 §6.2 — `messageId` is null on a place the comment started with, so
-  // a null `addedWith` marks nothing rather than everything.
-  const added = (target: AnchorTarget): string =>
-    input.addedWith && target.messageId === input.addedWith ? " — added with this instruction" : "";
 
   thread.targets.forEach((target, position) => {
     if (position < from) return;
     const path = documentPaths.get(target.documentId) ?? target.documentId;
     const name = displayPath(repositoryRoot, path);
-    const lines = groups.get(name) ?? [];
+    const copy = input.readAt?.get(target.documentId) ?? null;
+    const group = groups.get(name) ?? {
+      name,
+      copy: copy && copy !== path ? copy : null,
+      whole: false,
+      places: [],
+    };
     const place = input.locate?.(path, target.anchor) ?? null;
+    if (place?.version === "original") anyOriginal = true;
 
-    // Spec 16 §6.7 — a gap is named by both its sides. It has no text of its
-    // own, so nothing below applies to it.
-    if (target.anchor.gap) {
-      const [head, tail] = describeGapTarget(target.anchor, name, place);
-      lines.push(`${position + 1}. ${head}${added(target)}`, tail);
-      groups.set(name, lines);
+    // Spec 06 §7.1 — `document` names nothing inside the file and means all of
+    // it, so it is a fact about the document rather than a place inside it.
+    if (target.anchor.extent === "document") {
+      group.whole = true;
+      groups.set(name, group);
       return;
     }
 
-    // Spec 06 §7.1 — an extent target carries its own range, or deliberately
-    // none. A single line for a section would name where it *starts* as though
-    // that were the passage. Spec 29 §5.8 — a diagram part names its own lines
-    // in its description, so a second line here would say it twice.
-    const line = target.anchor.extent || target.anchor.diagram ? null : (place?.line ?? null);
-
-    // Spec 16 §5.4 — a passage that only the original has is said to be one,
-    // plainly. The agent would otherwise be handed a quote it cannot find in
-    // the file it may edit, which reads as a mistake rather than as the point.
-    if (place?.version === "original") {
-      anyOriginal = true;
-      lines.push(
-        `${position + 1}. In the ORIGINAL version of ${name} — the version on disk, which`,
-        "   the change you have already made removes:",
-        `   ${describeTarget(target.anchor, path)}${line === null ? "" : ` — line ${line} of the original`}${added(target)}`,
-      );
-      groups.set(name, lines);
-      return;
-    }
-
-    const where = line === null ? "" : ` — line ${line}`;
-    lines.push(`${position + 1}. ${describeTarget(target.anchor, path)}${where}${added(target)}`);
-    groups.set(name, lines);
+    group.places.push(
+      ...placeBlock({
+        anchor: target.anchor,
+        documentPath: path,
+        n: position + 1,
+        place,
+        // Spec 24 §6.2 — `messageId` is null on a place the comment started
+        // with, so a null `addedWith` marks nothing rather than everything.
+        added: !!input.addedWith && target.messageId === input.addedWith,
+        tags,
+      }),
+    );
+    groups.set(name, group);
   });
 
-  const parts = input.heading === null ? [] : [input.heading];
-  // One document needs no heading of its own — it is already named at the top
-  // of the prompt, and a lone `### file.md` reads as if a second is missing.
-  const single = groups.size === 1 && !input.nameEveryDocument;
-  for (const [name, lines] of groups) {
-    if (!single) parts.push("", `### ${name}`);
-    parts.push(...lines);
+  const parts: string[] = [];
+  for (const group of groups.values()) {
+    if (parts.length > 0) parts.push("");
+    parts.push(...documentBlock({ ...group, tags }));
   }
+  // REX's own sentences about the groups, so they sit outside the frame.
+  if ([...groups.values()].some((group) => group.copy)) parts.push("", WORKING_COPY_NOTE);
   if (anyOriginal) parts.push("", LOOKING_AT_THE_ORIGINAL);
   parts.push("");
   return parts;
+}
+
+/**
+ * Spec 54 §4 — one document, with everything picked inside it.
+ *
+ * The hierarchy is the reviewer's, asked for on 2026-09-11: *"I would like to
+ * see maybe one REX document tag and, inside that tag, all the selections or
+ * sections that were selected."* It replaces a flat list beside a section,
+ * which duplicated the pick and said nothing the attributes do not.
+ */
+function documentBlock(input: {
+  name: string;
+  copy: string | null;
+  whole: boolean;
+  places: string[];
+  tags: Tags;
+}): string[] {
+  const { tags } = input;
+  // Spec 34 §7 — where the agent READS this document: REX's working copy. An
+  // attribute rather than three lines of body, because three lines repeated per
+  // document is what `Also read at:` existed to avoid, and the sentence that
+  // explains a copy is said once for the whole prompt (`WORKING_COPY_NOTE`).
+  const attributes = {
+    path: input.name,
+    "read-at": input.copy,
+    whole: input.whole ? "yes" : null,
+  };
+
+  if (input.places.length === 0) return [tags.selfClosing("document", attributes)];
+  return [tags.open("document", attributes), ...input.places, tags.close("document")];
+}
+
+/**
+ * Spec 34 §7 — what `read-at` means, said once however many documents carry one.
+ *
+ * The location never changes, so no later turn repeats it: approve and discard
+ * move bytes between the two files, not the files.
+ */
+const WORKING_COPY_NOTE = `Each \`read-at\` is REX's copy and is the current version. The file at \`path\` is
+what the reviewer has approved so far. Do not edit either file.`;
+
+/**
+ * Spec 56 §3.5 — where the document's repository is, in one line.
+ *
+ * Said because §3.1 moved the working directory. An ASK on the Codex adapter
+ * now runs in an empty throwaway, so `ls` and `rg` with no path search a folder
+ * with nothing in it — and the agent has no other way to learn where the
+ * repository went. Reading it is allowed from anywhere and `cd` is on the
+ * gate's read-only list (spec 12 §6.2), so the path is the only missing piece.
+ *
+ * Harmless on the three adapters whose working directory did not move: it names
+ * the folder they are already standing in.
+ */
+function repositoryNote(root: string): string {
+  return `The document's repository is at ${root}. Read anything in it — \`cd\` there
+first, or use absolute paths. You cannot change it.`;
 }
 
 /**
@@ -705,33 +862,23 @@ export function documentHeader(input: {
   documentPaths: ReadonlyMap<string, string>;
   repositoryRoot: string;
   readAt?: ReadonlyMap<string, string>;
+  /** Spec 54 §5 — the caller's tags. A standalone call makes its own. */
+  tags?: Tags;
 }): string[] {
   const { thread, documentPaths, repositoryRoot } = input;
+  const tags = input.tags ?? tagsFor(...threadSources(thread));
   const primary = thread.targets[0] ?? null;
   const primaryPath = primary ? (documentPaths.get(primary.documentId) ?? null) : null;
+  if (!primaryPath) return [];
   const primaryCopy = primary ? (input.readAt?.get(primary.documentId) ?? null) : null;
 
-  const parts: string[] = [];
-  if (primaryPath) parts.push(`Document: ${displayPath(repositoryRoot, primaryPath)}`);
-  // The location, once. It never changes, so no later turn repeats it:
-  // approve and discard move bytes between the two files, not the files.
-  if (primaryCopy && primaryCopy !== primaryPath) {
-    parts.push(
-      `Read it at: ${primaryCopy}`,
-      "  — REX's copy, the current version. The file in the workspace is what the",
-      "  reviewer has approved so far; do not edit either.",
-    );
-  }
-  const others = [...(input.readAt ?? [])].filter(
-    ([id, copy]) => id !== primary?.documentId && copy !== documentPaths.get(id),
-  );
-  if (others.length > 0) {
-    parts.push("Also read at:");
-    for (const [id, copy] of others) {
-      parts.push(`  ${displayPath(repositoryRoot, documentPaths.get(id) ?? id)} → ${copy}`);
-    }
-  }
-  return parts;
+  return documentBlock({
+    name: displayPath(repositoryRoot, primaryPath),
+    copy: primaryCopy && primaryCopy !== primaryPath ? primaryCopy : null,
+    whole: false,
+    places: [],
+    tags,
+  });
 }
 
 /** §8.6 and spec 05 §5.5 — the user prompt for Ask. */
@@ -759,51 +906,51 @@ export function askPrompt(input: {
   readAt?: ReadonlyMap<string, string>;
 }): string {
   const { thread, documentPaths, repositoryRoot } = input;
-  const primary = thread.targets[0] ?? null;
-  const primaryPath = primary ? (documentPaths.get(primary.documentId) ?? null) : null;
-  const primaryCopy = primary ? (input.readAt?.get(primary.documentId) ?? null) : null;
+  // Spec 54 §5 — every picked passage is read before the tags are chosen,
+  // because those bodies are the longest runs of document text in the prompt
+  // and the ones most likely to spell a tag.
+  const tags = tagsFor(...threadSources(thread), ...selectedSources(input));
 
-  // Spec 06 §7.1 — a document target has no line, and a wrong one sends the
-  // agent to the wrong place. It carries no `source` at all (§4.3), so the
-  // header below is already omitted for it; this names why, so nobody adds a
-  // fallback line later.
-  const wholeDocument = primary?.anchor.extent === "document";
-
-  const parts: string[] = [...documentHeader(input)];
-  if (primary?.anchor.source) parts.push(`Line: ${primary.anchor.source.line}`);
-  parts.push("");
-
-  parts.push(
+  const parts: string[] = [
     ...passageSection({
       thread,
       documentPaths,
       repositoryRoot,
-      heading: "## Highlighted passages",
+      tags,
+      ...(input.readAt ? { readAt: input.readAt } : {}),
       ...(input.locate ? { locate: input.locate } : {}),
     }),
-  );
+  ];
 
   if (thread.targets.some((target) => target.anchor.extent === "document")) {
     parts.push(READ_IN_FULL, "");
   }
 
-  // §8.6 — emitted for the primary target only. Nine of these would bury the
-  // question the comment is actually asking.
-  //
-  // Spec 06 §7.1 — skipped for a document target: the surrounding section of
-  // the whole document is the whole document, and printing it twice buys
-  // nothing.
-  //
-  // Spec 34 §7 — read from the copy when there is one: that is the file the
-  // agent opens, and after a change it is the version the section is in.
-  const section =
-    primary && primaryPath && !wholeDocument
-      ? enclosingSection(primaryCopy ?? primaryPath, primary.anchor)
-      : null;
-  if (section) parts.push("## Surrounding section", section, "");
+  // Spec 56 §3.5 — outside the frame, because it is REX's sentence about the
+  // machine rather than anything copied out of a document.
+  parts.push(repositoryNote(repositoryRoot), "");
 
-  parts.push("## Comment", thread.note);
+  parts.push(...tags.block("comment", thread.note));
   return parts.join("\n");
+}
+
+/**
+ * Spec 54 §5 — the text of every pick, for the collision search only.
+ *
+ * `placeBlock` reads the same files again when it builds the bodies. That is
+ * two reads of a file REX has already copied, and it is the honest order: the
+ * suffix has to be known before the first tag is written.
+ */
+function selectedSources(input: {
+  thread: Thread;
+  documentPaths: ReadonlyMap<string, string>;
+}): string[] {
+  return input.thread.targets
+    .map((target) => {
+      const path = input.documentPaths.get(target.documentId) ?? null;
+      return selectedText(target.anchor, path).text;
+    })
+    .filter((text): text is string => text !== null);
 }
 
 /**
@@ -844,8 +991,13 @@ export function followUpPrompt(input: {
   locate?: (documentPath: string, anchor: Anchor) => PassagePlace;
 }): string {
   const { thread, from, text } = input;
+  const tags = tagsFor(text, ...threadSources(thread));
   const fresh = thread.targets.slice(from);
-  if (fresh.length === 0) return text;
+  // Spec 54 §4.3 — a reply that points nowhere new is still framed. Spec 24
+  // made it the bare text; if the reviewer's words are tagged on some turns and
+  // not on others, the system prompt's "what the reviewer asks for is the text
+  // in <rex-comment>" is false half the time.
+  if (fresh.length === 0) return tags.block("comment", text).join("\n");
 
   const count = fresh.length === 1 ? "1 more place" : `${fresh.length} more places`;
   const numbering =
@@ -854,17 +1006,15 @@ export function followUpPrompt(input: {
       : "numbered from 1";
 
   const parts = [
-    "## New passages",
     `The reviewer has pointed at ${count} since their last message. They are`,
     `${numbering}.`,
-    // The list opens with its own blank line before the first `###`.
+    "",
     ...passageSection({
       thread,
       documentPaths: input.documentPaths,
       repositoryRoot: input.repositoryRoot,
-      heading: null,
+      tags,
       from,
-      nameEveryDocument: true,
       ...(input.locate ? { locate: input.locate } : {}),
     }),
   ];
@@ -875,7 +1025,7 @@ export function followUpPrompt(input: {
     parts.push(READ_IN_FULL, "");
   }
 
-  parts.push("## Comment", text);
+  parts.push(...tags.block("comment", text));
   return parts.join("\n");
 }
 
@@ -887,27 +1037,44 @@ export function synthesisPrompt(input: {
   note: string;
   referenced: Array<{ thread: Thread; messages: Message[] }>;
 }): string {
+  const tags = tagsFor(
+    input.note,
+    ...input.referenced.flatMap(({ thread, messages }) => [
+      ...threadSources(thread),
+      ...messages.map((message) => message.content),
+    ]),
+  );
   const parts = ["You are being asked about several comments on the same document at once.", ""];
 
   input.referenced.forEach(({ thread, messages }, position) => {
-    parts.push(`## Comment ${position + 1}`);
-    // `describeTarget` and not the raw quote: a block pick's quote is an
-    // opening truncated at `ELEMENT_QUOTE_MAX`, and synthesis was printing it
-    // as the whole passage exactly as the single-comment prompt used to.
-    const primary = thread.targets[0]?.anchor;
-    if (primary) parts.push(`Highlighted passage: ${describeTarget(primary, null)}`);
-    parts.push(`The user wrote: ${thread.note}`);
+    const n = position + 1;
+    // The pick itself, not a description of it. A block pick's stored quote is
+    // an opening truncated at `ELEMENT_QUOTE_MAX`, and `placeBlock` says so
+    // with `truncated` rather than letting it read as the whole passage.
+    const primary = thread.targets[0];
+    if (primary) {
+      parts.push(
+        ...placeBlock({
+          anchor: primary.anchor,
+          documentPath: null,
+          n,
+          place: null,
+          added: false,
+          tags,
+        }),
+      );
+    }
+    parts.push(...tags.block("comment", thread.note, { n }));
     const answers = messages.filter((m) => m.role === "assistant" && m.kind === "text");
-    if (answers.length > 0) {
-      parts.push("The agent answered:");
-      for (const answer of answers) parts.push(answer.content ?? "");
+    for (const answer of answers) {
+      parts.push(...tags.block("answer", answer.content ?? "", { n }));
     }
     parts.push("");
   });
 
   parts.push(
-    "## The question now",
-    input.note,
+    "The question now:",
+    ...tags.block("comment", input.note),
     "",
     "These comments may contradict each other. If they do, say so explicitly and explain the contradiction.",
   );

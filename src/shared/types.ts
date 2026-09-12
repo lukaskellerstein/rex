@@ -486,6 +486,24 @@ export interface Message {
   sdk: AgentSdk | null;
   gatewayName: string | null;
   baseUrl: string | null;
+  /**
+   * Spec 51 §4 — which TURN this row belongs to: one Ask, or one Apply.
+   *
+   * The same string `bridge.ts` mints and `attribution.py` sends as the
+   * `x-rex-run` header, so it is the join key between what the agent did (these
+   * rows) and what went over the wire (the traffic log). **Depth 3 is that
+   * join**, and neither side can draw the screen alone.
+   *
+   * `model` and `style`'s rule exactly: set on the reviewer's send and on
+   * everything the run it started produced. Null for a NOTE, which runs nothing
+   * and so is no turn, and for every row written before this column — those
+   * group under "before turns were recorded" rather than being hidden.
+   *
+   * > The join only works if both sides carry the same string. A UUID minted
+   * > separately here would join nothing and draw an empty grid rather than an
+   * > error.
+   */
+  runId: string | null;
   content: string | null;
   toolName: string | null;
   toolInput: unknown | null;
@@ -977,6 +995,47 @@ export interface OpenedDocument {
   /** Spec 15 §3 — non-null when this document has a working copy. */
   working: WorkingCopyView | null;
 }
+
+/**
+ * Spec 53 §4.4 — where the reviewer was, precisely enough to put them back.
+ *
+ * Three coordinates and not one, because REX renders five formats and only two
+ * of them can say which line a block came from. `line` is preferred whenever it
+ * is there: it is the only one of the three that survives the file changing,
+ * and a review tool exists because files change. `scrollY` is the honest
+ * fallback for a DOCX, an HTML file or a PDF, and `zoom` is what it was read at
+ * — `applyZoom` uses CSS `zoom`, which takes part in layout, so an offset taken
+ * at 1.5 means a different place at 1.
+ */
+export interface DocumentPlace {
+  path: string;
+  /** `data-src-line` of the block, or null in a format that stamps none. */
+  line: number | null;
+  scrollY: number;
+  zoom: number;
+}
+
+/**
+ * Spec 53 §5.3 — what a clicked `href` turned out to be.
+ *
+ * Resolution happens in main because it reads the filesystem and the renderer
+ * may not (invariant I2). `refused` carries the sentence the notice bar shows,
+ * built where the reason is known rather than reconstructed from a code.
+ */
+export type LinkResolution =
+  | { kind: "self"; fragment: string | null }
+  /**
+   * `display` is `path` with the reviewer's home folder written `~`. Main's,
+   * because only main knows where home is. It is what the hover tip shows and
+   * it is never what anything opens — every command travels as `path`.
+   */
+  | { kind: "document"; path: string; display: string; fragment: string | null }
+  | { kind: "external"; url: string }
+  /**
+   * `display` is the path REX would have opened, when the link named one. Null
+   * for a scheme, which has no path to show.
+   */
+  | { kind: "refused"; reason: string; display: string | null; fragment: string | null };
 
 /**
  * Spec 13 §4.2 — what the overlay knows about itself, for the debug report.

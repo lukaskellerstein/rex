@@ -53,6 +53,9 @@ import {
   type ThreadReplyRequest,
   type ThreadResolveRequest,
   type ThreadSynthesiseRequest,
+  type TraceChat,
+  type TraceMessageResult,
+  type TraceTurnsResult,
   type WorkActResponse,
   type WorkApproveResponse,
   type WorkspaceCreateRequest,
@@ -73,6 +76,7 @@ import type {
   CommentMove,
   DocumentRef,
   DocumentVersion,
+  LinkResolution,
   Message,
   OpenedDocument,
   PaperView,
@@ -93,6 +97,7 @@ import { DEFAULT_MODEL } from "../shared/types.ts";
 import {
   forgetProbe,
   listCapabilities,
+  nextRunId,
   ORIGINAL_GATEWAY,
   REX_SDK,
   resolveRoute,
@@ -137,7 +142,7 @@ import {
   setEnabled,
 } from "./db/gateways.ts";
 import { createGroup, deleteGroup, listGroups, moveItem, updateGroup } from "./db/groups.ts";
-import { BUILTIN_GATEWAY_NAME, RETIRED_GATEWAYS_KEY } from "./db/migrate.ts";
+import { RETIRED_GATEWAYS_KEY } from "./db/migrate.ts";
 import {
   getProvider,
   keyCipherOf,
@@ -160,6 +165,7 @@ import {
   documentCostUsd,
   getDocument,
   getThread,
+  listChatTraces,
   listMessages,
   listThreads,
   listThreadsInDocument,
@@ -189,6 +195,7 @@ import {
   setSetting,
 } from "./db/settings.ts";
 import { appReport, debugReport } from "./debug.ts";
+import { type TrafficAvailability, trafficAvailability } from "./gateway/availability.ts";
 import { providerCatalogue } from "./gateway/catalogue.ts";
 import { discoverProvider } from "./gateway/discover.ts";
 import { remoteModels } from "./gateway/external.ts";
@@ -204,8 +211,15 @@ import {
 } from "./gateway/lifecycle.ts";
 import { localGateway } from "./gateway/local.ts";
 import { seal, storageHealth, unseal } from "./gateway/secrets.ts";
-import { clearTraffic, threadTraffic, trafficSize } from "./gateway/traffic.ts";
+import {
+  clearTraffic,
+  exchangeBodies,
+  threadTraffic,
+  trafficByThread,
+  trafficSize,
+} from "./gateway/traffic.ts";
 import { porcelainStatus, repositoryRoot } from "./git.ts";
+import { checkedExternalUrl, resolveForClick } from "./links.ts";
 // Aliased: `registerIpc` has its own `record`, which appends a message row.
 import { entries, lineCount, logFile, record as logLine } from "./log.ts";
 import { allowDirectory, baseHrefFor } from "./protocol.ts";
@@ -215,6 +229,7 @@ import { renderDocument } from "./render/index.ts";
 import { ensureSidecar } from "./render/pptx.ts";
 import { searchWorkspace } from "./search/index.ts";
 import { agentCwd, documentsOf, SCRATCH_DIR, withDetail } from "./threads.ts";
+import { chatTrafficReport, turnTrafficReport } from "./trafficReport.ts";
 import {
   approveWorkingCopy,
   basePath,
@@ -305,13 +320,22 @@ const NO_EVIDENCE: SendEvidence = { sdk: null, gatewayName: null, baseUrl: null 
  * message keeps copies, and a reference is what would let an edit rewrite
  * history.
  */
-function stamp(choices: SendChoices, evidence: SendEvidence): Partial<MessageDraft> {
+function stamp(
+  choices: SendChoices,
+  evidence: SendEvidence,
+  /**
+   * Spec 51 §4 — and which TURN, when there is one. A NOTE runs nothing, so it
+   * is no turn and passes nothing; a notice REX wrote on its own is the same.
+   */
+  runId: string | null = null,
+): Partial<MessageDraft> {
   return {
     model: choices.model,
     style: choices.style,
     sdk: evidence.sdk,
     gatewayName: evidence.gatewayName,
     baseUrl: evidence.baseUrl,
+    runId,
   };
 }
 
@@ -374,6 +398,17 @@ function handle(channel: string, listener: InvokeHandler): void {
   });
 }
 
+/**
+ * Spec 51 §6 defect 1 — tell the renderer the built-in gateway has settled.
+ *
+ * A module-level binding rather than a return value because the caller that
+ * needs it (`index.ts`, starting the gateway at boot) runs beside `registerIpc`
+ * rather than inside it, and the window it sends to does not exist yet when
+ * either is called. It is a no-op until `registerIpc` has run, which is the
+ * honest behaviour: with no window there is nobody to tell.
+ */
+export let announceGatewaySettled: () => void = () => {};
+
 export function registerIpc(
   db: Db,
   getWindow: () => BrowserWindow | null,
@@ -404,9 +439,11 @@ export function registerIpc(
     choices: SendChoices = NO_CHOICES,
     /** Spec 43 §5.3 — and which agent, gateway and URL produced it. */
     evidence: SendEvidence = NO_EVIDENCE,
+    /** Spec 51 §4 — and which turn, when the notice belongs to one. */
+    runId: string | null = null,
   ): void => {
     record(threadId, {
-      ...stamp(choices, evidence),
+      ...stamp(choices, evidence, runId),
       role: "system",
       kind: isError ? "error" : "text",
       content,
@@ -473,6 +510,7 @@ export function registerIpc(
     before: string[],
     choices: SendChoices,
     evidence: SendEvidence,
+    runId: string,
   ): void => {
     const after = porcelainStatus(cwd);
     const introduced = after.filter((line) => !before.includes(line));
@@ -483,6 +521,7 @@ export function registerIpc(
       true,
       choices,
       evidence,
+      runId,
     );
   };
 
@@ -562,6 +601,13 @@ export function registerIpc(
      * send and never read by it.
      */
     choices: SendChoices,
+    /**
+     * Spec 51 §4 — this turn's id, minted by the caller because the reviewer's
+     * own message is written before this function is reached and belongs to the
+     * same turn. It becomes `x-rex-run` on every request the run makes, which is
+     * what lets depth 3 join these rows to the traffic log.
+     */
+    runId: string,
   ): Promise<void> => {
     // §11 — resolved here, from the database and this process's environment,
     // and never from what the renderer sent. A route that cannot be resolved
@@ -595,6 +641,9 @@ export function registerIpc(
           resume,
           // Spec 45 §6 — the gateway groups a month of inference by this.
           threadId: thread.id,
+          // Spec 51 §4 — the same string the rows below are stamped with, so
+          // `x-rex-run` on the wire and `message.run_id` in SQLite are one id.
+          runId,
           route,
           model: choices.model,
           style: choices.style,
@@ -604,7 +653,7 @@ export function registerIpc(
           // produces says which agent, gateway, URL, model and style made it.
           // Stamped here, where all five are known, because `bridge.ts` emits
           // blocks and has no business knowing what the reviewer picked.
-          onMessage: (draft) => record(thread.id, { ...draft, ...stamp(choices, evidence) }),
+          onMessage: (draft) => record(thread.id, { ...draft, ...stamp(choices, evidence, runId) }),
         }),
       );
     } finally {
@@ -636,7 +685,7 @@ export function registerIpc(
         baseUrl: route.baseUrl,
       });
     }
-    backstop(thread.id, cwd, before, choices, evidence);
+    backstop(thread.id, cwd, before, choices, evidence, runId);
 
     for (const denial of result.denials) {
       systemNote(
@@ -645,6 +694,7 @@ export function registerIpc(
         false,
         choices,
         evidence,
+        runId,
       );
     }
 
@@ -673,9 +723,14 @@ export function registerIpc(
      */
     choices: SendChoices,
     evidence: SendEvidence,
+    /**
+     * Spec 51 §4 — the turn this send OPENS. Null for a NOTE, which runs
+     * nothing and so is no turn at all.
+     */
+    runId: string | null,
   ): Message =>
     record(threadId, {
-      ...stamp(choices, evidence),
+      ...stamp(choices, evidence, runId),
       role: "user",
       kind: "text",
       mode,
@@ -860,6 +915,20 @@ export function registerIpc(
       };
     },
   );
+
+  // ── Links (spec 53) ───────────────────────────────────────────
+
+  handle(
+    COMMAND.linkResolve,
+    (_event, from: string, href: string): LinkResolution => resolveForClick(from, href),
+  );
+
+  handle(COMMAND.linkExternal, async (_event, url: string): Promise<void> => {
+    // §4.6 — the check that decides. `resolveForClick` already answered this
+    // once, but the renderer sits between the two calls and what it sends back
+    // is a string that came out of a document.
+    await shell.openExternal(checkedExternalUrl(url));
+  });
 
   // ── The working copy (spec 15 §7) ─────────────────────────────
 
@@ -1134,15 +1203,18 @@ export function registerIpc(
 
     const choices = choicesOf(request);
     const { route, evidence } = routeFor(db, choices);
+    // Spec 51 §4 — the turn opens HERE, at the reviewer's own message, which is
+    // why the id is minted before it is written rather than inside `runAgent`.
+    const runId = nextRunId();
     // Spec 31 §4.1 — the chat remembers the style it was sent under.
     setThreadStyle(db, threadId, choices.style);
-    recordUserText(threadId, thread.note, "ask", choices, evidence);
+    recordUserText(threadId, thread.note, "ask", choices, evidence, runId);
 
     // §5.2 applies to EVERY send, an ASK included. Before this spec an ASK
     // always re-seeded `sessionIdFor(threadId)`; with more than one gateway
     // that id would be seeded twice and the CLI refuses an id it already has.
     const plan = await planSession(thread, choices, route, workingDirectory(thread));
-    await runTurn(thread, prompt, plan.sessionId, plan.resume, choices);
+    await runTurn(thread, prompt, plan.sessionId, plan.resume, choices, runId);
   });
 
   /**
@@ -1175,7 +1247,16 @@ export function registerIpc(
     // Spec 43 §5.4 — a NOTE starts no SDK and creates no session, so it stores
     // null for every choice. NULL here is the honest record of a message that
     // no agent ever saw.
-    const message = recordUserText(request.threadId, request.text, "note", NO_CHOICES, NO_EVIDENCE);
+    // Spec 51 §4 — and no run id either, for the same reason: a NOTE is not a
+    // turn, so it belongs to none.
+    const message = recordUserText(
+      request.threadId,
+      request.text,
+      "note",
+      NO_CHOICES,
+      NO_EVIDENCE,
+      null,
+    );
     addPlaces(thread, message, request.targets);
     // Spec 30 §2.2 — **Save** on a draft is what makes it a note. Only from
     // `draft`: an `open` comment that gets a NOTE message keeps its lane,
@@ -1191,8 +1272,10 @@ export function registerIpc(
     const cwd = workingDirectory(thread);
     const choices = choicesOf(request);
     const { route, evidence } = routeFor(db, choices);
+    // Spec 51 §4 — one turn, opening at the reply the reviewer just typed.
+    const runId = nextRunId();
     setThreadStyle(db, thread.id, choices.style);
-    const message = recordUserText(thread.id, request.text, "ask", choices, evidence);
+    const message = recordUserText(thread.id, request.text, "ask", choices, evidence, runId);
 
     // Spec 24 §4.1 — the places first, then the prompt that names them. The
     // thread is re-read so the prompt sees the grown list; with nothing added
@@ -1214,7 +1297,7 @@ export function registerIpc(
       // agent last spoke goes in front of it: once, and only when there is
       // something.
       const events = eventsSinceLastAnswer(listMessages(db, thread.id));
-      await runTurn(thread, withEvents(events, prompt), plan.sessionId, true, choices);
+      await runTurn(thread, withEvents(events, prompt), plan.sessionId, true, choices, runId);
       return;
     }
 
@@ -1232,7 +1315,14 @@ export function registerIpc(
       thread: grown ?? thread,
       ...(await readContext(grown ?? thread)),
     });
-    await runTurn(thread, replayPrompt(transcript, prompt, header), plan.sessionId, false, choices);
+    await runTurn(
+      thread,
+      replayPrompt(transcript, prompt, header),
+      plan.sessionId,
+      false,
+      choices,
+      runId,
+    );
   });
 
   handle(COMMAND.threadResolve, (_event, request: ThreadResolveRequest): Thread => {
@@ -1426,8 +1516,10 @@ export function registerIpc(
     // resolves the same way an ASK does. §5.5 is the difference: it reads the
     // three choices and does NOT persist its session.
     const { route, evidence } = routeFor(db, choices);
+    // Spec 51 §4 — an Apply is one turn, opening at the reviewer's instruction.
+    const runId = nextRunId();
     setThreadStyle(db, request.threadId, choices.style);
-    const message = recordUserText(request.threadId, request.note, "act", choices, evidence);
+    const message = recordUserText(request.threadId, request.note, "act", choices, evidence, runId);
     // Spec 24 §4.2 — the places are rows before `startApply` reads the thread,
     // so their documents join the run with no new code in `apply.ts`. The
     // message id goes along so the passage list can mark them (§6.2).
@@ -1439,6 +1531,7 @@ export function registerIpc(
       addedWith: message.id,
       route,
       evidence,
+      runId,
       model: choices.model,
       style: choices.style,
     });
@@ -1915,6 +2008,17 @@ export function registerIpc(
   handle(COMMAND.gatewayBuiltinState, (): BuiltinState => builtinState());
 
   /**
+   * Spec 51 §6 defect 1 — say when the gateway has settled, without being asked.
+   *
+   * Registered on the module so `index.ts` can hand it to
+   * `startBuiltinIfEnabled`, which runs at boot and finishes about 1.6 seconds
+   * later — after the window exists and after Settings may already be drawing
+   * "Starting…". The state is read fresh rather than passed in, so what the
+   * screen receives is the same object `gateway:builtin:state` would answer.
+   */
+  announceGatewaySettled = (): void => send(EVENT.gatewaySettled, builtinState());
+
+  /**
    * §15 — the note is shown ONCE.
    *
    * Cleared by the screen after it has drawn it, rather than by the migration
@@ -2087,36 +2191,119 @@ export function registerIpc(
    * `available: false` with the reason, and the button says so rather than
    * disappearing — a control that vanishes looks like a bug (A16).
    */
-  handle(COMMAND.gatewayTraffic, (_event, threadId: string): GatewayTrafficResult => {
-    const messages = listMessages(db, threadId);
-    const names = new Set(messages.map((message) => message.gatewayName).filter(Boolean));
-    const bodies = captureBodies(db);
+  /**
+   * Whether this comment can have a traffic log at all, and why not.
+   *
+   * Spec 55 moved the answer into `gateway/availability.ts`, where the report
+   * can ask it too. It takes the rows rather than the thread id for the same
+   * reason: the caller that already has them does not read them twice.
+   */
+  function availabilityOf(threadId: string): TrafficAvailability {
+    return trafficAvailability(listMessages(db, threadId));
+  }
 
-    // A comment that ran on `Original` has no gateway traffic at all: those
-    // requests went straight to the vendor and no gateway ever saw them.
-    if (!messages.some((message) => message.baseUrl)) {
-      return {
-        available: false,
-        reason:
-          "This comment ran on Original, so its requests went straight to the SDK's own " +
-          "endpoint and never through a gateway. Pick the built-in gateway in the composer, " +
-          "ask again, and this will show that run.",
-        rows: [],
-        bodies,
-      };
-    }
-    if (!names.has(BUILTIN_GATEWAY_NAME)) {
-      return {
-        available: false,
-        reason:
-          "This comment ran through a gateway somebody else runs, so REX did not write its " +
-          "configuration and could not add the recorder to it. Only REX's own built-in " +
-          "gateway keeps a traffic log.",
-        rows: [],
-        bodies,
-      };
-    }
+  handle(COMMAND.gatewayTraffic, (_event, threadId: string): GatewayTrafficResult => {
+    const bodies = captureBodies(db);
+    const { available, reason } = availabilityOf(threadId);
+    if (!available) return { available, reason, rows: [], bodies };
     return { available: true, reason: null, rows: threadTraffic(threadId), bodies };
+  });
+
+  /**
+   * Spec 51 §5.1 — every chat REX has run, at depth 1.
+   *
+   * **The join, in one place.** `listChatTraces` is REX's own record — which
+   * comment, on which document, with which agent, how many turns and what they
+   * cost. `trafficByThread` is what the built-in gateway saw of them. Neither
+   * side can draw this screen alone, and putting the merge here rather than in
+   * the renderer is invariant I2: the renderer touches neither source.
+   */
+  handle(COMMAND.traceChats, (): TraceChat[] => {
+    const seen = trafficByThread();
+    return listChatTraces(db).map((chat) => {
+      const totals = seen.get(chat.threadId);
+      return {
+        ...chat,
+        exchanges: totals?.exchanges ?? 0,
+        failed: totals?.failed ?? 0,
+      };
+    });
+  });
+
+  /**
+   * Spec 51 §5.2 and §5.3 — one chat's exchanges, without their bodies.
+   *
+   * The renderer already holds this chat's `message` rows and groups them into
+   * turns itself (`trace.ts`), so what it is missing is exactly this: what went
+   * over the wire. Depth 3 filters the same list to one run rather than asking
+   * again — one read serves both depths.
+   *
+   * Bodiless on purpose. A request body is the whole request since §3, so five
+   * hundred rows would be megabytes to draw a list of counts.
+   */
+  handle(COMMAND.traceTurns, (_event, threadId: string): TraceTurnsResult => {
+    const bodies = captureBodies(db);
+    // The chat travels with its exchanges. Depth 1 crosses documents, and the
+    // renderer holds a `ThreadWithMessages` only for the one that is open — so
+    // a chat picked at depth 1 is one it has never loaded.
+    const found = getThread(db, threadId);
+    const thread = found ? withDetail(db, found) : null;
+    // And its document, because depth 3 is the trace SHEET and the sheet covers
+    // the document pane. A turn opened for a chat about another document has to
+    // open that document first.
+    const documentRef = found ? (getDocument(db, found.documentId)?.ref ?? null) : null;
+    const { available, reason } = availabilityOf(threadId);
+    if (!available) return { thread, documentRef, available, reason, rows: [], bodies };
+    return {
+      thread,
+      documentRef,
+      available: true,
+      reason: null,
+      rows: threadTraffic(threadId, false),
+      bodies,
+    };
+  });
+
+  /**
+   * Spec 51 §5.4 — one exchange's request and response, whole.
+   *
+   * The only channel that ever carries a body, and it carries exactly one. It
+   * also resolves an overflow file, which is the whole point of §3.1 rule 3: a
+   * body over the limit used to be deleted, and depth 4 could not have drawn it.
+   */
+  handle(COMMAND.traceMessage, (_event, rowId: string): TraceMessageResult => {
+    const found = exchangeBodies(rowId);
+    if (!found) {
+      return {
+        problem:
+          "REX could not find that request in the traffic log. The day it was written on may " +
+          "have passed out of the 30-day window.",
+      };
+    }
+    return { request: found.request, response: found.response, problem: found.problem };
+  });
+
+  /**
+   * Spec 55 §3 — the Traffic head's debug button, at depths 2 and 3.
+   *
+   * Main builds the text and writes the clipboard for §6.2's reason: the
+   * database path, the traffic log and the versions are main's, and a renderer
+   * copy needs the window focused. The report comes BACK as well, so the button
+   * can hang it in its own `title` — it carries the reviewer's own document, and
+   * being able to read it first is the difference between copying and
+   * disclosing.
+   */
+  handle(COMMAND.traceCopyChat, (_event, threadId: string): string => {
+    const report = chatTrafficReport(db, threadId, app.getVersion());
+    clipboard.writeText(report);
+    return report;
+  });
+
+  /** The same, for one turn. `runId` is null for the rows from before spec 51. */
+  handle(COMMAND.traceCopyTurn, (_event, threadId: string, runId: string | null): string => {
+    const report = turnTrafficReport(db, threadId, runId, app.getVersion());
+    clipboard.writeText(report);
+    return report;
   });
 
   handle(COMMAND.gatewayTrafficSize, (): GatewayTrafficSize => trafficReport());

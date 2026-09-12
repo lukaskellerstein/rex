@@ -10,9 +10,11 @@ import type {
   GatewayListResponse,
   GatewayProviderView,
   GatewayStorageHealth,
-  GatewayTrafficResult,
   GatewayTrafficSize,
   ProviderDescriptor,
+  TraceChat,
+  TraceMessageResult,
+  TraceTurnsResult,
 } from "../../shared/channels.ts";
 import { isMarkdownPath } from "../../shared/formats.ts";
 import { buildRoutes, validateGateway } from "../../shared/gateways.ts";
@@ -33,9 +35,11 @@ import type {
   CommentGroup,
   CommentMove,
   DiagramPart,
+  DocumentPlace,
   DocumentRef,
   DocumentVersion,
   LineRange,
+  LinkResolution,
   Message,
   OpenedDocument,
   PaneMode,
@@ -87,8 +91,18 @@ import {
   replayNotice,
   unusableReason,
 } from "./gatewayChoices.ts";
+import {
+  canGoBack,
+  canGoForward,
+  EMPTY_HISTORY,
+  goBack,
+  goForward,
+  type History,
+  pushPlace,
+} from "./history.ts";
 import { ChevronLeft } from "./Icons.tsx";
 import { Lightbox } from "./Lightbox.tsx";
+import type { LinkTipView } from "./LinkTip.tsx";
 import { type Lane, laneOf } from "./lanes.ts";
 import { ManageGateways } from "./ManageGateways.tsx";
 import { drawDiagramPng, posterFramePng } from "./mermaid.ts";
@@ -109,7 +123,11 @@ import {
 } from "./selection.ts";
 import { TopBar } from "./TopBar.tsx";
 import { TraceSheet } from "./TraceSheet.tsx";
-import { TrafficSheet } from "./TrafficSheet.tsx";
+import { TrafficChat } from "./TrafficChat.tsx";
+import { TrafficMessage } from "./TrafficMessage.tsx";
+import { TrafficPage } from "./TrafficPage.tsx";
+import { TrafficTurn } from "./TrafficTurn.tsx";
+import { type Turn, turnsOf } from "./trace.ts";
 import { tokenClass } from "./wash.ts";
 
 /**
@@ -129,6 +147,55 @@ const EMPTY_CHOICES: AgentChoices = {
 
 /** What the middle of the window is showing. */
 type Centre = "document" | "graph";
+
+/**
+ * Spec 51 §5 — where in TRAFFIC the reviewer is.
+ *
+ * A path with one position, and not four independent flags. The first build
+ * used four, and the depth-3 step fell out of the feature entirely: `Open turn`
+ * opened the comment's trace sheet, which is a different screen answering a
+ * different question. One position makes that impossible to express.
+ *
+ * Depth 3 keeps `fromChats` so it can hand it back on the way out — walking
+ * back from a turn must reach the chat you came through, and then the list you
+ * came through, or nothing at all if you started at the comment card.
+ */
+/**
+ * One turn out of a chat, by its run id.
+ *
+ * `turnsOf` is the one place turns are built (spec 51 §9.4), so depth 3 asks it
+ * rather than keeping a copy — two ways of deciding where a turn ends is how
+ * two screens start disagreeing about one.
+ */
+function turnOf(thread: ThreadWithMessages, runId: string | null): Turn | null {
+  return turnsOf(thread).find((turn) => turn.runId === runId) ?? null;
+}
+
+/**
+ * What depth 4's head says it came out of.
+ *
+ * The TURN, not the exchange. Depth 3 draws the turn as one conversation now
+ * (its exchanges are nested prefixes of each other), so naming an exchange here
+ * would point at a thing the screen behind it no longer shows.
+ */
+function whereOf(thread: ThreadWithMessages, runId: string | null): string {
+  const turn = turnOf(thread, runId);
+  return turn && turn.runId !== null ? `Turn ${turn.number}` : "This turn";
+}
+
+type TrafficWhere =
+  | { depth: 1 }
+  | { depth: 2; threadId: string; fromChats: boolean }
+  | { depth: 3; threadId: string; fromChats: boolean; runId: string | null; rowId: string | null }
+  | {
+      depth: 4;
+      threadId: string;
+      fromChats: boolean;
+      runId: string | null;
+      rowId: string | null;
+      /** Which message of the picked exchange depth 4 opened on. */
+      at: number;
+    };
 
 /**
  * Spec 30 §3 — the sidebar has one home and two screens that lead back to it.
@@ -195,7 +262,41 @@ function sameLines(a: ScopeRect[] | null, b: ScopeRect[] | null): boolean {
 
 /** Spec 05 §3.5 — the file name. Never the whole path. */
 function nameOf(ref: DocumentRef): string {
-  return ref.value.split("/").pop() ?? ref.value;
+  return fileNameOf(ref.value);
+}
+
+/** The same, for the places that hold a path rather than a ref (spec 53 §4.5). */
+function fileNameOf(path: string): string {
+  return path.split("/").pop() ?? path;
+}
+
+/**
+ * Spec 53 §4.7 — how long the pointer rests on a link before the tip appears.
+ *
+ * Long enough to mean "resting here" rather than "passing over", short enough
+ * that the answer still feels like part of the hover. A line of prose with three
+ * links in it must not flash three tips as the pointer crosses it.
+ */
+const LINK_TIP_DELAY = 300;
+
+/** §4.7 — one resolution, as the three lines the tip draws. */
+function describeLink(answer: LinkResolution): Omit<LinkTipView, "rect"> {
+  switch (answer.kind) {
+    case "self":
+      return { target: "This document", fragment: answer.fragment, refusal: null };
+    case "document":
+      return { target: answer.display, fragment: answer.fragment, refusal: null };
+    case "external":
+      return { target: answer.url, fragment: null, refusal: null };
+    case "refused":
+      // The path REX would have opened, when the link named one. A scheme names
+      // none, and then the reason is the whole answer.
+      return {
+        target: answer.display ?? "Not a place REX can open",
+        fragment: answer.fragment,
+        refusal: answer.reason,
+      };
+  }
 }
 
 /**
@@ -411,11 +512,26 @@ export function App(): React.JSX.Element {
   const [storageHealth, setStorageHealth] = useState<GatewayStorageHealth | null>(null);
   const [trafficSize, setTrafficSize] = useState<GatewayTrafficSize | null>(null);
   const [settingsBusy, setSettingsBusy] = useState(false);
-  /** §4.6 — the comment card's `traffic` button, now opening a REX sheet. */
-  const [traffic, setTraffic] = useState<{
-    title: string;
-    result: GatewayTrafficResult | null;
-  } | null>(null);
+  /**
+   * Spec 51 §5 — TRAFFIC, at four depths.
+   *
+   * **One piece of state, because the depths are a PATH.** The first build made
+   * them four independent things and folded depth 3 into the trace sheet, which
+   * is the hybrid the reviewer rejected on 2026-09-09: `Open turn` left the
+   * feature and landed on a different screen that happened to be nearby. A path
+   * has one position, and `back` walks it.
+   *
+   * The chat's own trace sheet is NOT part of this. It is REX's record of what
+   * the agent did on one comment; this is what went over the wire. Two
+   * questions, two screens, and the only thing they share is `trace.ts`.
+   */
+  const [traffic, setTraffic] = useState<TrafficWhere | null>(null);
+  /** Depth 1's rows, read when it opens. Null while reading. */
+  const [trafficChats, setTrafficChats] = useState<TraceChat[] | null>(null);
+  /** Depth 2 and 3's chat and its exchanges. Null while reading. */
+  const [trafficChat, setTrafficChat] = useState<TraceTurnsResult | null>(null);
+  /** Depth 3 and 4's body, for the picked exchange. Null while reading. */
+  const [trafficBodies, setTrafficBodies] = useState<TraceMessageResult | null>(null);
   /** §4.5 — the descriptor, fetched once. The sheet renders itself from it. */
   const [descriptor, setDescriptor] = useState<DescribeResult | null>(null);
   /**
@@ -478,18 +594,61 @@ export function App(): React.JSX.Element {
   };
 
   /**
-   * Spec 46 §4.6 — open this comment's traffic, in REX.
+   * §5.1 — depth 1, the one screen not reached from a comment.
    *
-   * The sheet is shown at once with `result: null`, so the click has a visible
-   * answer before the file has been read. A comment with a long thread has
-   * hundreds of rows and reading them is not instant.
+   * `fromChat` records whether depth 2 was reached through here, which is what
+   * decides if depth 2 draws a `‹ Traffic` breadcrumb: opened from the comment
+   * card there is nothing behind it to go back to.
    */
-  const openTraffic = useCallback((threadId: string, title: string): void => {
-    setTraffic({ title, result: null });
-    void window.rex.gatewayTraffic(threadId).then((result) => {
-      setTraffic((was) => (was === null ? was : { ...was, result }));
+  const openTraffic = useCallback((): void => {
+    setTraffic({ depth: 1 });
+    setTrafficChats(null);
+    void window.rex.traceChats().then(setTrafficChats);
+  }, []);
+
+  /**
+   * Spec 46 §4.6 and spec 51 §5.2 — depth 2, one chat's turns.
+   *
+   * **The comment card's button, its glyph, its row and its IPC all stay; only
+   * the destination changes**, which is the second time that has been true of
+   * this control and the same reasoning both times — a control that vanishes
+   * looks like a bug. It opened Grafana, then a list of requests, and now a list
+   * of TURNS, which is the unit a person actually asks about.
+   *
+   * The screen is shown at once with nothing read, so the click has a visible
+   * answer before the file has been. A comment with a long thread has hundreds
+   * of rows and reading them is not instant.
+   */
+  const openTrafficChat = useCallback((threadId: string, fromChats: boolean): void => {
+    setTraffic({ depth: 2, threadId, fromChats });
+    setTrafficChat(null);
+    void window.rex.traceTurns(threadId).then((result) => {
+      setTrafficChat(result);
     });
   }, []);
+
+  /**
+   * §5.3 — depth 3, one turn, and §5.4 — depth 4, one message of it.
+   *
+   * The body is fetched when an exchange is PICKED, not with the rail, because a
+   * request body is the whole request since §3: a rail of five exchanges would
+   * otherwise ship five whole conversations to draw five numbers.
+   */
+  const readExchange = useCallback((rowId: string | null): void => {
+    setTrafficBodies(null);
+    if (rowId) void window.rex.traceMessage(rowId).then(setTrafficBodies);
+  }, []);
+
+  /**
+   * Spec 51 §6 defect 1 — take the gateway's state the moment main says it has
+   * settled, rather than only on a click.
+   *
+   * Mounted for the whole app and not only while Settings is open, because the
+   * gateway settles about 1.6 seconds after boot and the screen may be opened
+   * before or after that. Holding the state either way is what makes the port
+   * appear **without any click**, which is criterion A11.
+   */
+  useEffect(() => window.rex.onGatewaySettled(setBuiltin), []);
 
   /**
    * Read what Settings draws, when it opens and not before.
@@ -649,6 +808,29 @@ export function App(): React.JSX.Element {
   }, [gateways, descriptor, choicesByGateway]);
 
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * Spec 53 §5.4 — the way back.
+   *
+   * State and a ref, for the reason `threadsRef` is both: the two buttons are
+   * drawn from the state, and the commands that change it run inside callbacks
+   * that must not depend on the closure of the render that made them.
+   */
+  const [history, setHistoryState] = useState<History>(EMPTY_HISTORY);
+  const historyRef = useRef<History>(EMPTY_HISTORY);
+  /**
+   * §4.7 — the hover tip, and what it costs.
+   *
+   * The cache is keyed by `href` alone and emptied whenever the document
+   * changes, because an `href` is relative to the file it is written in and
+   * `overview.md` means two different files in two different folders.
+   */
+  const [linkTip, setLinkTip] = useState<{ pane: DocumentVersion; view: LinkTipView } | null>(null);
+  const tipCache = useRef<Map<string, LinkResolution>>(new Map());
+  const tipTimer = useRef<number | null>(null);
+  const setHistory = useCallback((next: History): void => {
+    historyRef.current = next;
+    setHistoryState(next);
+  }, []);
   // Spec 02: the workspace is a view of a folder, independent of which
   // document is open, so switching documents never disturbs it.
   const [workspace, setWorkspace] = useState<WorkspaceRef | null>(null);
@@ -824,6 +1006,7 @@ export function App(): React.JSX.Element {
   const [onlyThisFile, setOnlyThisFile] = useState(false);
   /** Spec 08 §6 — the comment whose trace is covering the document pane. */
   const [traceId, setTraceId] = useState<string | null>(null);
+
   /** Spec 08 §7.2 — which of the open comment's places is being pointed at. */
   const [hoveredPlace, setHoveredPlace] = useState<number | null>(null);
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
@@ -974,6 +1157,19 @@ export function App(): React.JSX.Element {
    * would put a row in the panel that the reviewer never built.
    */
   const anchorWhenReady = useRef<{ path: string; anchor: Anchor } | null>(null);
+  /**
+   * Spec 53 §5.6 — the third of these, and for the same reason as the other
+   * two: a document that is still opening has no DOM to scroll.
+   *
+   * A link's `#fragment` and Back's remembered place are both "somewhere in the
+   * document that is about to arrive", so they share one ref and are told apart
+   * by `kind`. Guarded on the path when it lands, so a second navigation
+   * started before the first finished cannot land the wrong jump.
+   */
+  const arriveWhenReady = useRef<{
+    path: string;
+    at: { kind: "fragment"; id: string } | { kind: "place"; place: DocumentPlace };
+  } | null>(null);
   /** Read by the sweep, which re-measures every row's box (§6). */
   const selectionRef = useRef<SelectionItem[]>([]);
   /**
@@ -1531,6 +1727,21 @@ export function App(): React.JSX.Element {
         surface.scrollToAnchor(jump.anchor);
       }
 
+      // Spec 53 §5.6 — and for a link's `#fragment`, or the place Back is on
+      // its way to. The path guard is what stops a second navigation started
+      // before this one finished from landing the wrong jump.
+      const arrival = arriveWhenReady.current;
+      if (arrival && docRef.current?.ref.value === arrival.path) {
+        arriveWhenReady.current = null;
+        if (arrival.at.kind === "place") {
+          surface.scrollToPlace(arrival.at.place);
+        } else if (!surface.scrollToFragment(arrival.at.id)) {
+          // §4.2 — the file opened, the place in it does not exist. The
+          // reviewer asked for the file and the file is what REX has.
+          setNotice(`No "#${arrival.at.id}" in ${fileNameOf(arrival.path)}.`);
+        }
+      }
+
       const waiter = sweepWaiter.current;
       if (waiter) {
         sweepWaiter.current = null;
@@ -1631,9 +1842,23 @@ export function App(): React.JSX.Element {
     groupsRef.current = list;
   }, []);
 
-  const openDocument = useCallback(
+  /**
+   * Spec 53 §5.4 — opening a document, with nothing said about history.
+   *
+   * Split out of `openDocument` so that Back and Forward can reuse every step
+   * of it without pushing the place they are travelling FROM. A back that
+   * recorded itself would never leave the last two files.
+   */
+  const loadDocument = useCallback(
     async (ref: DocumentRef): Promise<void> => {
       setSelectedPath(ref.value);
+      // §4.7 — an `href` is relative to the file it is written in, so the
+      // answers cached for the last document are answers to other questions.
+      // The tip itself goes because the link it pointed at is about to stop
+      // existing.
+      if (tipTimer.current !== null) window.clearTimeout(tipTimer.current);
+      tipCache.current.clear();
+      setLinkTip(null);
       const opened = await window.rex.docOpen(ref);
       await refreshGroups();
       const list = await window.rex.threadList(listRequest(opened.documentId));
@@ -1665,6 +1890,33 @@ export function App(): React.JSX.Element {
     [leavePen, leavePick, listRequest, refreshGroups],
   );
 
+  /**
+   * Spec 53 §5.4 rule 1 — every route to another document comes through here,
+   * and every one of them remembers the place it left.
+   *
+   * `leavingLine` is a link click's own line, which is the sentence the
+   * reviewer was reading. Absent for every other route — the explorer, a search
+   * hit, the Open dialog — and then the top of the screen is what there is.
+   */
+  const openDocument = useCallback(
+    async (ref: DocumentRef, leavingLine?: number | null): Promise<void> => {
+      const leaving = surfaceRef.current?.placeHere() ?? null;
+      // Not when the reviewer is already here: re-opening one document is not a
+      // journey, and recording it would put a Back on the button that goes
+      // nowhere.
+      if (leaving && leaving.path !== ref.value) {
+        setHistory(
+          pushPlace(
+            historyRef.current,
+            leavingLine === undefined ? leaving : { ...leaving, line: leavingLine },
+          ),
+        );
+      }
+      await loadDocument(ref);
+    },
+    [loadDocument, setHistory],
+  );
+
   /** The surface for one pane. Spec 16 §4.2 — there are two of them now. */
   const surfaceFor = useCallback(
     (pane: DocumentVersion): DocumentSurface | null =>
@@ -1687,6 +1939,122 @@ export function App(): React.JSX.Element {
     documentPath: () => docRef.current?.ref.value ?? null,
     openDocument: (path) => guard(() => openDocument({ kind: "file", value: path })),
   };
+
+  // ── Spec 53 — following a link, and getting back ────────────
+
+  /**
+   * §4.3 — one step along the history, in whichever direction.
+   *
+   * The document is only re-opened when it is not the one already on screen.
+   * Walking back and forth inside one file is a scroll, and reloading it would
+   * throw away every resolved anchor to land in the same place.
+   */
+  const travel = useCallback(
+    async (step: { history: History; to: DocumentPlace }): Promise<void> => {
+      setHistory(step.history);
+      if (docRef.current?.ref.value === step.to.path) {
+        surfaceRef.current?.scrollToPlace(step.to);
+        return;
+      }
+      arriveWhenReady.current = { path: step.to.path, at: { kind: "place", place: step.to } };
+      await loadDocument({ kind: "file", value: step.to.path });
+    },
+    [loadDocument, setHistory],
+  );
+
+  const goBackOne = useCallback((): void => {
+    const here = surfaceRef.current?.placeHere();
+    if (!here) return;
+    const step = goBack(historyRef.current, here);
+    if (step) void guard(() => travel(step));
+  }, [guard, travel]);
+
+  const goForwardOne = useCallback((): void => {
+    const here = surfaceRef.current?.placeHere();
+    if (!here) return;
+    const step = goForward(historyRef.current, here);
+    if (step) void guard(() => travel(step));
+  }, [guard, travel]);
+
+  /**
+   * §2 — a link the frame caught and stopped.
+   *
+   * Both panes come here and both name the same file: the original pane is one
+   * document's earlier version, not a second document, so `docRef` is the path
+   * either of them is written relative to.
+   */
+  /**
+   * §4.7 — the hover tip: where a link goes, before it is clicked.
+   *
+   * The answer comes from main, so it is cached for the life of the document.
+   * A table of contents is twenty links to the same handful of files, and the
+   * pointer crosses them all on its way anywhere.
+   */
+  const onHoverLink = useCallback(
+    (pane: DocumentVersion, link: { href: string; rect: ScopeRect } | null): void => {
+      if (tipTimer.current !== null) window.clearTimeout(tipTimer.current);
+      if (!link) {
+        setLinkTip(null);
+        return;
+      }
+      const from = docRef.current?.ref.value;
+      if (!from) return;
+      // A delay, so the pointer crossing a line of prose with three links in it
+      // does not flash three tips. Long enough to mean "resting here", short
+      // enough that the answer feels like part of the hover.
+      tipTimer.current = window.setTimeout(() => {
+        void (async () => {
+          const cached = tipCache.current.get(link.href);
+          const answer = cached ?? (await window.rex.linkResolve(from, link.href));
+          tipCache.current.set(link.href, answer);
+          setLinkTip({ pane, view: { rect: link.rect, ...describeLink(answer) } });
+        })();
+      }, LINK_TIP_DELAY);
+    },
+    [],
+  );
+
+  const onFollowLink = useCallback(
+    (_pane: DocumentVersion, href: string, line: number | null): void => {
+      const from = docRef.current?.ref.value;
+      if (!from) return;
+      void guard(async () => {
+        const answer = await window.rex.linkResolve(from, href);
+        switch (answer.kind) {
+          case "self":
+            // The frame tried this fragment first and nothing here carried it.
+            setNotice(
+              answer.fragment
+                ? `No "#${answer.fragment}" in ${fileNameOf(from)}.`
+                : `That link points nowhere.`,
+            );
+            return;
+          case "document": {
+            // A link to this same file is a jump, not a journey. Re-opening it
+            // would reload the page to land where a scroll already lands.
+            if (answer.path === from) {
+              if (answer.fragment && !surfaceRef.current?.scrollToFragment(answer.fragment)) {
+                setNotice(`No "#${answer.fragment}" in ${fileNameOf(from)}.`);
+              }
+              return;
+            }
+            arriveWhenReady.current = answer.fragment
+              ? { path: answer.path, at: { kind: "fragment", id: answer.fragment } }
+              : null;
+            await openDocument({ kind: "file", value: answer.path }, line);
+            return;
+          }
+          case "external":
+            await window.rex.linkExternal(answer.url);
+            return;
+          case "refused":
+            setNotice(answer.reason);
+            return;
+        }
+      });
+    },
+    [guard, openDocument],
+  );
 
   /**
    * Spec 26 §4.5 — put a place on the path bar, and rebuild its chain.
@@ -3947,6 +4315,31 @@ export function App(): React.JSX.Element {
         return;
       }
 
+      /*
+        Spec 53 §4.3 — ⌘[ back, ⌘] forward.
+
+        What macOS already means by back and forward, in Safari and in Finder,
+        and it pairs with the bare `[` and `]` that hide the two side panels:
+        the left key means left in both. Before the zoom block below, which
+        returns on any key it does not know.
+
+        A copy of the chord arrives here from inside the frame too (§5.7).
+        Nothing in the frame answers either key, so unlike ⌘+ a forwarded copy
+        cannot double an effect.
+      */
+      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+        if (event.key === "[") {
+          event.preventDefault();
+          goBackOne();
+          return;
+        }
+        if (event.key === "]") {
+          event.preventDefault();
+          goForwardOne();
+          return;
+        }
+      }
+
       // Zoom the document, the way every reader expects: ⌘/ctrl with + − 0.
       // Handled before the modifier guard below, because the modifier is the
       // binding. `=` as well as `+`, so the key does not need ⇧ on a US layout.
@@ -4147,6 +4540,8 @@ export function App(): React.JSX.Element {
     doc,
     find.openBar,
     find.openSearch,
+    goBackOne,
+    goForwardOne,
     hasGaps,
     leavePick,
     penning,
@@ -4403,9 +4798,14 @@ export function App(): React.JSX.Element {
         onOpenFile={pick}
         onOpenFolder={pickFolder}
         onSettings={() => settings.show("gateways")}
+        onTrace={openTraffic}
         onDebug={copyDebug}
         explorerShown={tree === null ? null : explorerShown}
         onExplorer={() => setExplorerShown((on) => !on)}
+        canBack={canGoBack(history)}
+        canForward={canGoForward(history)}
+        onBack={goBackOne}
+        onForward={goForwardOne}
         commentsShown={commentsShown}
         onComments={() => setCommentsShown((on) => !on)}
       />
@@ -4560,6 +4960,9 @@ export function App(): React.JSX.Element {
               onPenCancel={leavePen}
               onSurfaceReady={onSurfaceReady}
               onSelectionChanged={onSelectionChanged}
+              onFollowLink={onFollowLink}
+              onHoverLink={onHoverLink}
+              linkTip={linkTip}
               onPreview={setPreview}
               onPaneResized={onPaneResized}
               onSelectMarker={setActiveId}
@@ -4771,7 +5174,7 @@ export function App(): React.JSX.Element {
             </>
           ) : active ? (
             <CommentCard
-              onTraffic={(threadId) => openTraffic(threadId, commentName(active))}
+              onTraffic={(threadId) => openTrafficChat(threadId, false)}
               thread={active}
               number={numbers.get(active.id) ?? 0}
               tally={tallyById.get(active.id) ?? NO_PLACES}
@@ -4958,18 +5361,88 @@ export function App(): React.JSX.Element {
           // The agents that actually have an adapter, so Original's list grows
           // when spec 47 or 48 lands and shrinks for nobody.
           agents={descriptor?.sdks ?? []}
-          onRetiredSeen={() =>
-            settingsWork(async () => setBuiltin(await window.rex.gatewayRetiredSeen()))
-          }
           onManageExternal={() => setGatewaysOpen(true)}
           onClose={settings.hide}
         />
       ) : null}
 
-      {traffic ? (
-        <TrafficSheet
-          title={traffic.title}
-          result={traffic.result}
+      {/*
+        Spec 51 §5 — TRAFFIC, at four depths, and one screen at a time.
+
+        Depths 1, 2 and 3 are PAGES because `design/traffic/` draws them as
+        pages: same width, a breadcrumb head, and a forward control. Depth 4 is
+        the one narrow artboard, so it is a dialog over the turn it came from.
+
+        `back` walks the path. It never leaves the feature — the first build's
+        `Open turn` landed on the comment's trace sheet, which is the hybrid the
+        reviewer rejected.
+      */}
+      {traffic?.depth === 1 ? (
+        <TrafficPage
+          chats={trafficChats}
+          onOpenChat={(threadId) => openTrafficChat(threadId, true)}
+          onClose={() => setTraffic(null)}
+        />
+      ) : null}
+
+      {/*
+        §5.2 — depth 2, where the comment card's traffic button lands.
+
+        The chat comes back WITH its exchanges rather than out of `threads`,
+        because depth 1 crosses documents and `threads` holds only the open
+        one's. Measured against the running app on 2026-09-09: picking a chat at
+        depth 1 opened nothing at all.
+      */}
+      {traffic?.depth === 2 && trafficChat?.thread ? (
+        <TrafficChat
+          thread={trafficChat.thread}
+          rows={trafficChat.rows}
+          available={trafficChat.available}
+          reason={trafficChat.reason}
+          onOpenTurn={(runId) => {
+            // The LAST exchange, not the first. Every exchange re-sends the
+            // whole conversation, so the last one contains every message the
+            // turn ever sent — which is what depth 3 draws as one list.
+            const rows = trafficChat.rows.filter((row) => row.run === runId);
+            const whole = rows.at(-1)?.id ?? null;
+            setTraffic({ ...traffic, depth: 3, runId, rowId: whole });
+            readExchange(whole);
+          }}
+          onBack={traffic.fromChats ? openTraffic : null}
+          onClose={() => setTraffic(null)}
+        />
+      ) : null}
+
+      {/* §5.3 — depth 3, one turn: its exchanges and the messages in each. */}
+      {traffic?.depth === 3 && trafficChat?.thread && turnOf(trafficChat.thread, traffic.runId) ? (
+        <TrafficTurn
+          chatName={commentName(trafficChat.thread)}
+          chatId={trafficChat.thread.id}
+          turn={turnOf(trafficChat.thread, traffic.runId) as Turn}
+          exchanges={trafficChat.rows.filter((row) => row.run === traffic.runId)}
+          bodies={trafficBodies}
+          onOpenMessage={(at) => setTraffic({ ...traffic, depth: 4, at })}
+          onBack={() => openTrafficChat(traffic.threadId, traffic.fromChats)}
+          onClose={() => setTraffic(null)}
+        />
+      ) : null}
+
+      {/*
+        §5.4 — depth 4, one message. A PAGE since 2026-09-11, so the turn is
+        UNMOUNTED behind it rather than covered by a 760px sheet: a request body
+        is tens of kilobytes of JSON and a reviewer on a large display was
+        reading it through a slot.
+
+        Mounting one screen is also what gives `Escape` one listener. Both were
+        mounted before, both bound the key, and the walk back to depth 3 worked
+        only because the turn registered its handler first.
+      */}
+      {traffic?.depth === 4 && trafficChat?.thread && turnOf(trafficChat.thread, traffic.runId) ? (
+        <TrafficMessage
+          where={whereOf(trafficChat.thread, traffic.runId)}
+          bodies={trafficBodies}
+          start={traffic.at}
+          onBack={() => setTraffic({ ...traffic, depth: 3 })}
           onClose={() => setTraffic(null)}
         />
       ) : null}

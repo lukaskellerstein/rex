@@ -268,10 +268,23 @@ async function waitForRuns(onWaiting?: (openRuns: number) => void): Promise<void
  * 1.6 seconds, for the same reason it does not wait on the CDP probe. A failure
  * is recorded and the switch stays on — the Settings screen is where a person
  * finds out, and it reads `state().down` for the sentence.
+ *
+ * Spec 51 §6 fixes the two ways that promise was broken.
+ *
+ *  1. **Nothing told the screen when the child came up.** The state was read on
+ *     a click and never again, so a gateway that started 1.6 seconds after the
+ *     window still read "Starting…" until something else happened to ask.
+ *     `onSettled` is main *sending* — invariant I3's rule for anything that is
+ *     not a command, and the fix §10 rule 2 names.
+ *  2. **A late failure said nothing.** This function's own `catch` logged the
+ *     error and left `down` null, so the screen showed "Starting…" instead of
+ *     the reason. `fail` records it where the screen already looks.
  */
 export function startBuiltinIfEnabled(
   db: Db,
   decrypt: (providerId: string) => string | null,
+  /** Called once the child is up or has failed, so the screen can re-read. */
+  onSettled?: () => void,
 ): void {
   if (!isEnabled(db, BUILTIN_GATEWAY_ID)) return;
   void (async () => {
@@ -280,7 +293,11 @@ export function startBuiltinIfEnabled(
     // LiteLLM would then serve a model whose key is gone.
     await rebuildConfig(db);
     await startBuiltin(db, gatewayEnvironment(db, decrypt));
-  })().catch((error: unknown) => {
-    logLine("error", "local-gateway", error instanceof Error ? error.message : String(error));
-  });
+  })()
+    .catch((error: unknown) => {
+      const reason = error instanceof Error ? error.message : String(error);
+      logLine("error", "local-gateway", reason);
+      localGateway().fail(reason);
+    })
+    .finally(() => onSettled?.());
 }

@@ -1,0 +1,256 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #8fb4f0; text-decoration: none; }
+    a:hover { color: #b7cff6; }
+    * { box-sizing: border-box; }
+    .m { font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; }
+  </style>
+</helmet>
+
+<div style="width: 1040px; height: 1080px; display: flex; flex-direction: column; background: #0e1012; color: #f4f6f7; font: 13px/1.5 'DM Sans', system-ui, sans-serif;">
+
+  <div style="display: flex; align-items: center; gap: 10px; flex: none; height: 52px; padding: 0 20px; border-bottom: 1px solid #2b3035;">
+    <button type="button" style="display: flex; align-items: center; gap: 6px; flex: none; height: 24px; padding: 0 8px 0 5px; border: 0; border-radius: 2px; background: none; color: #98a0a8; font: inherit; font-size: 12.5px; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9.5 4 5.5 8l4 4"/>
+      </svg>
+      the anchor never survives a reword
+    </button>
+    <span style="flex: none; color: #414850;">/</span>
+    <span style="flex: none; font-size: 15px; font-weight: 600;">Turn 4</span>
+    <!-- REX's `.rex-sent` pill, exactly as the chat draws a recorded mode. -->
+    <span style="flex: none; padding: 1px 6px; border-radius: 999px; background: #d05744; color: #0e1012; font-size: 9px; font-weight: 700; letter-spacing: .09em;">ACT</span>
+    <div style="flex-grow: 1;"></div>
+    <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 2px; background: none; color: #98a0a8; cursor: pointer;">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round">
+        <path d="M4 4l8 8M12 4l-8 8"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Both ids, always on screen. A trace you cannot quote is a trace you
+       cannot ask anybody else about. -->
+  <div style="display: flex; align-items: center; gap: 20px; flex: none; padding: 9px 20px; border-bottom: 1px solid #2b3035; background: #131619;">
+    <sc-for list="{{ids}}" as="i" hint-placeholder-count="2">
+      <div style="display: flex; align-items: center; gap: 8px; flex: none;">
+        <span style="color: #6e767e; font-size: 11px;">{{i.label}}</span>
+        <span class="m" style="color: #ccd1d6; font-size: 11.5px;">{{i.value}}</span>
+        <button type="button" style="display: flex; align-items: center; justify-content: center; flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 2px; background: none; color: #6e767e; cursor: pointer;">
+          <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round">
+            <rect x="5.4" y="2.4" width="8.2" height="8.2" rx="1"/><path d="M10.6 13.6H2.4V5.4"/>
+          </svg>
+        </button>
+      </div>
+    </sc-for>
+    <div style="flex-grow: 1;"></div>
+    <span class="m" style="flex: none; color: #98a0a8; font-size: 11.5px;">12:04:31 → 12:05:44</span>
+  </div>
+
+  <!-- The nine facts, as a grid and not a sentence. Every one is a column you
+       would sort by if this were a table, so each gets a cell of its own.
+       Five come from rex.db's `message` row, four from the traffic log. -->
+  <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 1px; flex: none; border-bottom: 1px solid #2b3035; background: #2b3035;">
+    <sc-for list="{{facts}}" as="f" hint-placeholder-count="10">
+      <div style="display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 9px 12px; background: #0e1012;">
+        <span style="color: #6e767e; font-size: 10.5px; letter-spacing: .05em;">{{f.label}}</span>
+        <sc-if value="{{f.isMode}}" hint-placeholder-val="{{ false }}">
+          <span style="flex: none; margin: 1px 0; padding: 1px 6px; border-radius: 999px; background: {{f.pill}}; color: #0e1012; font-size: 9px; font-weight: 700; letter-spacing: .09em;">{{f.value}}</span>
+        </sc-if>
+        <sc-if value="{{f.isPlain}}" hint-placeholder-val="{{ true }}">
+          <span class="m" style="overflow: hidden; max-width: 100%; color: {{f.fg}}; font-size: 12px; text-overflow: ellipsis; white-space: nowrap;">{{f.value}}</span>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; flex-grow: 1; min-height: 0;">
+
+    <!-- A turn is a loop. This is how many times round it went. -->
+    <nav style="display: flex; flex-direction: column; gap: 1px; flex: none; width: 208px; padding: 12px 8px; border-right: 1px solid #2b3035; background: #131619; overflow: auto;">
+      <div style="padding: 0 8px 8px; color: #6e767e; font-size: 10.5px; letter-spacing: .06em;">5 EXCHANGES</div>
+      <sc-for list="{{exchanges}}" as="e" hint-placeholder-count="5">
+        <button type="button" onClick="{{e.pick}}" style="display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 0; border-radius: 2px; background: {{e.bg}}; color: {{e.fg}}; font: inherit; font-size: 12px; text-align: left; cursor: pointer;">
+          <span style="flex: none; width: 5px; height: 5px; border-radius: 3px; background: {{e.dot}};"></span>
+          <span style="overflow: hidden; flex-grow: 1; text-overflow: ellipsis; white-space: nowrap;">{{e.label}}</span>
+          <span class="m" style="flex: none; color: #6e767e; font-size: 10.5px;">{{e.ms}}</span>
+        </button>
+      </sc-for>
+    </nav>
+
+    <div style="display: flex; flex-direction: column; flex-grow: 1; min-width: 0;">
+
+      <div style="display: flex; align-items: center; gap: 10px; flex: none; padding: 10px 20px 0;">
+        <span style="flex: none; color: #f4f6f7; font-size: 13px; font-weight: 600;">{{picked.title}}</span>
+        <span class="m" style="flex: none; color: #6e767e; font-size: 11.5px;">{{picked.meta}}</span>
+        <div style="flex-grow: 1;"></div>
+        <span style="flex: none; color: #6e767e; font-size: 11.5px;">click a message for its JSON</span>
+      </div>
+
+      <div style="flex-grow: 1; min-height: 0; padding: 10px 20px 20px; overflow: auto;">
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <sc-for list="{{messages}}" as="m" hint-placeholder-count="7">
+            <div style="border: 1px solid {{m.edge}}; border-left: 2px solid {{m.rail}}; border-radius: 2px; background: {{m.bg}};">
+
+              <div style="display: flex; align-items: center; gap: 10px; padding: 7px 10px;">
+                <span class="m" style="flex: none; width: 26px; color: #4a5058; font-size: 10.5px; text-align: right;">{{m.n}}</span>
+                <span class="m" style="flex: none; color: {{m.roleFg}}; font-size: 11px;">{{m.role}}</span>
+                <sc-if value="{{m.hasTool}}" hint-placeholder-val="{{ false }}">
+                  <span class="m" style="display: flex; align-items: center; gap: 5px; flex: none; color: #d9b23a; font-size: 11.5px;">
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M10.4 2.6a3.2 3.2 0 0 0-3 4.3L3 11.3l1.7 1.7 4.4-4.4a3.2 3.2 0 0 0 4.3-3l-2 2-1.7-.4-.4-1.7z"/>
+                    </svg>
+                    {{m.tool}}
+                  </span>
+                </sc-if>
+                <div style="flex-grow: 1;"></div>
+                <sc-if value="{{m.hasImage}}" hint-placeholder-val="{{ false }}">
+                  <span style="display: flex; align-items: center; gap: 5px; flex: none; color: #66ad93; font-size: 11px;">
+                    <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+                      <rect x="2.4" y="3.4" width="11.2" height="9.2" rx="1"/><path d="m2.4 10.4 3-2.6 3.2 2.6 2-1.6 3 2.2"/>
+                    </svg>
+                    1 image
+                  </span>
+                </sc-if>
+                <span class="m" style="flex: none; color: #6e767e; font-size: 11px;">{{m.size}}</span>
+                <button type="button" class="m" style="flex: none; height: 20px; padding: 0 7px; border: 1px solid {{m.jsonEdge}}; border-radius: 2px; background: none; color: {{m.jsonFg}}; font-size: 10.5px; cursor: pointer;">JSON</button>
+              </div>
+
+              <div style="padding: 0 10px 8px 46px;">
+                <p style="display: -webkit-box; overflow: hidden; margin: 0; color: {{m.textFg}}; font-size: 12.5px; font-style: {{m.textStyle}}; -webkit-box-orient: vertical; -webkit-line-clamp: 2;">{{m.text}}</p>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { exchange: 2 };
+  }
+
+  exchangeList() {
+    return [
+      { n: 1, label: '1 · 4 messages', ms: '1.2 s', dot: '#3b4249', title: 'Exchange 1', meta: 'sent 4 messages · 3 812 in · 214 out · 1 240 ms' },
+      { n: 2, label: '2 · 6 messages', ms: '0.9 s', dot: '#3b4249', title: 'Exchange 2', meta: 'sent 6 messages · 4 106 in · 96 out · 880 ms' },
+      { n: 3, label: '3 · 27 messages', ms: '15.4 s', dot: '#3b4249', title: 'Exchange 3', meta: 'sent 27 messages · 12 880 in · 1 204 out · 15 400 ms' },
+      { n: 4, label: '4 · 29 messages', ms: 'failed', dot: '#d05744', title: 'Exchange 4', meta: 'sent 29 messages · never answered' },
+      { n: 5, label: '5 · 31 messages', ms: '9.1 s', dot: '#3b4249', title: 'Exchange 5', meta: 'sent 31 messages · 13 044 in · 862 out · 9 120 ms' }
+    ];
+  }
+
+  messageList(which) {
+    if (which === 4) {
+      return [
+        ['system', '', 'You are reviewing one comment on a document. Answer only about the passage the comment names.', '1.8 KB', false, false],
+        ['user', '', 'Apply the rewrite to the working copy and show me the diff.', '212 B', false, true],
+        ['assistant', 'Edit', 'Replacing the paragraph at line 148.', '308 B', false, false],
+        ['error', '', 'APIConnectionError — LM Studio refused the connection on 127.0.0.1:1234', '—', false, false]
+      ];
+    }
+    return [
+      ['system', '', 'You are reviewing one comment on a document. Answer only about the passage the comment names. The working copy is at ~/.rex/work/9f2c/sample-report.md.', '1.8 KB', false, false],
+      ['developer', '', 'Output style: default. Reply in prose, not in a list, unless the comment asks for steps.', '412 B', false, false],
+      ['user', '', 'Rewrite the third paragraph so it names the measurement rather than the guess. Keep the sentence about the region gate exactly as it is.', '212 B', false, true],
+      ['assistant', '', 'thinking · The quote is two paragraphs above the edit the comment is really about, so read the file before rewriting anything.', '640 B', true, false],
+      ['assistant', 'Read', '{ "file_path": "~/.rex/work/9f2c/sample-report.md", "offset": 140, "limit": 30 }', '96 B', false, false],
+      ['tool', 'Read', '   140\t## What the spike measured … 30 lines returned.', '4.8 KB', false, false],
+      ['assistant', '', 'The third paragraph now names the 42-check figure from spec 50 §5. The region-gate sentence is untouched.', '212 B', false, false]
+    ];
+  }
+
+  roleFg(role) {
+    if (role === 'user') return '#8fb4f0';
+    if (role === 'assistant') return '#66ad93';
+    if (role === 'tool') return '#d9b23a';
+    if (role === 'error') return '#eda393';
+    return '#6e767e';
+  }
+
+  renderVals() {
+    const which = this.state.exchange;
+    const picked = this.exchangeList().find((e) => e.n === which);
+
+    return {
+      ids: [
+        { label: 'turn', value: 'run-4' },
+        { label: 'chat', value: '9f2c41d8-7b10-4e63-a4c2-1d9f0b6e5a33' }
+      ],
+
+      // MODE is the one cell that is not a value but a STATE, so it wears the
+      // pill the chat wears rather than being mono text like its neighbours.
+      facts: [
+        { label: 'AGENT', value: 'claude', fg: '#f4f6f7' },
+        { label: 'GATEWAY', value: 'Built-in', fg: '#f4f6f7' },
+        { label: 'OUTPUT STYLE', value: 'default', fg: '#ccd1d6' },
+        { label: 'MODEL', value: 'gemma-4-e4b', fg: '#f4f6f7' },
+        { label: 'MODE', value: 'ACT', pill: '#d05744' },
+        { label: 'DURATION', value: '73.2 s', fg: '#ccd1d6' },
+        { label: 'COST', value: 'free', fg: '#66ad93' },
+        { label: 'TOKENS IN', value: '26 942', fg: '#ccd1d6' },
+        { label: 'TOKENS OUT', value: '2 090', fg: '#ccd1d6' },
+        { label: 'BASE URL', value: '127.0.0.1:24334', fg: '#98a0a8' }
+      ].map((f) => ({
+        label: f.label,
+        value: f.value,
+        fg: f.fg || '#ccd1d6',
+        pill: f.pill || '',
+        isMode: !!f.pill,
+        isPlain: !f.pill
+      })),
+
+      exchanges: this.exchangeList().map((e) => ({
+        label: e.label,
+        ms: e.ms,
+        dot: e.dot,
+        bg: e.n === which ? '#2b3947' : 'transparent',
+        fg: e.n === which ? '#f4f6f7' : '#ccd1d6',
+        pick: () => this.setState({ exchange: e.n })
+      })),
+
+      picked: { title: picked.title, meta: picked.meta },
+
+      messages: this.messageList(which).map((row, i) => {
+        const role = row[0];
+        const tool = row[1];
+        const failed = role === 'error';
+        const selected = i === 4 && which !== 4;
+        return {
+          n: String(i + 1),
+          role: role,
+          roleFg: this.roleFg(role),
+          hasTool: !!tool,
+          tool: tool,
+          hasImage: row[5],
+          text: row[2],
+          textFg: failed ? '#eda393' : (row[4] ? '#8b9298' : '#ccd1d6'),
+          textStyle: row[4] ? 'italic' : 'normal',
+          size: row[3],
+          edge: failed ? '#4a3229' : (selected ? '#4d84e8' : '#2b3035'),
+          rail: failed ? '#d05744' : this.roleFg(role),
+          bg: selected ? '#2b3947' : '#191c1f',
+          jsonEdge: selected ? '#4d84e8' : '#414850',
+          jsonFg: selected ? '#8fb4f0' : '#6e767e'
+        };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

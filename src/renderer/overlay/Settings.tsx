@@ -62,8 +62,6 @@ interface Props {
   onClearTraffic: () => Promise<void>;
   /** Opens the older sheet, for an external LiteLLM. */
   onManageExternal: () => void;
-  /** §15 — the reviewer has read the note about removed gateways. */
-  onRetiredSeen: () => Promise<void>;
   onClose: () => void;
 }
 
@@ -162,25 +160,12 @@ function GatewaysSection(props: Props): React.JSX.Element {
   return (
     <>
       {/*
-        §15 — said ONCE, and named. Two working gateways vanishing with no
-        explanation is the kind of upgrade people never forgive; one that keeps
-        saying so on every visit is noise. The button is what makes it once.
+        Spec 46 §15's retired-gateway notice was here, and spec 51 §6 removes
+        it: **it has been seen.** It existed to say once that `envoy` and
+        `custom` had gone, and a sentence that has done its job is a sentence
+        that is only taking up the top of the screen now. The setting it read
+        stays, so nothing has to be migrated to take it away.
       */}
-      {builtin && builtin.retired.length > 0 ? (
-        <section className="rex-set-card rex-set-notice">
-          <p>
-            REX now supports one gateway product, so {builtin.retired.join(" and ")}{" "}
-            {builtin.retired.length === 1 ? "was" : "were"} removed. Every answer they produced
-            still names them — nothing in your comments was lost. The built-in gateway below
-            replaces them.
-          </p>
-          <div className="rex-set-acts">
-            <button type="button" className="rex-button" onClick={() => void props.onRetiredSeen()}>
-              Got it
-            </button>
-          </div>
-        </section>
-      ) : null}
 
       {/*
         Original. **Not Claude's** — spec 43 §2.5 gives every SDK a route here,

@@ -865,7 +865,12 @@ export function CommentCard(props: Props): React.JSX.Element {
           ask why. Icon only — this row is icons, and the word `debug` is what
           the sheet's wider head has space for.
         */}
-        <DebugCopy threadId={thread.id} className="rex-icon-button rex-debug" />
+        <DebugCopy
+          copy={() => window.rex.debugCopy(thread.id)}
+          what="comment"
+          subject={thread.id}
+          className="rex-icon-button rex-debug"
+        />
 
         {/*
           Deliberately here and not beside Send / Apply. Those are the things a
@@ -975,7 +980,13 @@ export function CommentCard(props: Props): React.JSX.Element {
                 disabled={props.tracing}
                 onClick={props.onShowTrace}
               >
-                {props.tracing ? "showing" : "show trace"}
+                {/*
+                  Spec 51 — `show detail`, not `show trace`. The gesture and
+                  what it opens are unchanged; the word is what moved, because
+                  the `traffic` button two lines up now opens a four-depth
+                  feature the design called Trace as well. One name per screen.
+                */}
+                {props.tracing ? "showing" : "show detail"}
                 {props.tracing ? null : <ChevronRight />}
               </button>
             </div>

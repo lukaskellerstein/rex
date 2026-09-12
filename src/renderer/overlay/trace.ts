@@ -13,6 +13,7 @@
 // as data, so `node --test` can check it without a DOM.
 
 import type { AgentSdk } from "../../shared/agent-protocol.ts";
+import { type TurnFacts, turnFactsOf } from "../../shared/turns.ts";
 import type { Message, SendMode, ThreadWithMessages } from "../../shared/types.ts";
 import { agentText } from "./aside.ts";
 import { type Mode, modeOf } from "./mode.ts";
@@ -102,6 +103,15 @@ export interface TraceEntry {
   sdk: AgentSdk | null;
   gatewayName: string | null;
   baseUrl: string | null;
+  /**
+   * Spec 51 §4 — the turn this block belongs to, from `message.run_id`.
+   *
+   * Null on a NOTE, which is no turn, and on every row written before the
+   * column existed. Those group under one unnamed turn rather than vanishing:
+   * a chat from last week has real machinery in it, and hiding it would make
+   * the sheet claim REX had never run.
+   */
+  runId: string | null;
   /**
    * Spec 38 §3.3 — the agent's own one-line account of a call, when the input
    * carries one: `Bash` sends a `description` beside every command. It is the
@@ -301,6 +311,10 @@ function entry(message: Message, kind: TraceKind, label: string, body: string): 
     sdk: message.sdk,
     gatewayName: message.gatewayName,
     baseUrl: message.baseUrl,
+    // `?? null` because this one is a Map KEY in `turnsOf`, and `undefined`
+    // would make a second "no turn" group beside the null one — two groups for
+    // one absence, drawn as two turns that never happened.
+    runId: message.runId ?? null,
     what: null,
     fields: [],
     change: null,
@@ -439,4 +453,102 @@ export function traceOf(thread: ThreadWithMessages): TraceEntry[] {
     }
   }
   return entries;
+}
+
+// ── Spec 51 §5.2 — turns ────────────────────────────────────────
+
+/**
+ * One turn — one Ask or one Apply — and everything it produced.
+ *
+ * Built here rather than in a component, for the reason every other decision in
+ * this file is: `node --test` can check a turn's shape with no DOM, and the two
+ * screens that draw turns cannot then disagree about where one ends.
+ *
+ * **A turn is `message.run_id` and nothing else.** Not a time window, not "from
+ * one user message to the next": both of those are guesses that look exactly as
+ * confident as the truth, and the id is on the row.
+ */
+export interface Turn extends TurnFacts {
+  /** The blocks, in order. Depth 3 draws these; depth 2 summarises them. */
+  entries: TraceEntry[];
+}
+
+/** Spec 51 §5.2 — one line of the brief step list a turn expands to. */
+export interface TurnStep {
+  /** The role column: `you`, `agent`, a tool's name, or REX's own word. */
+  role: string;
+  /** One line, cut. Never JSON — that is depth 4's job and depth 4's alone. */
+  text: string;
+  /** How much is behind it, in `foldSize`'s words, or `failed`. */
+  size: string;
+  failed: boolean;
+}
+
+/** What a block contributes to the step list, as one line. */
+function stepOf(entry: TraceEntry): TurnStep {
+  const failed = entry.kind === "denied" || entry.kind === "failed" || entry.kind === "error";
+  const body = entry.what ?? entry.reason ?? entry.body;
+  return {
+    role:
+      entry.kind === "you"
+        ? "you"
+        : entry.kind === "tool" || entry.kind === "denied" || entry.kind === "failed"
+          ? entry.label.toLowerCase()
+          : entry.kind === "thinking"
+            ? "thinking"
+            : entry.kind === "answer" || entry.kind === "aside"
+              ? "agent"
+              : entry.kind,
+    text: previewOf(body),
+    size: failed ? "failed" : foldSize(body),
+    failed,
+  };
+}
+
+/**
+ * Spec 51 §5.2 — the brief list a turn shows when it is expanded.
+ *
+ * One line per block, and **never JSON**: at this level a message is 40 KB and
+ * the question is only "what did it do", which is one line each. The JSON lives
+ * at depth 4, on one message, where it is twenty lines rather than two thousand.
+ */
+export function stepsOfTurn(turn: Turn): TurnStep[] {
+  return turn.entries.map(stepOf);
+}
+
+/**
+ * Every turn in this chat, oldest first.
+ *
+ * **The blocks are grouped here; the facts are counted in `shared/turns.ts`.**
+ * Spec 55 §2 — main writes a report about the same turn and cannot import a
+ * renderer file, so the arithmetic moved to a file both processes can read. The
+ * two could not then disagree about what a turn cost, which they would have,
+ * silently, the first time either side was changed alone.
+ *
+ * Rows with no `run_id` collect into one turn with `runId: null`. They are the
+ * rows written before spec 51 and they are shown, not hidden — a chat from last
+ * week has real machinery in it, and a sheet that dropped it would say REX had
+ * never run. Its number is 0, because it is not the first turn of anything; it
+ * is every turn nobody recorded, together.
+ */
+export function turnsOf(thread: ThreadWithMessages): Turn[] {
+  const entries = traceOf(thread);
+  const byRun = new Map<string | null, TraceEntry[]>();
+  for (const entry of entries) {
+    const list = byRun.get(entry.runId) ?? [];
+    list.push(entry);
+    byRun.set(entry.runId, list);
+  }
+
+  const facts = new Map<string | null, TurnFacts>();
+  for (const turn of turnFactsOf(thread.messages)) facts.set(turn.runId, turn);
+
+  const turns: Turn[] = [];
+  for (const [runId, list] of byRun) {
+    const fact = facts.get(runId);
+    // Every block is built from a message, so every group has facts. A group
+    // that somehow has none is dropped rather than drawn with invented numbers.
+    if (fact) turns.push({ ...fact, entries: list });
+  }
+  return turns;
 }

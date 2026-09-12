@@ -16,6 +16,7 @@ import {
   migrateMessageMode,
   migrateMessageModel,
   migrateMessageRoute,
+  migrateMessageRunId,
   migrateMessageStyle,
   migrateNoteFlag,
   migrateRetireGatewayKinds,
@@ -65,6 +66,10 @@ export function openDatabase(): Db {
   // having. NULL on every existing row: until spec 31 no send named one.
   migrateMessageStyle(db);
   migrateThreadStyle(db);
+  // Spec 51 §4 — which turn a row belongs to, and the join key depth 3 needs.
+  // NULL on every existing row, which groups them under "before turns were
+  // recorded"; nothing in an old row could be used to guess it.
+  migrateMessageRunId(db);
   // Which tool calls the GATE refused, as opposed to the ones that failed on
   // their own. Backfilled from the `Denied …` notes, so a refusal recorded
   // before the column existed keeps its name.

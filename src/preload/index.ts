@@ -16,6 +16,8 @@ const api: RexApi = {
   docPick: () => ipcRenderer.invoke(COMMAND.docPick),
   docInitial: () => ipcRenderer.invoke(COMMAND.docInitial),
   docOpen: (ref, version) => ipcRenderer.invoke(COMMAND.docOpen, ref, version),
+  linkResolve: (from, href) => ipcRenderer.invoke(COMMAND.linkResolve, from, href),
+  linkExternal: (url) => ipcRenderer.invoke(COMMAND.linkExternal, url),
   workspacePick: () => ipcRenderer.invoke(COMMAND.workspacePick),
   workspaceTree: (ref, reveal) => ipcRenderer.invoke(COMMAND.workspaceTree, ref, reveal === true),
   workspaceGraph: (ref) => ipcRenderer.invoke(COMMAND.workspaceGraph, ref),
@@ -89,6 +91,14 @@ const api: RexApi = {
   gatewayTrafficSize: () => ipcRenderer.invoke(COMMAND.gatewayTrafficSize),
   gatewayTrafficClear: () => ipcRenderer.invoke(COMMAND.gatewayTrafficClear),
   gatewayTrafficBodies: (capture) => ipcRenderer.invoke(COMMAND.gatewayTrafficBodies, capture),
+
+  // Spec 51 §5 — the trace, at four depths. Reads only: every one of them
+  // touches `rex.db` or the traffic log, and invariant I2 keeps both in main.
+  traceChats: () => ipcRenderer.invoke(COMMAND.traceChats),
+  traceTurns: (threadId) => ipcRenderer.invoke(COMMAND.traceTurns, threadId),
+  traceMessage: (rowId) => ipcRenderer.invoke(COMMAND.traceMessage, rowId),
+  traceCopyChat: (threadId) => ipcRenderer.invoke(COMMAND.traceCopyChat, threadId),
+  traceCopyTurn: (threadId, runId) => ipcRenderer.invoke(COMMAND.traceCopyTurn, threadId, runId),
   paperView: () => ipcRenderer.invoke(COMMAND.paperView),
   paperViewSet: (view) => ipcRenderer.invoke(COMMAND.paperViewSet, view),
   renderResult: (request) => ipcRenderer.invoke(COMMAND.renderResult, request),
@@ -97,6 +107,9 @@ const api: RexApi = {
   onStreamCost: (listener) => subscribe(EVENT.streamCost, listener),
   onApplyReady: (listener) => subscribe(EVENT.applyReady, listener),
   onRenderRequest: (listener) => subscribe(EVENT.renderRequest, listener),
+  // Spec 51 §6 — main says when the built-in gateway has settled. Nothing did,
+  // so Settings drew "Starting…" for a gateway that was already serving.
+  onGatewaySettled: (listener) => subscribe(EVENT.gatewaySettled, listener),
 };
 
 contextBridge.exposeInMainWorld("rex", api);

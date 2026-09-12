@@ -4,6 +4,7 @@
 import { v4 as uuidv4 } from "uuid";
 import type { ThreadListRequest } from "../../shared/channels.ts";
 import { buildCommentTree, walkOrder } from "../../shared/commentTree.ts";
+import { commentName } from "../../shared/names.ts";
 import { movedPath } from "../../shared/paths.ts";
 import type {
   AgentSdk,
@@ -92,6 +93,8 @@ interface MessageRow {
   sdk: AgentSdk | null;
   gateway_name: string | null;
   base_url: string | null;
+  /** Spec 51 §4 — the turn. Absent on a database the migration has not reached. */
+  run_id: string | null;
   content: string | null;
   tool_name: string | null;
   tool_input_json: string | null;
@@ -163,6 +166,7 @@ function toMessage(row: MessageRow): Message {
     sdk: row.sdk ?? null,
     gatewayName: row.gateway_name ?? null,
     baseUrl: row.base_url ?? null,
+    runId: row.run_id ?? null,
     content: row.content,
     toolName: row.tool_name,
     toolInput: row.tool_input_json ? JSON.parse(row.tool_input_json) : null,
@@ -879,6 +883,7 @@ export type MessageDraft = Omit<
   | "sdk"
   | "gatewayName"
   | "baseUrl"
+  | "runId"
   | "denied"
 > & {
   mode?: SendMode | null;
@@ -894,6 +899,13 @@ export type MessageDraft = Omit<
   sdk?: AgentSdk | null;
   gatewayName?: string | null;
   baseUrl?: string | null;
+  /**
+   * Spec 51 §4 — the turn this row belongs to, optional for `model`'s reason
+   * and stamped at exactly the same place. `bridge.ts` mints the id and emits
+   * blocks; `ipc.ts`'s `record` knows which turn is running and stamps them all
+   * on the way past.
+   */
+  runId?: string | null;
   /**
    * Optional for the reason `mode` is: one site knows it and the rest do not.
    * The gate is the only thing that can refuse a call, so the runner is the only
@@ -921,10 +933,10 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
 
   db.prepare(
     `INSERT INTO message (id, thread_id, seq, role, kind, mode, model, style,
-                          sdk, gateway_name, base_url, content, tool_name,
+                          sdk, gateway_name, base_url, run_id, content, tool_name,
                           tool_input_json, is_error, denied, cost_usd, duration_ms, input_tokens,
                           output_tokens, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     threadId,
@@ -937,6 +949,7 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     draft.sdk ?? null,
     draft.gatewayName ?? null,
     draft.baseUrl ?? null,
+    draft.runId ?? null,
     draft.content,
     draft.toolName,
     draft.toolInput === null || draft.toolInput === undefined
@@ -962,6 +975,7 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     sdk: draft.sdk ?? null,
     gatewayName: draft.gatewayName ?? null,
     baseUrl: draft.baseUrl ?? null,
+    runId: draft.runId ?? null,
     denied: draft.denied ?? false,
     id,
     threadId,
@@ -1118,6 +1132,104 @@ export function documentCostUsd(db: Db, documentId: string): number {
     )
     .get(documentId);
   return row?.total ?? 0;
+}
+
+/**
+ * Spec 51 §5.1 — one row per chat, for depth 1.
+ *
+ * The `rex.db` HALF of the join. Everything here is a fact about what REX did:
+ * which comment, on which document, with which agent, how many turns, what it
+ * cost. The gateway's log supplies the other half — how many exchanges those
+ * turns made, and how many of them failed — and **neither side can draw the
+ * screen alone**, which is the structural fact §4 turns on.
+ *
+ * A chat with no run at all is still listed. A comment saved as a note is a real
+ * thing a person will look for, and hiding it would make depth 1 disagree with
+ * the sidebar about how many comments exist.
+ */
+export interface ChatTrace {
+  threadId: string;
+  /** The comment's name, resolved the way every other surface resolves it. */
+  name: string;
+  documentId: string;
+  documentTitle: string | null;
+  /** The newest agent this chat ran under. Null if it has never run. */
+  sdk: AgentSdk | null;
+  /** How many turns REX recorded — distinct `run_id`, so a NOTE counts none. */
+  turns: number;
+  /** Rows written before spec 51, which belong to no turn REX can name. */
+  untracked: number;
+  costUsd: number;
+  durationMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  /** When this chat last changed, which is what depth 1 sorts on. */
+  updatedAt: string;
+}
+
+interface ChatTraceRow {
+  thread_id: string;
+  title: string | null;
+  note: string;
+  document_id: string;
+  document_title: string | null;
+  sdk: AgentSdk | null;
+  turns: number;
+  untracked: number;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  updated_at: string;
+}
+
+export function listChatTraces(db: Db): ChatTrace[] {
+  return db
+    .prepare<[], ChatTraceRow>(
+      `SELECT t.id                                   AS thread_id,
+              t.title                                AS title,
+              t.note                                 AS note,
+              t.document_id                          AS document_id,
+              d.title                                AS document_title,
+              -- The newest agent that answered, not the oldest: a chat that
+              -- moved from Claude to Codex is a Codex chat now, and the row
+              -- says what it IS rather than what it started as.
+              (SELECT m2.sdk FROM message m2
+                WHERE m2.thread_id = t.id AND m2.sdk IS NOT NULL
+                ORDER BY m2.seq DESC LIMIT 1)        AS sdk,
+              COUNT(DISTINCT m.run_id)               AS turns,
+              -- Spec 51 §4 — rows written before \`run_id\` existed. Counted
+              -- rather than hidden, so a chat from last week reads as "REX has
+              -- 40 messages here and cannot tell you which turns they were"
+              -- instead of as an empty chat.
+              SUM(CASE WHEN m.run_id IS NULL AND m.mode IS NOT 'note' THEN 1 ELSE 0 END)
+                                                     AS untracked,
+              SUM(m.cost_usd)                        AS cost_usd,
+              SUM(m.duration_ms)                     AS duration_ms,
+              SUM(m.input_tokens)                    AS input_tokens,
+              SUM(m.output_tokens)                   AS output_tokens,
+              t.updated_at                           AS updated_at
+         FROM thread t
+         LEFT JOIN document d ON d.id = t.document_id
+         LEFT JOIN message m ON m.thread_id = t.id
+        GROUP BY t.id
+        ORDER BY t.updated_at DESC`,
+    )
+    .all()
+    .map((row) => ({
+      threadId: row.thread_id,
+      name: commentName({ title: row.title, note: row.note }),
+      documentId: row.document_id,
+      documentTitle: row.document_title,
+      sdk: row.sdk ?? null,
+      turns: row.turns ?? 0,
+      untracked: row.untracked ?? 0,
+      costUsd: row.cost_usd ?? 0,
+      durationMs: row.duration_ms ?? 0,
+      inputTokens: row.input_tokens ?? 0,
+      outputTokens: row.output_tokens ?? 0,
+      updatedAt: row.updated_at,
+    }));
 }
 
 // ── Apply runs ──────────────────────────────────────────────────

@@ -163,6 +163,14 @@ CREATE TABLE IF NOT EXISTS message (
   sdk             TEXT,
   gateway_name    TEXT,
   base_url        TEXT,
+  -- Spec 51 §4 — which TURN this row belongs to. The same string `bridge.ts`
+  -- mints and `attribution.py` sends as `x-rex-run`, which makes it the join
+  -- key between these rows and the gateway's traffic log. Depth 3 IS that join.
+  --
+  -- `model` and `style`'s rule: set on the send and on everything the run
+  -- produced, NULL for a NOTE and for every row written before the column.
+  -- A separately minted id here would join nothing at all.
+  run_id          TEXT,
   content         TEXT,
   tool_name       TEXT,
   tool_input_json TEXT,

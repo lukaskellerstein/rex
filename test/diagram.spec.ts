@@ -19,6 +19,7 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import * as esbuild from "esbuild";
 import { chromium } from "playwright";
+import { tagsFor } from "../src/main/agent/tags.ts";
 import { renderMarkdown } from "../src/main/render/markdown.ts";
 import {
   describeRef,
@@ -39,6 +40,9 @@ import {
 import type { Anchor, AnchorState, DiagramPart } from "../src/shared/types.ts";
 
 const REPO = join(import.meta.dirname, "..");
+
+/** Spec 54 §5 — nothing in this fixture spells a tag, so the names stay bare. */
+const BARE = tagsFor("");
 
 /** Spec 29 §1 — the seven-line flowchart the spec was measured against. */
 const FLOWCHART = `flowchart LR
@@ -624,27 +628,23 @@ test("passageSection tells the agent the part in the words of the source, with t
     thread: thread as never,
     documentPaths: new Map([["d1", file]]),
     repositoryRoot: tmpdir(),
-    heading: "## Highlighted passages",
+    tags: BARE,
   }).join("\n");
 
-  // The document is named once, at the head of the prompt or as a `###` heading
-  // (spec 24 §6.1); the sentence names the fence's lines in it.
-  assert.match(text, /1\. In the Mermaid diagram \(flowchart\) at lines 6–12:/);
+  // Spec 54 §4 — the body is the part's own source and everything REX knows
+  // ABOUT the part is an attribute, so the body stays pure document text.
   assert.match(
     text,
-    /the node B, labelled "Has comment\?" — declared on line 7:\n {7}A\[Reviewer\] --> B\{Has comment\?\}/,
-  );
-  assert.match(text, /It is also mentioned on lines 8 and 9\./);
-  assert.match(
-    text,
-    /the edge from B to C, labelled "yes" — line 8:\n {7}B -- yes --> C\[Ask agent\]/,
+    /<rex-section n="1" lines="7" diagram="flowchart" fence="6-12" part="node B" label="Has comment\?" also="8,9">\nA\[Reviewer\] --> B\{Has comment\?\}\n<\/rex-section>/,
   );
   assert.match(
     text,
-    /lines 10–12:\n {7}subgraph engine \[The engine\]\n {7}C --> E\[\(rex\.db\)\]\n {7}end/,
+    /<rex-section n="2" lines="8" diagram="flowchart" fence="6-12" part="edge B to C" label="yes">\nB -- yes --> C\[Ask agent\]\n<\/rex-section>/,
   );
-  // §5.8 — no second `— line N` after a diagram part: its description carries its lines.
-  assert.doesNotMatch(text, /end\n.*— line \d+/);
+  assert.match(
+    text,
+    /<rex-section n="3" lines="10-12" diagram="flowchart" fence="6-12" part="lines">\nsubgraph engine \[The engine\]\nC --> E\[\(rex\.db\)\]\nend\n<\/rex-section>/,
+  );
 
   // The file moved on: two lines above the fence, and B relabelled. The agent
   // reads the lines as they are now.
@@ -653,8 +653,8 @@ test("passageSection tells the agent the part in the words of the source, with t
     thread: thread as never,
     documentPaths: new Map([["d1", file]]),
     repositoryRoot: tmpdir(),
-    heading: null,
+    tags: BARE,
   }).join("\n");
-  assert.match(moved, /at lines 8–14:/);
-  assert.match(moved, /the node B, labelled "Decision\?" — declared on line 9:/);
+  assert.match(moved, /fence="8-14"/);
+  assert.match(moved, /<rex-section n="1" lines="9" [^>]*part="node B" label="Decision\?"/);
 });

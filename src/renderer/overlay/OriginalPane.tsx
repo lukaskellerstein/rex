@@ -37,13 +37,14 @@ import {
 } from "./anchoring.ts";
 import { enrichDocument } from "./enrich.ts";
 import {
+  answerLinkClicks,
   applyPaperView,
   applyZoom,
   forwardKeysToParent,
-  jumpToFragmentsInsteadOfNavigating,
   srcdocFor,
   zoomFromInside,
 } from "./frame.ts";
+import { LinkTip, type LinkTipView } from "./LinkTip.tsx";
 import { ModeStrip } from "./ModeStrip.tsx";
 import { mermaidPass } from "./mermaid.ts";
 import { type DraftMark, PaneMarks } from "./PaneMarks.tsx";
@@ -80,6 +81,16 @@ interface Props {
   /** Spec 16 §4.2 — and the surface, so this pane can be commented on. */
   onSurfaceReady: (surface: DocumentSurface | null) => void;
   onSelectionChanged: () => void;
+  /**
+   * Spec 53 §3 — a link followed here opens in the CURRENT pane.
+   *
+   * This pane shows one file's past. A second file has no past to show beside
+   * it, so there is nothing for a left-hand pane of it to be.
+   */
+  onFollowLink: (href: string, line: number | null) => void;
+  /** Spec 53 §4.7 — the same hover, in this pane. */
+  onHoverLink: (link: { href: string; rect: ScopeRect } | null) => void;
+  linkTip: LinkTipView | null;
 
   resolved: ResolvedThread[];
   threads: ThreadWithMessages[];
@@ -158,6 +169,11 @@ export function OriginalPane(props: Props): React.JSX.Element {
   /** Spec 27 §5.2 — read through a ref, so a switch never rewrites `srcdoc`. */
   const paperRef = useRef(props.paper);
   paperRef.current = props.paper;
+  /** Spec 53 §5.2 — the same, for the link listeners. */
+  const followRef = useRef(props.onFollowLink);
+  followRef.current = props.onFollowLink;
+  const hoverRef = useRef(props.onHoverLink);
+  hoverRef.current = props.onHoverLink;
   /** Spec 26 §5.4 — the overlay holds ↑ ↓, so this frame must not scroll on them. */
   const wantsArrows = useRef(false);
   wantsArrows.current = (props.pathScopes?.length ?? 0) > 0;
@@ -186,11 +202,20 @@ export function OriginalPane(props: Props): React.JSX.Element {
       const inner = frame.contentDocument;
       if (!live || !view || !inner) return;
 
+      // Built here and handed up below — see the note in `DocumentView`: the
+      // link listener needs `scrollToFragment`, which owns REX's rule for
+      // bringing a place into view.
+      const surface = new FrameSurface(frame, doc.ref.value);
+
       const follow = (): void => setScroll({ x: view.scrollX, y: view.scrollY });
       follow();
       view.addEventListener("scroll", follow, { passive: true });
       inner.addEventListener("mouseup", onSelectionChanged);
-      jumpToFragmentsInsteadOfNavigating(inner);
+      answerLinkClicks(inner, {
+        fragment: (id) => surface.scrollToFragment(id),
+        follow: (href, line) => followRef.current(href, line),
+        hover: (link) => hoverRef.current(link),
+      });
       zoomFromInside(inner, zoomCommands);
       forwardKeysToParent(inner, wantsArrows);
 
@@ -208,7 +233,7 @@ export function OriginalPane(props: Props): React.JSX.Element {
       // Spec 16 §5.5 — `liveBlocks` stays null here: everything in the original
       // is live, because everything in it is something the change may have
       // taken away and the reviewer may want back.
-      onSurfaceReady(new FrameSurface(frame, doc.ref.value));
+      onSurfaceReady(surface);
     };
 
     const onLoadEvent = (): void => void onLoad();
@@ -340,6 +365,13 @@ export function OriginalPane(props: Props): React.JSX.Element {
           onFocusItem={props.onFocusItem}
           onSelectMarker={props.onSelectMarker}
           onHoverThread={props.onHoverThread}
+        />
+
+        <LinkTip
+          tip={props.linkTip}
+          scrollX={scroll.x}
+          scrollY={scroll.y}
+          paneHeight={paneRef.current?.clientHeight ?? 0}
         />
 
         {props.penning ? (

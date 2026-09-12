@@ -135,6 +135,19 @@ export interface AgentRunInput {
    * was there.
    */
   readable?: string[];
+  /**
+   * Spec 51 §4 — this turn's id, when the caller has already minted one.
+   *
+   * The caller mints it because a turn STARTS before this function is called:
+   * `ipc.ts` writes the reviewer's own message first, and that row is part of
+   * the turn. So `nextRunId()` is exported and the caller stamps the same
+   * string on the send, on everything the run produces, and passes it here —
+   * where it becomes the `x-rex-run` header.
+   *
+   * Absent means "nobody is joining this run to anything", and one is minted
+   * here as before, so a caller that does not care is unchanged.
+   */
+  runId?: string;
   /** Spec 11 §6.4.2 — the document under review, so only a deck pays for the design plugins. */
   documentPath?: string | null;
   onMessage: (draft: MessageDraft) => void;
@@ -464,6 +477,24 @@ export async function verifyRoute(route: ResolvedRoute): Promise<VerifyResult> {
 
 let runCounter = 0;
 
+/**
+ * Spec 51 §4 — one turn's id, minted in the one place that mints them.
+ *
+ * Exported because a turn starts before `runAgent` is called: `ipc.ts` records
+ * the reviewer's own message first, and that row belongs to the turn. So the
+ * caller asks for the id, stamps every row it writes with it, and hands the
+ * same string back through `AgentRunInput.runId`.
+ *
+ * > It has to be THIS function and not a UUID minted beside it. The string
+ * > reaches the gateway as `x-rex-run` and comes back as the traffic row's
+ * > `run`, and depth 3 is the join between the two. A different string on
+ * > either side joins nothing and draws an empty grid rather than an error.
+ */
+export function nextRunId(): string {
+  runCounter += 1;
+  return `${Date.now().toString(36)}-${runCounter}`;
+}
+
 function sessionOf(input: AgentRunInput): AgentSession {
   // §5.5 — `resume: false` with an id MEANS "seed a new session with this id",
   // which is a different request from "continue it" and needs a different word.
@@ -619,8 +650,7 @@ export function draftFor(event: AgentEvent, onWrote?: (path: string) => void): M
 }
 
 export async function runAgent(input: AgentRunInput): Promise<AgentRunResult> {
-  runCounter += 1;
-  const runId = `${Date.now().toString(36)}-${runCounter}`;
+  const runId = input.runId ?? nextRunId();
   const service = agentService();
 
   // Spec 17 §2.2 — the reviewer's Stop becomes a `stop` message. Nothing else

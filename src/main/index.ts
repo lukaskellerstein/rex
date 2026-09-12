@@ -14,7 +14,7 @@ import { getSetting } from "./db/settings.ts";
 import { installDiagnostics } from "./diagnostics.ts";
 import { startBuiltinIfEnabled, stopBuiltin } from "./gateway/lifecycle.ts";
 import { unseal } from "./gateway/secrets.ts";
-import { registerIpc } from "./ipc.ts";
+import { announceGatewaySettled, registerIpc } from "./ipc.ts";
 import { openLogFile, record } from "./log.ts";
 import { generationAvailable } from "./pptx/media.ts";
 import { setGenerationEnabled } from "./pptx/plan.ts";
@@ -177,7 +177,15 @@ void app.whenReady().then(() => {
   //
   // The decryptor is passed in rather than imported by `lifecycle.ts`, so that
   // the only file in `gateway/` needing `electron` is `secrets.ts` (§7).
-  startBuiltinIfEnabled(db, (providerId) => unseal(keyCipherOf(db, providerId)));
+  //
+  // Spec 51 §6 defect 1 — and it says when it has settled. Nothing did, so a
+  // Settings screen opened during those 1.6 seconds drew "Starting…" until
+  // something else happened to ask, for a gateway that was already serving.
+  startBuiltinIfEnabled(
+    db,
+    (providerId) => unseal(keyCipherOf(db, providerId)),
+    () => announceGatewaySettled(),
+  );
 
   // Not awaited: the window must not wait on a loopback fetch. The report is
   // asked for by a human, minutes later at the earliest.

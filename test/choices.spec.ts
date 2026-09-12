@@ -85,6 +85,7 @@ function message(fields: Partial<Message> = {}): Message {
     sdk: null,
     gatewayName: null,
     baseUrl: null,
+    runId: null,
     content: "said something",
     toolName: null,
     toolInput: null,

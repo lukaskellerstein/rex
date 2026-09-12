@@ -43,6 +43,7 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
     sdk: null,
     gatewayName: null,
     baseUrl: null,
+    runId: null,
     content: null,
     toolName: null,
     toolInput: null,

@@ -1,0 +1,39 @@
+{
+  "artboards": [
+    { "file": "Trace.dc.html", "title": "1 · Trace — every chat", "x": 0, "y": 0, "w": 1040, "h": 780 },
+    { "file": "Main.dc.html", "title": "2 · One chat — its turns", "x": 1140, "y": 0, "w": 1040, "h": 900, "is_interactive": true },
+    { "file": "Turn.dc.html", "title": "3 · One turn — its messages", "x": 0, "y": 1080, "w": 1040, "h": 1080, "is_interactive": true },
+    { "file": "Message.dc.html", "title": "4 · One message — readable or JSON", "x": 1140, "y": 1080, "w": 720, "h": 900, "is_interactive": true }
+  ],
+  "annotations": [
+    {
+      "id": "flow",
+      "x": 2280,
+      "y": 0,
+      "w": 460,
+      "text": "FOUR LEVELS, and you were right about the shape.\n\n1 · Trace — every chat REX has run. Reached from the app, not from a comment.\n2 · One chat — its TURNS. This is where the comment card's button lands you.\n3 · One turn — its exchanges and the messages in each.\n4 · One message — readable, or its JSON.\n\nThe Readable / JSON switch now lives only at level 4, exactly as you said: at level 3 a 78-message JSON is a wall, and at level 4 one message is 20 lines.\n\nLevels 2, 3 and 4 are live. Click the turn chevrons, the exchange rail, and the JSON arrows."
+    },
+    {
+      "id": "naming",
+      "x": 2280,
+      "y": 470,
+      "w": 460,
+      "text": "ONE NAMING PROBLEM, and it is worth settling before any of this is built.\n\nYou called the chat a session. REX already has a session_id and it means something else: the SDK's own session cache, one row per chat AND SDK AND gateway, in the thread_session table. It exists so a resumed run does not replay.\n\nSo two different things would share one word. These screens say CHAT for the conversation and show the thread id, and keep \"session\" for the SDK's. Say if you would rather it read Session everywhere and I will rename it — but then the SDK one needs a new name.\n\nYour \"turn\" maps cleanly onto REX's run: one Ask or one Apply. The screens call it Turn."
+    },
+    {
+      "id": "record-gap",
+      "x": 2280,
+      "y": 950,
+      "w": 460,
+      "text": "\"WILL IT BE TRIMMED?\" — today, yes, four ways. All four are in rex_trace.py.\n\n1. request_body is the MESSAGES ARRAY only, not the request. No tools, no temperature, no max_tokens, no stream.\n2. response is a Python repr string, not the object. It begins ModelResponse(id='chatcmpl-…\n3. Over 200 000 characters the whole body is DELETED, not truncated — replaced by {\"omitted\": …}. Your largest row is 23 278 chars so it has never fired, but one 84 KB inline image is ~114 000 chars of base64. Two images and the entire request is gone.\n4. Deeper than 12 levels becomes \"…\".\n\nTo record it in full: keep the whole kwargs, model_dump() the response, lift the cap, and store base64 images as separate files the row points at — otherwise one image drowns the log and the 30-day retention.\n\nThe only trim that should STAY is the secret stripping: api_key and Authorization are dropped by key name, and a test asserts it."
+    },
+    {
+      "id": "density",
+      "x": 2280,
+      "y": 1620,
+      "w": 460,
+      "text": "THE JSON WAS TOO SPREAD OUT. You were right.\n\nIt now sets 17px lines instead of 21, an 11px face instead of 11.5, a 12px indent instead of 15, and a 30px gutter instead of 42. A screenful holds about 45 lines where it held 26.\n\nThe bigger fix is scope: this tree is ONE message, so it is 20 lines and not 2 000. That is what makes the density work rather than just shrinking a wall."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

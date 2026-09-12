@@ -82,6 +82,22 @@
   --find: #f0d45c;
   --find-strong: #ffd21f;
   --wash-find: #3d3512;
+  /*
+    Spec 51 §5.3.1 — the system prompt of one recorded request.
+
+    Lemon, and it takes that hue for exactly the reason spec 28 §4.4 above took
+    it: `--moved` is the gold, and the traffic list already spends the gold on a
+    tool call. A gold prompt row would read as one more tool. This is the one
+    yellow on the palette that cannot be mistaken for it across a card.
+
+    A name of its own rather than `--find`, by the rule `--removed` follows: two
+    meanings that happen to share a value must be able to move apart without a
+    rename. The reviewer's question and a request's instructions are not the
+    same thing and never will be.
+  */
+  --prompt: #f0d45c;
+  --wash-prompt: #2b2916;
+  --wash-prompt-edge: #4a4526;
 
   /* Card washes — resting, then selected. §"CARD WASHES" on the System page. */
   --wash-ok: #22262a;
@@ -529,6 +545,24 @@
 .rex-icon-danger:hover {
   background: var(--wash-lost);
   color: var(--lost-text);
+}
+
+/*
+  Spec 53 §4.3 — Back and Forward, beside the workspace toggle.
+
+  Disabled rather than hidden when there is nowhere to go, so the pair keeps one
+  position all session and the hand learns it. Dimmed further and given the
+  default cursor, because a control that looks pressable and is not is the one
+  thing worse than a control that is absent.
+*/
+.rex-nav:hover:not(:disabled) {
+  background: var(--raised);
+  color: var(--fg-dim);
+}
+
+.rex-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 /*
@@ -1211,6 +1245,60 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+/*
+  Spec 53 §4.7 — where this link goes, drawn beside it.
+
+  REX's own panel and not the operating system's `title`, for three reasons the
+  document itself makes: the frame runs no script, a native tooltip arrives
+  after about a second, and it cannot show a path, a section and a refusal as
+  three separate things. It is also the only way to say a link is broken before
+  the reviewer clicks it.
+
+  `pointer-events: none` is load-bearing. A tip that could be hovered would sit
+  between the reviewer and the link they are reaching for, and moving onto the
+  tip would count as leaving the link — so it would flicker.
+*/
+.rex-linktip {
+  position: absolute;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(560px, 80%);
+  padding: 6px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 45%);
+  pointer-events: none;
+}
+
+/*
+  The path breaks anywhere rather than overflowing. A long one is still worth
+  reading on two lines; a truncated one is worth nothing, because the part that
+  tells two `overview.md` apart is the folder in the middle.
+*/
+.rex-linktip-target {
+  color: var(--fg-dim);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.rex-linktip-fragment {
+  color: var(--link);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+/* The one line that says the click will not work. Red, as every refusal is. */
+.rex-linktip-refusal {
+  color: var(--lost-text);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 /*
@@ -7268,6 +7356,24 @@ select.rex-field-input {
 }
 
 /*
+ * A copy with a word beside the glyph.
+ *
+ * Depth 4 offers one value in two forms, JSON and text, and two identical
+ * glyphs a few pixels apart is a choice nobody can make. The glyph alone stays
+ * the rule everywhere there is only one of them.
+ */
+.rex-copy-named {
+  gap: 4px;
+  width: auto;
+  padding: 0 7px 0 5px;
+}
+
+.rex-copy-label {
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+}
+
+/*
   The tick stays up for a moment after the press, and the pointer is often gone
   by then — moved to whatever the reviewer is pasting into. A confirmation that
   needs a hover to be seen confirms nothing, so this state ignores the reveal.
@@ -8056,18 +8162,6 @@ select.rex-field-input {
   background: var(--panel);
 }
 
-/* §15's one-time note. Amber, not red: a decision, not a failure. */
-.rex-set-notice {
-  border-color: var(--moved);
-  padding: 13px 15px;
-}
-
-.rex-set-notice p {
-  margin: 0;
-  color: var(--fg-dim);
-  font-size: 12px;
-}
-
 .rex-set-picking {
   border-color: var(--action);
 }
@@ -8106,11 +8200,6 @@ select.rex-field-input {
 
 .rex-set-acts {
   justify-content: flex-end;
-}
-
-.rex-set-notice .rex-set-acts {
-  padding: 10px 0 0;
-  border-top: 0;
 }
 
 .rex-set-rows {
@@ -8455,80 +8544,1305 @@ select.rex-field-input {
   line-height: 1.35;
 }
 
-/* ── The traffic sheet (spec 46 §4.6) ────────────────────── */
+/* ── Spec 51 — the trace, at four depths ───────────────────
+ *
+ * The artboards in `design/traffic/` inline resolved colours, because a
+ * `.dc.html` cannot import this stylesheet. They come from the token block at
+ * the top of this file and are written as tokens here — that is the direction
+ * the rule runs (§9.5). A hex value copied back out of an artboard is a token
+ * that stopped being one, and `test:depths` refuses one.
+ */
 
-.rex-traffic {
+/* Depth 1 — every chat. A page, like Settings. */
+
+.rex-tp-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--panel);
+}
+
+.rex-tp-filter {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.rex-tp-filter select {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  background: var(--panel);
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 12px;
+}
+
+/*
+  This level IS a table: one row per chat and the same six numbers on each.
+
+  The head's padding is the row's, added up: the table insets 20px, the row's
+  left rail is 2px and its button pads 10px, so a head at a plain 20px sits
+  inboard of every number under it. A table whose heading does not stand over
+  its column is not a table.
+*/
+.rex-tp-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 7px 31px 7px 32px;
+  border-bottom: 1px solid var(--rule-soft);
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+}
+
+.rex-tp-col,
+.rex-tp-col-wide {
+  flex: none;
+  text-align: right;
+}
+
+/*
+  One width per column, the artboard's own — `EXCHANGES` needs more room than
+  `COST` and giving them all the same made the wider word push its neighbours
+  out of line. Set on both rows at once, because the head and the values are
+  the same seven cells in the same order and any other arrangement lets them
+  drift apart.
+*/
+.rex-tp-head > :nth-child(2),
+.rex-tp-chats button > :nth-child(2) {
+  width: 58px;
+}
+
+.rex-tp-head > :nth-child(3),
+.rex-tp-chats button > :nth-child(3) {
+  width: 76px;
+}
+
+.rex-tp-head > :nth-child(4),
+.rex-tp-chats button > :nth-child(4) {
+  width: 104px;
+}
+
+.rex-tp-head > :nth-child(5),
+.rex-tp-chats button > :nth-child(5) {
+  width: 62px;
+}
+
+.rex-tp-head > :nth-child(6),
+.rex-tp-chats button > :nth-child(6) {
+  width: 66px;
+}
+
+.rex-tp-head > :nth-child(7),
+.rex-tp-chats button > :nth-child(7) {
+  width: 54px;
+}
+
+.rex-tp-col-name {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
+  flex-grow: 1;
+  min-width: 0;
+  text-align: left;
+}
+
+.rex-tp-table {
+  flex-grow: 1;
+  min-height: 0;
+  padding: 8px 20px 20px;
+  overflow: auto;
+}
+
+.rex-tp-chats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.rex-traffic-row {
-  padding: 8px 10px;
-  border: 1px solid var(--rule-soft);
+.rex-chat {
+  border: 1px solid var(--wash-ok-edge);
+  border-left: 2px solid var(--wash-ok-edge);
   border-radius: 2px;
-  background: var(--sunk);
+  background: var(--wash-ok);
 }
 
-/* A failure is recorded too, which the Grafana stack never did. Marked, so a
- * reviewer scanning the list finds the one that did not answer. */
-.rex-traffic-failed {
-  border-left: 2px solid var(--lost);
+/* Neutral unless something failed, and then the rail says so. The rail cannot
+ * also carry the agent or the mode: ACT's colour IS this red. */
+.rex-chat-bad {
+  border-color: var(--wash-lost-edge);
+  border-left-color: var(--lost);
 }
 
-.rex-traffic-head {
+.rex-chat button {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
-  font-size: 11px;
-}
-
-.rex-traffic-model {
-  color: var(--fg);
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
   font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11.5px;
+  text-align: right;
+  cursor: pointer;
 }
 
-.rex-traffic-when,
-.rex-traffic-ms,
-.rex-traffic-tokens,
-.rex-traffic-cost,
-.rex-traffic-profile {
+.rex-chat button:hover {
+  background: var(--wash-ok-on);
+}
+
+.rex-chat-name {
+  overflow: hidden;
+  color: var(--fg);
+  font-family: var(--sans, system-ui), sans-serif;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--faint);
+  font-size: 10.5px;
+}
+
+.rex-chat-doc {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-chat-agent {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--wash-ok-edge);
+  border-radius: 2px;
   color: var(--muted);
 }
 
-.rex-traffic-error {
-  margin: 6px 0 0;
-  color: var(--lost-text);
+/* Rows from before spec 51 belong to no turn REX can name. Said as a number
+ * with a question mark, because "40 messages, turns unknown" is the truth and
+ * an empty cell would read as "nothing happened". */
+.rex-chat-untracked {
+  margin-left: 5px;
+  color: var(--faint);
+}
+
+.rex-tp-foot {
+  margin: 12px 0 0;
+  line-height: 1.5;
+}
+
+/* Depth 2 — one chat, its turns. */
+
+.rex-tc-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: none;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.rex-tc-list {
+  flex-grow: 1;
+  min-height: 0;
+  padding: 12px 20px 20px;
+  overflow: auto;
+}
+
+.rex-turns {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rex-turns-row {
+  border: 1px solid var(--wash-ok-edge);
+  border-left: 2px solid var(--wash-ok-edge);
+  border-radius: 2px;
+  background: var(--wash-ok);
+}
+
+.rex-turns-failed {
+  border-color: var(--wash-lost-edge);
+  border-left-color: var(--lost);
+}
+
+.rex-turns-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 5px;
+}
+
+.rex-turns-fold {
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.rex-turns-name {
+  flex: none;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rex-turns-id,
+.rex-turns-when {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 10.5px;
+}
+
+.rex-turns-who,
+.rex-turns-counts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 5px 30px;
+  color: var(--muted);
   font-size: 11px;
 }
 
-.rex-traffic-bodies {
+.rex-turns-counts {
+  padding-bottom: 9px;
+}
+
+.rex-turns-fact {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  flex: none;
+}
+
+.rex-turns-fact-label {
+  color: var(--faint);
+}
+
+.rex-turns-fact-value,
+.rex-turns-num {
+  color: var(--fg-dim);
+  font-family: var(--mono, ui-monospace), monospace;
+}
+
+.rex-turns-bad {
+  color: var(--lost-text);
+}
+
+/* Expanded: a BRIEF list of what happened, one line each. **No JSON at this
+ * level** — a message here is 40 KB and the question is only "what did it do".
+ * The JSON is depth 4's, on one message, where it is twenty lines. */
+.rex-turns-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 9px 10px 10px;
+  border-top: 1px solid var(--rule-soft);
+  background: var(--panel);
+  list-style: none;
+}
+
+.rex-turns-step {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 3px 6px;
+  border-radius: 2px;
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 10.5px;
+}
+
+.rex-turns-step-bad {
+  background: var(--wash-lost-on);
+}
+
+.rex-turns-step-n {
+  flex: none;
+  width: 20px;
+  color: var(--faint);
+  text-align: right;
+}
+
+.rex-turns-step-role {
+  flex: none;
+  width: 76px;
+  overflow: hidden;
+  color: var(--link);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-turns-step-text {
+  overflow: hidden;
+  flex-grow: 1;
+  color: var(--fg-dim);
+  font-family: var(--sans, system-ui), sans-serif;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-turns-step-size {
+  flex: none;
+  color: var(--faint);
+}
+
+/* All four depths — the pages, and what they share.
+ *
+ * `design/traffic/` draws the first three at one width with a breadcrumb head
+ * and a control that goes forward. They are pages for that reason, and because
+ * a stack of modals is not a path.
+ *
+ * **Depth 4 joined them on 2026-09-11.** Its artboard is the one narrow one and
+ * the first build followed it — `min(760px, 94vw)` over the turn. A request
+ * body is tens of kilobytes of JSON, and that column reads it four words at a
+ * time while the rest of a large display sits empty. The artboard is superseded
+ * here and nowhere else; every other measurement in `design/traffic/` stands.
+ */
+
+/*
+ * CENTRED, not on a baseline. Reported 2026-09-11 against depth 4's head, where
+ * the mismatch is loudest: `.rex-page-head` aligns its items on their shared
+ * text baseline, but `.rex-icon-button` overrides that with `align-self:
+ * center`. A head with one × survives the difference; a head with a breadcrumb
+ * on the left and a pager, a count and a × on the right shows it as two rows of
+ * text at two heights.
+ *
+ * Centring the whole row is what makes both ends agree, and it costs the
+ * baseline between the h1 and the smaller text beside it — which is the right
+ * trade here, because those two are seldom adjacent and the ends always are.
+ */
+.rex-traffic .rex-page-head {
+  align-items: center;
+}
+
+.rex-traffic .rex-page-head h1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-tt-head {
+  gap: 10px;
+}
+
+.rex-tt-back {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 24px;
+  padding: 0 8px 0 5px;
+  border: 0;
+  border-radius: 2px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.rex-tt-back:hover {
+  color: var(--fg);
+}
+
+.rex-tt-slash {
+  flex: none;
+  color: var(--rule);
+}
+
+/* Both ids, always on screen. A trace you cannot quote is a trace you cannot
+ * ask anybody else about. */
+.rex-tt-ids {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex: none;
+  padding: 9px 20px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--panel);
+}
+
+.rex-tt-id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.rex-tt-id-label {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.rex-tt-id code {
+  color: var(--fg-dim);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11.5px;
+}
+
+.rex-tt-span {
+  flex: none;
+  color: var(--muted);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11.5px;
+}
+
+/*
+  Spec 55 — the debug copy, in the id row of depths 2 and 3.
+
+  `.rex-trace-action`'s shape, one pixel shorter, because this row is an id
+  strip rather than a toolbar. It is always visible, unlike `.rex-copy` beside
+  it: a copy belongs to the thing it is over and appears on hover, and this one
+  belongs to the screen. Spec 51 §5.4's warning is the other half of that rule —
+  a control nobody can see is a control that gets shipped broken.
+*/
+.rex-tt-debug {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.rex-tt-debug:hover,
+/* Done, for the seconds the confirmation lasts. Intensity and not colour:
+   green means `resolved` everywhere else in REX. */
+.rex-tt-debug-done {
+  border-color: var(--rule);
+  background: var(--sunk);
+  color: var(--fg);
+}
+
+/* Depth 3 — one turn. */
+
+/* The nine facts, as a grid and not a sentence: every one is a column you would
+ * sort by if this were a table, so each gets a cell of its own. Five come from
+ * `rex.db` and the rest from the traffic log (§4). */
+.rex-tt-facts {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  flex: none;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--rule-soft);
+}
+
+.rex-tt-fact {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 9px 12px;
+  background: var(--bg);
+}
+
+.rex-tt-fact-label {
+  color: var(--faint);
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+}
+
+.rex-tt-fact-value {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--fg);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The second half of a fact that is really one — the gateway's URL under its
+ * name. Spec 43 §5.3 records them together and they read together. */
+.rex-tt-fact-under {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-tt-pane-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.rex-tt-pane-title {
+  flex: none;
+  color: var(--fg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rex-tt-pane-meta {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11.5px;
+}
+
+/*
+  "and 1 system prompt", beside the message count it is deliberately not part
+  of. In the prompt's own colour, so the head and the row it names are read as
+  one statement rather than as two unrelated pieces of chrome.
+*/
+.rex-tt-pane-prompt {
+  flex: none;
+  color: var(--prompt);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11.5px;
+}
+
+.rex-tt-hint {
+  flex: none;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+/*
+  Which API surface these messages came through.
+
+  Spec 46 §4.5 — one `model_name` answers `/v1/messages`,
+  `/v1/chat/completions` and `/v1/responses`, and the shapes differ: a tool
+  result is a USER message on Anthropic and a TOOL message on OpenAI. A reader
+  scanning the list has to know which before the first row.
+
+  A quiet chip and not a pill: the mode pill is a STATE the reviewer chose, and
+  this is a fact about the wire. Two shapes, two weights.
+*/
+.rex-tt-api {
+  flex: none;
+  padding: 1px 7px;
+  border: 1px solid var(--wash-ok-edge);
+  border-radius: 2px;
+  color: var(--muted);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 10.5px;
+}
+
+.rex-tt-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 8px;
+  flex-grow: 1;
+  min-height: 0;
+  padding: 10px 20px 20px;
+  overflow: auto;
 }
 
-.rex-traffic-body {
-  max-height: 260px;
-  margin: 0;
-  padding: 8px;
+/* One message of the exchange. The whole row is the button into depth 4 — the
+ * design's `JSON` chip is where the eye goes, and a target the width of the row
+ * is what the hand gets. */
+.rex-tt-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--rule-soft);
+  border-left: 2px solid var(--rule-soft);
   border-radius: 2px;
+  background: var(--panel);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rex-tt-msg:hover {
+  border-color: var(--wash-ok-edge-on);
+}
+
+/* Role is the only thing colour means here, in the tokens the roles already
+ * carry: steel is the person, green is the agent, gold is a tool. */
+.rex-tt-user {
+  border-left-color: var(--link);
+}
+
+.rex-tt-assistant {
+  border-left-color: var(--ok);
+}
+
+.rex-tt-tool {
+  border-left-color: var(--moved);
+}
+
+.rex-tt-system {
+  border-left-color: var(--faint);
+}
+
+.rex-tt-other {
+  border-left-color: var(--rule);
+}
+
+/*
+  The system prompt — one per turn, first, and not one of the request's
+  messages at all.
+
+  **The only row here with a wash.** The four roles above alternate down the
+  list and are told apart by their left edge alone, which is right for things
+  that repeat. This appears once and says something different in kind: it came
+  out of a FIELD beside the conversation (`system` on Anthropic, `instructions`
+  on Responses), so `messages` never held it. A fifth border colour would have
+  filed it as a fifth role.
+
+  Lemon rather than gold, because the gold in this list is a tool call.
+*/
+.rex-tt-prompt {
+  border-color: var(--wash-prompt-edge);
+  border-left-color: var(--prompt);
+  background: var(--wash-prompt);
+}
+
+.rex-tt-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+}
+
+.rex-tt-n {
+  flex: none;
+  width: 26px;
+  color: var(--faint);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 10.5px;
+  text-align: right;
+}
+
+.rex-tt-role {
+  flex: none;
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11px;
+}
+
+.rex-tt-user .rex-tt-role {
+  color: var(--link);
+}
+
+.rex-tt-assistant .rex-tt-role {
+  color: var(--ok);
+}
+
+.rex-tt-tool .rex-tt-role {
+  color: var(--moved);
+}
+
+.rex-tt-system .rex-tt-role,
+.rex-tt-other .rex-tt-role {
+  color: var(--faint);
+}
+
+.rex-tt-prompt .rex-tt-role {
+  color: var(--prompt);
+}
+
+.rex-tt-tool-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--moved);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11.5px;
+}
+
+.rex-tt-image {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  color: var(--ok);
+  font-size: 11px;
+}
+
+.rex-tt-size {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11px;
+}
+
+/*
+  How long the model took to answer THIS far.
+  The exchange rail carried these six numbers down the left and the reviewer's
+  answer on 2026-09-09 was that it earned nothing: every exchange re-sends the
+  whole conversation, so picking one showed the same list two rows longer. The
+  wait belongs where it happened — on the message the request stopped at.
+*/
+.rex-tt-took {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--wash-ok-edge);
+  border-radius: 2px;
+  color: var(--fg-dim);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11px;
+}
+
+.rex-tt-took-bad {
+  border-color: var(--wash-lost-edge-on);
+  color: var(--lost-text);
+}
+
+.rex-tt-json {
+  flex: none;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  color: var(--faint);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 10.5px;
+  line-height: 18px;
+}
+
+.rex-tt-msg:hover .rex-tt-json {
+  border-color: var(--wash-ok-edge-on);
+  color: var(--link);
+}
+
+/*
+  Two lines, and then it stops. The whole message is depth 4's.
+
+  **The bottom padding is on the BUTTON and not on this span**, and that is not
+  tidiness: `overflow: hidden` clips at the PADDING box, so 8px of padding under
+  a two-line clamp shows 8px of the third line. Measured on 2026-09-09 — every
+  card bled a sliver of a line it had just promised to hide.
+*/
+.rex-tt-msg {
+  padding-bottom: 8px;
+}
+
+.rex-tt-text {
+  display: -webkit-box;
+  overflow: hidden;
+  padding: 0 10px 0 46px;
+  color: var(--fg-dim);
+  font-size: 12.5px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* Thinking is faint and italic everywhere in REX, and it stays that here. */
+.rex-tt-thinking {
+  color: var(--gone);
+  font-style: italic;
+}
+
+/* Depth 4 — one message, readable or JSON. A page, like the three above it:
+ * `.rex-page` sizes it, so there is no width rule here at all. That absence is
+ * the change — the sheet it replaced was pinned at `min(760px, 94vw)`. */
+
+.rex-message-role {
+  padding: 1px 7px;
+  border: 1px solid var(--wash-ok-edge);
+  border-radius: 2px;
+  color: var(--ok);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 10.5px;
+}
+
+/* The page's own gutter — 20px, the one `.rex-page-head` uses — so the tabs
+ * start on the same line as the breadcrumb above them. */
+.rex-message-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 9px 20px;
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--panel);
+}
+
+.rex-message-tabs {
+  display: flex;
+  gap: 1px;
+  flex: none;
+  padding: 2px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  background: var(--bg);
+}
+
+.rex-tab {
+  height: 23px;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.rex-tab-on {
+  background: var(--action);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/*
+ * TWO PANES, and each scrolls on its own.
+ *
+ * The body used to be one scrolling column. It is now a row of panes, so the
+ * scrolling moved down one level: a reader holding a place in the tree must not
+ * lose it because the prose beside it is four times as long.
+ */
+.rex-message-body {
+  display: flex;
+  flex-grow: 1;
+  min-height: 0;
   background: var(--well);
+}
+
+.rex-message-pane {
+  flex-grow: 1;
+  min-width: 0;
+  padding: 10px 0;
+  overflow: auto;
+}
+
+/* A message that could not be read has no panes, so its one line is not in one. */
+.rex-message-note {
+  padding: 12px 20px;
+}
+
+.rex-message-value {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-left: 1px solid var(--rule-soft);
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.rex-value-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 34px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.rex-value-path {
+  overflow: hidden;
+  color: var(--fg);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rex-value-hint {
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+/* The faces switch is smaller than the layout switch, because it is a property
+ * of what is in this pane and not a choice about the screen. */
+.rex-value-faces .rex-tab {
+  height: 19px;
+  padding: 0 8px;
+  font-size: 10.5px;
+}
+
+/*
+ * WHERE A COPY IS, on this screen, and where it is revealed.
+ *
+ * Two places and no others, after the reviewer counted five on 2026-09-11 and
+ * called the one beside the size "extremely too much":
+ *
+ *   · a ROW of the tree — `JSON` and, on a string, `Text`
+ *   · a CARD in the pane — one copy, in its corner, for what that card shows
+ *
+ * The copy belongs on the thing being copied. The pane's HEAD carries none, and
+ * neither does the toolbar: the whole message is the tree's root row, which has
+ * a `JSON` copy like every other row.
+ *
+ * Both reveal on hover, because `.rex-copy` is `opacity: 0` until a named
+ * ancestor says otherwise, and the names are listed one by one elsewhere in
+ * this file — `.rex-turn`, `.rex-trace-entry`. Depth 4 is neither, so leaving
+ * it out made every copy here invisible and keyboard-only, which shipped on
+ * 2026-09-11. **A Playwright click never notices**: a click does not need to
+ * see.
+ */
+.rex-json-line:hover .rex-copy,
+.rex-readable-block:hover .rex-copy {
+  opacity: 1;
+}
+
+.rex-value-body {
+  flex-grow: 1;
+  min-height: 0;
+  padding: 12px 0;
+  overflow: auto;
+}
+
+/*
+ * A picked value is a card too, so it carries its copy where a block does.
+ *
+ * One rule for the pane instead of two: whatever it is showing sits in a card,
+ * and the card's corner is where the copy is. It is not inside `.rex-readable`,
+ * so the margin that column would have given it is here.
+ */
+.rex-value-card {
+  max-width: 96ch;
+  margin: 0 16px;
+}
+
+/*
+ * One picked string, as the record.
+ *
+ * `pre-wrap` and not `pre`: the line breaks that are in the text are the whole
+ * reason this pane exists, and the ones that are not must come from the card's
+ * width rather than from a horizontal scrollbar.
+ */
+.rex-value-plain {
+  margin: 0;
+  color: var(--fg-dim);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Tight on purpose: 17px lines, an 11px face, a 12px indent and a 30px gutter.
+ * The first version breathed at 21px and a screenful held barely twenty lines,
+ * which is what makes a tree feel like a wall. The bigger fix is the SCOPE —
+ * this is one message, so it is twenty lines and not two thousand. */
+.rex-json {
+  display: flex;
+  flex-direction: column;
+}
+
+.rex-json-line {
+  display: flex;
+  align-items: flex-start;
+  min-height: 17px;
+}
+
+.rex-json-gutter {
+  flex: none;
+  width: 30px;
+  line-height: 17px;
+  padding-right: 8px;
+  color: var(--faint);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 10px;
+  text-align: right;
+  user-select: none;
+}
+
+.rex-json-fold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 13px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.rex-json-text {
+  overflow: hidden;
+  flex-grow: 1;
+  min-width: 0;
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11px;
+  line-height: 17px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The row, as the control that picks it.
+ *
+ * A real button, reset to look like the span it replaced: the keyboard reaches
+ * it, and the inline indent still wins because an inline style outranks this.
+ */
+.rex-json-pick {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 11px;
+  line-height: 17px;
+  cursor: pointer;
+}
+
+.rex-json-pick:hover {
+  background: var(--sunk);
+}
+
+/* The picked row. A bar rather than a wash, because the row's own colours are
+ * the type colours and a fill would argue with every one of them. */
+.rex-json-line-on {
+  background: var(--sunk);
+  box-shadow: inset 2px 0 0 var(--link);
+}
+
+/*
+  An OPENED long value. The row stops being one line and wraps, and the value
+  stays where it was — quoted, coloured, still JSON.
+
+  Reported 2026-09-09: the first version drew the raw text in a bordered panel
+  under the line, which is a widget where a reader asked to see a value. The
+  fix is not a nicer panel; it is no panel.
+*/
+.rex-json-wrap .rex-json-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-overflow: clip;
+}
+
+.rex-json-wrap {
+  padding: 2px 0;
+  background: var(--sunk);
+}
+
+.rex-json-key {
+  color: var(--link);
+}
+
+.rex-json-sep {
+  color: var(--faint);
+}
+
+.rex-json-string {
+  color: var(--ok);
+}
+
+.rex-json-number {
+  color: var(--moved);
+}
+
+.rex-json-atom {
+  color: var(--lost-text);
+}
+
+.rex-json-punct {
+  color: var(--faint);
+}
+
+/* The summary, kept whether the node is open or shut. A fold that hides a thing
+ * without saying how much it hid is a fold nobody dares open or leave. */
+.rex-json-tail {
+  color: var(--faint);
+}
+
+/*
+ * PROSE HAS A MEASURE AND JSON DOES NOT.
+ *
+ * The JSON tree above takes the whole page, which is the point of the page. A
+ * paragraph does the opposite: at 2 000px a line of English is unreadable,
+ * because the eye loses which row it came off. So the two panes are capped
+ * differently, and `ch` is the unit — it follows the font, which a pixel width
+ * does not.
+ */
+.rex-json-plain {
+  max-width: 110ch;
+  margin: 0;
+  padding: 0 16px;
   color: var(--fg-dim);
   font-family: var(--mono, ui-monospace), monospace;
   font-size: 11px;
   white-space: pre-wrap;
   word-break: break-word;
-  overflow: auto;
 }
 
-/* §15 — the one note about gateways the migration removed. Amber, not red: it
- * is a change that was decided, not a failure that happened. */
-.rex-settings-retired {
-  border-color: var(--moved);
+/*
+ * Everything in the value pane is inside a card, so everything in it takes the
+ * card's padding — the one `.rex-readable-text` already uses. A picked value
+ * and a block of a message then read as the same kind of object, which is the
+ * point of giving the value a card at all.
+ *
+ * It sits AFTER the three rules it overrides. Biome's `noDescendingSpecificity`
+ * is right to ask for that: a lower-specificity rule written below a higher one
+ * reads as the winner and is not, which is how a stylesheet starts lying about
+ * itself.
+ */
+.rex-readable-block .rex-value-plain,
+.rex-readable-block .rex-json-plain,
+.rex-readable-block .rex-prose {
+  max-width: none;
+  padding: 8px 10px;
+}
+
+.rex-readable {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 96ch;
+  padding: 0 16px;
+}
+
+.rex-readable-block {
+  border: 1px solid var(--rule-soft);
+  border-radius: 2px;
+  background: var(--panel);
+}
+
+/* Thinking is faint and dashed everywhere in REX, and it stays that here. */
+.rex-readable-thinking {
+  border-style: dashed;
+}
+
+.rex-readable-tool_use {
+  border-color: var(--wash-moved-edge);
+}
+
+/* The right padding is small because the copy sits in it: the button carries
+ * its own, and a card's control belongs in the corner rather than inset from
+ * it. The head keeps its height whether the button is there or not. */
+.rex-readable-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 2px 5px 2px 10px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.rex-readable-name {
+  color: var(--moved);
+  font-family: var(--mono, ui-monospace), monospace;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.rex-readable-text {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--fg-dim);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rex-readable-thinking .rex-readable-text {
+  color: var(--gone);
+  font-style: italic;
+}
+
+/* The pressed state of an ordinary button, for `Failed only`. */
+.rex-button-on {
+  border-color: var(--wash-lost-edge-on);
+  background: var(--wash-lost-on);
+  color: var(--lost-text);
+}
+
+/*
+  `Save models`, and the moment after it.
+
+  Reported 2026-09-09: *"clicking on save models does nothing"*. It did
+  everything — the log shows LiteLLM restarting with the ticked models — but
+  `.rex-button-go` carried NO RULE, so the one action on the card was drawn
+  exactly like `Refresh` and `Tick all` beside it, and the only feedback was
+  1.6 seconds of greying. A primary action that looks secondary and then says
+  nothing is a button you press twice and still doubt.
+*/
+.rex-button-go {
+  border-color: var(--action);
+  background: var(--action);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.rex-button-go:hover:not(:disabled) {
+  border-color: var(--link);
+  background: var(--link);
+  color: var(--bg);
+}
+
+/*
+  Busy, and it has to LOOK busy. `.rex-button:disabled` only dims the text to
+  `--faint`, which on this blue is grey on blue — low contrast and reading as
+  neither pressed nor unavailable. The whole button steps back instead.
+*/
+.rex-button-go:disabled {
+  border-color: var(--rule);
+  background: var(--sunk);
+  color: var(--muted);
+}
+
+/* And what it becomes for 1400ms after: the copy tick's job, in the copy
+ * tick's green, so "it worked" reads the same everywhere in REX. */
+.rex-button-done {
+  border-color: var(--ok);
+  background: var(--wash-done);
+  color: var(--ok);
+  font-weight: 600;
+}
+
+/* The empty and explanatory states on the traffic screens. */
+.rex-settings-note {
+  margin: 0;
+  padding: 12px 0;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.5;
 }
