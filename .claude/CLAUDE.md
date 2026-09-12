@@ -24,7 +24,9 @@ Reference files: [`rules/01-project-config.md`](rules/01-project-config.md)
 [`rules/machine-tools.md`](rules/machine-tools.md) (the `nvim-tools` and
 `lukas-ps` CLIs — pre-approved, read-only),
 [`rules/lsp.md`](rules/lsp.md) (the `LSP` tool — only in repos that opted in,
-and deferred, so it must be loaded before it can be called).
+and deferred, so it must be loaded before it can be called),
+[`rules/worktree.md`](rules/worktree.md) (where you may change files: your
+worktree under `.worktrees/<name>`, never the main checkout).
 
 **NEVER report completion without first running the change and watching it
 work.** "The code looks right" is not testing, and for the anchor resolver it is
