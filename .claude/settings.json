@@ -163,8 +163,11 @@
     ]
   },
   "enabledPlugins": {
+    "lsp-typescript@claude-my-marketplace": true,
     "dev-tools-plugin@claude-my-marketplace": true,
-    "lsp-typescript@claude-my-marketplace": true
+    "demo-video-plugin@claude-my-marketplace": true,
+    "design-plugin@claude-my-marketplace": true,
+    "media-plugin@claude-my-marketplace": true
   },
   "sandbox": {
     "enabled": false,
@@ -183,11 +186,6 @@
     "network": {
       "allowLocalBinding": true
     },
-    "excludedCommands": [
-      "*playwright-launch.sh*",
-      "yabai *",
-      "osascript *",
-      "open *"
-    ]
+    "excludedCommands": ["*playwright-launch.sh*", "yabai *", "osascript *", "open *"]
   }
 }

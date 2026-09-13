@@ -36,5 +36,3 @@ a boundary.
 | `src/preload/` | the `contextBridge` surface, and nothing else |
 | `agent-runner/` | every agent SDK, one adapter each |
 | `local-gateway/` | REX's own LiteLLM |
-
-The tree is in the README's *How it works*.

@@ -15,7 +15,7 @@ description: Project configuration — architecture, paths, dev environment
   `SPEC.md` §3 for the invariants, and the README's *How it works*.
 - **Structure**: `src/main/`, `src/renderer/`, `src/shared/`, `src/preload/`,
   `src/cli/`, `test/`, `scripts/`, `agent-runner/`, `local-gateway/`,
-  `docs/my-specs/`. The README's *How it works* has the tree.
+  `docs/my-specs/`.
 - **Build**: `npm run build`; `npm run typecheck`. The DMG: `npm run package` —
   never call `electron-builder` directly.
 - **Run locally**: `npm run dev`. An agent starts its own instance only through
