@@ -1,0 +1,1 @@
+../../.claude/hooks/playwright-session-start.py

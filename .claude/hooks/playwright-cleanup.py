@@ -3,7 +3,7 @@
 
 Several sessions share this desktop, so "this session" is literal: a window is
 closed only if it is proven automated AND it either descends from this
-session's Claude process or is abandoned (nothing holding it, nothing driving
+session's agent process or is abandoned (nothing holding it, nothing driving
 it). Hand-opened windows and other sessions' browsers survive.
 
 Automation has three proofs, any one enough:
@@ -13,7 +13,7 @@ Automation has three proofs, any one enough:
     its main process), so the title the app tagged itself with is the signal
     that survives;
   - the machine's pid registry (pw.registered_agent_pid) — the yabai signal
-    proved the window's process descended from a Claude session when the
+    proved the window's process descended from a supported agent when the
     window was born, and wrote that down. This is what closes a packaged app
     under its own bundle name, which neither of the other two can see.
 
@@ -35,9 +35,7 @@ def main():
     for window in pw.browser_windows():
         pid = window["pid"]
         automated = (
-            pw.was_automated(pid)
-            or window["title"].endswith(pw.AGENT_TITLE_TAG)
-            or pw.registered_agent_pid(pid)
+            pw.was_automated(pid) or window["title"].endswith(pw.AGENT_TITLE_TAG) or pw.registered_agent_pid(pid)
         )
         if not automated:
             continue  # opened by hand — never ours to close

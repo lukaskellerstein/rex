@@ -1,0 +1,1092 @@
+<?xml version='1.0' encoding='utf-8'?>
+<fcpxml version="1.14">
+    <resources>
+        <asset id="r1" name="02-workspace.mp3" uid="063C1BCB80BE47209569DB221D2EA43D" start="0s" duration="505728/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="063C1BCB80BE47209569DB221D2EA43D" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/02-workspace%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <format id="r2" name="FFVideoFormatRateUndefined" />
+        <asset id="r3" name="02-workspace.mp4" uid="E3693C68B09C7E2EAE8605B83FBFC4C3" start="0s" duration="209925/15360s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="E3693C68B09C7E2EAE8605B83FBFC4C3" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/02-workspace.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <format id="r4" frameDuration="512/15360s" width="1600" height="900" colorSpace="1-1-1 (Rec. 709)" />
+        <asset id="r5" name="03-selection.mp3" uid="5D84A1D2DFF5A951DB4757DABB1B118A" start="0s" duration="700416/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="5D84A1D2DFF5A951DB4757DABB1B118A" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/03-selection%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r6" name="03-selection.mp4" uid="4C82FBAFDE64EAAF4A51A050E7DB44E4" start="0s" duration="294405/15360s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="4C82FBAFDE64EAAF4A51A050E7DB44E4" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/03-selection.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r7" name="04-ask.mp3" uid="38280FC4A72C1F1D9777175EA5C0DF2F" start="0s" duration="571392/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="38280FC4A72C1F1D9777175EA5C0DF2F" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/04-ask%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r8" name="04-ask.mp4" uid="FD765A387C4794FBC611AB1ED6170BF6" start="0s" duration="15900/1000s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="FD765A387C4794FBC611AB1ED6170BF6" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/04-ask.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r9" name="05-approve.mp3" uid="2C3BB524BCC2FC99469388FF213306CF" start="0s" duration="1058688/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="2C3BB524BCC2FC99469388FF213306CF" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/05-approve%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r10" name="05-approve.mp4" uid="CA9E56C25E89FDA102AD74139F6B163E" start="0s" duration="441354/15360s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="CA9E56C25E89FDA102AD74139F6B163E" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/05-approve.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r11" name="06-pdf.mp3" uid="19F2F0A7E087AC3CF27B192626209561" start="0s" duration="319104/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="19F2F0A7E087AC3CF27B192626209561" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/06-pdf%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r12" name="06-pdf.mp4" uid="F253E543BB326B8CB5332766AB69489B" start="0s" duration="184842/15360s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="F253E543BB326B8CB5332766AB69489B" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/06-pdf.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r13" name="07-html.mp3" uid="BAB067ABE10635B27D6A2E7AA9CC0A20" start="0s" duration="290304/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="BAB067ABE10635B27D6A2E7AA9CC0A20" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/07-html%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r14" name="07-html.mp4" uid="1B14CAE326577B251E221E8555E8772E" start="0s" duration="217098/15360s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="1B14CAE326577B251E221E8555E8772E" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/07-html.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r15" name="08-word.mp3" uid="3125DA8B00576889981C16D87BDADCDA" start="0s" duration="311040/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="3125DA8B00576889981C16D87BDADCDA" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/08-word%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r16" name="08-word.mp4" uid="4F77124E79C3BA95A1BAA376259A4CAE" start="0s" duration="183813/15360s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="4F77124E79C3BA95A1BAA376259A4CAE" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/08-word.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r17" name="09-graph.mp3" uid="DFDA907B7120DAB9ECE13BBE15AF7CD5" start="0s" duration="571392/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="DFDA907B7120DAB9ECE13BBE15AF7CD5" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/09-graph%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r18" name="09-graph.mp4" uid="244EF129E62BB9BBE5D31B97C6C90554" start="0s" duration="212997/15360s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="244EF129E62BB9BBE5D31B97C6C90554" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/09-graph.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r19" name="10-ai-options.mp3" uid="8D567702B0B0A820397A51ABE126950D" start="0s" duration="724608/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="8D567702B0B0A820397A51ABE126950D" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/10-ai-options%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r20" name="10-ai-options.mp4" uid="23BEFBABF39ABD0545E7D76EB511C088" start="0s" duration="17600/1000s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="23BEFBABF39ABD0545E7D76EB511C088" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/10-ai-options.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r21" name="11-traffic.mp3" uid="D555A1E65604718D2534FED1766E6425" start="0s" duration="653184/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="D555A1E65604718D2534FED1766E6425" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/11-traffic%20%28fcp1%29.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r22" name="11-traffic.mp4" uid="0ADCA93013495B035BA7EA24901EB9A8" start="0s" duration="260613/15360s" hasVideo="1" format="r4" videoSources="1">
+            <media-rep kind="original-media" sig="0ADCA93013495B035BA7EA24901EB9A8" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/11-traffic.mp4">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemProfileName" value="HD (1-1-1)" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Lavc62.28.102 libx264</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r23" name="12-close.mp3" uid="0BAA7F40C42FA4D73A598FE4993E5EE9" start="0s" duration="276480/44100s" hasAudio="1" audioSources="1" audioChannels="1" audioRate="44100">
+            <media-rep kind="original-media" sig="0BAA7F40C42FA4D73A598FE4993E5EE9" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/12-close.mp3">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <asset id="r24" name="rex-combined-on-dark" uid="3AA3DEF65442D713FEB6F2F6FA243BF0" start="0s" duration="0s" hasVideo="1" format="r25" videoSources="1">
+            <media-rep kind="original-media" sig="3AA3DEF65442D713FEB6F2F6FA243BF0" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/rex-combined-on-dark.png">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 13:27:27 +0200" />
+                <md key="com.apple.proapps.spotlight.kMDItemOrientation" value="0" />
+            </metadata>
+        </asset>
+        <format id="r25" name="FFVideoFormatRateUndefined" width="1088" height="333" colorSpace="1-13-1" />
+        <format id="r26" name="FFVideoFormat1080p30" frameDuration="100/3000s" width="1920" height="1080" colorSpace="1-1-1 (Rec. 709)" />
+        <asset id="r27" name="rex-bookends.wav" uid="1987A6EB26BC3BB450404744539B41C1" start="0s" duration="8056000/48000s" hasAudio="1" audioSources="1" audioChannels="2" audioRate="48000">
+            <media-rep kind="original-media" sig="1987A6EB26BC3BB450404744539B41C1" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/rex-bookends.wav">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <effect id="r28" name="Logo AKFC" uid="~/Titles.localized/DesignStudio/Logo AKFC/Logo AKFC.moti" src="file:///Users/lukaskellerstein/Library/Containers/com.apple.FinalCutApp/Data/Movies/Motion%20Templates.localized/Titles.localized/DesignStudio/Logo%20AKFC/Logo%20AKFC.moti" />
+        <effect id="r29" name="Cross Dissolve" uid="FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265" />
+        <effect id="r30" name="Audio Crossfade" uid="FFAudioTransition" />
+        <effect id="r31" name="Keynote Transition JGMG" uid="~/Transitions.localized/DesignStudio/Keynote Transition JGMG/Keynote Transition JGMG.motr" src="file:///Users/lukaskellerstein/Library/Containers/com.apple.FinalCutApp/Data/Movies/Motion%20Templates.localized/Transitions.localized/DesignStudio/Keynote%20Transition%20JGMG/Keynote%20Transition%20JGMG.motr" />
+        <effect id="r32" name="Logo P5ZG" uid="~/Titles.localized/DesignStudio/Logo P5ZG/Logo P5ZG.moti" src="file:///Users/lukaskellerstein/Library/Containers/com.apple.FinalCutApp/Data/Movies/Motion%20Templates.localized/Titles.localized/DesignStudio/Logo%20P5ZG/Logo%20P5ZG.moti" />
+        <asset id="r33" name="rex-label-backing-chapter.mov" uid="3BC0D92206A32DDA774CBFDFC3BA625E" start="0s" duration="10s" hasVideo="1" format="r26" videoSources="1">
+            <media-rep kind="original-media" sig="3BC0D92206A32DDA774CBFDFC3BA625E" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/rex-label-backing-chapter.mov">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Apple ProRes 4444</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <effect id="r34" name="Keynote Lower3rd FB5S" uid="~/Titles.localized/DesignStudio/Keynote Lower3rd FB5S/Keynote Lower3rd FB5S.moti" src="file:///Users/lukaskellerstein/Library/Containers/com.apple.FinalCutApp/Data/Movies/Motion%20Templates.localized/Titles.localized/DesignStudio/Keynote%20Lower3rd%20FB5S/Keynote%20Lower3rd%20FB5S.moti" />
+        <asset id="r35" name="rex-label-backing-ordinary.mov" uid="0CBC08EB6A1487531428CE34E1C7275C" start="0s" duration="10s" hasVideo="1" format="r26" videoSources="1">
+            <media-rep kind="original-media" sig="0CBC08EB6A1487531428CE34E1C7275C" src="../rex-demo.fcpbundle/14.09.2026/Original%20Media/rex-label-backing-ordinary.mov">
+                </media-rep>
+            <metadata>
+                <md key="com.apple.proapps.studio.rawToLogConversion" value="0" />
+                <md key="com.apple.proapps.studio.cameraISO" value="0" />
+                <md key="com.apple.proapps.studio.cameraColorTemperature" value="0" />
+                <md key="com.apple.proapps.spotlight.kMDItemCodecs">
+                    <array>
+                        <string>Apple ProRes 4444</string>
+                    </array>
+                </md>
+                <md key="com.apple.proapps.mio.ingestDate" value="2026-09-14 14:08:14 +0200" />
+            </metadata>
+        </asset>
+        <effect id="r36" name="Basic Lower Third" uid=".../Titles.localized/Lower Thirds.localized/Basic Lower Third.localized/Basic Lower Third.moti" />
+    </resources>
+    <library>
+        <event name="14.09.2026" uid="43B0F575-612B-4F50-8902-5E12E284E938">
+            <asset-clip ref="r1" name="02-workspace.mp3" duration="8256784/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r3" name="02-workspace.mp4" duration="209920/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r5" name="03-selection.mp3" duration="11435364/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r6" name="03-selection.mp4" duration="294400/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r7" name="04-ask.mp3" duration="9328849/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r8" name="04-ask.mp4" duration="244224/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r9" name="05-approve.mp3" duration="17284703/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r10" name="05-approve.mp4" duration="441344/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r11" name="06-pdf.mp3" duration="5209862/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r12" name="06-pdf.mp4" duration="184832/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r13" name="07-html.mp3" duration="4739658/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r14" name="07-html.mp4" duration="217088/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r15" name="08-word.mp3" duration="5078205/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r16" name="08-word.mp4" duration="183808/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r17" name="09-graph.mp3" duration="9328849/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r18" name="09-graph.mp4" duration="212992/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r19" name="10-ai-options.mp3" duration="11830335/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r20" name="10-ai-options.mp4" duration="270336/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r21" name="11-traffic.mp3" duration="10664229/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r22" name="11-traffic.mp4" duration="260608/15360s" format="r4" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r23" name="12-close.mp3" duration="4513960/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <clip name="REX official logo - assign to both Motion Drop Zones" start="3600s" duration="10s" modDate="2026-09-14 14:08:14 +0200">
+                <video ref="r24" duration="0s" />
+            </clip>
+            <project name="REX — Ask where the work lives — Revision 5" uid="E5766B3F-74F0-4449-AAB1-CF0CF262F895" modDate="2026-09-14 14:09:27 +0200">
+                <sequence format="r26" duration="1007/6s" tcStart="0s" tcFormat="NDF" audioLayout="stereo" audioRate="48k">
+                    <spine>
+                        <gap name="Demo" offset="0s" duration="1007/6s">
+                            <asset-clip ref="r27" lane="-2" offset="0s" name="music" duration="839/5s" audioRole="music">
+                                <adjust-volume>
+                                    <param name="amount">
+                                        <keyframeAnimation>
+                                            <keyframe time="0s" value="0dB" />
+                                            <keyframe time="76/15s" value="0dB" />
+                                            <keyframe time="79/15s" value="0dB" />
+                                            <keyframe time="167/10s" value="0dB" />
+                                            <keyframe time="169/10s" value="0dB" />
+                                            <keyframe time="52/3s" value="0dB" />
+                                            <keyframe time="263/15s" value="0dB" />
+                                            <keyframe time="1001/30s" value="0dB" />
+                                            <keyframe time="1007/30s" value="0dB" />
+                                            <keyframe time="361/10s" value="0dB" />
+                                            <keyframe time="363/10s" value="0dB" />
+                                            <keyframe time="246/5s" value="0dB" />
+                                            <keyframe time="247/5s" value="0dB" />
+                                            <keyframe time="258/5s" value="0dB" />
+                                            <keyframe time="259/5s" value="0dB" />
+                                            <keyframe time="2273/30s" value="0dB" />
+                                            <keyframe time="2279/30s" value="0dB" />
+                                            <keyframe time="382/5s" value="0dB" />
+                                            <keyframe time="383/5s" value="0dB" />
+                                            <keyframe time="419/5s" value="0dB" />
+                                            <keyframe time="84s" value="0dB" />
+                                            <keyframe time="2641/30s" value="0dB" />
+                                            <keyframe time="2647/30s" value="0dB" />
+                                            <keyframe time="2843/30s" value="0dB" />
+                                            <keyframe time="2849/30s" value="0dB" />
+                                            <keyframe time="613/6s" value="0dB" />
+                                            <keyframe time="3071/30s" value="0dB" />
+                                            <keyframe time="3281/30s" value="0dB" />
+                                            <keyframe time="3287/30s" value="0dB" />
+                                            <keyframe time="1712/15s" value="0dB" />
+                                            <keyframe time="343/3s" value="0dB" />
+                                            <keyframe time="3817/30s" value="0dB" />
+                                            <keyframe time="3823/30s" value="0dB" />
+                                            <keyframe time="638/5s" value="0dB" />
+                                            <keyframe time="639/5s" value="0dB" />
+                                            <keyframe time="721/5s" value="0dB" />
+                                            <keyframe time="722/5s" value="0dB" />
+                                            <keyframe time="726/5s" value="0dB" />
+                                            <keyframe time="727/5s" value="0dB" />
+                                            <keyframe time="961/6s" value="0dB" />
+                                            <keyframe time="4811/30s" value="0dB" />
+                                            <keyframe time="965/6s" value="0dB" />
+                                            <keyframe time="4831/30s" value="0dB" />
+                                            <keyframe time="2509/15s" value="0dB" />
+                                            <keyframe time="2512/15s" value="0dB" />
+                                        </keyframeAnimation>
+                                    </param>
+                                </adjust-volume>
+                            </asset-clip>
+                            <spine lane="1" offset="0s" name="Picture">
+                                <title ref="r28" offset="0s" name="01-intro REX" duration="5s">
+                                    <param name="Drop Zone Color Mode" key="9999/10260/100/3338831657/2/100" value="0 (None)" />
+                                    <marker start="0s" duration="1/30s" value="MANUAL LOGO BINDING - native FCPXML omits the media well. Assign the official PNG in this final FCP project; preserve full lockup. AKFC Color Mode None is set." />
+                                </title>
+                                <asset-clip ref="r3" offset="5s" name="02-workspace One review, many document formats" duration="181/15s" tcFormat="NDF">
+                                    <timeMap>
+                                        <timept time="0s" value="0s" interp="linear" />
+                                        <timept time="294567/24000s" value="41000/3000s" interp="linear" />
+                                    </timeMap>
+                                </asset-clip>
+                                <transition name="Cross Dissolve" offset="50600/3000s" duration="1200/3000s">
+                                    <filter-video ref="r29" name="Cross Dissolve">
+                                        <param name="Look" key="1" value="11 (Video)" />
+                                        <param name="Amount" key="2" value="50" />
+                                        <param name="Ease" key="50" value="2 (In &amp; Out)" />
+                                        <param name="Ease Amount" key="51" value="0" />
+                                    </filter-video>
+                                </transition>
+                                <asset-clip ref="r6" offset="51200/3000s" name="03-selection Build one request from several places" start="1/5s" duration="563/30s" tcFormat="NDF" />
+                                <transition name="Cross Dissolve" offset="106900/3000s" duration="1200/3000s">
+                                    <filter-video ref="r29" name="Cross Dissolve">
+                                        <param name="Look" key="1" value="11 (Video)" />
+                                        <param name="Amount" key="2" value="50" />
+                                        <param name="Ease" key="50" value="2 (In &amp; Out)" />
+                                        <param name="Ease Amount" key="51" value="0" />
+                                    </filter-video>
+                                </transition>
+                                <asset-clip ref="r8" offset="107500/3000s" name="04-ask Ask about all three places at once" start="1/5s" duration="31/2s" tcFormat="NDF" />
+                                <transition name="Cross Dissolve" offset="153400/3000s" duration="1200/3000s">
+                                    <filter-video ref="r29" name="Cross Dissolve">
+                                        <param name="Look" key="1" value="11 (Video)" />
+                                        <param name="Amount" key="2" value="50" />
+                                        <param name="Ease" key="50" value="2 (In &amp; Out)" />
+                                        <param name="Ease Amount" key="51" value="0" />
+                                    </filter-video>
+                                </transition>
+                                <asset-clip ref="r10" offset="154000/3000s" name="05-approve Inspect the change, then approve it" start="1/5s" duration="124/5s" tcFormat="NDF">
+                                    <timeMap>
+                                        <timept time="0s" value="0s" interp="linear" />
+                                        <timept time="605124/24000s" value="86200/3000s" interp="linear" />
+                                    </timeMap>
+                                </asset-clip>
+                                <transition name="Keynote Transition JGMG" offset="227800/3000s" duration="1200/3000s">
+                                    <filter-video ref="r31" name="Keynote Transition JGMG" />
+                                </transition>
+                                <asset-clip ref="r12" offset="228400/3000s" name="06-pdf PDF · ask about the recommendation" start="1/5s" duration="71/6s" tcFormat="NDF" />
+                                <asset-clip ref="r14" offset="263900/3000s" name="07-html HTML · ask about the release gates" duration="217088/15360s" tcFormat="NDF" />
+                                <asset-clip ref="r16" offset="39206400/384000s" name="08-word Word · ask about the cutover blockers" duration="353/30s" tcFormat="NDF" />
+                                <transition name="Keynote Transition JGMG" offset="43648000/384000s" duration="1200/3000s">
+                                    <filter-video ref="r31" name="Keynote Transition JGMG" />
+                                </transition>
+                                <asset-clip ref="r18" offset="43724800/384000s" name="09-graph Graph · follow the evidence" start="1/5s" duration="41/3s" tcFormat="NDF" />
+                                <asset-clip ref="r20" offset="48972800/384000s" name="10-ai-options Your subscription, local models, or hosted APIs" duration="87/5s" tcFormat="NDF" />
+                                <transition name="Cross Dissolve" offset="55577600/384000s" duration="1200/3000s">
+                                    <filter-video ref="r29" name="Cross Dissolve">
+                                        <param name="Look" key="1" value="11 (Video)" />
+                                        <param name="Amount" key="2" value="50" />
+                                        <param name="Ease" key="50" value="2 (In &amp; Out)" />
+                                        <param name="Ease Amount" key="51" value="0" />
+                                    </filter-video>
+                                </transition>
+                                <asset-clip ref="r22" offset="55654400/384000s" name="11-traffic Follow the record down to one message" start="1/5s" duration="469/30s" tcFormat="NDF">
+                                    <timeMap>
+                                        <timept time="0s" value="0s" interp="linear" />
+                                        <timept time="481/30s" value="16966666666/1000000000s" interp="linear" />
+                                    </timeMap>
+                                </asset-clip>
+                                <transition name="Cross Dissolve" offset="61580800/384000s" duration="1200/3000s">
+                                    <filter-video ref="r29" name="Cross Dissolve">
+                                        <param name="Look" key="1" value="11 (Video)" />
+                                        <param name="Amount" key="2" value="50" />
+                                        <param name="Ease" key="50" value="2 (In &amp; Out)" />
+                                        <param name="Ease Amount" key="51" value="0" />
+                                    </filter-video>
+                                </transition>
+                                <title ref="r32" offset="61657600/384000s" name="12-close Review where the work lives" start="1/5s" duration="109/15s">
+                                    <param name="Drop Zone Inside Scale" key="9999/3339000021/3336209352/3336770179/3338462505/3338462377/3338461652/3337624428/2/327" value="0.08 0.08" />
+                                    <param name="Drop Zone Mask Radius" key="9999/3339000021/3336209352/3336770179/3338462505/3338462377/3338462370/3338461016/2/353/160" value="600 600" />
+                                    <param name="Description Position" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/1/100/101" value="0 -60" />
+                                    <param name="Description Alignment" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/2/354/3338773583/401" value="1 (Center)" />
+                                    <param name="Anchor Position" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/2/375" value="2 (Typographic Center)" />
+                                    <param name="Opacity" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773584/1000/1044" value="0" />
+                                    <param name="Sequencing" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773584/201/202" value="0 (To)" />
+                                    <param name="Animate" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773584/201/203" value="3 (Line)" />
+                                    <param name="Spread" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773584/201/204" value="10" />
+                                    <param name="Direction" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773584/201/205" value="3 (Ends to Center)" />
+                                    <param name="Speed" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773584/201/208" value="4 (Accelerate)" />
+                                    <param name="Apply Speed" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773584/201/211" value="2 (Per Object)" />
+                                    <param name="Scale" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773585/1000/1003" value="0.5 0.5" />
+                                    <param name="Opacity" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773585/1000/1044" value="0" />
+                                    <param name="Animate" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773585/201/203" value="1 (Character (without spaces))" />
+                                    <param name="Spread" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773585/201/204" value="6" />
+                                    <param name="Direction" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773585/201/205" value="2 (Center to Ends)" />
+                                    <param name="Speed" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773585/201/208" value="3 (Ease Both)" />
+                                    <param name="Apply Speed" key="9999/3339000021/3336209352/3336770179/3338805483/3338773581/3338805573/3338773582/4/3338773585/201/211" value="2 (Per Object)" />
+                                    <text>
+                                        <text-style ref="ts1">Ask your next question in REX.</text-style>
+                                    </text>
+                                    <text-style-def id="ts1">
+                                        <text-style font="Inter Tight" fontSize="96" fontFace="SemiBold" fontColor="1 1 1 1" bold="1" alignment="center" />
+                                    </text-style-def>
+                                    <marker start="1/5s" duration="1/30s" value="MANUAL LOGO BINDING - native FCPXML omits the media well. Assign the official PNG in this final FCP project; preserve full lockup. P5ZG Inside Scale 8, Mask Radius 600 and Description Size 96 are set." />
+                                </title>
+                            </spine>
+                            <asset-clip ref="r1" lane="-1" offset="79/15s" name="02-workspace narration" duration="57/5s" audioRole="dialogue" />
+                            <asset-clip ref="r33" lane="2" offset="79/15s" name="REX backing - 02-workspace" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r34" lane="3" offset="79/15s" name="02-workspace lower third" duration="16/5s">
+                                <param name="Content Position" key="9999/3336831446/3336831449/2/1/13" value="0.15125 0.88" />
+                                <param name="Position" key="9999/3336831550/3336831474/3336831451/3290676183/3290664796/1/100/101" value="-1026.74 -142.793" />
+                                <param name="Anchor Point" key="9999/3336831550/3336831474/3336831451/3290676183/3290664796/1/100/107" value="0 94" />
+                                <param name="Position" key="9999/3336831550/3336831474/3336831451/3290676183/3290689243/1/100/101" value="-1026.74 -238.793" />
+                                <param name="Anchor Point" key="9999/3336831550/3336831474/3336831451/3290676183/3290689243/1/100/107" value="0 94" />
+                                <text>
+                                    <text-style ref="ts2">Your documents · One workspace</text-style>
+                                </text>
+                                <text>
+                                    <text-style ref="ts3">Review in place</text-style>
+                                </text>
+                                <text-style-def id="ts2">
+                                    <text-style font="Poppins" fontSize="80" fontFace="Regular" fontColor="1 1 1 1" />
+                                </text-style-def>
+                                <text-style-def id="ts3">
+                                    <text-style font="Poppins" fontSize="100" fontFace="Black" fontColor="1 1 1 1" bold="1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="79/15s" name="Copying passages into chat separates questions from their source." duration="119/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts4">Copying passages into chat separates questions from their source.</text-style>
+                                </text>
+                                <text-style-def id="ts4">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="277/30s" name="REX brings Markdown, HTML, Word, PDF, and PowerPoint" duration="53/15s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts5">REX brings Markdown, HTML, Word, PDF, and PowerPoint</text-style>
+                                </text>
+                                <text-style-def id="ts5">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="383/30s" name="into one workspace, keeping the review with the" duration="53/15s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts6">into one workspace, keeping the review with the</text-style>
+                                </text>
+                                <text-style-def id="ts6">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="163/10s" name="document." duration="2/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts7">document.</text-style>
+                                </text>
+                                <text-style-def id="ts7">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r5" lane="-1" offset="263/15s" name="03-selection narration" duration="95/6s" audioRole="dialogue" />
+                            <asset-clip ref="r35" lane="2" offset="263/15s" name="REX backing - 03-selection" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r36" lane="3" offset="263/15s" name="03-selection lower third" duration="16/5s">
+                                <param name="Position" key="9999/999166631/999166633/1/100/101" value="-864 400" />
+                                <param name="Position" key="9999/999166631/999169525/1/100/101" value="-763.7 -438" />
+                                <text>
+                                    <text-style ref="ts8">3 places → 1 request · ⌥ + wheel widens / narrows</text-style>
+                                </text>
+                                <text />
+                                <text-style-def id="ts8">
+                                    <text-style font="Helvetica Neue" fontSize="42" fontFace="Medium" fontColor="0.999889 1 0.999846 1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="263/15s" name="One review can span several places." duration="21/10s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts9">One review can span several places.</text-style>
+                                </text>
+                                <text-style-def id="ts9">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="589/30s" name="Start with a sentence, then widen a table" duration="14/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts10">Start with a sentence, then widen a table</text-style>
+                                </text>
+                                <text-style-def id="ts10">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="673/30s" name="cell to its row, table, or enclosing section." duration="14/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts11">cell to its row, table, or enclosing section.</text-style>
+                                </text>
+                                <text-style-def id="ts11">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="757/30s" name="The outline shows exactly what the question will include." duration="19/6s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts12">The outline shows exactly what the question will include.</text-style>
+                                </text>
+                                <text-style-def id="ts12">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="142/5s" name="Add the recommendation to the selection, and all" duration="14/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts13">Add the recommendation to the selection, and all</text-style>
+                                </text>
+                                <text-style-def id="ts13">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="156/5s" name="three places belong to one request." duration="13/6s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts14">three places belong to one request.</text-style>
+                                </text>
+                                <text-style-def id="ts14">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r7" lane="-1" offset="363/10s" name="04-ask narration" duration="129/10s" audioRole="dialogue" />
+                            <asset-clip ref="r35" lane="2" offset="363/10s" name="REX backing - 04-ask" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r36" lane="3" offset="363/10s" name="04-ask lower third" duration="16/5s">
+                                <param name="Position" key="9999/999166631/999166633/1/100/101" value="-864 400" />
+                                <param name="Position" key="9999/999166631/999169525/1/100/101" value="-763.7 -438" />
+                                <text>
+                                    <text-style ref="ts15">Ask about 3 · one conversation, three places</text-style>
+                                </text>
+                                <text />
+                                <text-style-def id="ts15">
+                                    <text-style font="Helvetica Neue" fontSize="42" fontFace="Medium" fontColor="0.999889 1 0.999846 1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="363/10s" name="The three selected places travel together in one question." duration="109/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts16">The three selected places travel together in one question.</text-style>
+                                </text>
+                                <text-style-def id="ts16">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="599/15s" name="One answer compares the evidence with the recommendation." duration="97/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts17">One answer compares the evidence with the recommendation.</text-style>
+                                </text>
+                                <text-style-def id="ts17">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="259/6s" name="The conversation keeps every passage attached, so you" duration="97/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts18">The conversation keeps every passage attached, so you</text-style>
+                                </text>
+                                <text-style-def id="ts18">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="232/5s" name="can check the answer against its source." duration="14/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts19">can check the answer against its source.</text-style>
+                                </text>
+                                <text-style-def id="ts19">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r9" lane="-1" offset="259/5s" name="05-approve narration" duration="359/15s" audioRole="dialogue" />
+                            <asset-clip ref="r35" lane="2" offset="259/5s" name="REX backing - 05-approve" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r36" lane="3" offset="259/5s" name="05-approve lower third" duration="16/5s">
+                                <param name="Position" key="9999/999166631/999166633/1/100/101" value="-864 400" />
+                                <param name="Position" key="9999/999166631/999169525/1/100/101" value="-763.7 -438" />
+                                <text>
+                                    <text-style ref="ts20">ACT · working copy first, approval last</text-style>
+                                </text>
+                                <text />
+                                <text-style-def id="ts20">
+                                    <text-style font="Helvetica Neue" fontSize="42" fontFace="Medium" fontColor="0.999889 1 0.999846 1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="259/5s" name="ASK cannot write." duration="4/3s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts21">ASK cannot write.</text-style>
+                                </text>
+                                <text-style-def id="ts21">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="797/15s" name="ACT moves the same conversation onto an isolated" duration="107/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts22">ACT moves the same conversation onto an isolated</text-style>
+                                </text>
+                                <text-style-def id="ts22">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="567/10s" name="working copy, then puts every proposed line behind" duration="107/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts23">working copy, then puts every proposed line behind</text-style>
+                                </text>
+                                <text-style-def id="ts23">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="904/15s" name="a review bar." duration="4/3s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts24">a review bar.</text-style>
+                                </text>
+                                <text-style-def id="ts24">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="308/5s" name="Original, Both, and New expose the edit from" duration="107/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts25">Original, Both, and New expose the edit from</text-style>
+                                </text>
+                                <text-style-def id="ts25">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="391/6s" name="each side." duration="9/10s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts26">each side.</text-style>
+                                </text>
+                                <text-style-def id="ts26">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="991/15s" name="Only Approve writes the file." duration="67/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts27">Only Approve writes the file.</text-style>
+                                </text>
+                                <text-style-def id="ts27">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="683/10s" name="REX then checks every comment again: unchanged passages" duration="107/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts28">REX then checks every comment again: unchanged passages</text-style>
+                                </text>
+                                <text-style-def id="ts28">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="1078/15s" name="stay attached, and removed text is flagged for" duration="107/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts29">stay attached, and removed text is flagged for</text-style>
+                                </text>
+                                <text-style-def id="ts29">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="2263/30s" name="review." duration="1/3s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts30">review.</text-style>
+                                </text>
+                                <text-style-def id="ts30">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r11" lane="-1" offset="383/5s" name="06-pdf narration" duration="43/6s" audioRole="dialogue" />
+                            <asset-clip ref="r33" lane="2" offset="383/5s" name="REX backing - 06-pdf" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r34" lane="3" offset="383/5s" name="06-pdf lower third" duration="16/5s">
+                                <param name="Content Position" key="9999/3336831446/3336831449/2/1/13" value="0.15125 0.88" />
+                                <param name="Position" key="9999/3336831550/3336831474/3336831451/3290676183/3290664796/1/100/101" value="-1026.74 -142.793" />
+                                <param name="Anchor Point" key="9999/3336831550/3336831474/3336831451/3290676183/3290664796/1/100/107" value="0 94" />
+                                <param name="Position" key="9999/3336831550/3336831474/3336831451/3290676183/3290689243/1/100/101" value="-1026.74 -238.793" />
+                                <param name="Anchor Point" key="9999/3336831550/3336831474/3336831451/3290676183/3290689243/1/100/107" value="0 94" />
+                                <text>
+                                    <text-style ref="ts31">PDF · HTML · Word</text-style>
+                                </text>
+                                <text>
+                                    <text-style ref="ts32">Ask across formats</text-style>
+                                </text>
+                                <text-style-def id="ts31">
+                                    <text-style font="Poppins" fontSize="80" fontFace="Regular" fontColor="1 1 1 1" />
+                                </text-style-def>
+                                <text-style-def id="ts32">
+                                    <text-style font="Poppins" fontSize="100" fontFace="Black" fontColor="1 1 1 1" bold="1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="383/5s" name="Ask why the recommendation is conditional, and check" duration="16/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts33">Ask why the recommendation is conditional, and check</text-style>
+                                </text>
+                                <text-style-def id="ts33">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="399/5s" name="the answer beside the selected passage." duration="12/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts34">the answer beside the selected passage.</text-style>
+                                </text>
+                                <text-style-def id="ts34">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="411/5s" name="The PDF stays unchanged." duration="8/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts35">The PDF stays unchanged.</text-style>
+                                </text>
+                                <text-style-def id="ts35">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r13" lane="-1" offset="2647/30s" name="07-html narration" duration="98/15s" audioRole="dialogue" />
+                            <asset-clip ref="r35" lane="2" offset="2647/30s" name="REX backing - 07-html" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r36" lane="3" offset="2647/30s" name="07-html lower third" duration="16/5s">
+                                <param name="Position" key="9999/999166631/999166633/1/100/101" value="-864 400" />
+                                <param name="Position" key="9999/999166631/999169525/1/100/101" value="-763.7 -438" />
+                                <text>
+                                    <text-style ref="ts36">HTML · ask about the release gates</text-style>
+                                </text>
+                                <text />
+                                <text-style-def id="ts36">
+                                    <text-style font="Helvetica Neue" fontSize="42" fontFace="Medium" fontColor="0.999889 1 0.999846 1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="2647/30s" name="HTML keeps its visual structure." duration="9/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts37">HTML keeps its visual structure.</text-style>
+                                </text>
+                                <text-style-def id="ts37">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="2701/30s" name="Ask which release gates must close, and read" duration="29/10s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts38">Ask which release gates must close, and read</text-style>
+                                </text>
+                                <text-style-def id="ts38">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="1394/15s" name="the answer beside the requirement." duration="11/6s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts39">the answer beside the requirement.</text-style>
+                                </text>
+                                <text-style-def id="ts39">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r15" lane="-1" offset="3071/30s" name="08-word narration" duration="7s" audioRole="dialogue" />
+                            <asset-clip ref="r35" lane="2" offset="3071/30s" name="REX backing - 08-word" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r36" lane="3" offset="3071/30s" name="08-word lower third" duration="16/5s">
+                                <param name="Position" key="9999/999166631/999166633/1/100/101" value="-864 400" />
+                                <param name="Position" key="9999/999166631/999169525/1/100/101" value="-763.7 -438" />
+                                <text>
+                                    <text-style ref="ts40">Word · ask about the cutover blockers</text-style>
+                                </text>
+                                <text />
+                                <text-style-def id="ts40">
+                                    <text-style font="Helvetica Neue" fontSize="42" fontFace="Medium" fontColor="0.999889 1 0.999846 1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="3071/30s" name="Ask what still blocks a safe cutover." duration="77/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts41">Ask what still blocks a safe cutover.</text-style>
+                                </text>
+                                <text-style-def id="ts41">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="1574/15s" name="REX explains the blockers beside the selected passage," duration="44/15s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts42">REX explains the blockers beside the selected passage,</text-style>
+                                </text>
+                                <text-style-def id="ts42">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="1618/15s" name="without editing the document." duration="3/2s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts43">without editing the document.</text-style>
+                                </text>
+                                <text-style-def id="ts43">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r17" lane="-1" offset="343/3s" name="09-graph narration" duration="129/10s" audioRole="dialogue" />
+                            <asset-clip ref="r33" lane="2" offset="343/3s" name="REX backing - 09-graph" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r34" lane="3" offset="343/3s" name="09-graph lower third" duration="16/5s">
+                                <param name="Content Position" key="9999/3336831446/3336831449/2/1/13" value="0.15125 0.88" />
+                                <param name="Position" key="9999/3336831550/3336831474/3336831451/3290676183/3290664796/1/100/101" value="-1026.74 -142.793" />
+                                <param name="Anchor Point" key="9999/3336831550/3336831474/3336831451/3290676183/3290664796/1/100/107" value="0 94" />
+                                <param name="Position" key="9999/3336831550/3336831474/3336831451/3290676183/3290689243/1/100/101" value="-1026.74 -238.793" />
+                                <param name="Anchor Point" key="9999/3336831550/3336831474/3336831451/3290676183/3290689243/1/100/107" value="0 94" />
+                                <text>
+                                    <text-style ref="ts44">Graph · Linked evidence</text-style>
+                                </text>
+                                <text>
+                                    <text-style ref="ts45">Follow the connections</text-style>
+                                </text>
+                                <text-style-def id="ts44">
+                                    <text-style font="Poppins" fontSize="80" fontFace="Regular" fontColor="1 1 1 1" />
+                                </text-style-def>
+                                <text-style-def id="ts45">
+                                    <text-style font="Poppins" fontSize="100" fontFace="Black" fontColor="1 1 1 1" bold="1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="343/3s" name="Graph turns links between your documents into a map." duration="53/15s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts46">Graph turns links between your documents into a map.</text-style>
+                                </text>
+                                <text-style-def id="ts46">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="1768/15s" name="Follow the connections around the cutover plan, find" duration="47/15s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts47">Follow the connections around the cutover plan, find</text-style>
+                                </text>
+                                <text-style-def id="ts47">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="121s" name="the architecture decisions and runbooks behind it, and" duration="47/15s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts48">the architecture decisions and runbooks behind it, and</text-style>
+                                </text>
+                                <text-style-def id="ts48">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="1862/15s" name="open a related document without losing the review." duration="31/10s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts49">open a related document without losing the review.</text-style>
+                                </text>
+                                <text-style-def id="ts49">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r19" lane="-1" offset="639/5s" name="10-ai-options narration" duration="491/30s" audioRole="dialogue" />
+                            <asset-clip ref="r35" lane="2" offset="639/5s" name="REX backing - 10-ai-options" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r36" lane="3" offset="639/5s" name="10-ai-options lower third" duration="16/5s">
+                                <param name="Position" key="9999/999166631/999166633/1/100/101" value="-864 400" />
+                                <param name="Position" key="9999/999166631/999169525/1/100/101" value="-763.7 -438" />
+                                <text>
+                                    <text-style ref="ts50">Existing sign-ins · bundled AI gateway
+· provider plan limits apply</text-style>
+                                </text>
+                                <text />
+                                <text-style-def id="ts50">
+                                    <text-style font="Helvetica Neue" fontSize="42" fontFace="Medium" fontColor="0.999889 1 0.999846 1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="639/5s" name="Use your existing Codex or Claude Code subscription" duration="101/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts51">Use your existing Codex or Claude Code subscription</text-style>
+                                </text>
+                                <text-style-def id="ts51">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="787/6s" name="through its own sign-in." duration="5/3s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts52">through its own sign-in.</text-style>
+                                </text>
+                                <text-style-def id="ts52">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="797/6s" name="Or connect local models and hosted APIs through" duration="101/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts53">Or connect local models and hosted APIs through</text-style>
+                                </text>
+                                <text-style-def id="ts53">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="681/5s" name="REX’s bundled AI gateway, including LM Studio, Ollama," duration="101/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts54">REX’s bundled AI gateway, including LM Studio, Ollama,</text-style>
+                                </text>
+                                <text-style-def id="ts54">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="4187/30s" name="Unsloth, and OpenRouter." duration="19/15s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts55">Unsloth, and OpenRouter.</text-style>
+                                </text>
+                                <text-style-def id="ts55">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="845/6s" name="Choose the agent and model for each message." duration="101/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts56">Choose the agent and model for each message.</text-style>
+                                </text>
+                                <text-style-def id="ts56">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r21" lane="-1" offset="727/5s" name="11-traffic narration" duration="443/30s" audioRole="dialogue" />
+                            <asset-clip ref="r35" lane="2" offset="727/5s" name="REX backing - 11-traffic" duration="16/5s" tcFormat="NDF" />
+                            <title ref="r36" lane="3" offset="727/5s" name="11-traffic lower third" duration="16/5s">
+                                <param name="Position" key="9999/999166631/999166633/1/100/101" value="-864 400" />
+                                <param name="Position" key="9999/999166631/999169525/1/100/101" value="-763.7 -438" />
+                                <text>
+                                    <text-style ref="ts57">Traffic · chat → turn → message JSON</text-style>
+                                </text>
+                                <text />
+                                <text-style-def id="ts57">
+                                    <text-style font="Helvetica Neue" fontSize="42" fontFace="Medium" fontColor="0.999889 1 0.999846 1" />
+                                </text-style-def>
+                                <marker start="0s" duration="1/30s" value="VERIFY IN FCP - native white text, charcoal backing, position and readable dwell." />
+                            </title>
+                            <caption lane="4" offset="727/5s" name="Traffic keeps the record of every chat." duration="13/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts58">Traffic keeps the record of every chat.</text-style>
+                                </text>
+                                <text-style-def id="ts58">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="148s" name="For requests through the built-in gateway, drill down" duration="89/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts59">For requests through the built-in gateway, drill down</text-style>
+                                </text>
+                                <text-style-def id="ts59">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="4529/30s" name="to the messages sent and received." duration="11/5s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts60">to the messages sent and received.</text-style>
+                                </text>
+                                <text-style-def id="ts60">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="919/6s" name="Tokens, timing, failures, and the provider route stay attached." duration="10/3s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts61">Tokens, timing, failures, and the provider route stay attached.</text-style>
+                                </text>
+                                <text-style-def id="ts61">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="313/2s" name="The exact request and response JSON are readable" duration="89/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts62">The exact request and response JSON are readable</text-style>
+                                </text>
+                                <text-style-def id="ts62">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="2392/15s" name="and copyable." duration="7/10s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts63">and copyable.</text-style>
+                                </text>
+                                <text-style-def id="ts63">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <asset-clip ref="r23" lane="-1" offset="4831/30s" name="12-close narration" duration="31/5s" audioRole="dialogue" />
+                            <caption lane="4" offset="4831/30s" name="Open your next document in REX." duration="59/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts64">Open your next document in REX.</text-style>
+                                </text>
+                                <text-style-def id="ts64">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="163s" name="Ask a question where it matters, and approve" duration="79/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts65">Ask a question where it matters, and approve</text-style>
+                                </text>
+                                <text-style-def id="ts65">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <caption lane="4" offset="4969/30s" name="only the changes you want." duration="49/30s" role="iTT?captionFormat=ITT.en-US">
+                                <text placement="bottom">
+                                    <text-style ref="ts66">only the changes you want.</text-style>
+                                </text>
+                                <text-style-def id="ts66">
+                                    <text-style font=".AppleSystemUIFont" fontSize="13" fontFace="Regular" fontColor="1 1 1 1" backgroundColor="0 0 0 1" />
+                                </text-style-def>
+                            </caption>
+                            <chapter-marker start="0s" duration="1/30s" value="REX" posterOffset="0s" />
+                            <chapter-marker start="5s" duration="1/30s" value="One review, many document formats" posterOffset="0s" />
+                            <chapter-marker start="256/15s" duration="1/30s" value="Build one request from several places" posterOffset="0s" />
+                            <chapter-marker start="215/6s" duration="1/30s" value="Ask about all three places at once" posterOffset="0s" />
+                            <chapter-marker start="154/3s" duration="1/30s" value="Inspect the change, then approve it" posterOffset="0s" />
+                            <chapter-marker start="1142/15s" duration="1/30s" value="PDF · ask about the recommendation" posterOffset="0s" />
+                            <chapter-marker start="2639/30s" duration="1/30s" value="HTML · ask about the release gates" posterOffset="0s" />
+                            <chapter-marker start="1021/10s" duration="1/30s" value="Word · ask about the cutover blockers" posterOffset="0s" />
+                            <chapter-marker start="1708/15s" duration="1/30s" value="Graph · follow the evidence" posterOffset="0s" />
+                            <chapter-marker start="1913/15s" duration="1/30s" value="Your subscription, local models, or hosted APIs" posterOffset="0s" />
+                            <chapter-marker start="2174/15s" duration="1/30s" value="Follow the record down to one message" posterOffset="0s" />
+                            <chapter-marker start="4817/30s" duration="1/30s" value="Review where the work lives" posterOffset="0s" />
+                        </gap>
+                    </spine>
+                </sequence>
+            </project>
+            <asset-clip ref="r27" name="rex-bookends.wav" duration="120840000/720000s" format="r2" modDate="2026-09-14 15:07:54 +0200" audioRole="dialogue" />
+            <asset-clip ref="r33" name="rex-label-backing-chapter.mov" duration="10s" format="r26" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+            <asset-clip ref="r35" name="rex-label-backing-ordinary.mov" duration="10s" format="r26" tcFormat="NDF" modDate="2026-09-14 15:07:54 +0200" />
+        </event>
+    </library>
+</fcpxml>

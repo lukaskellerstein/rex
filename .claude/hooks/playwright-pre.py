@@ -44,7 +44,8 @@ def main():
 
     pw.ensure_scratch()
 
-    port = pw.cdp_port(os.environ.get("CLAUDE_PROJECT_DIR", "."))
+    project_dir = os.environ.get("CODEX_PROJECT_DIR") or os.environ.get("CLAUDE_PROJECT_DIR") or "."
+    port = pw.cdp_port(project_dir)
     if port is not None and not pw.agent_owns_port(port):
         consent = pw.consent_path(port)
         if not consent.exists():
@@ -52,7 +53,7 @@ def main():
             deny(
                 f"The app on CDP port {port} was started by the user, not by this "
                 "session. Do NOT control it. Either start your own instance with "
-                ".claude/hooks/playwright-launch.sh (on a free port — see the "
+                "the repo's playwright-launch.sh hook (on a free port — see the "
                 "script's own refusal message), or ask the user for permission "
                 "— and only after an explicit yes in the conversation, run: "
                 f"touch '{consent}'"

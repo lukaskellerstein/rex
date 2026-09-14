@@ -1,0 +1,28 @@
+{
+  "source": "audio/music/rex-master.mp3",
+  "sourceSha256": "f3b72eb585ecbd379fb25d87556baf82f8684a8ab728bc1a6f92129daa93d7c9",
+  "output": "audio/music/rex-bookends.wav",
+  "sampleRate": 48000,
+  "channels": 2,
+  "durationSamples": 8056000,
+  "durationSeconds": 167.83333333333334,
+  "silentMiddleVerified": true,
+  "cues": [
+    {
+      "sectionId": "01-intro",
+      "startSeconds": 0,
+      "durationSeconds": 5,
+      "peakDb": -8.400032168431915,
+      "rmsDb": -24.872471479800478,
+      "targetLufs": -22
+    },
+    {
+      "sectionId": "12-close",
+      "startSeconds": 160.36666666666667,
+      "durationSeconds": 7.466666666666667,
+      "peakDb": -19.565214174321465,
+      "rmsDb": -37.57412692226003,
+      "targetLufs": -34
+    }
+  ]
+}

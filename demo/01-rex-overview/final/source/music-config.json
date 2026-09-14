@@ -1,0 +1,20 @@
+{
+  "lengthMs": 10000,
+  "prompt": "An understated instrumental sonic identity for a carefully designed developer desktop app. Ten seconds: a soft warm analogue synth pad with two or three sparse glassy plucked notes, calm confidence, clean modern texture, no vocals, no drums, no dramatic riser, no epic build-up, no busy melody. A gentle settled resolution over the final two seconds. Elegant, restrained and quietly optimistic. Useful both as a short opening logo cue and a quiet closing reprise beneath a spoken call to action.",
+  "master": "audio/music/rex-master.mp3",
+  "output": "audio/music/rex-bookends.wav",
+  "intro": {
+    "sectionId": "01-intro",
+    "sourceStartSeconds": 0,
+    "targetLufs": -22,
+    "fadeInSeconds": 0.15,
+    "fadeOutSeconds": 0.7
+  },
+  "outro": {
+    "sectionId": "12-close",
+    "sourceFromEnd": true,
+    "targetLufs": -34,
+    "fadeInSeconds": 0.45,
+    "fadeOutSeconds": 0.85
+  }
+}

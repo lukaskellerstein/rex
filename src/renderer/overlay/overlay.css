@@ -2136,6 +2136,7 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   column-gap: 10px;
+  min-height: 0;
   max-height: min(24vh, 320px);
   margin: 0;
   padding: 0;
@@ -2257,17 +2258,28 @@
 @container (max-width: 480px) {
   .rex-place {
     grid-template-columns: auto minmax(0, 1fr) auto;
-    row-gap: 4px;
+    row-gap: 3px;
+    padding-block: 4px;
   }
 
   .rex-place-cells {
-    grid-column: 1 / 4;
-    padding-left: 21px;
+    grid-column: 2 / 4;
+    grid-row: 2;
+  }
+
+  .rex-place-cells .rex-place-cell {
+    min-width: 0;
+    padding-right: 7px;
+    padding-left: 7px;
   }
 
   .rex-place-cells .rex-place-cell:first-child {
     border-left: 0;
     padding-left: 0;
+  }
+
+  .rex-place-cells .rex-place-size {
+    min-width: 0;
   }
 
   .rex-place-go {
@@ -2444,11 +2456,10 @@
 /*
   Shrinkable, unlike the controls beside it.
 
-  A model name is the one thing in the composer's row that can lose its tail
-  and still be read, so on a narrow sidebar it is the one that gives way rather
-  than pushing something else out. It does NOT stop the row wrapping — the row
-  wraps by design, and `.rex-row-end` keeps the picker with the button it sends
-  with when it does.
+  A model name can lose its tail when that is enough to keep a wide control row
+  together. At the sidebar's default width, the complete route is wider than
+  the row even after useful labels would be lost, so `.rex-row-end` wraps whole
+  controls before it truncates them.
 */
 .rex-modelpick {
   position: relative;
@@ -2457,15 +2468,23 @@
 }
 
 /*
-  The composer's foot: the mode switch and its key hint start at the left
-  edge; the model and the send button are one group that ends at the right
-  edge. The auto margin is what splits the row, and grouping the pair keeps
-  them together when a narrow sidebar wraps the row.
+  The composer's route and action controls. The group ends at the right edge on
+  a wide surface. On a narrow sidebar it takes the row's available width and
+  wraps between controls, so every picker and the send button remains reachable.
+  The action keeps the right edge on its final line while route controls keep
+  their left-to-right cascade: agent, gateway, model, style.
 */
 .rex-row-end {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.rex-row-end > .rex-button {
   margin-left: auto;
 }
 
@@ -2515,6 +2534,15 @@
   position: absolute;
   top: calc(100% + 4px);
   left: 100%;
+  width: max-content;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+}
+
+.rex-modelmenu .rex-menu-item {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /*
@@ -3569,7 +3597,8 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
   padding: 12px 14px 14px;
   /* Spec 35 §2.6 — the well's ground, and a shadow onto the conversation. */
   background: var(--well);
@@ -3581,7 +3610,8 @@
 }
 
 .rex-card-head > * {
-  flex: none;
+  flex: 0 1 auto;
+  min-height: 0;
 }
 
 /* Spec 35 §2.4 — the fold above the place list. */
@@ -3658,6 +3688,7 @@
   display: flex;
   flex-direction: column;
   gap: 9px;
+  min-height: 0;
   padding: 12px 13px;
   border: 1px solid var(--rule);
   border-radius: 2px;
@@ -7589,13 +7620,15 @@ select.rex-field-input {
 .rex-card-name {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
   margin: 0;
   color: var(--fg);
   font-size: 13px;
   font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 /* ── Spec 30 §6 — a draft: started, never sent ────────────────── */

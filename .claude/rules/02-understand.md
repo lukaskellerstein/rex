@@ -4,8 +4,9 @@ description: "Step 1: Understand — read code, ask questions, identify gaps bef
 
 # Step 1: Understand
 
-- Know where you stand first: `pwd` and `git branch --show-current`. In the
-  main checkout you may read and answer, not edit — [`worktree.md`](worktree.md).
+- Know where you stand first: `pwd`, `git branch --show-current`, and the
+  session-start guard line. Work only in the checkout assigned to this session
+  — [`worktree.md`](worktree.md).
 - Read relevant code and identify impacted areas
 - Baseline the repo's existing problems with `nvim-tools --json --all`, so
   findings you introduce stay distinguishable from ones that were already there.

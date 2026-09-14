@@ -30,17 +30,20 @@ checklist.
    `pw-agent` in the `User-Agent` means an agent instance — attach to it. No
    marker means the instance is the user's own: do not quit it, restart it or
    drive it.
-2. If nothing answers, start your own instance **only** through
-   `.claude/hooks/playwright-launch.sh npm run dev` — never bare.
+2. If nothing answers, start your own instance **only** through the current
+   agent's hook: `.claude/hooks/playwright-launch.sh npm run dev` for Claude
+   Code or `.codex/hooks/playwright-launch.sh npm run dev` for Codex — never
+   bare. The Codex path is a relative link to the shared implementation.
 3. Drive it via `mcp__playwright-rex__browser_navigate` and the other
    `browser_*` tools, and verify the change is visible **and** functional — take
    a snapshot, don't just assert the page loaded.
 4. **Close the browser when done.**
 
 If the user's REX holds 9334, ask, or launch a second instance with
-`REX_CDP_PORT=9444 .claude/hooks/playwright-launch.sh npm run dev` and reach it
-by raw CDP — the MCP is pinned to 9334. Before any script attaches to a CDP
-port, run `python3 .claude/hooks/pw.py owns-port <port>`: exit 1 means the
+`REX_CDP_PORT=9444 <agent-hooks>/playwright-launch.sh npm run dev` and reach it
+by raw CDP — the MCP is pinned to 9334. Here `<agent-hooks>` is `.claude/hooks`
+for Claude Code and `.codex/hooks` for Codex. Before any script attaches to a
+CDP port, run `python3 <agent-hooks>/pw.py owns-port <port>`: exit 1 means the
 instance is the user's.
 
 To debug, read `~/.rex/rex.log` first. The user's `B` key copies a debug report;

@@ -1,0 +1,288 @@
+{
+  "schemaVersion": 1,
+  "approvedDate": "2026-09-14",
+  "project": "REX — Ask where the work lives — Revision 5",
+  "authoritativeEditor": "Final Cut Pro Creator Studio 12.3 (450152)",
+  "videoFrames": 5035,
+  "fps": 30,
+  "libraryArchive": "rex-demo.fcpbundle.zip",
+  "mediaCount": 25,
+  "mediaBytes": 62639978,
+  "files": [
+    {
+      "path": "rex-demo.fcpbundle.zip",
+      "bytes": 11600875,
+      "sha256": "5b22038731997dc9804e591016b143c15361f433f28ac068c8a3c0a678e022d9"
+    },
+    {
+      "path": "rex-demo.mp4",
+      "bytes": 107769463,
+      "sha256": "0dfbae5764fc2ca704b880ca92897d0917ea80489851964a21da12879be628cd"
+    },
+    {
+      "path": "source/captions.itt",
+      "bytes": 6949,
+      "sha256": "954becf7e3f5f4f29db22d82f5ba1f47607d46c480d16cfc5094f81159975c86"
+    },
+    {
+      "path": "source/label-backing-chapter.png",
+      "bytes": 9091,
+      "sha256": "0fff5a9b1ec4769f5cd2957ef60ea76faef348d61c3f77a2271330353b9a3dd5"
+    },
+    {
+      "path": "source/label-backing-ordinary.png",
+      "bytes": 9016,
+      "sha256": "e1d4230a65c9870b55902eb4c2dccf46e896297028b9fc5c92d8d781d162a20b"
+    },
+    {
+      "path": "source/music-config.json",
+      "bytes": 924,
+      "sha256": "a4bbfcca8ea43461f86359ec139863a716d2e7d844ff56a15984b399bac7a437"
+    },
+    {
+      "path": "source/music-master.mp3",
+      "bytes": 265005,
+      "sha256": "f3b72eb585ecbd379fb25d87556baf82f8684a8ab728bc1a6f92129daa93d7c9"
+    },
+    {
+      "path": "source/music-measurement.json",
+      "bytes": 753,
+      "sha256": "50babe46947a4d422c6acf94c3fa5ae18c0fd35a5ab759a707b7c4d280974d18"
+    },
+    {
+      "path": "source/project.fcpxml",
+      "bytes": 95380,
+      "sha256": "cee2ed08be52bbb94ce46774a9bc7b091b833789292a799a21271b9e05568ddc"
+    },
+    {
+      "path": "source/storyboard.json",
+      "bytes": 62213,
+      "sha256": "fa3049035e15a988a5137ecf557dac5c1d674e4b90b52d511fcd5a223462632e"
+    },
+    {
+      "path": "source/timeline.json",
+      "bytes": 19264,
+      "sha256": "1c252e065b2bb9f1bb78d6c5220d73d07d710630434c3f4156a3a66178239792"
+    }
+  ],
+  "archiveMembers": [
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/CurrentVersion.fcpevent",
+      "bytes": 581632,
+      "sha256": "b99ceeaaa8c3922884dd3b15a292a2a80527f9185f41108939c3c7161b79b3d9"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/02-workspace (fcp1).mp3",
+      "bytes": 183946,
+      "sha256": "6813628ad00e3f38bf4749f0e7299ae4cfc0a68cb70f2c9cd6e9bb5d6a1112c3"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/02-workspace.mp4",
+      "bytes": 234429,
+      "sha256": "8607e3c384d95df05d8c7be20ded1b538c2574d8b00884d022ac84dcaf4ff1f1"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/03-selection (fcp1).mp3",
+      "bytes": 254581,
+      "sha256": "4d51eb67c673b5bf2e6642fdbac41e04cffde0453b5213a92a3eeb13a04ef72a"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/03-selection.mp4",
+      "bytes": 800134,
+      "sha256": "17f8ed058fc0ab3314623606777ae4566e2e1f04023a3ea48eb68c324de5e907"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/04-ask (fcp1).mp3",
+      "bytes": 207769,
+      "sha256": "d383a533851634a34984daf6a96ffd13a6825224c4fcf29840ee191bc84076a5"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/04-ask.mp4",
+      "bytes": 624491,
+      "sha256": "a6f424b000dae9a73bf4e77db90f146958b1a72eac5fb048b9086eea2443f6da"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/05-approve (fcp1).mp3",
+      "bytes": 384566,
+      "sha256": "569cd177da668e8ddb74fa4f3e7772500b558fe45964e636279111b05e6c22c8"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/05-approve.mp4",
+      "bytes": 1716958,
+      "sha256": "23a73468e7a5677d8448c29e83b7593792868eff486dfe4af76571b6e9d06336"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/06-pdf (fcp1).mp3",
+      "bytes": 116236,
+      "sha256": "1a3bedb619b71d847cf4ef54f525450edaba952713eaab7abd5735b8a61a0a0e"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/06-pdf.mp4",
+      "bytes": 427720,
+      "sha256": "d3b7576995fac7b9c60a1c861ed311e6a32bc98b32e8aa69f741ad2bcfe8720b"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/07-html (fcp1).mp3",
+      "bytes": 105787,
+      "sha256": "5e913b83338abf3513968c0920ee2a5cbc14da60b32eb19cf23ba2f29faf643f"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/07-html.mp4",
+      "bytes": 642755,
+      "sha256": "c0cdfb2c8dd118c2f843d94a218ffbe2a47601ce121c863b52747b7621a7412a"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/08-word (fcp1).mp3",
+      "bytes": 113311,
+      "sha256": "3df41342e238cf6e646b349fd506700e74adcc3aad2c54c582417b6159b28d37"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/08-word.mp4",
+      "bytes": 519715,
+      "sha256": "02b8fc2141a01971e9812e2a83418b83acab0bc0012e91e858e16fa03913bb85"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/09-graph (fcp1).mp3",
+      "bytes": 207769,
+      "sha256": "1dc5f2555f6cfefae0218838d093990a40936444caafd99016fb8089f49751c6"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/09-graph.mp4",
+      "bytes": 601881,
+      "sha256": "d1ef54096c8f12372109dae1174ed197bbdef98df5679936a870a49335e7f632"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/10-ai-options (fcp1).mp3",
+      "bytes": 263358,
+      "sha256": "cb41ee1341562a150feab8708de114671769b37c842bcd6e907f14f0a8b0b5e0"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/10-ai-options.mp4",
+      "bytes": 442728,
+      "sha256": "1377bea3124cd44065df84407447a963bebc0f541822ab5d02817ccccde52c55"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/11-traffic (fcp1).mp3",
+      "bytes": 237444,
+      "sha256": "10991258e9256b995b75928b8650d3c1cd0d35fc05e52740bc29de2c0fff85f6"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/11-traffic.mp4",
+      "bytes": 702069,
+      "sha256": "10e9125c4e81b3f81ed72dec2604b1c03e41f64e02b6164b0e0e52e20d0da9a0"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/12-close.mp3",
+      "bytes": 100772,
+      "sha256": "97905752d8de9931a83875c295cfce15dbed3526d386cb2dffea7d4d68c00d06"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/rex-bookends.wav",
+      "bytes": 32224078,
+      "sha256": "27451435979a8351bd89ca2669aa3276c5f5bd15913e5b2d93b30c5cb7e06f20"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/rex-combined-on-dark.png",
+      "bytes": 138229,
+      "sha256": "8f47588490ea83602511fae7ddb5c3b4dd4b000bc2a895386a039bf4c986b93b"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/rex-label-backing-chapter.mov",
+      "bytes": 11244080,
+      "sha256": "b6ab13f017a8e6b2f5edb523e9c408fb40453057d320784160b5b8bb89d7d2e6"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/Original Media/rex-label-backing-ordinary.mov",
+      "bytes": 10145172,
+      "sha256": "d7e0452087386024d0d7445f6f725fab32ed13f7b2a5c1c60bf607ad26c005ce"
+    },
+    {
+      "path": "rex-demo.fcpbundle/14.09.2026/REX — Ask where the work lives — Revision 5/CurrentVersion.fcpevent",
+      "bytes": 1511424,
+      "sha256": "e33cd4122704e6d1aaba95e1e4be53a1097a2e2b36134071e40e492d30af0ee1"
+    },
+    {
+      "path": "rex-demo.fcpbundle/CurrentVersion.flexolibrary",
+      "bytes": 102400,
+      "sha256": "f1e141795befee83843c3f60fd6fcd31efd2ae481749ce16bc316bd9403b33da"
+    },
+    {
+      "path": "rex-demo.fcpbundle/CurrentVersion.plist",
+      "bytes": 322,
+      "sha256": "98651b26be98aed44f4ca88bad4b36e62e4e49ab015aa07cbcabdad36b5f19e9"
+    },
+    {
+      "path": "rex-demo.fcpbundle/Settings.plist",
+      "bytes": 265,
+      "sha256": "befae3061d3e780d9741a3ec8d148eeaf4b3e625b33eac34d4b1c04b39895bfd"
+    }
+  ],
+  "effects": [
+    {
+      "name": "Logo AKFC",
+      "uid": "~/Titles.localized/DesignStudio/Logo AKFC/Logo AKFC.moti"
+    },
+    {
+      "name": "Cross Dissolve",
+      "uid": "FxPlug:4731E73A-8DAC-4113-9A30-AE85B1761265"
+    },
+    {
+      "name": "Audio Crossfade",
+      "uid": "FFAudioTransition"
+    },
+    {
+      "name": "Keynote Transition JGMG",
+      "uid": "~/Transitions.localized/DesignStudio/Keynote Transition JGMG/Keynote Transition JGMG.motr"
+    },
+    {
+      "name": "Logo P5ZG",
+      "uid": "~/Titles.localized/DesignStudio/Logo P5ZG/Logo P5ZG.moti"
+    },
+    {
+      "name": "Keynote Lower3rd FB5S",
+      "uid": "~/Titles.localized/DesignStudio/Keynote Lower3rd FB5S/Keynote Lower3rd FB5S.moti"
+    },
+    {
+      "name": "Basic Lower Third",
+      "uid": ".../Titles.localized/Lower Thirds.localized/Basic Lower Third.localized/Basic Lower Third.moti"
+    }
+  ],
+  "fonts": [
+    {
+      "family": ".AppleSystemUIFont",
+      "face": "Regular"
+    },
+    {
+      "family": "Helvetica Neue",
+      "face": "Medium"
+    },
+    {
+      "family": "Inter Tight",
+      "face": "SemiBold"
+    },
+    {
+      "family": "Poppins",
+      "face": "Black"
+    },
+    {
+      "family": "Poppins",
+      "face": "Regular"
+    }
+  ],
+  "externalRequirements": [
+    "Final Cut Pro",
+    "Installed motionVFX DesignStudio templates",
+    "Listed fonts"
+  ],
+  "excluded": [
+    "Backups",
+    "Render Files",
+    "Shared Items",
+    "Transcoded Media",
+    "__Trash",
+    "locks",
+    "journals",
+    "old versions",
+    "third-party templates and fonts"
+  ]
+}

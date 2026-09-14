@@ -1,0 +1,1522 @@
+{
+  "meta": {
+    "title": "REX — Review documents with AI, without surrendering the file",
+    "audience": "Engineers and tech leads deciding whether REX should replace copy-pasting passages from technical documents into a separate AI chat.",
+    "targetSeconds": 180,
+    "fps": 30,
+    "captureSize": "1600x900",
+    "outputSize": "1920x1080",
+    "captions": "section",
+    "readySignal": "http://127.0.0.1:9445/json/version",
+    "capture": {
+      "driver": "attach",
+      "recorder": "obs",
+      "attach": "http://127.0.0.1:9445",
+      "page": "REX",
+      "input": "dom",
+      "windowSize": "1600x900",
+      "obs": {
+        "input": "demo-window",
+        "window": "REX Demo 9445 [agent]",
+        "scene": "demo-video"
+      }
+    },
+    "fcp": {
+      "captionLanguage": "en-US",
+      "projectName": "REX — Ask where the work lives — Revision 5",
+      "version": "1.14",
+      "lowerThirdTemplate": "Basic Lower Third",
+      "logoIntroTemplate": "AKFC",
+      "logoOutroTemplate": "P5ZG",
+      "chapterTitleTemplate": "FB5S",
+      "chapterTitles": [
+        {
+          "sectionId": "02-workspace",
+          "title": "Review in place",
+          "subtitle": "Your documents · One workspace"
+        },
+        {
+          "sectionId": "06-pdf",
+          "title": "Ask across formats",
+          "subtitle": "PDF · HTML · Word"
+        },
+        {
+          "sectionId": "09-graph",
+          "title": "Follow the connections",
+          "subtitle": "Graph · Linked evidence"
+        }
+      ]
+    },
+    "music": {
+      "src": "audio/music/rex-bookends.wav",
+      "gainDb": 0,
+      "duckDb": 0
+    },
+    "startCommand": "bash demo/prep/start-app.sh",
+    "voice": {
+      "voiceId": "SAz9YHcvj6GT2YYXdXww",
+      "name": "River - Relaxed, Neutral, Informative",
+      "modelId": "eleven_multilingual_v2",
+      "speed": 1,
+      "stability": 0.5,
+      "similarityBoost": 0.75,
+      "style": 0,
+      "language": "en",
+      "use_speaker_boost": true
+    }
+  },
+  "sections": [
+    {
+      "id": "01-intro",
+      "beat": "hook",
+      "title": "REX",
+      "surface": "titlecard",
+      "targetSeconds": 5,
+      "voiceover": "",
+      "onScreenText": "Review where the work lives",
+      "transitionIn": {
+        "kind": "cut"
+      },
+      "successCriteria": "Official REX logo is revealed using downloaded motionVFX AKFC in the actual Final Cut export. No default template logo or placeholder text remains. Five deliberate seconds, with a legible logo hold and restrained instrumental music. The next review movie is exported from this Final Cut project, not a different Remotion proxy."
+    },
+    {
+      "id": "02-workspace",
+      "beat": "hook",
+      "title": "One review, many document formats",
+      "surface": "electron",
+      "targetSeconds": 12,
+      "voiceover": "Copying passages into chat separates questions from their source. REX brings Markdown, HTML, Word, PDF, and PowerPoint into one workspace, keeping the review with the document.",
+      "onScreenText": "Markdown · HTML · Word (.docx) · PDF · PowerPoint (.pptx)",
+      "resetBefore": true,
+      "setup": [
+        {
+          "kind": "click",
+          "target": "sample-report.md"
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Ledger Service v3",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "idleUpTo": 5
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const frame = document.querySelector('#rex-root').shadowRoot.querySelector('iframe.rex-frame'); const heading = frame.contentDocument.querySelector('h1'); if (!heading) throw new Error('Report heading not loaded'); heading.scrollIntoView({block: 'start'}); })()",
+          "note": "Open on the real report, positioned off camera below its rendered front matter; no empty document pane."
+        }
+      ],
+      "actions": [
+        {
+          "kind": "hover",
+          "target": "sample-document.md",
+          "dwellAfter": 0.5
+        },
+        {
+          "kind": "hover",
+          "target": "sample-document.html",
+          "dwellAfter": 0.4
+        },
+        {
+          "kind": "hover",
+          "target": "sample-document.docx",
+          "dwellAfter": 0.5
+        },
+        {
+          "kind": "hover",
+          "target": "sample-document.pdf",
+          "dwellAfter": 0.5
+        },
+        {
+          "kind": "hover",
+          "target": "sample-deck.pptx",
+          "dwellAfter": 0.7
+        },
+        {
+          "kind": "click",
+          "target": "sample-report.md",
+          "dwellAfter": 0.7
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Ledger Service v3",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "idleUpTo": 5
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1
+        }
+      ],
+      "successCriteria": "The REX window shows the sanitized documentation-sample workspace; Markdown, HTML, Word (.docx), PDF, and PowerPoint (.pptx) filenames are legible in the explorer and named in the narration; sample-report.md is open; sample-workbook.xlsx is not opened; no private path, key, spinner, or empty state is visible."
+    },
+    {
+      "id": "03-selection",
+      "videoLed": true,
+      "beat": "core-flow",
+      "title": "Build one request from several places",
+      "surface": "electron",
+      "targetSeconds": 20,
+      "voiceover": "One review can span several places. Start with a sentence, then widen a table cell to its row, table, or enclosing section. The outline shows exactly what the question will include. Add the recommendation to the selection, and all three places belong to one request.",
+      "onScreenText": "3 places → 1 request · ⌥ + wheel widens / narrows",
+      "resetBefore": true,
+      "setup": [
+        {
+          "kind": "click",
+          "target": "sample-report.md"
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Three items stand between the current state and a safe cutover.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "idleUpTo": 5
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const frame = document.querySelector('#rex-root')?.shadowRoot?.querySelector('iframe.rex-frame'); const heading = [...(frame?.contentDocument?.querySelectorAll('h2') ?? [])].find(el => el.textContent.includes('Executive summary')); if (!heading) throw new Error('Executive summary not loaded'); heading.scrollIntoView({block: 'start'}); frame.contentDocument.scrollingElement.scrollTop -= 24; })()",
+          "note": "Off-camera positioning; app prep must set a readable document zoom so the paragraph, metrics table, and recommendation fit the capture."
+        },
+        {
+          "kind": "click",
+          "target": "Start a new comment"
+        }
+      ],
+      "actions": [
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "Three items stand between the current state and a safe cutover.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 0.9,
+          "dwellBefore": 0.15,
+          "dwellAfter": 0.25
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(1)",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0.15
+        },
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "37 ms",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 0.9,
+          "dwellBefore": 0.15,
+          "dwellAfter": 0.25
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(2)",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0.15
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(2) .rex-selection-main",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.15,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "press",
+          "key": "ArrowUp",
+          "target": "css=body",
+          "dwellBefore": 0.1,
+          "dwellAfter": 0.8
+        },
+        {
+          "kind": "press",
+          "key": "p",
+          "target": "css=body",
+          "dwellBefore": 0.1,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-pick-layer-active",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0.15
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const layer = document.querySelector('#rex-root')?.shadowRoot?.querySelector('.rex-pick-layer-active'); if (!layer) throw new Error('Pick layer is not active'); layer.dispatchEvent(new WheelEvent('wheel', {bubbles: true, composed: true, cancelable: true, altKey: true, deltaY: -80})); })()",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.9,
+          "note": "One Option-wheel-up notch through REX's wheel handler; expected scope: row. DOM-input bridge required because the bundled scroll action calls scrollBy without wheel modifiers. Does not set application selection state. Verify the active breadcrumb and outline in rehearsal."
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const layer = document.querySelector('#rex-root')?.shadowRoot?.querySelector('.rex-pick-layer-active'); if (!layer) throw new Error('Pick layer is not active'); layer.dispatchEvent(new WheelEvent('wheel', {bubbles: true, composed: true, cancelable: true, altKey: true, deltaY: -80})); })()",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.9,
+          "note": "One Option-wheel-up notch through REX's wheel handler; expected scope: table. DOM-input bridge required because the bundled scroll action calls scrollBy without wheel modifiers. Does not set application selection state. Verify the active breadcrumb and outline in rehearsal."
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const layer = document.querySelector('#rex-root')?.shadowRoot?.querySelector('.rex-pick-layer-active'); if (!layer) throw new Error('Pick layer is not active'); layer.dispatchEvent(new WheelEvent('wheel', {bubbles: true, composed: true, cancelable: true, altKey: true, deltaY: -80})); })()",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.9,
+          "note": "One Option-wheel-up notch through REX's wheel handler; expected scope: section “1. Executive summary”. DOM-input bridge required because the bundled scroll action calls scrollBy without wheel modifiers. Does not set application selection state. Verify the active breadcrumb and outline in rehearsal."
+        },
+        {
+          "kind": "press",
+          "key": "ArrowDown",
+          "target": "css=body",
+          "dwellBefore": 0.1,
+          "dwellAfter": 0.9
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(2) .rex-selection-main",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.5,
+          "note": "Close the scope chips before moving to the next place. Rehearsal found a misleading unresolved warning if the row stays expanded when pick mode loses focus; reopening the table proved the anchor still resolves. No app code was changed."
+        },
+        {
+          "kind": "press",
+          "key": "Escape",
+          "target": "css=body",
+          "dwellBefore": 0.1,
+          "dwellAfter": 0.25
+        },
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "Recommendation: conditional go.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 0.9,
+          "dwellBefore": 0.15,
+          "dwellAfter": 0.25
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(3)",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0.15
+        },
+        {
+          "kind": "dwell",
+          "seconds": 2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "The Markdown report shows the summary sentence added as place 1. Place 2 starts with 37 ms and visibly widens through cell, row, table, and section, with the active PATH breadcrumb and outline changing together. The same place narrows back to the metrics table, without creating duplicate selections. Adding Recommendation: conditional go. leaves exactly three numbered places: sentence, table, and recommendation. All remain in the new-comment composer. No request is submitted in this section. No incorrect scope, clipped selection list, or unintended document edit is visible."
+    },
+    {
+      "id": "04-ask",
+      "videoLed": true,
+      "beat": "core-flow",
+      "title": "Ask about all three places at once",
+      "surface": "electron",
+      "targetSeconds": 16,
+      "voiceover": "The three selected places travel together in one question. One answer compares the evidence with the recommendation. The conversation keeps every passage attached, so you can check the answer against its source.",
+      "onScreenText": "Ask about 3 · one conversation, three places",
+      "resetBefore": true,
+      "setup": [
+        {
+          "kind": "click",
+          "target": "sample-report.md"
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Three items stand between the current state and a safe cutover.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "idleUpTo": 5
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const frame = document.querySelector('#rex-root')?.shadowRoot?.querySelector('iframe.rex-frame'); const heading = [...(frame?.contentDocument?.querySelectorAll('h2') ?? [])].find(el => el.textContent.includes('Executive summary')); if (!heading) throw new Error('Executive summary not loaded'); heading.scrollIntoView({block: 'start'}); frame.contentDocument.scrollingElement.scrollTop -= 24; })()",
+          "note": "Off-camera positioning; app prep must set a readable document zoom so the paragraph, metrics table, and recommendation fit the capture."
+        },
+        {
+          "kind": "click",
+          "target": "Start a new comment"
+        },
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "Three items stand between the current state and a safe cutover.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 0.9,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(1)",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "37 ms",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 0.9,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(2)",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(2) .rex-selection-main",
+          "in": ["#rex-root"],
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "press",
+          "key": "ArrowUp",
+          "target": "css=body",
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "press",
+          "key": "p",
+          "target": "css=body",
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-pick-layer-active",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const layer = document.querySelector('#rex-root')?.shadowRoot?.querySelector('.rex-pick-layer-active'); if (!layer) throw new Error('Pick layer is not active'); layer.dispatchEvent(new WheelEvent('wheel', {bubbles: true, composed: true, cancelable: true, altKey: true, deltaY: -80})); })()",
+          "dwellBefore": 0,
+          "dwellAfter": 0.2,
+          "note": "One Option-wheel-up notch through REX's wheel handler; expected scope: row. DOM-input bridge required because the bundled scroll action calls scrollBy without wheel modifiers. Does not set application selection state. Verify the active breadcrumb and outline in rehearsal."
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const layer = document.querySelector('#rex-root')?.shadowRoot?.querySelector('.rex-pick-layer-active'); if (!layer) throw new Error('Pick layer is not active'); layer.dispatchEvent(new WheelEvent('wheel', {bubbles: true, composed: true, cancelable: true, altKey: true, deltaY: -80})); })()",
+          "dwellBefore": 0,
+          "dwellAfter": 0.2,
+          "note": "One Option-wheel-up notch through REX's wheel handler; expected scope: table. DOM-input bridge required because the bundled scroll action calls scrollBy without wheel modifiers. Does not set application selection state. Verify the active breadcrumb and outline in rehearsal."
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const layer = document.querySelector('#rex-root')?.shadowRoot?.querySelector('.rex-pick-layer-active'); if (!layer) throw new Error('Pick layer is not active'); layer.dispatchEvent(new WheelEvent('wheel', {bubbles: true, composed: true, cancelable: true, altKey: true, deltaY: -80})); })()",
+          "dwellBefore": 0,
+          "dwellAfter": 0.2,
+          "note": "One Option-wheel-up notch through REX's wheel handler; expected scope: section “1. Executive summary”. DOM-input bridge required because the bundled scroll action calls scrollBy without wheel modifiers. Does not set application selection state. Verify the active breadcrumb and outline in rehearsal."
+        },
+        {
+          "kind": "press",
+          "key": "ArrowDown",
+          "target": "css=body",
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(2) .rex-selection-main",
+          "in": ["#rex-root"],
+          "dwellBefore": 0,
+          "dwellAfter": 0.2,
+          "note": "Close the scope chips before leaving pick mode, matching the rehearsed selection section."
+        },
+        {
+          "kind": "press",
+          "key": "Escape",
+          "target": "css=body",
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "Recommendation: conditional go.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 0.9,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-list .rex-selection-item:nth-child(3)",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root')?.shadowRoot?.querySelector(\".rex-selection textarea\"); if (!el) throw new Error('Demo composer missing'); const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; setter.call(el, \"Read the executive summary. Do these figures support the recommendation? Name the three remaining\"); el.dispatchEvent(new Event('input', {bubbles:true, composed:true})); el.focus(); el.setSelectionRange(el.value.length, el.value.length); })()",
+          "note": "Prepare most of the identical prompt off camera; finish typing before opening the agent/model menus, matching the measured narration."
+        }
+      ],
+      "actions": [
+        {
+          "kind": "type",
+          "target": "What about these?",
+          "text": " blockers.",
+          "wps": 6
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-foot button.rex-primary:not(:disabled)",
+          "in": ["#rex-root"],
+          "idleUpTo": 3,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1,
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "note": "Hold on the enabled Ask about 3 button and all three place rows before the single Command-Enter send."
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const root = document.querySelector('#rex-root')?.shadowRoot; const el = root?.querySelector('.rex-selection textarea'); if (!el || !el.value.trim()) throw new Error('ASK composer not ready'); el.focus(); const init = {key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, composed: true, cancelable: true}; el.dispatchEvent(new KeyboardEvent('keydown', init)); el.dispatchEvent(new KeyboardEvent('keyup', init)); })()",
+          "note": "Dispatch Command-Enter to the actual shadow-root textarea. The bundled DOM press targets the outer shadow host and never reaches the composer. Rehearsal verified exactly one user ASK and three retained places.",
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "state": "hidden",
+          "idleUpTo": 360,
+          "compress": "pause",
+          "showSeconds": 1,
+          "note": "Rehearsal must verify the run starts and ends, not mistake a delayed start for completion.",
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-turn-agent .rex-prose",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-places-toggle[aria-expanded='false']",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.4,
+          "dwellAfter": 0.5
+        },
+        {
+          "kind": "dwell",
+          "seconds": 3.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "scroll",
+          "target": "css=.rex-card",
+          "in": ["#rex-root"],
+          "by": 400,
+          "dwellBefore": 0.2,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "dwell",
+          "seconds": 3.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "Three selected places match the preceding section: summary sentence, complete metrics table, and recommendation. Ask about 3 is legible before exactly one send. One completed answer discusses the evidence and recommendation, with all three attached places visible. Controls wrap without clipping at the normal sidebar width. ASK remains read-only; no error, spinner, key, or private path is visible."
+    },
+    {
+      "id": "05-approve",
+      "beat": "wow",
+      "title": "Inspect the change, then approve it",
+      "surface": "electron",
+      "targetSeconds": 25,
+      "voiceover": "ASK cannot write. ACT moves the same conversation onto an isolated working copy, then puts every proposed line behind a review bar. Original, Both, and New expose the edit from each side. Only Approve writes the file. REX then checks every comment again: unchanged passages stay attached, and removed text is flagged for review.",
+      "onScreenText": "ACT · working copy first, approval last",
+      "resetBefore": true,
+      "setup": [
+        {
+          "kind": "click",
+          "target": "sample-report.md"
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Three items stand between the current state and a safe cutover.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "idleUpTo": 5
+        },
+        {
+          "kind": "click",
+          "target": "Cutover blockers"
+        },
+        {
+          "kind": "waitFor",
+          "target": "Reply to this thread",
+          "idleUpTo": 5
+        },
+        {
+          "kind": "click",
+          "target": "Reply to this thread"
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root')?.shadowRoot?.querySelector(\".rex-reply textarea\"); if (!el) throw new Error('Demo composer missing'); const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; setter.call(el, \"In your final answer, give one short sentence and no file paths. Use edit_file on the absolute working-copy path listed for this ACT, never the source path. Replace only the first selected sentence with: Cutover remains conditional on meeting the statement SLO, rehearsing rollback, and completing the second game day. Leave everything else\"); el.dispatchEvent(new Event('input', {bubbles:true, composed:true})); el.focus(); el.setSelectionRange(el.value.length, el.value.length); })()",
+          "note": "The explicit edit instruction is prepared off camera; only the final word is typed during the ACT demonstration."
+        }
+      ],
+      "actions": [
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root')?.shadowRoot?.querySelector('.rex-reply textarea'); if (!el) throw new Error('Reply composer missing'); el.focus(); const init = {key: 'Tab', code: 'Tab', shiftKey: true, bubbles: true, composed: true, cancelable: true}; el.dispatchEvent(new KeyboardEvent('keydown', init)); el.dispatchEvent(new KeyboardEvent('keyup', init)); })()",
+          "note": "Send the real mode-switch chord to the reply textarea, through the same shadow-root input bridge as ASK.",
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "What should change?",
+          "idleUpTo": 2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "type",
+          "target": "What should change?",
+          "text": " unchanged.",
+          "wps": 6
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const root = document.querySelector('#rex-root')?.shadowRoot; const el = root?.querySelector('.rex-reply textarea'); if (!el || !el.value.trim() || el.placeholder !== 'What should change?') throw new Error('ACT composer not ready'); el.focus(); const init = {key: 'Enter', code: 'Enter', metaKey: true, bubbles: true, composed: true, cancelable: true}; el.dispatchEvent(new KeyboardEvent('keydown', init)); el.dispatchEvent(new KeyboardEvent('keyup', init)); })()",
+          "note": "One Command-Enter through the real textarea's handler; only the isolated demo copy may be changed.",
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "state": "hidden",
+          "idleUpTo": 360,
+          "compress": "pause",
+          "showSeconds": 1,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "Original",
+          "idleUpTo": 5,
+          "compress": "pause",
+          "showSeconds": 0,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1.4,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "Original"
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "Both"
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "New"
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "Approve"
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Approved. 2 anchor(s) still exact, 0 moved, 1 orphaned.",
+          "in": ["#rex-root"],
+          "idleUpTo": 15,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-places-toggle[aria-expanded='false']",
+          "in": ["#rex-root"]
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-place:nth-child(2) .rex-place-go",
+          "in": ["#rex-root"],
+          "note": "Position the approved result using the unchanged table place.",
+          "dwellBefore": 0.4,
+          "dwellAfter": 0.5
+        },
+        {
+          "kind": "dwell",
+          "seconds": 4.5,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "ACT is visibly selected; the completed run leaves a work bar with +1/-1 and Original/Both/New controls; each view shows the edited paragraph. Only Approve changes the isolated file, and the work bar clears. The approval summary reports two exact anchors and one orphaned anchor; the removed sentence has a lost-place marker, while the table and recommendation remain correctly attached. The real assistant answer uses a concise path-free description. No recording-only blur, privacy badge, conflict, error, or private path is visible."
+    },
+    {
+      "id": "06-pdf",
+      "beat": "integration",
+      "title": "PDF · ask about the recommendation",
+      "surface": "electron",
+      "targetSeconds": 14,
+      "voiceover": "Ask why the recommendation is conditional, and check the answer beside the selected passage. The PDF stays unchanged.",
+      "onScreenText": "PDF · ask about the recommendation",
+      "resetBefore": true,
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "fcpTemplate": "JGMG"
+      },
+      "setup": [
+        {
+          "kind": "click",
+          "target": "sample-report.pdf",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Recommendation: conditional go.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "dwellBefore": 0,
+          "dwellAfter": 0.1,
+          "idleUpTo": 30
+        },
+        {
+          "kind": "eval",
+          "text": "(async () => { const frame = document.querySelector('#rex-root').shadowRoot.querySelector('iframe.rex-frame'); const page = frame.contentDocument.querySelector('#page-3'); if (!page) throw new Error('PDF page 3 missing'); page.scrollIntoView({block:'start'}); const bitmap = page.parentElement.querySelector('.rex-pdf-bitmap'); const started = Date.now(); while (!bitmap?.naturalWidth) { if (Date.now()-started > 20000) throw new Error('PDF page did not paint'); await new Promise(r => setTimeout(r,100)); } })()",
+          "note": "Off-camera framing of the real document; no document contents are changed."
+        },
+        {
+          "kind": "click",
+          "target": "Start a new comment",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection .rex-modeseg-ask",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root').shadowRoot.querySelector('.rex-selection textarea'); if (!el) throw new Error('ASK composer missing'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, \"Why is this a conditional go? Explain the sign-off deadline and the schedule risk in two short bullets.\"); el.dispatchEvent(new Event('input', {bubbles:true, composed:true})); el.focus(); el.setSelectionRange(el.value.length, el.value.length); })()",
+          "note": "Prepare the complete clean question off camera; the take shows the genuine selection, single send, and answer."
+        }
+      ],
+      "actions": [
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "Recommendation: conditional go. Proceed with the October cutover on the condition that allthree blockers listed in §6 are closed and signed off by 25 September. None of them is technicallydifficult; all of them are schedule risks.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 1.2,
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-item",
+          "in": ["#rex-root"],
+          "idleUpTo": 5,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-foot button.rex-primary:not(:disabled)",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "dwell",
+          "seconds": 0.5,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root').shadowRoot.querySelector('.rex-selection textarea'); if (!el || !el.value.trim()) throw new Error('ASK composer not ready'); el.focus(); const init = {key:'Enter',code:'Enter',metaKey:true,bubbles:true,composed:true,cancelable:true}; el.dispatchEvent(new KeyboardEvent('keydown',init)); el.dispatchEvent(new KeyboardEvent('keyup',init)); })()",
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "note": "Send exactly once through REX's actual ASK composer."
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "idleUpTo": 360,
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "state": "hidden",
+          "compress": "pause",
+          "showSeconds": 0.5,
+          "note": "Inference wait shortened; preserve the genuine completed answer."
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-turn-agent .rex-prose",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "dwell",
+          "seconds": 7.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "Real PDF page 3 is visible. Its full conditional-go recommendation is selected and sent once in ASK. A genuine completed answer explains the three blockers must be closed and signed off by 25 September and the remaining schedule risk. Exactly one correct attached place; source bytes unchanged; no ACT, NOTE-only substitute, spinner, error, privacy badge, blur, secret, or private path.",
+      "videoLed": true
+    },
+    {
+      "id": "07-html",
+      "beat": "integration",
+      "title": "HTML · ask about the release gates",
+      "surface": "electron",
+      "targetSeconds": 16,
+      "voiceover": "HTML keeps its visual structure. Ask which release gates must close, and read the answer beside the requirement.",
+      "onScreenText": "HTML · ask about the release gates",
+      "resetBefore": true,
+      "transitionIn": {
+        "kind": "cut"
+      },
+      "setup": [
+        {
+          "kind": "click",
+          "target": "knowledge",
+          "dwellBefore": 0.1,
+          "dwellAfter": 0.2,
+          "note": "Collapse the added library so the active HTML file remains visible in the explorer."
+        },
+        {
+          "kind": "click",
+          "target": "sample-document.html",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Close all three release gates before expanding the canary to full traffic.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "dwellBefore": 0,
+          "dwellAfter": 0.1,
+          "idleUpTo": 30
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const doc = document.querySelector('#rex-root').shadowRoot.querySelector('iframe.rex-frame').contentDocument; doc.scrollingElement.scrollTop = 0; })()",
+          "note": "Off-camera reset to the top of the rich HTML guide; the real document is unchanged."
+        },
+        {
+          "kind": "click",
+          "target": "Start a new comment",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection .rex-modeseg-ask",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root').shadowRoot.querySelector('.rex-selection textarea'); if (!el) throw new Error('ASK composer missing'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, \"What evidence closes Statement latency, Rollback readiness, and On-call coverage? One short bullet per gate.\"); el.dispatchEvent(new Event('input', {bubbles:true, composed:true})); el.focus(); el.setSelectionRange(el.value.length, el.value.length); })()",
+          "note": "Prepare the complete clean question off camera; the take shows the genuine selection, single send, and answer."
+        }
+      ],
+      "actions": [
+        {
+          "kind": "dwell",
+          "seconds": 1.1,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "scroll",
+          "target": "css=body",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "by": 390,
+          "dwellBefore": 0.1,
+          "dwellAfter": 0.5
+        },
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "Close all three release gates before expanding the canary to full traffic. Gate Required evidence Owner Status Statement latency p95 meets the statement SLO Performance Open Rollback readiness Recovery demonstrated within 30 min Operations Rehearse On-call coverage Second game day completed Release lead Scheduled",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 1.2,
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3,
+          "offCamera": true,
+          "note": "Edited setup cut after the rich HTML scroll: select the real requirement and gate table without changing their content."
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-item",
+          "in": ["#rex-root"],
+          "idleUpTo": 5,
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "offCamera": true
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-foot button.rex-primary:not(:disabled)",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "dwell",
+          "seconds": 0.5,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root').shadowRoot.querySelector('.rex-selection textarea'); if (!el || !el.value.trim()) throw new Error('ASK composer not ready'); el.focus(); const init = {key:'Enter',code:'Enter',metaKey:true,bubbles:true,composed:true,cancelable:true}; el.dispatchEvent(new KeyboardEvent('keydown',init)); el.dispatchEvent(new KeyboardEvent('keyup',init)); })()",
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "note": "Send exactly once through REX's actual ASK composer."
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "idleUpTo": 360,
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "state": "hidden",
+          "compress": "pause",
+          "showSeconds": 0.5,
+          "note": "Inference wait shortened; preserve the genuine completed answer."
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-turn-agent .rex-prose",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "dwell",
+          "seconds": 9.6,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "The rich HTML hero, Mermaid diagram, requirement, and release-gate table appear. A real text range includes the requirement and all three table rows. One ASK gets a genuine completed answer naming statement SLO, rollback recovery within 30 minutes, and the second game day. Full selected evidence reaches the request. Correct attached place and unchanged source bytes. No NOTE-only substitute, clipped UI, missing assets, spinner, error, privacy badge, blur, secret, or private path.",
+      "videoLed": true
+    },
+    {
+      "id": "08-word",
+      "beat": "integration",
+      "title": "Word · ask about the cutover blockers",
+      "surface": "electron",
+      "targetSeconds": 14,
+      "voiceover": "Ask what still blocks a safe cutover. REX explains the blockers beside the selected passage, without editing the document.",
+      "onScreenText": "Word · ask about the cutover blockers",
+      "resetBefore": true,
+      "transitionIn": {
+        "kind": "cut"
+      },
+      "setup": [
+        {
+          "kind": "click",
+          "target": "sample-report.docx",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Three items stand between the current state and a safe cutover.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "dwellBefore": 0,
+          "dwellAfter": 0.1,
+          "idleUpTo": 30
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const doc = document.querySelector('#rex-root').shadowRoot.querySelector('iframe.rex-frame').contentDocument; const heading = [...doc.querySelectorAll('h1,h2,h3')].find(x => x.textContent.includes('Executive summary')); if (!heading) throw new Error('Word summary missing'); heading.scrollIntoView({block:'start'}); doc.scrollingElement.scrollTop -= 24; })()",
+          "note": "Off-camera framing of the real document; no document contents are changed."
+        },
+        {
+          "kind": "click",
+          "target": "Start a new comment",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection .rex-modeseg-ask",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root').shadowRoot.querySelector('.rex-selection textarea'); if (!el) throw new Error('ASK composer missing'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, \"What still blocks a safe cutover? Answer in three short bullets.\"); el.dispatchEvent(new Event('input', {bubbles:true, composed:true})); el.focus(); el.setSelectionRange(el.value.length, el.value.length); })()",
+          "note": "Prepare the complete clean question off camera; the take shows the genuine selection, single send, and answer."
+        }
+      ],
+      "actions": [
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "text": "Three items stand between the current state and a safe cutover. The statement endpoint has regressed and now misses its latency objective by roughly 50%. The rollback path has been designed but never rehearsed against the 30-minute recovery objective. And only one of the two required game days has been run, which leaves half the on-call rotation working from a runbook they have not exercised.",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "seconds": 1.2,
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-item",
+          "in": ["#rex-root"],
+          "idleUpTo": 5,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-selection-foot button.rex-primary:not(:disabled)",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "dwell",
+          "seconds": 0.5,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const el = document.querySelector('#rex-root').shadowRoot.querySelector('.rex-selection textarea'); if (!el || !el.value.trim()) throw new Error('ASK composer not ready'); el.focus(); const init = {key:'Enter',code:'Enter',metaKey:true,bubbles:true,composed:true,cancelable:true}; el.dispatchEvent(new KeyboardEvent('keydown',init)); el.dispatchEvent(new KeyboardEvent('keyup',init)); })()",
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "note": "Send exactly once through REX's actual ASK composer."
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-running",
+          "in": ["#rex-root"],
+          "idleUpTo": 360,
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "state": "hidden",
+          "compress": "pause",
+          "showSeconds": 0.5,
+          "note": "Inference wait shortened; preserve the genuine completed answer."
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-turn-agent .rex-prose",
+          "in": ["#rex-root"],
+          "idleUpTo": 10,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "dwell",
+          "seconds": 7.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "The real Word report is open in its semantic view. The whole blocker paragraph is selected, including latency, rollback and game-day evidence. One ASK produces a genuine completed answer covering those three blockers. One exact attached place, source bytes unchanged, no ACT or NOTE-only substitute. No error, spinner, privacy badge, blur, secret, or private path.",
+      "videoLed": true
+    },
+    {
+      "id": "09-graph",
+      "beat": "integration",
+      "title": "Graph · follow the evidence",
+      "surface": "electron",
+      "targetSeconds": 14,
+      "videoLed": true,
+      "voiceover": "Graph turns links between your documents into a map. Follow the connections around the cutover plan, find the architecture decisions and runbooks behind it, and open a related document without losing the review.",
+      "onScreenText": "Graph · connected documents, one review",
+      "resetBefore": true,
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "fcpTemplate": "JGMG"
+      },
+      "setup": [
+        {
+          "kind": "click",
+          "target": "Graph",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.5
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-graph-node",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3,
+          "idleUpTo": 15
+        },
+        {
+          "kind": "click",
+          "target": "css=button[aria-label='Hide the workspace']",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3,
+          "note": "Collapse the explorer off camera to give the graph room."
+        },
+        {
+          "kind": "click",
+          "target": "Fit",
+          "dwellBefore": 0.2,
+          "dwellAfter": 0.3
+        }
+      ],
+      "actions": [
+        {
+          "kind": "dwell",
+          "seconds": 0.8,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "text=Cutover.md",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "Isolate",
+          "dwellBefore": 0.4,
+          "dwellAfter": 0.5
+        },
+        {
+          "kind": "dwell",
+          "seconds": 2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "text=Operations.md",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "dwell",
+          "seconds": 0.4,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "Open document",
+          "dwellBefore": 0.4,
+          "dwellAfter": 0.6
+        },
+        {
+          "kind": "dwell",
+          "seconds": 2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "A real reference graph with approximately 50 document nodes and over 100 resolved edges appears. Select Cutover.md, isolate its one-hop evidence neighborhood, then select Operations.md and open its real document. Graph counters, highlight/isolation, and document transition visibly work. No broken links, fake topology, fabricated UI, errors, secrets, or private paths."
+    },
+    {
+      "id": "10-ai-options",
+      "beat": "integration",
+      "title": "Your subscription, local models, or hosted APIs",
+      "surface": "electron",
+      "targetSeconds": 18,
+      "voiceover": "Use your existing Codex or Claude Code subscription through its own sign-in. Or connect local models and hosted APIs through REX’s bundled AI gateway, including LM Studio, Ollama, Unsloth, and OpenRouter. Choose the agent and model for each message.",
+      "onScreenText": "Existing sign-ins · bundled AI gateway · provider plan limits apply",
+      "resetBefore": true,
+      "transitionIn": {
+        "kind": "cut"
+      },
+      "setup": [
+        {
+          "kind": "click",
+          "target": "sample-report.md",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "click",
+          "target": "Start a new comment",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const frame = document.querySelector('#rex-root')?.shadowRoot?.querySelector('iframe.rex-frame'); const heading = [...(frame?.contentDocument?.querySelectorAll('h2') ?? [])].find(el => el.textContent.includes('Executive summary')); if (!heading) throw new Error('Executive summary not loaded'); heading.scrollIntoView({block: 'start'}); frame.contentDocument.scrollingElement.scrollTop -= 24; })()",
+          "note": "Off-camera positioning; app prep must set a readable document zoom so the paragraph, metrics table, and recommendation fit the capture."
+        },
+        {
+          "kind": "selectText",
+          "target": "css=body",
+          "in": ["#rex-root", "iframe.rex-frame"],
+          "text": "Three items stand between the current state and a safe cutover.",
+          "seconds": 0.8,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "click",
+          "target": "Open settings",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Original — no gateway",
+          "in": ["#rex-root"],
+          "dwellBefore": 0,
+          "dwellAfter": 0.1,
+          "idleUpTo": 8
+        }
+      ],
+      "actions": [
+        {
+          "kind": "dwell",
+          "seconds": 3.8,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-page-nav button:nth-child(2)",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-page-actions button",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "waitFor",
+          "target": "css=.rex-set-picker",
+          "in": ["#rex-root"],
+          "dwellBefore": 0,
+          "dwellAfter": 0.1,
+          "idleUpTo": 8
+        },
+        {
+          "kind": "dwell",
+          "seconds": 5.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "click",
+          "target": "Close settings",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.3
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection .rex-modelpick:nth-of-type(1) .rex-modelbutton",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.1,
+          "dwellAfter": 0.1
+        },
+        {
+          "kind": "dwell",
+          "seconds": 0.9,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        },
+        {
+          "kind": "press",
+          "key": "Escape",
+          "dwellBefore": 0,
+          "dwellAfter": 0.1
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-selection .rex-modelpick:nth-of-type(3) .rex-modelbutton",
+          "in": ["#rex-root"],
+          "dwellBefore": 0.1,
+          "dwellAfter": 0.1
+        },
+        {
+          "kind": "dwell",
+          "seconds": 0.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "Original — no gateway shows Claude Agent SDK / claude login and Codex / your Codex subscription; Built-in is visibly running inside REX. The provider choices show LM Studio, Ollama, Unsloth, and OpenRouter with local and paid API distinctions. Agent and model menus fit the comments pane. No credentials entered or accounts changed; no claim that these subscriptions were exercised in this take. Provider list stays visible throughout the spoken examples.",
+      "videoLed": true
+    },
+    {
+      "id": "11-traffic",
+      "beat": "proof",
+      "title": "Follow the record down to one message",
+      "surface": "electron",
+      "targetSeconds": 16,
+      "voiceover": "Traffic keeps the record of every chat. For requests through the built-in gateway, drill down to the messages sent and received. Tokens, timing, failures, and the provider route stay attached. The exact request and response JSON are readable and copyable.",
+      "onScreenText": "Traffic · chat → turn → message JSON",
+      "resetBefore": true,
+      "setup": [
+        {
+          "kind": "click",
+          "target": "Open traffic"
+        },
+        {
+          "kind": "waitFor",
+          "target": "Traffic",
+          "idleUpTo": 8
+        }
+      ],
+      "actions": [
+        {
+          "kind": "dwell",
+          "seconds": 1
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-tp-chats .rex-chat button",
+          "in": ["#rex-root"]
+        },
+        {
+          "kind": "waitFor",
+          "target": "This chat's turns",
+          "idleUpTo": 8,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1.4
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-turns-row:has(.rex-sent-ask) .rex-button-go",
+          "in": ["#rex-root"],
+          "note": "Choose the seeded ASK turn explicitly; ACT creates another Open turn button.",
+          "offCamera": true
+        },
+        {
+          "kind": "waitFor",
+          "target": "One turn",
+          "idleUpTo": 8,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2,
+          "offCamera": true
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1.4,
+          "offCamera": true
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-tt-msg",
+          "in": ["#rex-root"],
+          "offCamera": true
+        },
+        {
+          "kind": "waitFor",
+          "target": "One message",
+          "idleUpTo": 8,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2,
+          "offCamera": true,
+          "note": "Resume on the actual path-free system prompt after edited navigation."
+        },
+        {
+          "kind": "click",
+          "target": "css=.rex-json-line:nth-child(2) .rex-json-pick",
+          "in": ["#rex-root"],
+          "note": "Select the system message's content string, not its root object, so the right pane shows readable text with real line breaks."
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1.4
+        },
+        {
+          "kind": "eval",
+          "offCamera": true,
+          "text": "(async () => { const root = document.querySelector('#rex-root').shadowRoot; for (let i=0;i<80;i++) { if (root.querySelector('[aria-label=\"One message\"] h1')?.textContent === 'Response') return; const next = root.querySelector('button[aria-label=\"The message after this one\"]'); if (!next || next.disabled) throw new Error('Response not available in the actual exchange'); next.click(); await new Promise(done=>setTimeout(done,100)); } throw new Error('Response pager exceeded its limit'); })()",
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "note": "Edited cut: traverse real path-bearing request rows off camera, without rewriting the record."
+        },
+        {
+          "kind": "waitFor",
+          "target": "text=Response",
+          "in": ["#rex-root"],
+          "idleUpTo": 8,
+          "dwellBefore": 0,
+          "dwellAfter": 0.2,
+          "offCamera": true
+        },
+        {
+          "kind": "dwell",
+          "seconds": 1,
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "note": "Resume on the genuine response JSON, not an edited replacement."
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const root=document.querySelector('#rex-root').shadowRoot; const pick=[...root.querySelectorAll('.rex-json-pick')].find(el=>el.querySelector('.rex-json-key')?.textContent === '\"content\"'); if (!pick) throw new Error('Response content row missing'); pick.click(); })()",
+          "dwellBefore": 0.3,
+          "dwellAfter": 0.4,
+          "note": "Select the actual content value in the response tree for a readable answer."
+        },
+        {
+          "kind": "hover",
+          "target": "css=.rex-json-line-on .rex-json-pick",
+          "in": ["#rex-root"],
+          "input": "cdp",
+          "dwellBefore": 0,
+          "dwellAfter": 0.25,
+          "note": "Real pointer hover reveals the row's JSON and Text copy controls; DOM-only hover does not activate CSS hover."
+        },
+        {
+          "kind": "eval",
+          "text": "(() => { const root=document.querySelector('#rex-root').shadowRoot; const row=root.querySelector('.rex-json-line-on'); const copies=[...row.querySelectorAll('.rex-copy')]; if (!row.matches(':hover') || copies.length !== 2 || copies.some(el=>getComputedStyle(el).opacity !== '1')) throw new Error('Real JSON/Text copy controls are not visible'); })()",
+          "dwellBefore": 0,
+          "dwellAfter": 0,
+          "note": "Read-only visibility assertion; no CSS forcing, message rewriting, or clipboard mutation."
+        },
+        {
+          "kind": "dwell",
+          "seconds": 3.2,
+          "dwellBefore": 0,
+          "dwellAfter": 0
+        }
+      ],
+      "successCriteria": "An edited drilldown shows the real chat and turn overview, then the actual system prompt and genuine answer in Traffic's JSON/readable message page. Path-bearing navigation happens off camera, not behind blur or altered data. Body capture, model/token/timing facts and copy controls are visible. No secret, private path, privacy badge, recording blur, spinner, or fabricated record."
+    },
+    {
+      "id": "12-close",
+      "beat": "close",
+      "title": "Review where the work lives",
+      "surface": "titlecard",
+      "targetSeconds": 9,
+      "voiceover": "Open your next document in REX. Ask a question where it matters, and approve only the changes you want.",
+      "onScreenText": "Ask your next question in REX.",
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4
+      },
+      "successCriteria": "Actual Final Cut motionVFX P5ZG presents the official REX logo, then a readable call to action. No placeholder logo/copy. Closing holds intentionally with no cursor or app controls; narration finishes before the end and stays clear over the quiet instrumental reprise."
+    }
+  ]
+}

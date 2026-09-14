@@ -1,0 +1,11 @@
+# Approved demo deliveries only; working folders are not deliveries.
+demo/*/final/**/*.mp4 filter=lfs diff=lfs merge=lfs -text
+demo/*/final/**/*.zip filter=lfs diff=lfs merge=lfs -text
+demo/*/final/**/*.mp3 filter=lfs diff=lfs merge=lfs -text
+demo/*/final/**/*.wav filter=lfs diff=lfs merge=lfs -text
+demo/*/final/**/*.mov filter=lfs diff=lfs merge=lfs -text
+demo/*/final/**/*.png filter=lfs diff=lfs merge=lfs -text
+
+# Publishing artwork belongs with its numbered video.
+demo/*/youtube/*.jpg filter=lfs diff=lfs merge=lfs -text
+demo/*/youtube/*.png filter=lfs diff=lfs merge=lfs -text

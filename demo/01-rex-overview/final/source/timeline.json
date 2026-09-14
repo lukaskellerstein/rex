@@ -1,0 +1,784 @@
+{
+  "generatedBy": "demo-video-plugin/scripts/reconcile.mjs",
+  "title": "REX — Review documents with AI, without surrendering the file",
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "durationInFrames": 5035,
+  "captionsMode": "section",
+  "sections": [
+    {
+      "id": "01-intro",
+      "beat": "hook",
+      "title": "REX",
+      "surface": "titlecard",
+      "startFrame": 0,
+      "durationInFrames": 150,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "cut",
+        "seconds": 0.4,
+        "frames": 0
+      },
+      "titlecard": {
+        "title": "REX",
+        "subtitle": "Review where the work lives"
+      }
+    },
+    {
+      "id": "02-workspace",
+      "beat": "hook",
+      "title": "One review, many document formats",
+      "surface": "electron",
+      "startFrame": 150,
+      "durationInFrames": 368,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "cut",
+        "seconds": 0.4,
+        "frames": 0
+      },
+      "video": {
+        "src": "capture/02-workspace.mp4",
+        "measuredSeconds": 13.667,
+        "playbackRate": 1.1135,
+        "warpRatio": 1.1135,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 368
+      },
+      "audio": {
+        "src": "audio/02-workspace.mp3",
+        "measuredSeconds": 11.424,
+        "delayFrames": 8,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "Markdown · HTML · Word (.docx) · PDF · PowerPoint (.pptx)",
+        "inFrame": 8,
+        "outFrame": 104
+      },
+      "captions": [
+        {
+          "text": "Copying passages into chat separates questions from their source.",
+          "startFrame": 8,
+          "endFrame": 127
+        },
+        {
+          "text": "REX brings Markdown, HTML, Word, PDF, and PowerPoint",
+          "startFrame": 127,
+          "endFrame": 233
+        },
+        {
+          "text": "into one workspace, keeping the review with the",
+          "startFrame": 233,
+          "endFrame": 339
+        },
+        {
+          "text": "document.",
+          "startFrame": 339,
+          "endFrame": 351
+        }
+      ]
+    },
+    {
+      "id": "03-selection",
+      "beat": "core-flow",
+      "title": "Build one request from several places",
+      "surface": "electron",
+      "startFrame": 506,
+      "durationInFrames": 575,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "frames": 12
+      },
+      "video": {
+        "src": "capture/03-selection.mp4",
+        "measuredSeconds": 19.167,
+        "playbackRate": 1,
+        "warpRatio": 1,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 575
+      },
+      "audio": {
+        "src": "audio/03-selection.mp3",
+        "measuredSeconds": 15.836,
+        "delayFrames": 20,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "3 places → 1 request · ⌥ + wheel widens / narrows",
+        "inFrame": 20,
+        "outFrame": 116
+      },
+      "captions": [
+        {
+          "text": "One review can span several places.",
+          "startFrame": 20,
+          "endFrame": 83
+        },
+        {
+          "text": "Start with a sentence, then widen a table",
+          "startFrame": 83,
+          "endFrame": 167
+        },
+        {
+          "text": "cell to its row, table, or enclosing section.",
+          "startFrame": 167,
+          "endFrame": 251
+        },
+        {
+          "text": "The outline shows exactly what the question will include.",
+          "startFrame": 251,
+          "endFrame": 346
+        },
+        {
+          "text": "Add the recommendation to the selection, and all",
+          "startFrame": 346,
+          "endFrame": 430
+        },
+        {
+          "text": "three places belong to one request.",
+          "startFrame": 430,
+          "endFrame": 495
+        }
+      ]
+    },
+    {
+      "id": "04-ask",
+      "beat": "core-flow",
+      "title": "Ask about all three places at once",
+      "surface": "electron",
+      "startFrame": 1069,
+      "durationInFrames": 477,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "frames": 12
+      },
+      "video": {
+        "src": "capture/04-ask.mp4",
+        "measuredSeconds": 15.9,
+        "playbackRate": 1,
+        "warpRatio": 1,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 477
+      },
+      "audio": {
+        "src": "audio/04-ask.mp3",
+        "measuredSeconds": 12.91,
+        "delayFrames": 20,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "Ask about 3 · one conversation, three places",
+        "inFrame": 20,
+        "outFrame": 116
+      },
+      "captions": [
+        {
+          "text": "The three selected places travel together in one question.",
+          "startFrame": 20,
+          "endFrame": 129
+        },
+        {
+          "text": "One answer compares the evidence with the recommendation.",
+          "startFrame": 129,
+          "endFrame": 226
+        },
+        {
+          "text": "The conversation keeps every passage attached, so you",
+          "startFrame": 226,
+          "endFrame": 323
+        },
+        {
+          "text": "can check the answer against its source.",
+          "startFrame": 323,
+          "endFrame": 407
+        }
+      ]
+    },
+    {
+      "id": "05-approve",
+      "beat": "wow",
+      "title": "Inspect the change, then approve it",
+      "surface": "electron",
+      "startFrame": 1534,
+      "durationInFrames": 756,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "frames": 12
+      },
+      "video": {
+        "src": "capture/05-approve.mp4",
+        "measuredSeconds": 28.733,
+        "playbackRate": 1.1396,
+        "warpRatio": 1.1396,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 756
+      },
+      "audio": {
+        "src": "audio/05-approve.mp3",
+        "measuredSeconds": 23.963,
+        "delayFrames": 20,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "ACT · working copy first, approval last",
+        "inFrame": 20,
+        "outFrame": 116
+      },
+      "captions": [
+        {
+          "text": "ASK cannot write.",
+          "startFrame": 20,
+          "endFrame": 60
+        },
+        {
+          "text": "ACT moves the same conversation onto an isolated",
+          "startFrame": 60,
+          "endFrame": 167
+        },
+        {
+          "text": "working copy, then puts every proposed line behind",
+          "startFrame": 167,
+          "endFrame": 274
+        },
+        {
+          "text": "a review bar.",
+          "startFrame": 274,
+          "endFrame": 314
+        },
+        {
+          "text": "Original, Both, and New expose the edit from",
+          "startFrame": 314,
+          "endFrame": 421
+        },
+        {
+          "text": "each side.",
+          "startFrame": 421,
+          "endFrame": 448
+        },
+        {
+          "text": "Only Approve writes the file.",
+          "startFrame": 448,
+          "endFrame": 515
+        },
+        {
+          "text": "REX then checks every comment again: unchanged passages",
+          "startFrame": 515,
+          "endFrame": 622
+        },
+        {
+          "text": "stay attached, and removed text is flagged for",
+          "startFrame": 622,
+          "endFrame": 729
+        },
+        {
+          "text": "review.",
+          "startFrame": 729,
+          "endFrame": 739
+        }
+      ]
+    },
+    {
+      "id": "06-pdf",
+      "beat": "integration",
+      "title": "PDF · ask about the recommendation",
+      "surface": "electron",
+      "startFrame": 2278,
+      "durationInFrames": 361,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "fcpTemplate": "JGMG",
+        "frames": 12
+      },
+      "video": {
+        "src": "capture/06-pdf.mp4",
+        "measuredSeconds": 12.033,
+        "playbackRate": 1,
+        "warpRatio": 1,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 361
+      },
+      "audio": {
+        "src": "audio/06-pdf.mp3",
+        "measuredSeconds": 7.198,
+        "delayFrames": 20,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "PDF · ask about the recommendation",
+        "inFrame": 20,
+        "outFrame": 116
+      },
+      "captions": [
+        {
+          "text": "Ask why the recommendation is conditional, and check",
+          "startFrame": 20,
+          "endFrame": 116
+        },
+        {
+          "text": "the answer beside the selected passage.",
+          "startFrame": 116,
+          "endFrame": 188
+        },
+        {
+          "text": "The PDF stays unchanged.",
+          "startFrame": 188,
+          "endFrame": 236
+        }
+      ]
+    },
+    {
+      "id": "07-html",
+      "beat": "integration",
+      "title": "HTML · ask about the release gates",
+      "surface": "electron",
+      "startFrame": 2639,
+      "durationInFrames": 424,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "cut",
+        "seconds": 0.4,
+        "frames": 0
+      },
+      "video": {
+        "src": "capture/07-html.mp4",
+        "measuredSeconds": 14.133,
+        "playbackRate": 1,
+        "warpRatio": 1,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 424
+      },
+      "audio": {
+        "src": "audio/07-html.mp3",
+        "measuredSeconds": 6.548,
+        "delayFrames": 8,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "HTML · ask about the release gates",
+        "inFrame": 8,
+        "outFrame": 104
+      },
+      "captions": [
+        {
+          "text": "HTML keeps its visual structure.",
+          "startFrame": 8,
+          "endFrame": 62
+        },
+        {
+          "text": "Ask which release gates must close, and read",
+          "startFrame": 62,
+          "endFrame": 149
+        },
+        {
+          "text": "the answer beside the requirement.",
+          "startFrame": 149,
+          "endFrame": 204
+        }
+      ]
+    },
+    {
+      "id": "08-word",
+      "beat": "integration",
+      "title": "Word · ask about the cutover blockers",
+      "surface": "electron",
+      "startFrame": 3063,
+      "durationInFrames": 359,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "cut",
+        "seconds": 0.4,
+        "frames": 0
+      },
+      "video": {
+        "src": "capture/08-word.mp4",
+        "measuredSeconds": 11.967,
+        "playbackRate": 1,
+        "warpRatio": 1,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 359
+      },
+      "audio": {
+        "src": "audio/08-word.mp3",
+        "measuredSeconds": 7.012,
+        "delayFrames": 8,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "Word · ask about the cutover blockers",
+        "inFrame": 8,
+        "outFrame": 104
+      },
+      "captions": [
+        {
+          "text": "Ask what still blocks a safe cutover.",
+          "startFrame": 8,
+          "endFrame": 85
+        },
+        {
+          "text": "REX explains the blockers beside the selected passage,",
+          "startFrame": 85,
+          "endFrame": 173
+        },
+        {
+          "text": "without editing the document.",
+          "startFrame": 173,
+          "endFrame": 218
+        }
+      ]
+    },
+    {
+      "id": "09-graph",
+      "beat": "integration",
+      "title": "Graph · follow the evidence",
+      "surface": "electron",
+      "startFrame": 3410,
+      "durationInFrames": 416,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "fcpTemplate": "JGMG",
+        "frames": 12
+      },
+      "video": {
+        "src": "capture/09-graph.mp4",
+        "measuredSeconds": 13.867,
+        "playbackRate": 1,
+        "warpRatio": 1,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 416
+      },
+      "audio": {
+        "src": "audio/09-graph.mp3",
+        "measuredSeconds": 12.91,
+        "delayFrames": 20,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "Graph · connected documents, one review",
+        "inFrame": 20,
+        "outFrame": 116
+      },
+      "captions": [
+        {
+          "text": "Graph turns links between your documents into a map.",
+          "startFrame": 20,
+          "endFrame": 126
+        },
+        {
+          "text": "Follow the connections around the cutover plan, find",
+          "startFrame": 126,
+          "endFrame": 220
+        },
+        {
+          "text": "the architecture decisions and runbooks behind it, and",
+          "startFrame": 220,
+          "endFrame": 314
+        },
+        {
+          "text": "open a related document without losing the review.",
+          "startFrame": 314,
+          "endFrame": 407
+        }
+      ]
+    },
+    {
+      "id": "10-ai-options",
+      "beat": "integration",
+      "title": "Your subscription, local models, or hosted APIs",
+      "surface": "electron",
+      "startFrame": 3826,
+      "durationInFrames": 528,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "cut",
+        "seconds": 0.4,
+        "frames": 0
+      },
+      "video": {
+        "src": "capture/10-ai-options.mp4",
+        "measuredSeconds": 17.6,
+        "playbackRate": 1,
+        "warpRatio": 1,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 528
+      },
+      "audio": {
+        "src": "audio/10-ai-options.mp3",
+        "measuredSeconds": 16.393,
+        "delayFrames": 8,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "Existing sign-ins · bundled AI gateway · provider plan limits apply",
+        "inFrame": 8,
+        "outFrame": 104
+      },
+      "captions": [
+        {
+          "text": "Use your existing Codex or Claude Code subscription",
+          "startFrame": 8,
+          "endFrame": 109
+        },
+        {
+          "text": "through its own sign-in.",
+          "startFrame": 109,
+          "endFrame": 159
+        },
+        {
+          "text": "Or connect local models and hosted APIs through",
+          "startFrame": 159,
+          "endFrame": 260
+        },
+        {
+          "text": "REX’s bundled AI gateway, including LM Studio, Ollama,",
+          "startFrame": 260,
+          "endFrame": 361
+        },
+        {
+          "text": "Unsloth, and OpenRouter.",
+          "startFrame": 361,
+          "endFrame": 399
+        },
+        {
+          "text": "Choose the agent and model for each message.",
+          "startFrame": 399,
+          "endFrame": 500
+        }
+      ]
+    },
+    {
+      "id": "11-traffic",
+      "beat": "proof",
+      "title": "Follow the record down to one message",
+      "surface": "electron",
+      "startFrame": 4342,
+      "durationInFrames": 481,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "frames": 12
+      },
+      "video": {
+        "src": "capture/11-traffic.mp4",
+        "measuredSeconds": 16.967,
+        "playbackRate": 1.0592,
+        "warpRatio": 1.0592,
+        "holdLastFrameFrames": 0,
+        "videoFrames": 481
+      },
+      "audio": {
+        "src": "audio/11-traffic.mp3",
+        "measuredSeconds": 14.768,
+        "delayFrames": 20,
+        "volume": 1
+      },
+      "lowerThird": {
+        "text": "Traffic · chat → turn → message JSON",
+        "inFrame": 20,
+        "outFrame": 116
+      },
+      "captions": [
+        {
+          "text": "Traffic keeps the record of every chat.",
+          "startFrame": 20,
+          "endFrame": 98
+        },
+        {
+          "text": "For requests through the built-in gateway, drill down",
+          "startFrame": 98,
+          "endFrame": 187
+        },
+        {
+          "text": "to the messages sent and received.",
+          "startFrame": 187,
+          "endFrame": 253
+        },
+        {
+          "text": "Tokens, timing, failures, and the provider route stay attached.",
+          "startFrame": 253,
+          "endFrame": 353
+        },
+        {
+          "text": "The exact request and response JSON are readable",
+          "startFrame": 353,
+          "endFrame": 442
+        },
+        {
+          "text": "and copyable.",
+          "startFrame": 442,
+          "endFrame": 463
+        }
+      ]
+    },
+    {
+      "id": "12-close",
+      "beat": "close",
+      "title": "Review where the work lives",
+      "surface": "titlecard",
+      "startFrame": 4811,
+      "durationInFrames": 224,
+      "camera": {
+        "kind": "static",
+        "from": 1,
+        "to": 1,
+        "focus": "center"
+      },
+      "transitionIn": {
+        "kind": "crossfade",
+        "seconds": 0.4,
+        "frames": 12
+      },
+      "audio": {
+        "src": "audio/12-close.mp3",
+        "measuredSeconds": 6.223,
+        "delayFrames": 20,
+        "volume": 1
+      },
+      "captions": [
+        {
+          "text": "Open your next document in REX.",
+          "startFrame": 20,
+          "endFrame": 79
+        },
+        {
+          "text": "Ask a question where it matters, and approve",
+          "startFrame": 79,
+          "endFrame": 158
+        },
+        {
+          "text": "only the changes you want.",
+          "startFrame": 158,
+          "endFrame": 207
+        }
+      ],
+      "titlecard": {
+        "title": "Review where the work lives",
+        "subtitle": "Ask your next question in REX."
+      }
+    }
+  ],
+  "music": {
+    "src": "audio/music/rex-bookends.wav",
+    "gainDb": 0,
+    "duckDb": 0,
+    "duckRanges": [
+      {
+        "startFrame": 158,
+        "endFrame": 501
+      },
+      {
+        "startFrame": 526,
+        "endFrame": 1001
+      },
+      {
+        "startFrame": 1089,
+        "endFrame": 1476
+      },
+      {
+        "startFrame": 1554,
+        "endFrame": 2273
+      },
+      {
+        "startFrame": 2298,
+        "endFrame": 2514
+      },
+      {
+        "startFrame": 2647,
+        "endFrame": 2843
+      },
+      {
+        "startFrame": 3071,
+        "endFrame": 3281
+      },
+      {
+        "startFrame": 3430,
+        "endFrame": 3817
+      },
+      {
+        "startFrame": 3834,
+        "endFrame": 4326
+      },
+      {
+        "startFrame": 4362,
+        "endFrame": 4805
+      },
+      {
+        "startFrame": 4831,
+        "endFrame": 5018
+      }
+    ]
+  },
+  "report": {
+    "targetSeconds": 180,
+    "actualSeconds": 167.83,
+    "warnings": [],
+    "errors": []
+  }
+}
