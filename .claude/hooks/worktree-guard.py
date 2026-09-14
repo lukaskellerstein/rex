@@ -55,16 +55,21 @@ def under(path, root):
 def checkouts(cwd):
     """Every checkout of this repository, main first, as real paths."""
     listing = git(cwd, "worktree", "list", "--porcelain") or ""
-    return [os.path.realpath(line[len("worktree "):])
-            for line in listing.splitlines() if line.startswith("worktree ")]
+    return [os.path.realpath(line[len("worktree ") :]) for line in listing.splitlines() if line.startswith("worktree ")]
 
 
 def deny(reason):
-    print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "PreToolUse",
-        "permissionDecision": "deny",
-        "permissionDecisionReason": reason,
-    }}))
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
     sys.exit(0)
 
 
@@ -87,18 +92,24 @@ def main():
     event = d.get("hook_event_name")
     if event == "SessionStart":
         if in_main and no_worktree:
-            print(f"Worktree guard: this is a no-worktree session in the MAIN checkout "
-                  f"{here}, on {branch}. The user started it with `claude --no-worktree`, "
-                  "so you may edit here. Do not edit any copy under .worktrees/ — those "
-                  "belong to other sessions and other branches, and the hook denies them.")
+            print(
+                f"Worktree guard: this is a no-worktree session in the MAIN checkout "
+                f"{here}, on {branch}. The user started it with `claude --no-worktree`, "
+                "so you may edit here. Do not edit any copy under .worktrees/ — those "
+                "belong to other sessions and other branches, and the hook denies them."
+            )
         elif in_main:
-            print(f"Worktree guard: this is the MAIN checkout {here}, on {branch}. "
-                  "It is read-only for agents — Edit/Write here are denied by hook. "
-                  "Code changes happen in a worktree the user starts with `claude -w <name>`.")
+            print(
+                f"Worktree guard: this is the MAIN checkout {here}, on {branch}. "
+                "It is read-only for agents — Edit/Write here are denied by hook. "
+                "Code changes happen in a worktree the user starts with `claude -w <name>`."
+            )
         else:
-            print(f"Worktree guard: you work in the worktree {here}, on branch {branch}. "
-                  f"Main checkout: {main_root}. Edits outside {here} are denied "
-                  "(hook + sandbox). Never cd out of it.")
+            print(
+                f"Worktree guard: you work in the worktree {here}, on branch {branch}. "
+                f"Main checkout: {main_root}. Edits outside {here} are denied "
+                "(hook + sandbox). Never cd out of it."
+            )
         return
     if event != "PreToolUse":
         return
@@ -120,21 +131,24 @@ def main():
             # it is not: that copy is another session's, on another branch.
             for tree in checkouts(cwd):
                 if tree != main_root and under(target, tree):
-                    deny(f"{target} is in the worktree {tree}, which belongs to another "
-                         "branch and possibly another session. This is a no-worktree "
-                         f"session; edit the copy in the main checkout {main_root} instead.")
+                    deny(
+                        f"{target} is in the worktree {tree}, which belongs to another "
+                        "branch and possibly another session. This is a no-worktree "
+                        f"session; edit the copy in the main checkout {main_root} instead."
+                    )
             return
         if under(target, main_root):
-            deny(f"{target} is in the main checkout {main_root}, which is read-only "
-                 "for agents. Ask the user to start a session with `claude -w <name>` "
-                 "and make the change there, or `claude --no-worktree` to work in main.")
+            deny(
+                f"{target} is in the main checkout {main_root}, which is read-only "
+                "for agents. Ask the user to start a session with `claude -w <name>` "
+                "and make the change there, or `claude --no-worktree` to work in main."
+            )
         return
 
     for tree in checkouts(cwd):
         if tree != here and under(target, tree):
             what = "the main checkout" if tree == main_root else "another worktree"
-            deny(f"{target} is in {what} ({tree}). This session's worktree is {here}; "
-                 "edit the copy there.")
+            deny(f"{target} is in {what} ({tree}). This session's worktree is {here}; edit the copy there.")
     # outside every checkout: allowed
 
 
