@@ -1,13 +1,32 @@
-# WORKFLOW — MANDATORY FOR ANY PROMPT THAT RESULTS IN CHANGES
+# Shared repository instructions
 
-**If you are going to use the Edit or Write tool, or run a command that changes
-the working tree or the database, you MUST complete the workflow in `rules/`
+This file is canonical for Claude Code and Codex. Root `AGENTS.md` is a
+relative symlink to it, so both agents receive the same project knowledge and
+five-stage workflow.
+
+Apply these platform translations:
+
+- Claude Code invokes repository skills as `/skill-name`; Codex uses
+  `$skill-name`.
+- Interpret agent-specific tool names by intent and use the corresponding
+  available capability. Product-specific executables, permissions, hooks, and
+  configuration remain specific to that product.
+- Claude Code loads `.claude/rules/` automatically. Codex follows the links
+  below and reads the relevant rule before acting.
+- The current user's instructions outrank this file; this file outranks agent
+  memory or a generic default.
+
+## WORKFLOW — MANDATORY FOR ANY PROMPT THAT RESULTS IN CHANGES
+
+**If you are going to use Edit, Write, `apply_patch`, another mutating tool, or
+run a command that changes the working tree or the database, you MUST complete
+the workflow in `rules/`
 before reporting completion.** Applies to every type of work — application code,
 the anchor resolver, agent prompts and profiles, the SQLite schema, build config,
 and docs. No exceptions.
 
 Steps, in order (each phase's detailed procedure is in the correspondingly-numbered
-`rules/` file — already loaded into context, no need to open it):
+`rules/` file; Codex must open the relevant file before acting):
 
 1. **Understand** → [`rules/02-understand.md`](rules/02-understand.md)
 2. **Plan** → [`rules/03-plan.md`](rules/03-plan.md) *(skip for trivial changes)*
@@ -25,8 +44,8 @@ Reference files: [`rules/01-project-config.md`](rules/01-project-config.md)
 `lukas-ps` CLIs — pre-approved, read-only),
 [`rules/lsp.md`](rules/lsp.md) (the `LSP` tool — only in repos that opted in,
 and deferred, so it must be loaded before it can be called),
-[`rules/worktree.md`](rules/worktree.md) (where you may change files: your
-worktree under `.worktrees/<name>`, never the main checkout).
+[`rules/worktree.md`](rules/worktree.md) (the checkout boundary and each
+agent's native worktree process).
 
 **NEVER report completion without first running the change and watching it
 work.** "The code looks right" is not testing — and for the anchor resolver it is

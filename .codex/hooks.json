@@ -1,0 +1,72 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/workspace-guard.py\"",
+            "timeout": 5,
+            "statusMessage": "Confirming the active Codex checkout"
+          },
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/playwright-session-start.py\"",
+            "timeout": 15,
+            "statusMessage": "Preparing the Playwright workspace"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "apply_patch|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/workspace-guard.py\"",
+            "timeout": 5,
+            "statusMessage": "Checking the Codex checkout boundary"
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__playwright-rex__browser_.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/playwright-pre.py\"",
+            "timeout": 5,
+            "statusMessage": "Checking Playwright window ownership"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "mcp__playwright-rex__browser_.*|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/playwright-post.py\"",
+            "timeout": 5,
+            "statusMessage": "Routing the Playwright window"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/.codex/hooks/playwright-cleanup.py\"",
+            "timeout": 3,
+            "statusMessage": "Cleaning up this session's Playwright windows"
+          }
+        ]
+      }
+    ]
+  }
+}

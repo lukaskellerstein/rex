@@ -9,9 +9,9 @@
 # What it does, and why each half exists:
 #
 #   The app is started as a CHILD of this script, and this script is a
-#   descendant of the Claude Code session. That ancestry is what identifies the
+#   descendant of the Claude Code or Codex session. That ancestry identifies the
 #   window as an agent's: the machine's yabai signal (pw_route.sh, mac-setup
-#   modules/yabai) sees a Claude process above the window's process and moves
+#   modules/yabai) sees a supported agent above the window's process and moves
 #   the window to the project's own desktop, whatever the app is called. No
 #   app name is matched anywhere -- rex packaged its app, macOS called it `REX`
 #   instead of `Electron`, and every name-based matcher on the machine let the

@@ -6,8 +6,10 @@ description: "Step 3: Implement — coding rules and this project's layout"
 
 Write clean code from the start. Follow these rules during implementation:
 
-- Every edit lands in your own worktree (`.worktrees/<name>`, branch `<name>`),
-  never in the main checkout or another worktree — [`worktree.md`](worktree.md)
+- Every edit lands in the checkout assigned to this session. Claude Code uses
+  `.worktrees/<name>` unless deliberately launched with `--no-worktree`; Codex
+  uses its native Local/Worktree selection and Handoff —
+  [`worktree.md`](worktree.md)
 - Do NOT commit via `git` unless explicitly instructed by the user
 - When creating diagrams or graphs, use `mermaid`
 - Write clean code from the start — don't plan to "clean it up later"

@@ -11,7 +11,7 @@
 // bar), the way `ModeSwitch` is one component for two. There is one way to
 // choose a model in REX.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ModelChoice } from "../../shared/types.ts";
 import { modelLabel, modelRows, styleRows } from "./modelChoices.ts";
 
@@ -79,6 +79,55 @@ export function ModelPick(props: Props): React.JSX.Element {
    */
   const [up, setUp] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  /*
+    Keep the menu inside the surface that owns the picker.
+
+    Right-aligning it to the button works while all route controls share one
+    line. Once a narrow sidebar wraps them, a picker can begin at the left edge
+    and its wider menu would be clipped by `.rex-side`. Measure after the menu
+    exists, then move it only as far as the sidebar's content edges require.
+  */
+  useLayoutEffect(() => {
+    if (!open) return;
+    const host = hostRef.current;
+    const menu = menuRef.current;
+    if (!host || !menu) return;
+
+    const side = host.closest<HTMLElement>(".rex-side");
+    const place = (): void => {
+      const hostBox = host.getBoundingClientRect();
+      const sideBox = side?.getBoundingClientRect();
+      const horizontalInset = side ? 14 : 8;
+      const leftEdge = (sideBox?.left ?? 0) + horizontalInset;
+      const rightEdge = (sideBox?.right ?? window.innerWidth) - horizontalInset;
+      const topEdge = (sideBox?.top ?? 0) + 8;
+      const bottomEdge = (sideBox?.bottom ?? window.innerHeight) - 8;
+
+      menu.style.maxWidth = `${Math.max(0, rightEdge - leftEdge)}px`;
+      menu.style.maxHeight = `${Math.max(
+        0,
+        up ? hostBox.top - 4 - topEdge : bottomEdge - hostBox.bottom - 4,
+      )}px`;
+
+      const menuWidth = menu.getBoundingClientRect().width;
+      const idealLeft = hostBox.right - menuWidth;
+      const menuLeft = Math.max(leftEdge, Math.min(idealLeft, rightEdge - menuWidth));
+      menu.style.left = `${menuLeft - hostBox.left}px`;
+      menu.style.transform = "none";
+    };
+
+    place();
+    window.addEventListener("resize", place);
+    const resizeObserver = new ResizeObserver(place);
+    resizeObserver.observe(host);
+    if (side) resizeObserver.observe(side);
+    return () => {
+      window.removeEventListener("resize", place);
+      resizeObserver.disconnect();
+    };
+  }, [open, up]);
 
   /*
     The same close rule the tree's menu follows (`Explorer.tsx`): anything that
@@ -136,6 +185,7 @@ export function ModelPick(props: Props): React.JSX.Element {
 
       {open ? (
         <div
+          ref={menuRef}
           className={`rex-menu rex-menu-right rex-modelmenu${up ? " rex-modelmenu-up" : ""}`}
           role="menu"
         >

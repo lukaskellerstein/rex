@@ -17,8 +17,8 @@ about which desktop is right (the shared one, or the project's `pw:` one).
 Parking straight to the shared desktop was this hook's old move, and it would
 undo the project split on every Bash call.
 
-Safe on every Bash call because the ownership test is pw.is_claude_browser —
-the machine's pid registry, Claude ancestry, or the instance's own
+Safe on every Bash call because the ownership test is pw.is_agent_browser —
+the machine's pid registry, Claude/Codex ancestry, or the instance's own
 /json/version marker; never argv and never a bare "some MCP server claims this
 port". The looser port-claim test parked the USER's own app while an agent was
 merely attached to it (measured in rex 2026-08-30, the repo's old hook set);
@@ -48,7 +48,7 @@ def main():
 
     home = pw.agent_space_indices()
     for window in pw.browser_windows():
-        if window["space"] not in home and pw.is_claude_browser(window["pid"]):
+        if window["space"] not in home and pw.is_agent_browser(window["pid"]):
             pw.route(window["id"])
 
     sys.exit(0)

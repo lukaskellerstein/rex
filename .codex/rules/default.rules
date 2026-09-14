@@ -1,0 +1,52 @@
+# These rules apply when a command requests execution outside the sandbox.
+
+prefix_rule(
+    pattern = ["rm", ["-rf", "-fr"]],
+    decision = "forbidden",
+    justification = "Forced recursive deletion is prohibited; remove narrowly scoped files with a recoverable operation instead.",
+    match = [
+        "rm -rf build",
+        "rm -fr build",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rm", ["-r", "--recursive"], ["-f", "--force"]],
+    decision = "forbidden",
+    justification = "Forced recursive deletion is prohibited; remove narrowly scoped files with a recoverable operation instead.",
+    match = [
+        "rm -r -f build",
+        "rm --recursive --force build",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rm", ["-f", "--force"], ["-r", "--recursive"]],
+    decision = "forbidden",
+    justification = "Forced recursive deletion is prohibited; remove narrowly scoped files with a recoverable operation instead.",
+    match = [
+        "rm -f -r build",
+        "rm --force --recursive build",
+    ],
+)
+
+prefix_rule(
+    pattern = [["mkfs", "mkfs_apfs", "mkfs_hfs", "newfs_apfs", "newfs_hfs"]],
+    decision = "forbidden",
+    justification = "Filesystem-formatting commands are prohibited.",
+    match = [
+        "mkfs /dev/disk4",
+        "mkfs_apfs /dev/disk4",
+        "newfs_hfs /dev/disk4",
+    ],
+)
+
+prefix_rule(
+    pattern = ["dd"],
+    decision = "forbidden",
+    justification = "Raw block-copy commands are prohibited.",
+    match = [
+        "dd if=image.img of=/dev/disk4",
+    ],
+)
+

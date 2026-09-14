@@ -1,0 +1,67 @@
+<?xml version="1.0"?>
+<tt xmlns:vt="http://namespace.itunes.apple.com/itt/ttml-extension#vertical" xmlns:ttp="http://www.w3.org/ns/ttml#parameter" xmlns:ittp="http://www.w3.org/ns/ttml/profile/imsc1#parameter" xmlns:tt_feature="http://www.w3.org/ns/ttml/feature/" xmlns:ebutts="urn:ebu:tt:style" xmlns:tts="http://www.w3.org/ns/ttml#styling" xmlns:tt_extension="http://www.w3.org/ns/ttml/extension/" xmlns:tt_profile="http://www.w3.org/ns/ttml/profile/" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:ry="http://namespace.itunes.apple.com/itt/ttml-extension#ruby" xmlns:itts="http://www.w3.org/ns/ttml/profile/imsc1#styling" xmlns="http://www.w3.org/ns/ttml" xml:lang="en-US" ttp:dropMode="nonDrop" ttp:frameRate="30" ttp:frameRateMultiplier="1 1" ttp:timeBase="smpte" xmlns:tt="http://www.w3.org/ns/ttml" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <head>
+    <styling>
+      <style xml:id="normal" tts:color="white" tts:fontFamily="sansSerif" tts:fontSize="100%" tts:fontStyle="normal" tts:fontWeight="normal"/>
+    </styling>
+    <layout>
+      <region xml:id="bottom" tts:displayAlign="after" tts:extent="100% 15%" tts:origin="0% 85%" tts:writingMode="lrtb"/>
+    </layout>
+  </head>
+  <body tts:color="white" region="bottom" style="normal">
+    <div>
+      <p begin="00:00:05:08" end="00:00:09:07" region="bottom">Copying passages into chat separates questions from their source.</p>
+      <p begin="00:00:09:07" end="00:00:12:23" region="bottom">REX brings Markdown, HTML, Word, PDF, and PowerPoint</p>
+      <p begin="00:00:12:23" end="00:00:16:09" region="bottom">into one workspace, keeping the review with the</p>
+      <p begin="00:00:16:09" end="00:00:16:21" region="bottom">document.</p>
+      <p begin="00:00:17:16" end="00:00:19:19" region="bottom">One review can span several places.</p>
+      <p begin="00:00:19:19" end="00:00:22:13" region="bottom">Start with a sentence, then widen a table</p>
+      <p begin="00:00:22:13" end="00:00:25:07" region="bottom">cell to its row, table, or enclosing section.</p>
+      <p begin="00:00:25:07" end="00:00:28:12" region="bottom">The outline shows exactly what the question will include.</p>
+      <p begin="00:00:28:12" end="00:00:31:06" region="bottom">Add the recommendation to the selection, and all</p>
+      <p begin="00:00:31:06" end="00:00:33:11" region="bottom">three places belong to one request.</p>
+      <p begin="00:00:36:09" end="00:00:39:28" region="bottom">The three selected places travel together in one question.</p>
+      <p begin="00:00:39:28" end="00:00:43:05" region="bottom">One answer compares the evidence with the recommendation.</p>
+      <p begin="00:00:43:05" end="00:00:46:12" region="bottom">The conversation keeps every passage attached, so you</p>
+      <p begin="00:00:46:12" end="00:00:49:06" region="bottom">can check the answer against its source.</p>
+      <p begin="00:00:51:24" end="00:00:53:04" region="bottom">ASK cannot write.</p>
+      <p begin="00:00:53:04" end="00:00:56:21" region="bottom">ACT moves the same conversation onto an isolated</p>
+      <p begin="00:00:56:21" end="00:01:00:08" region="bottom">working copy, then puts every proposed line behind</p>
+      <p begin="00:01:00:08" end="00:01:01:18" region="bottom">a review bar.</p>
+      <p begin="00:01:01:18" end="00:01:05:05" region="bottom">Original, Both, and New expose the edit from</p>
+      <p begin="00:01:05:05" end="00:01:06:02" region="bottom">each side.</p>
+      <p begin="00:01:06:02" end="00:01:08:09" region="bottom">Only Approve writes the file.</p>
+      <p begin="00:01:08:09" end="00:01:11:26" region="bottom">REX then checks every comment again: unchanged passages</p>
+      <p begin="00:01:11:26" end="00:01:15:13" region="bottom">stay attached, and removed text is flagged for</p>
+      <p begin="00:01:15:13" end="00:01:15:23" region="bottom">review.</p>
+      <p begin="00:01:16:18" end="00:01:19:24" region="bottom">Ask why the recommendation is conditional, and check</p>
+      <p begin="00:01:19:24" end="00:01:22:06" region="bottom">the answer beside the selected passage.</p>
+      <p begin="00:01:22:06" end="00:01:23:24" region="bottom">The PDF stays unchanged.</p>
+      <p begin="00:01:28:07" end="00:01:30:01" region="bottom">HTML keeps its visual structure.</p>
+      <p begin="00:01:30:01" end="00:01:32:28" region="bottom">Ask which release gates must close, and read</p>
+      <p begin="00:01:32:28" end="00:01:34:23" region="bottom">the answer beside the requirement.</p>
+      <p begin="00:01:42:11" end="00:01:44:28" region="bottom">Ask what still blocks a safe cutover.</p>
+      <p begin="00:01:44:28" end="00:01:47:26" region="bottom">REX explains the blockers beside the selected passage,</p>
+      <p begin="00:01:47:26" end="00:01:49:11" region="bottom">without editing the document.</p>
+      <p begin="00:01:54:10" end="00:01:57:26" region="bottom">Graph turns links between your documents into a map.</p>
+      <p begin="00:01:57:26" end="00:02:01:00" region="bottom">Follow the connections around the cutover plan, find</p>
+      <p begin="00:02:01:00" end="00:02:04:04" region="bottom">the architecture decisions and runbooks behind it, and</p>
+      <p begin="00:02:04:04" end="00:02:07:07" region="bottom">open a related document without losing the review.</p>
+      <p begin="00:02:07:24" end="00:02:11:05" region="bottom">Use your existing Codex or Claude Code subscription</p>
+      <p begin="00:02:11:05" end="00:02:12:25" region="bottom">through its own sign-in.</p>
+      <p begin="00:02:12:25" end="00:02:16:06" region="bottom">Or connect local models and hosted APIs through</p>
+      <p begin="00:02:16:06" end="00:02:19:17" region="bottom">REX’s bundled AI gateway, including LM Studio, Ollama,</p>
+      <p begin="00:02:19:17" end="00:02:20:25" region="bottom">Unsloth, and OpenRouter.</p>
+      <p begin="00:02:20:25" end="00:02:24:06" region="bottom">Choose the agent and model for each message.</p>
+      <p begin="00:02:25:12" end="00:02:28:00" region="bottom">Traffic keeps the record of every chat.</p>
+      <p begin="00:02:28:00" end="00:02:30:29" region="bottom">For requests through the built-in gateway, drill down</p>
+      <p begin="00:02:30:29" end="00:02:33:05" region="bottom">to the messages sent and received.</p>
+      <p begin="00:02:33:05" end="00:02:36:15" region="bottom">Tokens, timing, failures, and the provider route stay attached.</p>
+      <p begin="00:02:36:15" end="00:02:39:14" region="bottom">The exact request and response JSON are readable</p>
+      <p begin="00:02:39:14" end="00:02:40:05" region="bottom">and copyable.</p>
+      <p begin="00:02:41:01" end="00:02:43:00" region="bottom">Open your next document in REX.</p>
+      <p begin="00:02:43:00" end="00:02:45:19" region="bottom">Ask a question where it matters, and approve</p>
+      <p begin="00:02:45:19" end="00:02:47:08" region="bottom">only the changes you want.</p>
+    </div>
+  </body>
+</tt>

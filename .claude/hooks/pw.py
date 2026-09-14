@@ -13,7 +13,7 @@ that used to break on every reboot or yabai restart (measured repeatedly,
 
   2. THE LAUNCH IDENTIFIES THE WINDOW, NOT ITS NAME. The machine's yabai
      signal (mac-setup modules/yabai/pw_route.sh) decides ownership from the
-     process tree at the moment a window is born -- a Claude Code process
+     process tree at the moment a window is born -- a supported agent process
      above it -- and records the pid in a registry (AGENT_PIDS) so the proof
      outlives the launcher. No app name is matched: rex packaged its app,
      macOS called it `REX` instead of `Electron`, and every name-based
@@ -31,19 +31,19 @@ that used to break on every reboot or yabai restart (measured repeatedly,
 
 What this file still guards, and with which grain:
 
-  - MOVE (`is_claude_browser`): the park-fallback for a window an agent
-    launched bare, outside the wrapper. A Claude process in the ancestry, or a
-    listener whose CDP endpoint carries the agent marker. Deliberately NOT argv
+  - MOVE (`is_agent_browser`): the park-fallback for a window an agent
+    launched bare, outside the wrapper. Claude or Codex ancestry, or a listener
+    whose CDP endpoint carries the agent marker. Deliberately NOT argv
     markers and NOT "some MCP server claims this port" — both fit the USER's
     own window (their npm-launched app answers on the very port an MCP server
     attaches to; that exact false positive parked the user's window, measured
     in rex 2026-08-30).
   - DRIVE (`agent_owns_port`): the PreToolUse gate. Every listener on the port
-    must be an agent instance (marker) or descend from a Claude process;
+    must be an agent instance (marker) or descend from a supported agent;
     otherwise the instance is the user's and the call is denied until they
     consent.
   - CLOSE (cleanup hook): argv automation markers or the `[agent]` title tag,
-    AND descent from this session's Claude process or proven abandonment.
+    AND descent from this session's agent process or proven abandonment.
     Ancestry alone cannot close — by session end launchd has reparented the
     tree — and several sessions share this desktop, so anything looser has
     closed another session's browser (measured 2026-08-18).
@@ -109,9 +109,19 @@ BROWSER_APPS = frozenset({"chromium", "chrome for testing", "google chrome for t
 PLAYWRIGHT_COMMAND_MARKERS = ("ms-playwright", "playwright_", "playwright-core")
 ATTACHED_COMMAND_MARKERS = ("--remote-debugging-port",)
 
-# A Claude Code process by name or install path — the versioned binary reports
-# its version as its name, so the path is checked as well.
-CLAUDE_PROCESS_MARKERS = (".local/share/claude/", "claudecode.app", "/bin/claude")
+# Claude Code and Codex process names/install paths. Some versioned binaries
+# report a version as their process name, so command paths are checked too.
+AGENT_PROCESS_NAMES = frozenset({"claude", "codex"})
+AGENT_PROCESS_MARKERS = (
+    ".local/share/claude/",
+    "claudecode.app",
+    "/bin/claude",
+    "/bin/codex",
+    "/@openai/codex/",
+    "/openai/codex/",
+    "codex.app",
+    "chatgpt.app",
+)
 
 # Roots that mean a process tree still belongs to somebody (terminal,
 # multiplexer, Claude itself). Anything else at the root of a launchd-adopted
@@ -131,6 +141,8 @@ SESSION_ROOTS = frozenset(
         "login",
         "sshd",
         "claude",
+        "codex",
+        "chatgpt",
     }
 )
 
@@ -225,8 +237,11 @@ def pid_alive(pid):
 
 
 def session_pid():
-    """The Claude Code process this hook runs under — found by position (the
-    first non-shell/interpreter ancestor), so it holds for any binary name."""
+    """The Claude Code or Codex process this hook runs under.
+
+    Found by position (the first non-shell/interpreter ancestor), so it holds
+    for any binary name.
+    """
     for pid in _ancestor_pids(os.getpid()):
         name = _process_name(pid).lstrip("-")
         if not name.startswith(_HOOK_WRAPPERS):
@@ -234,11 +249,11 @@ def session_pid():
     return None
 
 
-def _is_claude_process(pid):
-    if _process_name(pid).split(None, 1)[:1] == ["claude"]:
+def _is_agent_process(pid):
+    if (_process_name(pid).split(None, 1)[:1] or [""])[0] in AGENT_PROCESS_NAMES:
         return True
     command = _command_line(pid)
-    return any(marker in command for marker in CLAUDE_PROCESS_MARKERS)
+    return any(marker in command for marker in AGENT_PROCESS_MARKERS)
 
 
 def is_owned_by(pid, session):
@@ -290,7 +305,7 @@ def _has_living_owner(pid):
     chain = _ancestor_pids(pid)
     if not chain:
         return False
-    if any(_is_claude_process(a) for a in chain):
+    if any(_is_agent_process(a) for a in chain):
         return True
     name = _process_name(chain[-1])
     if name.startswith("-"):  # a login shell — someone is sitting at it
@@ -363,8 +378,8 @@ def agent_instance(port):
     return _AGENT_PORTS[port]
 
 
-def is_claude_browser(pid):
-    """A Claude session launched this window, or it is an agent-mode instance.
+def is_agent_browser(pid):
+    """A Claude or Codex session launched this window, or it is agent-mode.
     The MOVE grain — the park-fallback for a window launched bare, outside the
     wrapper. Narrow enough that a user-opened window can never satisfy it:
     ancestry, or the instance's own marker. Never argv, never a bare port
@@ -373,7 +388,7 @@ def is_claude_browser(pid):
         return False
     if registered_agent_pid(pid):
         return True
-    if any(_is_claude_process(a) for a in _ancestor_pids(pid)):
+    if any(_is_agent_process(a) for a in _ancestor_pids(pid)):
         return True
     return any(agent_instance(port) for port in _listen_ports_of(pid))
 
@@ -543,16 +558,36 @@ def close_window(window):
 
 
 def cdp_port(project_dir):
-    """The --cdp-endpoint port from the project's .mcp.json, or None."""
+    """The configured --cdp-endpoint port for Claude Code or Codex."""
     try:
         config = json.loads((Path(project_dir) / ".mcp.json").read_text())
     except Exception:
-        return None
+        config = {}
     for server in (config.get("mcpServers") or {}).values():
         for arg in server.get("args") or []:
             match = CDP_ENDPOINT_RE.search(str(arg).lower())
             if match:
                 return int(match.group(1))
+
+    # Codex keeps project MCP servers in .codex/config.toml. Use tomllib where
+    # available, with a narrow text fallback for the stock macOS Python.
+    codex_config = Path(project_dir) / ".codex" / "config.toml"
+    try:
+        import tomllib
+
+        parsed = tomllib.loads(codex_config.read_text())
+        for server in (parsed.get("mcp_servers") or {}).values():
+            for arg in server.get("args") or []:
+                match = CDP_ENDPOINT_RE.search(str(arg).lower())
+                if match:
+                    return int(match.group(1))
+    except Exception:
+        try:
+            match = CDP_ENDPOINT_RE.search(codex_config.read_text().lower())
+            if match:
+                return int(match.group(1))
+        except Exception:
+            pass
     return None
 
 
@@ -575,7 +610,7 @@ def agent_owns_port(port):
         return True
     if agent_instance(port):
         return True
-    return all(any(_is_claude_process(a) for a in _ancestor_pids(pid)) for pid in listeners)
+    return all(any(_is_agent_process(a) for a in _ancestor_pids(pid)) for pid in listeners)
 
 
 # --------------------------------------------------------------------------
@@ -599,8 +634,9 @@ def _cli(argv):
         if index is None:
             sys.exit(1)
         print(index)
-    elif cmd == "cdp-port":  # the project's .mcp.json --cdp-endpoint port
-        port = cdp_port(os.environ.get("CLAUDE_PROJECT_DIR", "."))
+    elif cmd == "cdp-port":  # the project's configured --cdp-endpoint port
+        root = os.environ.get("CODEX_PROJECT_DIR") or os.environ.get("CLAUDE_PROJECT_DIR") or "."
+        port = cdp_port(root)
         print(port if port is not None else "")
     elif cmd == "list-windows":  # list-windows → every window id, comma-separated
         print(",".join(str(w.get("id")) for w in yabai_json("query", "--windows") or []))
@@ -651,7 +687,7 @@ def _cli(argv):
             sys.exit(
                 f"DENIED: the instance on CDP port {port} was started by the user. "
                 "Do not attach to it — by MCP tool, script, or raw CDP. Start your "
-                "own via .claude/hooks/playwright-launch.sh, or ask the user first."
+                "own via the repo's playwright-launch.sh hook, or ask the user first."
             )
     else:
         sys.exit(f"unknown command: {cmd!r}")

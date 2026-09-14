@@ -1,0 +1,25 @@
+# REX is an explicit full-access exception. Codex must launch a native Electron
+# application and drive its CDP WebSocket; macOS aborts the GUI launch and denies
+# the direct socket when the process inherits the workspace sandbox.
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+web_search = "live"
+
+[features]
+hooks = true
+
+[apps._default]
+enabled = true
+default_tools_approval_mode = "approve"
+destructive_enabled = true
+open_world_enabled = true
+
+[mcp_servers."playwright-rex"]
+command = "npx"
+args = ["-y", "@playwright/mcp@latest", "--cdp-endpoint=http://localhost:9334"]
+startup_timeout_sec = 60
+default_tools_approval_mode = "approve"
+
+[mcp_servers."playwright-rex".env]
+NPM_CONFIG_CACHE = "/tmp/codex-playwright-mcp-npm-cache"
+NPM_CONFIG_UPDATE_NOTIFIER = "false"

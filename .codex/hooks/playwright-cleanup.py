@@ -1,0 +1,1 @@
+../../.claude/hooks/playwright-cleanup.py

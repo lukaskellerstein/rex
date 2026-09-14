@@ -123,3 +123,12 @@ design/rex-settings-page.html
 
 # Claude Code worktree sessions: claude -w <name>
 .worktrees/
+
+# Numbered demo archives retain approved MP4/library ZIP/source/manifest files.
+# Exclude working folders and extracted libraries at either supported work level.
+demo/*/.work/
+demo/*/final/.work/
+demo/*/final/*.fcpbundle/
+
+# Recoverable local-only removal of superseded demo production files.
+/.demo-cleanup-recovery/
