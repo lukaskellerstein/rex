@@ -60,3 +60,25 @@ export function markerClass(status: ThreadStatus, state: AnchorState | null): st
   if (state === "orphaned") return "rex-margin-lost";
   return "";
 }
+
+/**
+ * Spec 64 §3.1 — the bar's colour, with the two that outrank it on top: the
+ * open comment and the one being pointed at (§8.4).
+ *
+ * The margin bar and its mark on the overview ruler both take their classes
+ * from here, so the strip and the bars cannot drift.
+ */
+export function barClasses(
+  status: ThreadStatus,
+  state: AnchorState | null,
+  active: boolean,
+  lit: boolean,
+): string {
+  return [
+    markerClass(status, state),
+    active ? "rex-margin-active" : "",
+    lit ? "rex-margin-lit" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}

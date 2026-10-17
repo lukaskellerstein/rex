@@ -43,6 +43,7 @@ import {
 import { LinkTip, type LinkTipView } from "./LinkTip.tsx";
 import { ModeStrip } from "./ModeStrip.tsx";
 import { mermaidPass } from "./mermaid.ts";
+import { type FindMarks, OverviewRuler } from "./OverviewRuler.tsx";
 import { type DraftMark, PaneMarks } from "./PaneMarks.tsx";
 import { PathBar } from "./PathBar.tsx";
 import { PenLayer } from "./PenLayer.tsx";
@@ -69,12 +70,13 @@ interface Props {
    */
   paper: PaperView;
   /**
-   * Spec 28 §5.6 — the find bar and the overview ruler, when this is the pane
+   * Spec 28 §5.6 — the find bar and a find's marks, when this is the pane
    * being read (the pane control on `Original`). Null otherwise; the strip
    * never comes with them, because one strip governs both panes (spec 27 §4.6).
+   * Spec 64 — the overview ruler itself is drawn here always, for the change.
    */
   corner: React.ReactNode;
-  ruler: React.ReactNode;
+  findMarks: FindMarks | null;
   /**
    * Handed the frame once it is drawn, so the right-hand pane can keep this one
    * level with it (§6.2). Called again with null when the document goes.
@@ -359,7 +361,14 @@ export function OriginalPane(props: Props): React.JSX.Element {
           sandbox="allow-same-origin"
         />
         {props.corner ? <div className="rex-corner">{props.corner}</div> : null}
-        {props.ruler}
+        {/* Spec 64 — this pane exists only while comparing, so no comment marks. */}
+        <OverviewRuler
+          frame={frameRef}
+          comments={null}
+          changes={boxes}
+          find={props.findMarks}
+          onSelectMarker={props.onSelectMarker}
+        />
         {boxes.map((box, at) => (
           <div
             // By position, for the same reason `changeBoxes` is — a hidden pane

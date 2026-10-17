@@ -1,6 +1,6 @@
 {
   "name": "rex",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Review EX — comment on documents and discuss each comment with an AI agent",
   "author": "Lukas Kellerstein <lukas.kellerstein@gmail.com>",
   "homepage": "https://github.com/lukaskellerstein/rex",
@@ -27,6 +27,7 @@
     "test:targets": "node --test test/targets.spec.ts",
     "test:diff": "node --test test/diff.spec.ts",
     "test:block-diff": "node --test test/blockDiff.spec.ts",
+    "test:ruler-marks": "node --test test/rulerMarks.spec.ts",
     "test:lasso": "node --test test/lasso.spec.ts",
     "test:migrate": "node --test test/migrate.spec.ts",
     "test:models": "node --test test/models.spec.ts",

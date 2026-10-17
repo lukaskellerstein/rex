@@ -1746,7 +1746,12 @@ export class FrameSurface implements DocumentSurface {
  * function.
  */
 function bringIntoView(view: Window, rect: DOMRect): void {
-  view.scrollTo({ top: rect.top + view.scrollY - view.innerHeight / 3, behavior: "smooth" });
+  bringBoxIntoView(view, toDocumentRect(view, rect));
+}
+
+/** Spec 64 §5 — the same rule, for a box already in the frame's document pixels. */
+export function bringBoxIntoView(view: Window, box: ScopeRect): void {
+  view.scrollTo({ top: box.y - view.innerHeight / 3, behavior: "smooth" });
 }
 
 /**
