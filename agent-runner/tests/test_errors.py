@@ -237,10 +237,14 @@ def test_the_401_hint_says_which_half_is_REXs_to_check() -> None:
 
 
 def test_the_official_endpoint_keeps_the_login_advice() -> None:
-    """On `Original` a 401 IS the reviewer's own login, and the advice is right."""
+    """On `Original` a 401 IS the reviewer's own login, and the advice is right.
+
+    And only the login. The adapter empties `ANTHROPIC_API_KEY` on this route
+    (spec 43 §6.3), so advice to set it would be advice REX ignores.
+    """
     said = classify_error("API Error: 401 Not authenticated", ORIGINAL)
     assert "claude login" in said
-    assert "ANTHROPIC_API_KEY" in said
+    assert "ANTHROPIC_API_KEY" not in said
 
 
 def test_a_hint_never_reads_a_field_the_route_does_not_have() -> None:

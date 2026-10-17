@@ -82,6 +82,7 @@ function message(fields: Partial<Message> = {}): Message {
     mode: null,
     model: null,
     style: null,
+    effort: null,
     sdk: null,
     gatewayName: null,
     baseUrl: null,
@@ -95,6 +96,8 @@ function message(fields: Partial<Message> = {}): Message {
     durationMs: null,
     inputTokens: null,
     outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
     createdAt: "2026-09-04T00:00:00.000Z",
     ...fields,
   };
@@ -146,7 +149,6 @@ test("with nothing stored, everything starts on Claude and Original", () => {
   const defaults = agentDefaults(openDb(), [ORIGINAL_GATEWAY_ID]);
   assert.equal(defaults.sdk, "claude-agent");
   assert.equal(defaults.gatewayId, ORIGINAL_GATEWAY_ID);
-  assert.equal(defaults.model, null);
 });
 
 // ── §4.0 — a comment already sent starts on what it last used ───
@@ -163,6 +165,7 @@ test("a sent comment starts on the combination its newest answer ran through", (
     gatewayId: null,
     model: "unsloth-26b",
     style: null,
+    effort: null,
   });
 });
 

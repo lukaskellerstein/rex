@@ -218,8 +218,9 @@ sandbox: it is already gone.
 - It does not weaken ACT. `writeGateDecision` allows everything but MCP, and
   what protects a document is `SPEC.md` §8.7 step 5 — the diff is shown and
   nothing is kept until the reviewer accepts.
-- It does not stop a repository shaping the agent. `CLAUDE.md`, skills, agents
-  and hooks still load, because those are context.
+- It does not stop a repository shaping the agent. `CLAUDE.md`, skills and
+  agents still load, because those are context. This line once listed hooks
+  too; spec 62 found that a hook is a boundary and turns them off.
 
 ## 7. Acceptance
 

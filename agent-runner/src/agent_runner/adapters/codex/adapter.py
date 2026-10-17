@@ -53,7 +53,6 @@ from ...events import (
 from ...policy import ToolCall
 from ...types import (
     AgentSdk,
-    ModelChoice,
     ResolvedRoute,
     ResumeSession,
     RouteCapabilities,
@@ -63,11 +62,9 @@ from ...types import (
 from ..base import AskPolicy, Emit
 from .errors import classify_error
 from .events import item_events, policy_call_of
+from .models import effort_of
+from .models import probe as probe_models
 from .tools import common_tool
-
-#: The value that MEANS "say nothing to the SDK". The host strips it before the
-#: request is built, so this is only the row a picker draws.
-DEFAULT_MODEL = "default"
 
 #: The credential variable a routed run's child is given, and the name the
 #: provider's `env_key` points at. One constant, used in both halves, because a
@@ -376,6 +373,8 @@ class CodexAdapter:
         session_id = request.session.id if isinstance(request.session, ResumeSession) else ""
         input_tokens: int | None = None
         output_tokens: int | None = None
+        cache_read_tokens: int | None = None
+        cache_write_tokens: int | None = None
         duration_ms: int | None = None
         error: str | None = None
         answered = False
@@ -457,7 +456,7 @@ class CodexAdapter:
 
                 emit(Started(session_id=session_id, model=request.model, tools=None))
 
-                turn = await thread.turn(request.prompt)
+                turn = await thread.turn(request.prompt, effort=effort_of(request.effort))
                 watcher = asyncio.create_task(_interrupt_when(stop, turn))
 
                 # Narrowed by TYPE and not by `event.method`. Every notification
@@ -477,9 +476,13 @@ class CodexAdapter:
                             emit(produced)
 
                     elif isinstance(payload, ThreadTokenUsageUpdatedNotification):
+                        # Spec 61 §3 — OpenAI's `input_tokens` already counts the
+                        # cached part, so it is `Completed`'s meaning as it stands.
                         total = payload.token_usage.total
                         input_tokens = total.input_tokens
                         output_tokens = total.output_tokens
+                        cache_read_tokens = total.cached_input_tokens
+                        cache_write_tokens = total.cache_write_input_tokens
 
                     elif isinstance(payload, ErrorNotification):
                         # The CLI retries a dropped stream several times and says
@@ -537,6 +540,8 @@ class CodexAdapter:
                     duration_ms=duration_ms,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    cache_read_tokens=cache_read_tokens,
+                    cache_write_tokens=cache_write_tokens,
                 )
             )
 
@@ -590,25 +595,15 @@ class CodexAdapter:
     async def capabilities(self, route: ResolvedRoute, cwd: str) -> RouteCapabilities:
         """§7 — what a Codex route offers, without spending anything.
 
-        **Nothing is probed.** The Claude adapter asks its CLI because the model
-        and style lists are the account's; Codex has no gateway-independent
-        catalogue to ask for, so a route offers the models typed into it (spec
-        43 §4.3) and `Original` offers the one row that means "the Codex CLI's
-        own default". Starting a CLI to learn nothing would be seconds a
-        reviewer waits for an empty answer.
+        Spec 60 §6 — `Original` asks the CLI's own model list, which is the
+        account's and carries each model's effort levels. A routed gateway is
+        not asked: its models are typed (spec 43 §4.3), and which levels a
+        gateway's engine takes is unmeasured (spec 58 §3.2).
         """
-        _ = cwd
         refusal = self.validate(route)
+        models, probe_error = await probe_models(self._env(route), cwd) if not route.base_url else ([], None)
         return RouteCapabilities(
-            models=[
-                ModelChoice(
-                    value=DEFAULT_MODEL,
-                    display_name="Default",
-                    description="Whatever the Codex CLI is configured to use.",
-                )
-            ]
-            if not route.base_url
-            else [],
+            models=models,
             styles=[],
             supports_styles=False,
             supports_plugins=False,
@@ -624,7 +619,7 @@ class CodexAdapter:
             # both copies and got `operation not permitted` on the repository.
             supports_act=refusal is None,
             supports_resume=True,
-            error=refusal,
+            error=refusal or probe_error,
         )
 
     async def session_state(self, route: ResolvedRoute, cwd: str, session_id: str) -> SessionState:

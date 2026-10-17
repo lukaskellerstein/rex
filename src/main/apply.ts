@@ -273,6 +273,12 @@ function workspaceParagraph(workspaceRoot: string | null): string[] {
     "rather than describing it. Do not change files they did not ask about.",
     `Anything you write outside ${workspaceRoot} is put back and reported.`,
     "",
+    // Spec 62 §4.2 — the repository's hooks are off, but its CLAUDE.md can still
+    // tell every agent that its main checkout is read-only.
+    "This is a REX run, not a coding session in that repository. Its instructions",
+    "about which checkout or worktree an agent may write do not apply here: REX",
+    "holds every edit until the reviewer approves it.",
+    "",
     "If the reviewer asked you to create a NEW file, write it under",
     `${workspaceRoot} — the workspace open in REX. Use the path they named,`,
     "relative to that root. It appears in their file tree when the run ends.",
@@ -420,6 +426,8 @@ export interface ApplyOptions {
    * reviewer has to remember.
    */
   style?: string | null;
+  /** Spec 58 §4 — the effort level this ACT thinks at, for the style's reason. */
+  effort?: string | null;
   /**
    * Spec 43 §11 — where this ACT's inference is served from.
    *
@@ -539,6 +547,7 @@ async function startDeckApply(
    * the deck agent itself needs. */
   model: string | null,
   style: string | null,
+  effort: string | null,
   route: ResolvedRoute | undefined,
   /** Spec 51 §4 — and the turn. Every deck in one ACT shares it. */
   runId: string | null,
@@ -578,6 +587,7 @@ async function startDeckApply(
         }),
         model,
         style,
+        effort,
         route,
         ...(runId ? { runId } : {}),
         resolver: context.resolver,
@@ -647,6 +657,7 @@ export async function startApply(
 ): Promise<string> {
   const model = options.model ?? null;
   const style = options.style ?? null;
+  const effort = options.effort ?? null;
   const route = options.route;
   const evidence = options.evidence ?? { sdk: null, gatewayName: null, baseUrl: null };
   const runId = options.runId ?? null;
@@ -662,7 +673,8 @@ export async function startApply(
    */
   const context: ApplyContext = {
     ...outer,
-    record: (id, message) => outer.record(id, { ...message, model, style, runId, ...evidence }),
+    record: (id, message) =>
+      outer.record(id, { ...message, model, style, effort, runId, ...evidence }),
   };
   const { db } = context;
   const thread = getThread(db, threadId);
@@ -691,6 +703,7 @@ export async function startApply(
       addedWith,
       model,
       style,
+      effort,
       route,
       runId,
     );
@@ -762,6 +775,7 @@ export async function startApply(
         }),
         model,
         style,
+        effort,
         route,
         resolver: context.resolver,
         signal: controller.signal,
@@ -910,6 +924,7 @@ export async function startApply(
         ...(runId ? { runId } : {}),
         model,
         style,
+        effort,
         signal: controller.signal,
         onMessage: (message) => context.record(threadId, message),
         onWrote: (path) => wrote.add(path),

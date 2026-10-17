@@ -38,6 +38,7 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
     mode: null,
     model: null,
     style: null,
+    effort: null,
     // Spec 43 §5.3 — the evidence a run leaves. Null here is what a fixture
     // that was never produced by one honestly is.
     sdk: null,
@@ -53,6 +54,8 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
     durationMs: null,
     inputTokens: null,
     outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
     createdAt: "2026-08-23T20:12:03.000Z",
     ...fields,
   };
@@ -476,6 +479,8 @@ function draft(kind: MessageKind, role: MessageRole, fields: Partial<Message> = 
     durationMs: null,
     inputTokens: null,
     outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
     ...fields,
   };
 }

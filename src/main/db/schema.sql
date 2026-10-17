@@ -146,6 +146,9 @@ CREATE TABLE IF NOT EXISTS message (
   -- the send and on everything the run produced, NULL for a NOTE and for every
   -- row written before it. Recorded and not drawn; the debug report reads it.
   style           TEXT,
+  -- Spec 58 §5 — the effort level this row ran under, as the reviewer picked
+  -- it. `model`'s twin again: NULL for a NOTE and for every row written before.
+  effort          TEXT,
   -- Spec 43 §5.3 — the rest of the evidence: which agent, through which
   -- gateway, at which URL. With `model` and `style` above, a row records the
   -- whole answer.
@@ -182,8 +185,13 @@ CREATE TABLE IF NOT EXISTS message (
   denied          INTEGER NOT NULL DEFAULT 0,
   cost_usd        REAL,
   duration_ms     INTEGER,
+  -- Spec 61 §3 — every token the model read, the cached ones included, so
+  -- `input_tokens + output_tokens` is the run's size. The two cache counts are
+  -- parts of `input_tokens`, never additions to it.
   input_tokens    INTEGER,
   output_tokens   INTEGER,
+  cache_read_tokens  INTEGER,
+  cache_write_tokens INTEGER,
   created_at      TEXT NOT NULL
 );
 

@@ -21,9 +21,10 @@
 // it carried are now bars in the margin — `MarginBars.tsx`.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isHtmlPath } from "../../shared/formats.ts";
 import type {
+  ChangedRegion,
   DocumentVersion,
-  LineRange,
   OpenedDocument,
   PaneMode,
   PaperView,
@@ -38,12 +39,15 @@ import {
   type GapSpot,
   type ResolvedThread,
 } from "./anchoring.ts";
+import { type ChangeBox, OUTLINE_CLASS } from "./changes.ts";
 import { enrichDocument } from "./enrich.ts";
 import {
   answerLinkClicks,
   applyPaperView,
   applyZoom,
   forwardKeysToParent,
+  idAtTop,
+  liveUrl,
   srcdocFor,
   zoomFromInside,
 } from "./frame.ts";
@@ -67,13 +71,14 @@ interface Props {
   /**
    * Spec 15 §6.1 — the left-hand pane, when the reviewer is comparing.
    *
-   * Null whenever there is nothing to compare against: no working copy, or the
-   * pane control is on `New`. `doc` is then the only document on screen, exactly
-   * as it was before spec 15.
+   * Null whenever there is nothing to compare against: no working copy. `doc`
+   * is then the only document on screen, exactly as it was before spec 15.
+   * Spec 63 §3 — on `New` it is still here, hidden, because a page with no
+   * `data-src-line` is outlined by comparing it with this one.
    */
   original: OpenedDocument | null;
-  /** §6.2 — line ranges only the original has, tinted in that pane. */
-  removedLines: LineRange[];
+  /** §6.2 — the patch's runs on the original's side, tinted in that pane. */
+  removedLines: ChangedRegion[];
   /** §6.3 — the patch, which is what keeps the two panes level. */
   patch: string;
   /**
@@ -118,7 +123,7 @@ interface Props {
   /** Spec 26 §4.5 — the number badge puts its place on the path bar. */
   onFocusItem: (id: string) => void;
   /** Spec 05 §5.6.1 — what an Apply changed in this document, while it is pending. */
-  changeBoxes: ScopeRect[];
+  changeBoxes: ChangeBox[];
   picking: boolean;
   /**
    * Spec 26 §2 — the chain REX is outlining: the hover while pick mode is on,
@@ -336,8 +341,52 @@ function WorkingHead(props: {
   );
 }
 
+/**
+ * Spec 59 §3.1 — whether this document may be run in the Live frame.
+ *
+ * A file the author wrote as HTML, and only while no working copy is pending:
+ * the Live frame loads the file on disk, which is not the version the pane is
+ * showing once a change exists.
+ */
+function runnable(doc: OpenedDocument | null): doc is OpenedDocument {
+  return (
+    doc !== null &&
+    doc.working === null &&
+    doc.presentation.kind === "html" &&
+    isHtmlPath(doc.ref.value)
+  );
+}
+
+/** Spec 59 §4 — no key, for the reason the spec gives. */
+function LiveSwitch(props: { on: boolean; onToggle: () => void }): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      className={`rex-mode${props.on ? " rex-mode-on" : ""}`}
+      title={
+        props.on
+          ? "Back to the document, to comment on it"
+          : "Run the page's own script, to use its buttons. Comments are off while it runs."
+      }
+      aria-pressed={props.on}
+      onClick={props.onToggle}
+    >
+      live
+    </button>
+  );
+}
+
 export function DocumentView(props: Props): React.JSX.Element {
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
+  /** Spec 63 §3 — how many times this pane's page has finished drawing. */
+  const [currentLoads, setCurrentLoads] = useState(0);
+  /**
+   * Spec 59 §3.1 — the document Live was turned on for, and where it opens.
+   *
+   * Keyed by the document rather than a boolean, so that opening another
+   * document turns Live off without an effect to reset it.
+   */
+  const [liveFor, setLiveFor] = useState<{ documentId: string; at: string | null } | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   /**
    * Spec 15 §6.1 — the box every overlay mark is measured against.
@@ -595,6 +644,7 @@ export function DocumentView(props: Props): React.JSX.Element {
       // document's media query decides, and REX renders rather than restyles.
 
       onSurfaceReady("current", surface);
+      setCurrentLoads((count) => count + 1);
     };
 
     // `load` cannot await, so the async work is fired and the `live` flag is
@@ -693,6 +743,11 @@ export function DocumentView(props: Props): React.JSX.Element {
    * takes the listeners with it.
    */
   const [originalFrame, setOriginalFrame] = useState<HTMLIFrameElement | null>(null);
+  /**
+   * Spec 63 §3 — this pane's page, for the original to compare against, and a
+   * count of its loads so the original measures again once it has one.
+   */
+  const currentPage = useCallback(() => frameRef.current?.contentDocument ?? null, []);
   const { patch } = props;
   useEffect(() => {
     const frame = frameRef.current;
@@ -744,6 +799,15 @@ export function DocumentView(props: Props): React.JSX.Element {
     return target?.mark ? { number: props.hoveredPlace + 1, box: target.mark } : null;
   })();
 
+  const canRun = runnable(doc);
+  const live = canRun && liveFor?.documentId === doc.documentId;
+  const toggleLive = (): void => {
+    if (!canRun) return;
+    setLiveFor(
+      live ? null : { documentId: doc.documentId, at: idAtTop(frameRef.current?.contentDocument) },
+    );
+  };
+
   return (
     <main className="rex-doc">
       {doc === null ? (
@@ -776,7 +840,10 @@ export function DocumentView(props: Props): React.JSX.Element {
         {props.original ? (
           <OriginalPane
             doc={props.original}
+            hidden={props.paneMode === "new"}
             removed={props.removedLines}
+            other={currentPage}
+            otherLoads={currentLoads}
             zoom={props.zoom}
             paper={props.paper}
             // Spec 28 §4.1 — the find follows the pane being read.
@@ -824,9 +891,9 @@ export function DocumentView(props: Props): React.JSX.Element {
         ) : null}
 
         <section
-          className={`rex-half rex-half-current${props.original ? " rex-half-split" : ""}${
-            props.paneMode === "original" && props.original ? " rex-half-hidden" : ""
-          }`}
+          className={`rex-half rex-half-current${
+            props.original && props.paneMode !== "new" ? " rex-half-split" : ""
+          }${props.paneMode === "original" && props.original ? " rex-half-hidden" : ""}`}
         >
           {/*
             Identity only. Everything that acts on the change is in the bar
@@ -863,9 +930,9 @@ export function DocumentView(props: Props): React.JSX.Element {
               strip's right edge stays where spec 27 put it, and the find bar
               grows leftwards from it while it is open.
             */}
-            {props.paperable || (props.findPane === "current" && props.corner) ? (
+            {props.paperable || canRun || (props.findPane === "current" && props.corner) ? (
               <div className="rex-corner">
-                {props.findPane === "current" ? props.corner : null}
+                {props.findPane === "current" && !live ? props.corner : null}
                 {props.paperable ? (
                   <PaperStrip
                     view={props.paper}
@@ -873,47 +940,65 @@ export function DocumentView(props: Props): React.JSX.Element {
                     onDark={props.onPaperDark}
                   />
                 ) : null}
+                {canRun ? <LiveSwitch on={live} onToggle={toggleLive} /> : null}
               </div>
             ) : null}
-            {props.findPane === "current" ? props.ruler : null}
 
             {/*
+              Spec 59 §3.1 — the page, running, over the review frame. Every
+              layer below reaches into the review frame, so none is drawn while
+              this one is up; the review frame stays loaded underneath, and
+              turning Live off finds it exactly as it was.
+            */}
+            {live ? (
+              <iframe
+                className="rex-frame rex-live"
+                title="The page, running"
+                sandbox="allow-scripts"
+                src={liveUrl(doc.ref.value, liveFor?.at ?? null)}
+              />
+            ) : (
+              <>
+                {props.findPane === "current" ? props.ruler : null}
+
+                {/*
         Spec 05 §5.6.1 — what an Apply just changed, in the write colour, while
         the reviewer decides. Drawn first so a selection outline over the same
         block still reads on top of it. Spec 16 §4.1 — these are also exactly
         the blocks this pane will answer a gesture on, so the outline is the
         affordance and no new furniture is needed.
       */}
-            {props.changeBoxes.map((box) => (
-              <div
-                key={`change-${box.x}-${box.y}-${box.w}-${box.h}`}
-                className="rex-change-outline"
-                style={{
-                  left: box.x - scroll.x,
-                  top: box.y - scroll.y,
-                  width: box.w,
-                  height: box.h,
-                }}
-              />
-            ))}
+                {props.changeBoxes.map((box) => (
+                  <div
+                    key={`change-${box.x}-${box.y}-${box.w}-${box.h}`}
+                    className={OUTLINE_CLASS[box.kind]}
+                    style={{
+                      left: box.x - scroll.x,
+                      top: box.y - scroll.y,
+                      width: box.w,
+                      height: box.h,
+                    }}
+                  />
+                ))}
 
-            <PaneMarks
-              resolved={props.resolved}
-              threads={props.threads}
-              activeId={props.activeId}
-              hoveredThreadId={props.hoveredThreadId}
-              marks={marksIn("current")}
-              hoveredItemId={props.hoveredItemId}
-              scrollX={scroll.x}
-              scrollY={scroll.y}
-              onHoverItem={props.onHoverItem}
-              onRemoveItem={props.onRemoveItem}
-              onFocusItem={props.onFocusItem}
-              onSelectMarker={props.onSelectMarker}
-              onHoverThread={props.onHoverThread}
-            />
+                <PaneMarks
+                  resolved={props.resolved}
+                  threads={props.threads}
+                  activeId={props.activeId}
+                  hoveredThreadId={props.hoveredThreadId}
+                  marks={marksIn("current")}
+                  hoveredItemId={props.hoveredItemId}
+                  comparing={props.original !== null}
+                  scrollX={scroll.x}
+                  scrollY={scroll.y}
+                  onHoverItem={props.onHoverItem}
+                  onRemoveItem={props.onRemoveItem}
+                  onFocusItem={props.onFocusItem}
+                  onSelectMarker={props.onSelectMarker}
+                  onHoverThread={props.onHoverThread}
+                />
 
-            {/*
+                {/*
         Spec 08 §7.2 — REX pointing back.
 
         Point at a place in the open comment's card and its mark here takes the
@@ -924,75 +1009,75 @@ export function DocumentView(props: Props): React.JSX.Element {
         One at a time, and only while pointed at: nine permanent badges over the
         prose is the wall this is meant to avoid.
       */}
-            {activeMark ? (
-              <span
-                className="rex-place-mark"
-                style={{ left: activeMark.box.x - scroll.x, top: activeMark.box.y - scroll.y }}
-              >
-                {activeMark.number}
-              </span>
-            ) : null}
+                {activeMark ? (
+                  <span
+                    className="rex-place-mark"
+                    style={{ left: activeMark.box.x - scroll.x, top: activeMark.box.y - scroll.y }}
+                  >
+                    {activeMark.number}
+                  </span>
+                ) : null}
 
-            {/*
+                {/*
         Spec 16 §6 — Add. Mounted on the same terms as `ModeStrip`: only when
         neither pick nor pen is on, because both of those capture the pointer
         for their own purposes and a third layer competing for a hover would
         make all three unreliable.
       */}
-            {props.doc && props.adding && !props.picking && !props.penning ? (
-              <GapLayer
-                gaps={props.gaps}
-                scrollX={scroll.x}
-                scrollY={scroll.y}
-                pointer={pointer}
-                onPointerInOverlay={pointerFromOverlay}
-                onOffer={props.onGapOffer}
-                onPick={props.onGapPick}
-              />
-            ) : null}
+                {props.doc && props.adding && !props.picking && !props.penning ? (
+                  <GapLayer
+                    gaps={props.gaps}
+                    scrollX={scroll.x}
+                    scrollY={scroll.y}
+                    pointer={pointer}
+                    onPointerInOverlay={pointerFromOverlay}
+                    onOffer={props.onGapOffer}
+                    onPick={props.onGapPick}
+                  />
+                ) : null}
 
-            {props.penning ? (
-              <PenLayer
-                origin={contentOrigin}
-                zoom={props.zoom}
-                onDone={currentDrawn}
-                onCancel={props.onPenCancel}
-                onScrollBy={currentScrollBy}
-                onZoomBy={props.onZoomBy}
-              />
-            ) : null}
+                {props.penning ? (
+                  <PenLayer
+                    origin={contentOrigin}
+                    zoom={props.zoom}
+                    onDone={currentDrawn}
+                    onCancel={props.onPenCancel}
+                    onScrollBy={currentScrollBy}
+                    onZoomBy={props.onZoomBy}
+                  />
+                ) : null}
 
-            {/*
+                {/*
               §4.7 — over every other layer, and under none of them. It answers
               a question the reviewer asked with the pointer, so it has to be
               the thing they can see.
             */}
-            <LinkTip
-              tip={props.linkTip?.pane === "current" ? props.linkTip.view : null}
-              scrollX={scroll.x}
-              scrollY={scroll.y}
-              paneHeight={paneRef.current?.clientHeight ?? 0}
-            />
+                <LinkTip
+                  tip={props.linkTip?.pane === "current" ? props.linkTip.view : null}
+                  scrollX={scroll.x}
+                  scrollY={scroll.y}
+                  paneHeight={paneRef.current?.clientHeight ?? 0}
+                />
 
-            {props.picking ? (
-              <PickLayer
-                scopes={props.pathPane === "current" ? props.pathScopes : null}
-                active={props.pathActive}
-                scrollX={scroll.x}
-                scrollY={scroll.y}
-                arming={props.arming}
-                onProbe={currentProbe}
-                onWiden={props.onWiden}
-                onCommit={props.onPickCommit}
-                onCommitAt={currentCommitAt}
-                onRegion={props.onRegion}
-                onCancel={props.onPickCancel}
-                onScrollBy={currentScrollBy}
-                onZoomBy={props.onZoomBy}
-              />
-            ) : null}
+                {props.picking ? (
+                  <PickLayer
+                    scopes={props.pathPane === "current" ? props.pathScopes : null}
+                    active={props.pathActive}
+                    scrollX={scroll.x}
+                    scrollY={scroll.y}
+                    arming={props.arming}
+                    onProbe={currentProbe}
+                    onWiden={props.onWiden}
+                    onCommit={props.onPickCommit}
+                    onCommitAt={currentCommitAt}
+                    onRegion={props.onRegion}
+                    onCancel={props.onPickCancel}
+                    onScrollBy={currentScrollBy}
+                    onZoomBy={props.onZoomBy}
+                  />
+                ) : null}
 
-            {/*
+                {/*
         Spec 08 §4.1, widened by spec 26 §4.7 — one strip, four states, and only
         ever one at a time. The path bar is now two of them: it is drawn while
         pick mode is on, AND while a place is focused with the mode off. Its own
@@ -1000,31 +1085,33 @@ export function DocumentView(props: Props): React.JSX.Element {
 
         The pen bar is drawn by `PenLayer`; this file mounts the other two.
       */}
-            {props.doc &&
-            props.pathPane === "current" &&
-            props.pathScopes &&
-            props.pathScopes.length > 0 &&
-            !props.penning ? (
-              <PathBar
-                scopes={props.pathScopes}
-                active={props.pathActive}
-                number={props.pathNumber}
-                onScope={props.onPathScope}
-                onDone={props.onPathDone}
-              />
-            ) : props.doc && !props.picking && !props.penning ? (
-              <ModeStrip
-                canPick
-                // Spec 16 §6.4 — the gap list is the test, not the file's
-                // extension. A format that stamps no `data-src-line` has no
-                // gaps, so the button that would do nothing is not drawn.
-                canAdd={props.gaps.length > 0}
-                narrow={props.workingBar !== null}
-                onTogglePick={props.onTogglePick}
-                onTogglePen={props.onTogglePen}
-                onToggleAdd={props.onToggleAdd}
-              />
-            ) : null}
+                {props.doc &&
+                props.pathPane === "current" &&
+                props.pathScopes &&
+                props.pathScopes.length > 0 &&
+                !props.penning ? (
+                  <PathBar
+                    scopes={props.pathScopes}
+                    active={props.pathActive}
+                    number={props.pathNumber}
+                    onScope={props.onPathScope}
+                    onDone={props.onPathDone}
+                  />
+                ) : props.doc && !props.picking && !props.penning ? (
+                  <ModeStrip
+                    canPick
+                    // Spec 16 §6.4 — the gap list is the test, not the file's
+                    // extension. A format that stamps no `data-src-line` has no
+                    // gaps, so the button that would do nothing is not drawn.
+                    canAdd={props.gaps.length > 0}
+                    narrow={props.workingBar !== null}
+                    onTogglePick={props.onTogglePick}
+                    onTogglePen={props.onTogglePen}
+                    onToggleAdd={props.onToggleAdd}
+                  />
+                ) : null}
+              </>
+            )}
           </div>
         </section>
       </div>

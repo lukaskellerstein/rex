@@ -63,6 +63,8 @@ class Translator:
         self._seen: dict[int, BaseMessage] = {}
         self.input_tokens: int | None = None
         self.output_tokens: int | None = None
+        self.cache_read_tokens: int | None = None
+        self.cache_write_tokens: int | None = None
 
     def updates(self, payload: Any) -> list[AgentEvent]:
         """Every event one `updates` payload is worth."""
@@ -157,6 +159,16 @@ class Translator:
             self.input_tokens = (self.input_tokens or 0) + given
         if isinstance(produced, int):
             self.output_tokens = (self.output_tokens or 0) + produced
+        # Spec 61 §3 — LangChain's `input_tokens` already counts the cached part,
+        # and `input_token_details` says how much of it that was.
+        details = usage.get("input_token_details")
+        if isinstance(details, dict):
+            read = details.get("cache_read")
+            written = details.get("cache_creation")
+            if isinstance(read, int):
+                self.cache_read_tokens = (self.cache_read_tokens or 0) + read
+            if isinstance(written, int):
+                self.cache_write_tokens = (self.cache_write_tokens or 0) + written
 
 
 def _diff_of(tool: str, args: Any) -> tuple[str | None, str] | None:

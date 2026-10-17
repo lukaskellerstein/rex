@@ -19,7 +19,6 @@ import type {
   DiagramPart,
   DocumentPlace,
   FindMark,
-  LineRange,
   SearchContext,
   TextPosition,
   Thread,
@@ -43,7 +42,6 @@ import {
   type Stroke,
 } from "../anchor/lasso.ts";
 import {
-  changedBlocks,
   contentColumn,
   describeElement,
   describeGap,
@@ -72,6 +70,7 @@ import {
   rangeToOffsets,
   type TextIndex,
 } from "../anchor/textIndex.ts";
+import { type ChangeBox, changeBoxesIn, changesIn, type PaneChanges } from "./changes.ts";
 
 /** One target the sweep could actually check — spec 05 §5.4. */
 export interface CheckedTarget {
@@ -381,22 +380,25 @@ export interface DocumentSurface {
   /** Spec 53 §5.4 — where the reviewer is now, to remember before leaving. */
   placeHere(): DocumentPlace | null;
 
-  /** §5.6.1 — the boxes to outline after an Apply, from `data-src-line`. */
-  boxesForLines(ranges: LineRange[]): Promise<ScopeRect[]>;
+  /** §5.6.1 and spec 63 — the boxes to outline for a change, with their kind. */
+  changeBoxes(changes: PaneChanges): Promise<ChangeBox[]>;
 
   /**
    * Spec 16 §4.1 and §5.5 — the blocks a gesture may land on here.
    *
    * `null` means "all of them", which is the original pane and every document
-   * nobody has changed. A **non-null empty** list is not the same thing: it
-   * means this pane has a change to show and no way to say which blocks it
-   * touched — a plain HTML file with no `data-src-line` — so nothing is live.
+   * nobody has changed. Otherwise the blocks the change added or rewrote,
+   * which spec 63 §3.5 finds for a page with no `data-src-line` too — empty
+   * only while the other pane has not loaded, or where nothing was touched.
    *
-   * Line ranges rather than elements, because the surface owns the DOM and the
-   * caller owns the working copy. Called again whenever that list moves: a new
-   * revision, an undo, an approve, a discard.
+   * The change rather than elements, because the surface owns the DOM and the
+   * caller owns the working copy. Called again whenever that change moves: a
+   * new revision, an undo, an approve, a discard.
    */
-  setLiveBlocks(ranges: LineRange[] | null): void;
+  setLiveBlocks(changes: PaneChanges | null): void;
+
+  /** Spec 63 §3 — this pane's page, which the other pane is compared against. */
+  page(): Document | null;
 
   /** Spec 16 §6.6 — every gap the `+ Add` affordance can appear in. */
   gaps(): GapSpot[];
@@ -1363,19 +1365,6 @@ function gapsIn(view: Window, doc: Document): Array<GapSpot & { after: Element; 
   return spots;
 }
 
-/**
- * Spec 05 §5.6.1 — where an Apply's changed lines landed, as boxes to outline.
- */
-export function boxesForLinesIn(
-  view: Window,
-  doc: Document,
-  ranges: ReadonlyArray<LineRange>,
-): ScopeRect[] {
-  return changedBlocks(doc, ranges).map((element) =>
-    toDocumentRect(view, element.getBoundingClientRect()),
-  );
-}
-
 // ── The surface: a same-origin iframe the renderer reaches into ──
 
 export class FrameSurface implements DocumentSurface {
@@ -1398,8 +1387,8 @@ export class FrameSurface implements DocumentSurface {
    * four. `setLiveBlocks` is the one way in.
    */
   private liveBlocks: Element[] | null = null;
-  /** The line ranges `liveBlocks` was built from, so a re-measure can repeat it. */
-  private liveRanges: LineRange[] | null = null;
+  /** The change `liveBlocks` was built from, so a re-measure can repeat it. */
+  private liveChanges: PaneChanges | null = null;
   /** §6.6 — this sweep's gaps, and the blocks each sits between. */
   private gapSpots: Array<GapSpot & { after: Element; before: Element }> = [];
 
@@ -1430,14 +1419,19 @@ export class FrameSurface implements DocumentSurface {
     // Both are geometry, and every reason to sweep is a reason to re-measure
     // them: a reflow, a resize, a zoom and a re-render all move them.
     this.gapSpots = gapsIn(view, doc);
-    this.setLiveBlocks(this.liveRanges);
+    this.setLiveBlocks(this.liveChanges);
     return outcome.resolved;
   }
 
-  setLiveBlocks(ranges: LineRange[] | null): void {
-    this.liveRanges = ranges;
+  setLiveBlocks(changes: PaneChanges | null): void {
+    this.liveChanges = changes;
     const doc = this.frame.contentDocument;
-    this.liveBlocks = ranges === null || !doc ? null : changedBlocks(doc, ranges);
+    this.liveBlocks =
+      changes === null || !doc ? null : changesIn(doc, changes).map((change) => change.element);
+  }
+
+  page(): Document | null {
+    return this.frame.contentDocument;
   }
 
   gaps(): GapSpot[] {
@@ -1655,11 +1649,12 @@ export class FrameSurface implements DocumentSurface {
     };
   }
 
-  async boxesForLines(ranges: LineRange[]): Promise<ScopeRect[]> {
+  /** Spec 05 §5.6.1 — where an Apply's changed blocks landed, as boxes to outline. */
+  async changeBoxes(changes: PaneChanges): Promise<ChangeBox[]> {
     const view = this.frame.contentWindow;
     const doc = this.frame.contentDocument;
     if (!view || !doc) return [];
-    return boxesForLinesIn(view, doc, ranges);
+    return changeBoxesIn(view, doc, changes);
   }
 
   // ── Spec 28 — find ──────────────────────────────────────────

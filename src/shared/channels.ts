@@ -231,6 +231,8 @@ export const COMMAND = {
   gatewayTest: "gateway:test",
   /** §4.0 — sets the `setting.agent.*` values a NEW comment starts on. */
   gatewayDefault: "gateway:default",
+  /** Spec 60 §5 — sets one agent's default model or effort, from Settings → Agents. */
+  agentDefault: "agent:default",
   /** Whether a named variable is set. **True or false, never the value.** */
   gatewayHasEnv: "gateway:has-env",
   /**
@@ -614,11 +616,13 @@ export interface GatewayView {
 
 export interface GatewayListResponse {
   gateways: GatewayView[];
-  /** §4.0 — what a NEW comment starts on, with a missing gateway resolved. */
+  /**
+   * §4.0 — the agent and gateway a NEW comment starts on, with a missing gateway
+   * resolved. The model and effort are per agent, in `AgentChoices` (spec 60 §4).
+   */
   defaults: {
     sdk: AgentSdk;
     gatewayId: string;
-    model: string | null;
     /** The stored gateway that is gone, so the picker can say so once. */
     missingGateway: string | null;
   };
@@ -1360,8 +1364,25 @@ export interface RexApi {
   gatewayVerify(request: GatewayVerifyRequest): Promise<VerifyResult>;
   /** §4.5 — one read-only turn through the real adapter. A remote model may charge. */
   gatewayTest(request: GatewayTestRequest): Promise<GatewayTestResult>;
-  /** §4.0 — sets what a NEW comment starts on. Changing a control does not. */
-  gatewayDefault(choice: { sdk: AgentSdk; gatewayId: string; model: string | null }): Promise<void>;
+  /**
+   * §4.0 — sets what a NEW comment starts on. Changing a control does not.
+   * Spec 58 §6.1 — the model and effort are the panel's, as the reviewer set them.
+   */
+  gatewayDefault(choice: {
+    sdk: AgentSdk;
+    gatewayId: string;
+    model: string | null;
+    effort: string | null;
+  }): Promise<void>;
+  /**
+   * Spec 60 §5 — sets one agent's default model, effort, or both. Null leaves
+   * that one as it is, so a pick on one menu never rewrites the other.
+   */
+  agentDefault(choice: {
+    sdk: AgentSdk;
+    model: string | null;
+    effort: string | null;
+  }): Promise<void>;
   /** Whether a named variable is set. **True or false, never the value.** */
   gatewayHasEnv(name: string): Promise<boolean>;
   /** Spec 47 §2.1 — the resolved `opencode`, its version, and the override. */

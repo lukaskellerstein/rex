@@ -538,6 +538,7 @@ function message(partial: Partial<Message> & Pick<Message, "role" | "kind">): Me
     mode: null,
     model: null,
     style: null,
+    effort: null,
     // Spec 43 §5.3 — the evidence a run leaves. Null here is what a fixture
     // that was never produced by one honestly is.
     sdk: null,
@@ -553,6 +554,8 @@ function message(partial: Partial<Message> & Pick<Message, "role" | "kind">): Me
     durationMs: null,
     inputTokens: null,
     outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
     createdAt: "2026-09-02T00:00:00.000Z",
     ...partial,
   };

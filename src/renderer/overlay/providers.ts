@@ -210,7 +210,7 @@ export function tickedModels(
  * A union rather than a free string, so a tab nobody built cannot be opened —
  * and adding one is a member here plus a row in `SECTIONS` below.
  */
-export type SettingsTab = "gateways" | "models";
+export type SettingsTab = "agents" | "gateways" | "models";
 
 /**
  * The tab strip, as data.
@@ -234,6 +234,13 @@ export const SECTIONS: ReadonlyArray<{
     label: "Gateways",
     blurb:
       "Where REX asks for inference. Every comment picks one, and every answer records the one that produced it.",
+  },
+  // Spec 60 §5 — after Gateways, because its lists are the default gateway's:
+  // which model and level a new comment gets, per agent.
+  {
+    id: "agents",
+    label: "Agents",
+    blurb: "The model and effort each agent starts a new comment on.",
   },
   {
     id: "models",

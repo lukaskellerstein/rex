@@ -28,6 +28,23 @@ export interface ThreadTotals {
   failed: number;
   durationMs: number;
   costUsd: number;
+  /** Spec 61 §5 — null when no run in the chat reported a token count. */
+  tokens: TokenTotals | null;
+}
+
+/**
+ * Spec 61 §3 — what a chat's runs read and wrote, summed.
+ *
+ * `total` is the number the reviewer asked for first: *"All tokens is the most
+ * important number for me."* The cache counts are parts of `input`, and each is
+ * null when no run reported one, so "the SDK said nothing" never draws as 0.
+ */
+export interface TokenTotals {
+  total: number;
+  input: number;
+  output: number;
+  cacheRead: number | null;
+  cacheWrite: number | null;
 }
 
 export function totalsOf(messages: readonly Message[]): ThreadTotals {
@@ -37,7 +54,36 @@ export function totalsOf(messages: readonly Message[]): ThreadTotals {
     failed: messages.filter((m) => m.kind === "tool_result" && m.isError && !m.denied).length,
     durationMs: messages.reduce((total, m) => total + (m.durationMs ?? 0), 0),
     costUsd: messages.reduce((total, m) => total + (m.costUsd ?? 0), 0),
+    tokens: tokensOf(messages),
   };
+}
+
+function tokensOf(messages: readonly Message[]): TokenTotals | null {
+  const counted = messages.filter((m) => m.inputTokens !== null || m.outputTokens !== null);
+  if (counted.length === 0) return null;
+  const sum = (pick: (m: Message) => number | null): number =>
+    counted.reduce((total, m) => total + (pick(m) ?? 0), 0);
+  const sumOrNull = (pick: (m: Message) => number | null): number | null =>
+    counted.some((m) => pick(m) !== null) ? sum(pick) : null;
+  const input = sum((m) => m.inputTokens);
+  const output = sum((m) => m.outputTokens);
+  return {
+    total: input + output,
+    input,
+    output,
+    cacheRead: sumOrNull((m) => m.cacheReadTokens),
+    cacheWrite: sumOrNull((m) => m.cacheWriteTokens),
+  };
+}
+
+/**
+ * A token count, short: `912`, `38.2k`, `1.24M`. The popover beside it says
+ * the exact number, so this one only has to be read at a glance.
+ */
+export function tokensText(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 1_000_000) return `${(count / 1000).toFixed(1)}k`;
+  return `${(count / 1_000_000).toFixed(2)}M`;
 }
 
 // ── What ONE answer cost ────────────────────────────────────

@@ -32,10 +32,16 @@ def env(route: ResolvedRoute, model: str | None = None) -> dict[str, str]:
     return ADAPTER._env(route, model)  # noqa: SLF001 — the unit under test
 
 
-def test_the_original_gateway_changes_nothing_at_all() -> None:
-    """§6.3 — today's behaviour exactly, on the reviewer's own subscription."""
-    assert env(ORIGINAL) == {}
-    assert env(ORIGINAL, "claude-opus-5") == {}
+def test_the_original_gateway_empties_only_the_two_credentials() -> None:
+    """§6.3 — the reviewer's own subscription, even when the shell exports a key.
+
+    An inherited `ANTHROPIC_API_KEY` outranks `claude login`, and on 2026-10-17
+    one billed a whole ASK to an API account that ran out of credit mid-run.
+    Nothing else is named: no URL, no model slot, no routing flag.
+    """
+    blanked = {"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""}
+    assert env(ORIGINAL) == blanked
+    assert env(ORIGINAL, "claude-opus-5") == blanked
 
 
 def test_a_routed_run_names_the_base_url_and_the_timeout() -> None:

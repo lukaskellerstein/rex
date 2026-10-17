@@ -18,6 +18,7 @@ import { type RefObject, useRef, useState } from "react";
 import type { AgentSdk } from "../../shared/agent-protocol.ts";
 import type { AgentChoices, ModelChoice, ThreadWithMessages } from "../../shared/types.ts";
 import { DEFAULT_STYLE } from "../../shared/types.ts";
+import { EffortPick } from "./EffortPick.tsx";
 import { ChevronRight, Pencil, Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import { ModelPick, styleRows } from "./ModelPick.tsx";
@@ -87,6 +88,9 @@ interface Props {
   /** Spec 31 §2.1 — the output style this chat is having. Never null. */
   style: string;
   onStyle: (style: string) => void;
+  /** Spec 58 §6 — the effort level this comment sends at. Never null. */
+  effort: string;
+  onEffort: (effort: string) => void;
   /** Spec 24 §3.2 — places picked for this comment and not yet sent. */
   pending: SelectionItem[];
   hoveredItemId: string | null;
@@ -392,6 +396,16 @@ export function Composer(props: Props): React.JSX.Element {
                 }
                 error={props.models.error}
                 onPick={props.onModel}
+              />
+            )}
+            {/* Spec 58 §7.1 — the effort, between the model it depends on and the style. */}
+            {noteLane ? null : (
+              <EffortPick
+                models={props.models}
+                model={props.model}
+                effort={props.effort}
+                note={props.mode === "note"}
+                onEffort={props.onEffort}
               />
             )}
             {/*

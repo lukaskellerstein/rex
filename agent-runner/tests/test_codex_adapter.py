@@ -16,7 +16,9 @@ from types import SimpleNamespace
 
 import pytest
 from openai_codex import Sandbox
+from openai_codex.generated.v2_all import Model
 
+from agent_runner.adapters.codex import adapter as codex_adapter
 from agent_runner.adapters.codex.adapter import (
     PROVIDER_ID,
     ROUTED_CONTEXT_WINDOW,
@@ -27,9 +29,12 @@ from agent_runner.adapters.codex.adapter import (
     rex_codex_home,
 )
 from agent_runner.adapters.codex.errors import route_hint
+from agent_runner.adapters.codex.models import effort_of
+from agent_runner.adapters.codex.models import name_models as name_codex_models
+from agent_runner.adapters.codex.models import probe as probe_models
 from agent_runner.events import Denial, RunResult
 from agent_runner.policy import ToolCall
-from agent_runner.types import NewSession, ResolvedRoute, RunRequest
+from agent_runner.types import ModelChoice, NewSession, ResolvedRoute, RunRequest
 
 ADAPTER = CodexAdapter()
 
@@ -267,21 +272,92 @@ def test_valid_routes_are_not_refused() -> None:
     assert ADAPTER.validate(OPEN) is None
 
 
-async def test_capabilities_answer_without_spending_anything() -> None:
-    """§7 — no probe. There is no gateway-independent catalogue to ask for."""
+async def test_capabilities_answer_with_the_clis_own_models(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spec 60 §6 — `Original` asks the CLI's model list; nothing else changes."""
+    rows = [ModelChoice(value="default", display_name="Recommended (X)", description="")]
+
+    async def listed(env: dict[str, str] | None, cwd: str) -> tuple[list[ModelChoice], str | None]:
+        _ = env, cwd
+        return rows, None
+
+    monkeypatch.setattr(codex_adapter, "probe_models", listed)
     answer = await ADAPTER.capabilities(ORIGINAL, "/repo")
     assert answer.supports_styles is False
     assert answer.supports_plugins is False
     assert answer.supports_cost is False, "a Codex turn reports tokens and no dollar cost"
     assert answer.supports_ask is True
     assert answer.supports_resume is True
-    assert [model.value for model in answer.models] == ["default"]
+    assert answer.models == rows
+    assert answer.error is None
 
 
-async def test_a_routed_gateway_offers_only_the_models_typed_into_it() -> None:
+async def test_a_routed_gateway_offers_only_the_models_typed_into_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Spec 43 §4.3 — the host fills the picker from the route, not from a probe."""
+
+    async def never(env: dict[str, str] | None, cwd: str) -> tuple[list[ModelChoice], str | None]:
+        raise AssertionError("a routed gateway is never probed")
+
+    monkeypatch.setattr(codex_adapter, "probe_models", never)
     answer = await ADAPTER.capabilities(OPEN, "/repo")
     assert answer.models == []
+
+
+async def test_a_probe_that_fails_leaves_the_default_row_and_says_why() -> None:
+    """Spec 60 §6 — a directory that does not exist is a probe that cannot start."""
+    models, error = await probe_models(None, "/no/such/directory")
+    assert [model.value for model in models] == ["default"]
+    assert error is not None and "could not ask the Codex CLI" in error
+
+
+# ── Spec 60 §6 — the Codex model list ───────────────────────────
+
+
+def codex_row(model: str, name: str, own: str, levels: list[str], default: bool = False) -> Model:
+    """A row as `models()` returns it — the fields measured on 2026-10-17."""
+    return Model.model_validate(
+        {
+            "id": model,
+            "model": model,
+            "displayName": name,
+            "description": "d",
+            "hidden": False,
+            "isDefault": default,
+            "defaultReasoningEffort": own,
+            "supportedReasoningEfforts": [{"reasoningEffort": level, "description": ""} for level in levels],
+        }
+    )
+
+
+def test_the_recommended_model_is_named_and_its_levels_kept() -> None:
+    rows = name_codex_models(
+        [
+            codex_row("gpt-5.6-sol", "GPT-5.6-Sol", "low", ["low", "max", "ultra"], default=True),
+            codex_row("gpt-5.6-luna", "GPT-5.6-Luna", "medium", ["low", "medium"]),
+        ]
+    )
+    assert [(row.value, row.display_name) for row in rows] == [
+        ("default", "Recommended (GPT-5.6-Sol)"),
+        ("gpt-5.6-sol", "GPT-5.6-Sol"),
+        ("gpt-5.6-luna", "GPT-5.6-Luna"),
+    ]
+    assert rows[0].resolves_to == "GPT-5.6-Sol"
+    assert rows[0].default_effort == "low"
+    assert rows[1].effort_levels == ["low", "max", "ultra"], "levels beyond the SDK's enum survive"
+    assert rows[2].default_effort == "medium"
+
+
+def test_a_hidden_model_is_not_offered() -> None:
+    hidden = codex_row("gpt-internal", "Internal", "low", ["low"]).model_copy(update={"hidden": True})
+    assert [row.value for row in name_codex_models([hidden])] == ["default"]
+
+
+def test_a_level_reaches_the_turn_and_default_says_nothing() -> None:
+    assert effort_of("medium") == "medium"
+    assert effort_of("ultra") == "ultra", "the enum accepts a level it does not list"
+    assert effort_of("default") is None
+    assert effort_of(None) is None
 
 
 async def test_act_is_offered_only_where_the_write_boundary_was_proved() -> None:

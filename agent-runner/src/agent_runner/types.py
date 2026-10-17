@@ -170,6 +170,10 @@ class RunRequest(Model):
     session: AgentSession
     model: str | None = None
     style: str | None = None
+    #: Spec 58 §4 — how hard the model thinks. One of the levels the model's own
+    #: row offered; None is the SDK's own level. An adapter whose SDK has no
+    #: such knob offers no levels, so a host never sends it one.
+    effort: str | None = None
     #: The host's instructions. Appended to whatever the adapter's own preset is.
     system_prompt: str = ""
     #: Tools the model must not see, in the common vocabulary (§8).
@@ -252,6 +256,16 @@ class ModelChoice(Model):
     value: str
     display_name: str
     description: str
+    #: Spec 58 §3 — the effort levels this model takes, as its SDK offered them.
+    #: Empty means none, or none known: a gateway's typed model names carry no
+    #: levels, and neither does a model row from an SDK with no such knob.
+    effort_levels: list[str] = Field(default_factory=list)
+    #: Spec 58 §3.1 — the level this model runs at when REX sends none, as the
+    #: SDK reported it. None when it takes no level, or the SDK did not say.
+    default_effort: str | None = None
+    #: Spec 58 §7.1 — the model a "follow the SDK" row stands for today, so a
+    #: menu can say what that default is. None on every other row.
+    resolves_to: str | None = None
 
 
 class RouteCapabilities(Model):

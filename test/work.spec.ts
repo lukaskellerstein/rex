@@ -239,8 +239,9 @@ describe("§6.3 — the patch", () => {
     // The headers name the reviewer's file, never the copies in ~/.rex/work.
     assert.ok(change.patch.includes("+++ b/docs/components.md"));
     assert.ok(!change.patch.includes(".rex"));
-    assert.deepEqual(change.added, [{ file: doc, from: 4, to: 4 }]);
-    assert.deepEqual(change.removed, [{ file: doc, from: 4, to: 4 }]);
+    // One line rewritten: spec 63 §3.3 marks both sides of it.
+    assert.deepEqual(change.added, [{ file: doc, from: 4, to: 4, changed: true }]);
+    assert.deepEqual(change.removed, [{ file: doc, from: 4, to: 4, changed: true }]);
   });
 
   test("identical files produce nothing at all", () => {
@@ -489,13 +490,13 @@ describe("§6.2 — the two sides of a patch", () => {
 
   test("the new side is what the right-hand pane tints", () => {
     assert.deepEqual(changedRegions(patch, "/root", "new"), [
-      { file: "/root/x.md", from: 2, to: 3 },
+      { file: "/root/x.md", from: 2, to: 3, changed: true },
     ]);
   });
 
   test("the old side is what the left-hand pane tints", () => {
     assert.deepEqual(changedRegions(patch, "/root", "old"), [
-      { file: "/root/x.md", from: 2, to: 2 },
+      { file: "/root/x.md", from: 2, to: 2, changed: true },
     ]);
   });
 

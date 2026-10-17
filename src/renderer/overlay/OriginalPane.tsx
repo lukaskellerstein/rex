@@ -22,19 +22,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  LineRange,
+  ChangedRegion,
   OpenedDocument,
   PaperView,
   ThreadWithMessages,
 } from "../../shared/types.ts";
 import type { Stroke } from "../anchor/lasso.ts";
 import type { PickScope, ScopeRect } from "../anchor/pick.ts";
-import {
-  boxesForLinesIn,
-  type DocumentSurface,
-  FrameSurface,
-  type ResolvedThread,
-} from "./anchoring.ts";
+import { type DocumentSurface, FrameSurface, type ResolvedThread } from "./anchoring.ts";
+import { type ChangeBox, changeBoxesIn, OUTLINE_CLASS } from "./changes.ts";
 import { enrichDocument } from "./enrich.ts";
 import {
   answerLinkClicks,
@@ -55,8 +51,14 @@ import { addPaperFonts } from "./paperFonts.ts";
 
 interface Props {
   doc: OpenedDocument;
-  /** §6.2 — line ranges only the original has. */
-  removed: LineRange[];
+  /** Spec 63 §3 — loaded but off screen, which is the pane control on `New`. */
+  hidden: boolean;
+  /** §6.2 — the patch's runs on this side, for a page with `data-src-line`. */
+  removed: ChangedRegion[];
+  /** Spec 63 §3 — the new version's page, for one without. */
+  other: () => Document | null;
+  /** How many times that page has loaded, so this pane measures again after each. */
+  otherLoads: number;
   zoom: number;
   /**
    * Spec 27 §4.6 — the paper, which both panes share.
@@ -139,23 +141,35 @@ export function OriginalPane(props: Props): React.JSX.Element {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ x: 0, y: 0 });
-  const [boxes, setBoxes] = useState<ScopeRect[]>([]);
+  const [boxes, setBoxes] = useState<ChangeBox[]>([]);
 
-  const { doc, zoom, removed, onFrameReady, onSurfaceReady, onSelectionChanged } = props;
+  const {
+    doc,
+    zoom,
+    removed,
+    other,
+    otherLoads,
+    onFrameReady,
+    onSurfaceReady,
+    onSelectionChanged,
+  } = props;
 
   // The ranges as a string, so the effect below re-runs when they change and
   // not when a new array of the same numbers arrives from a re-render.
   const ranges = JSON.stringify(removed);
 
-  const measure = useCallback((frame: HTMLIFrameElement, lines: LineRange[]): void => {
-    const view = frame.contentWindow;
-    const inner = frame.contentDocument;
-    if (!view || !inner || lines.length === 0) {
-      setBoxes([]);
-      return;
-    }
-    setBoxes(boxesForLinesIn(view, inner, lines));
-  }, []);
+  const measure = useCallback(
+    (frame: HTMLIFrameElement, regions: ChangedRegion[]): void => {
+      const view = frame.contentWindow;
+      const inner = frame.contentDocument;
+      if (!view || !inner) {
+        setBoxes([]);
+        return;
+      }
+      setBoxes(changeBoxesIn(view, inner, { side: "old", regions, other }));
+    },
+    [other],
+  );
 
   /**
    * Read through refs for the same reason `DocumentView` does: these listeners
@@ -228,7 +242,7 @@ export function OriginalPane(props: Props): React.JSX.Element {
       await enrichDocument(inner, doc, paperRef.current.dark ? "dark" : "neutral");
       if (!live) return;
 
-      measure(frame, JSON.parse(ranges) as LineRange[]);
+      measure(frame, JSON.parse(ranges) as ChangedRegion[]);
       onFrameReady(frame);
       // Spec 16 §5.5 — `liveBlocks` stays null here: everything in the original
       // is live, because everything in it is something the change may have
@@ -255,8 +269,18 @@ export function OriginalPane(props: Props): React.JSX.Element {
     const frame = frameRef.current;
     if (!frame) return;
     applyZoom(frame.contentDocument, zoom);
-    measure(frame, JSON.parse(ranges) as LineRange[]);
+    measure(frame, JSON.parse(ranges) as ChangedRegion[]);
   }, [zoom, ranges, measure]);
+
+  /**
+   * Spec 63 §3 — the new version finished loading, so a page with no
+   * `data-src-line` has something to be compared against now. The two frames
+   * load in either order, and this pane may well have measured first.
+   */
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (frame && otherLoads > 0) measure(frame, JSON.parse(ranges) as ChangedRegion[]);
+  }, [otherLoads, ranges, measure]);
 
   /**
    * Spec 27 §4.6 — the paper changed, so this pane changes with it.
@@ -283,7 +307,7 @@ export function OriginalPane(props: Props): React.JSX.Element {
       await mermaidPass(inner, paper.dark ? "dark" : "neutral").catch((error: unknown) =>
         console.warn("[rex] the original's diagrams were not redrawn", error),
       );
-      if (live) measure(frame, JSON.parse(ranges) as LineRange[]);
+      if (live) measure(frame, JSON.parse(ranges) as ChangedRegion[]);
     })();
     return () => {
       live = false;
@@ -311,7 +335,7 @@ export function OriginalPane(props: Props): React.JSX.Element {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         const frame = frameRef.current;
-        if (frame) measure(frame, JSON.parse(ranges) as LineRange[]);
+        if (frame) measure(frame, JSON.parse(ranges) as ChangedRegion[]);
       }, RESIZE_SETTLE_MS);
     });
     observer.observe(pane);
@@ -322,7 +346,7 @@ export function OriginalPane(props: Props): React.JSX.Element {
   }, [ranges, measure]);
 
   return (
-    <section className="rex-half rex-half-original">
+    <section className={`rex-half rex-half-original${props.hidden ? " rex-half-hidden" : ""}`}>
       <header className="rex-half-head">
         <span className="rex-half-title">Original</span>
         <span className="rex-half-hint">on disk · comment on what the change removed</span>
@@ -341,7 +365,7 @@ export function OriginalPane(props: Props): React.JSX.Element {
             // By position, for the same reason `changeBoxes` is — a hidden pane
             // measures every block at 0×0 and a geometry key stops being unique.
             key={`removed-${at}`}
-            className="rex-removed-outline"
+            className={OUTLINE_CLASS[box.kind]}
             style={{
               left: box.x - scroll.x,
               top: box.y - scroll.y,
@@ -358,6 +382,8 @@ export function OriginalPane(props: Props): React.JSX.Element {
           hoveredThreadId={props.hoveredThreadId}
           marks={props.marks}
           hoveredItemId={props.hoveredItemId}
+          // This pane exists only while two versions are compared.
+          comparing
           scrollX={scroll.x}
           scrollY={scroll.y}
           onHoverItem={props.onHoverItem}

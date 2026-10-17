@@ -39,6 +39,11 @@ interface Props {
   hoveredThreadId: string | null;
   marks: DraftMark[];
   hoveredItemId: string | null;
+  /**
+   * Spec 63 §5 — two versions are being compared, so the marks are the
+   * change's. No comment outline and no bar, the open comment's included.
+   */
+  comparing: boolean;
   scrollX: number;
   scrollY: number;
   onHoverItem: (id: string | null) => void;
@@ -50,9 +55,10 @@ interface Props {
 }
 
 export function PaneMarks(props: Props): React.JSX.Element {
+  const resolved = props.comparing ? [] : props.resolved;
   // One outline per checked target, so a comment written against three rows
   // shows all three. The thread id alone is not unique, hence the position.
-  const blocks = props.resolved.flatMap((entry) => {
+  const blocks = resolved.flatMap((entry) => {
     // Spec 06 §6.4 — a run is outlined, never filled, so it needs to be told
     // apart from an ordinary block box. The anchor already says: only the two
     // scopes that cover more than the thing they name carry an extent.
@@ -186,7 +192,7 @@ export function PaneMarks(props: Props): React.JSX.Element {
         review as well as of the text.
       */}
       <MarginBars
-        resolved={props.resolved}
+        resolved={resolved}
         threads={props.threads}
         activeId={props.activeId}
         hoveredThreadId={props.hoveredThreadId}

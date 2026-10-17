@@ -26,8 +26,10 @@ import type {
   GatewayView,
   ProviderDescriptor,
 } from "../../shared/channels.ts";
-import { Cog, Cross, Layers, Plus } from "./Icons.tsx";
+import type { AgentChoices } from "../../shared/types.ts";
+import { Cog, Cross, Layers, Plus, Sparkle } from "./Icons.tsx";
 import { builtinSummary, SECTIONS, type SettingsTab, sizeLabel } from "./providers.ts";
+import { SettingsAgents } from "./SettingsAgents.tsx";
 import { SettingsModels } from "./SettingsModels.tsx";
 import { SwitchRow } from "./Switch.tsx";
 
@@ -45,8 +47,12 @@ interface Props {
   health: GatewayStorageHealth | null;
   traffic: GatewayTrafficSize | null;
   busy: boolean;
-  /** The agents that actually have an adapter, for the Original row. */
+  /** The agents that actually have an adapter, for the Original row and Agents. */
   agents: ReadonlyArray<{ id: AgentSdk; label: string }>;
+  /** Spec 60 §5 — one agent's list on the gateway a new comment starts on. */
+  agentChoices: (sdk: AgentSdk) => AgentChoices;
+  defaultGatewayName: string;
+  onAgentDefault: (sdk: AgentSdk, choice: { model: string | null; effort: string | null }) => void;
   /** §4.1 — flips the switch and starts or stops the child. Deletes nothing. */
   onEnable: (enabled: boolean) => Promise<void>;
   onProviderSave: (draft: GatewayProviderDraft) => Promise<void>;
@@ -112,7 +118,13 @@ export function Settings(props: Props): React.JSX.Element {
               onClick={() => props.onTab(entry.id)}
             >
               <span className="rex-set-nav-icon">
-                {entry.id === "gateways" ? <Cog size={14} /> : <Layers size={14} />}
+                {entry.id === "agents" ? (
+                  <Sparkle size={14} />
+                ) : entry.id === "gateways" ? (
+                  <Cog size={14} />
+                ) : (
+                  <Layers size={14} />
+                )}
               </span>
               {entry.label}
             </button>
@@ -126,7 +138,14 @@ export function Settings(props: Props): React.JSX.Element {
               <p>{section?.blurb}</p>
             </div>
 
-            {props.tab === "gateways" ? (
+            {props.tab === "agents" ? (
+              <SettingsAgents
+                agents={props.agents}
+                choicesFor={props.agentChoices}
+                gatewayName={props.defaultGatewayName}
+                onPick={props.onAgentDefault}
+              />
+            ) : props.tab === "gateways" ? (
               <GatewaysSection {...props} />
             ) : (
               <SettingsModels

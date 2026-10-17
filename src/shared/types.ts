@@ -471,6 +471,15 @@ export interface Message {
    */
   style: string | null;
   /**
+   * Spec 58 §5 — the effort level this row ran under, as the reviewer picked it.
+   *
+   * `model`'s twin: set on the send and on everything its run produced, null for
+   * a note and for every row written before the column existed. The requested
+   * level, never the one the CLI lowered it to — a stored downgrade would read
+   * as a choice nobody made.
+   */
+  effort: string | null;
+  /**
    * Spec 43 §5.3 — the agent, the gateway and the URL that produced this row.
    *
    * `model` and `style` above say what was asked for; these three say what
@@ -525,8 +534,17 @@ export interface Message {
   denied: boolean;
   costUsd: number | null;
   durationMs: number | null;
+  /**
+   * Spec 61 §3 — every token the model read, the cached ones included, so
+   * `inputTokens + outputTokens` is the run's whole size. Rows written before
+   * spec 61 by a Claude run left the cache out, and nothing can add it back.
+   */
   inputTokens: number | null;
   outputTokens: number | null;
+  /** Spec 61 §3 — the part of `inputTokens` read from the cache, or null when not reported. */
+  cacheReadTokens: number | null;
+  /** Spec 61 §3 — the part of `inputTokens` written to the cache, or null when not reported. */
+  cacheWriteTokens: number | null;
   createdAt: string;
 }
 
@@ -542,6 +560,24 @@ export interface ModelChoice {
   value: string;
   displayName: string;
   description: string;
+  /**
+   * Spec 58 §3 — the effort levels this model takes, as the CLI offered them.
+   *
+   * Absent or empty means none: a model that takes no level, a gateway's typed
+   * model name, and every row that is not a model at all (a gateway, an agent,
+   * a style) all read the same, and the effort control is not drawn for them.
+   */
+  effortLevels?: readonly string[];
+  /**
+   * Spec 58 §3.1 — the level this model runs at when REX sends none, so the
+   * menu can say what `Default effort` is. Absent or null when not known.
+   */
+  defaultEffort?: string | null;
+  /**
+   * Spec 58 §7.1 — the model a "follow the SDK" row stands for today, so the
+   * menu can say what that default is. Null on every other row.
+   */
+  resolvesTo?: string | null;
 }
 
 /**
@@ -561,6 +597,12 @@ export interface ModelChoice {
 export interface AgentChoices {
   models: ModelChoice[];
   chosen: string;
+  /**
+   * Spec 60 §4 — the level a new comment on this agent starts on: stored, then
+   * shipped, then `default`. Unchecked against the model's levels here; spec 58
+   * §6.2's cascade does that where the model is known.
+   */
+  effort: string;
   styles: string[];
   error: string | null;
 }
@@ -578,9 +620,9 @@ export interface AgentChoices {
  * (§2.6 rule 1), which is what makes a comment answerable by a local model and
  * then continued on the official API without losing the conversation.
  *
- * Null in `model` or `style` means "REX says nothing, so the SDK decides".
- * `threadNote` sends nulls in all four, and that is the honest record of a
- * message no agent ever saw (§5.4).
+ * Null in `model`, `style` or `effort` means "REX says nothing, so the SDK
+ * decides". `threadNote` sends nulls in all of them, and that is the honest
+ * record of a message no agent ever saw (§5.4).
  */
 export interface SendChoices {
   /**
@@ -592,6 +634,8 @@ export interface SendChoices {
   gatewayId: string | null;
   model: string | null;
   style: string | null;
+  /** Spec 58 §4 — a level the model offered, `default`, or null. */
+  effort: string | null;
 }
 
 /**
@@ -621,6 +665,14 @@ export const DEFAULT_MODEL = "default";
  * setting rather than sending the word.
  */
 export const DEFAULT_STYLE = "default";
+
+/**
+ * Spec 58 §3.1 — the model's own effort level, and what a comment starts on.
+ *
+ * The same double meaning again: recorded, because the reviewer picked it, and
+ * never sent, because it MEANS "REX says nothing".
+ */
+export const DEFAULT_EFFORT = "default";
 
 // ── Apply ───────────────────────────────────────────────────
 
@@ -814,6 +866,11 @@ export interface LineRange {
 export interface ChangedRegion extends LineRange {
   /** Absolute path, so the renderer can test it against the open document. */
   file: string;
+  /**
+   * Spec 63 §3.3 — the run sits against lines the other side lost or gained,
+   * so it is a rewrite. Absent for a plain addition or deletion.
+   */
+  changed?: true;
 }
 
 /** A target document Apply could not edit, and why. Spec 05 §5.6. */

@@ -89,6 +89,8 @@ interface MessageRow {
   mode: SendMode | null;
   model: string | null;
   style: string | null;
+  /** Spec 58 §5. Absent on a database the migration has not reached. */
+  effort: string | null;
   /** Spec 43 §5.3 — the evidence. Absent on a database the migration has not reached. */
   sdk: AgentSdk | null;
   gateway_name: string | null;
@@ -104,6 +106,9 @@ interface MessageRow {
   duration_ms: number | null;
   input_tokens: number | null;
   output_tokens: number | null;
+  /** Spec 61 §4 — absent on a database the migration has not reached. */
+  cache_read_tokens?: number | null;
+  cache_write_tokens?: number | null;
   created_at: string;
 }
 
@@ -159,6 +164,7 @@ function toMessage(row: MessageRow): Message {
     mode: row.mode,
     model: row.model,
     style: row.style,
+    effort: row.effort ?? null,
     // `?? null` for the shape SQLite can hand back that the type cannot say: a
     // row read before `migrateMessageRoute` has run has no such column at all,
     // and the value is `undefined` rather than null. The same guard `denied`
@@ -181,6 +187,8 @@ function toMessage(row: MessageRow): Message {
     durationMs: row.duration_ms,
     inputTokens: row.input_tokens,
     outputTokens: row.output_tokens,
+    cacheReadTokens: row.cache_read_tokens ?? null,
+    cacheWriteTokens: row.cache_write_tokens ?? null,
     createdAt: row.created_at,
   };
 }
@@ -880,16 +888,21 @@ export type MessageDraft = Omit<
   | "mode"
   | "model"
   | "style"
+  | "effort"
   | "sdk"
   | "gatewayName"
   | "baseUrl"
   | "runId"
   | "denied"
+  | "cacheReadTokens"
+  | "cacheWriteTokens"
 > & {
   mode?: SendMode | null;
   model?: string | null;
   /** Spec 31 §5 — optional for `model`'s reason: one site knows it, none else. */
   style?: string | null;
+  /** Spec 58 §5 — optional for `model`'s reason, stamped at the same place. */
+  effort?: string | null;
   /**
    * Spec 43 §5.3 — optional for exactly `model`'s reason, and stamped at exactly
    * the same place. `bridge.ts` emits blocks and has no business knowing which
@@ -914,6 +927,12 @@ export type MessageDraft = Omit<
    * answer and a tool that simply ran.
    */
   denied?: boolean;
+  /**
+   * Spec 61 §3 — optional because only a `completed` row ever carries one, and
+   * every other draft site leaving them out is saying "nothing reported".
+   */
+  cacheReadTokens?: number | null;
+  cacheWriteTokens?: number | null;
 };
 
 /**
@@ -932,11 +951,11 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
   const seq = seqRow?.next ?? 0;
 
   db.prepare(
-    `INSERT INTO message (id, thread_id, seq, role, kind, mode, model, style,
+    `INSERT INTO message (id, thread_id, seq, role, kind, mode, model, style, effort,
                           sdk, gateway_name, base_url, run_id, content, tool_name,
                           tool_input_json, is_error, denied, cost_usd, duration_ms, input_tokens,
-                          output_tokens, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                          output_tokens, cache_read_tokens, cache_write_tokens, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     threadId,
@@ -946,6 +965,7 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     draft.mode ?? null,
     draft.model ?? null,
     draft.style ?? null,
+    draft.effort ?? null,
     draft.sdk ?? null,
     draft.gatewayName ?? null,
     draft.baseUrl ?? null,
@@ -961,6 +981,8 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     draft.durationMs,
     draft.inputTokens,
     draft.outputTokens,
+    draft.cacheReadTokens ?? null,
+    draft.cacheWriteTokens ?? null,
     createdAt,
   );
 
@@ -972,11 +994,14 @@ export function appendMessage(db: Db, threadId: string, draft: MessageDraft): Me
     mode: draft.mode ?? null,
     model: draft.model ?? null,
     style: draft.style ?? null,
+    effort: draft.effort ?? null,
     sdk: draft.sdk ?? null,
     gatewayName: draft.gatewayName ?? null,
     baseUrl: draft.baseUrl ?? null,
     runId: draft.runId ?? null,
     denied: draft.denied ?? false,
+    cacheReadTokens: draft.cacheReadTokens ?? null,
+    cacheWriteTokens: draft.cacheWriteTokens ?? null,
     id,
     threadId,
     seq,

@@ -15,7 +15,7 @@ Two rules run through all of it:
 from collections.abc import Iterator
 from typing import Any
 
-from claude_agent_sdk import TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock
+from claude_agent_sdk import AssistantMessage, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock
 
 from ...events import (
     AgentEvent,
@@ -69,6 +69,21 @@ def diff_of_write(tool_input: dict[str, Any]) -> Diff | None:
     if not path or not content:
         return None
     return Diff(path=path, before=None, after=content[:WRITE_CLIP])
+
+
+def api_error_of(message: AssistantMessage) -> str | None:
+    """The API's refusal of this turn, when that is what the message is.
+
+    The CLI reports a refused request — no credit, a rate limit, a bad key — as
+    a synthetic assistant message whose text is the reason, and then ends the
+    turn as a success. Read as content, it is an answer. The SDK's `error` mark
+    is what makes it the failure it is. Measured 2026-10-17: "Credit balance is
+    too low", with `billing_error` on the message and `completed` after it.
+    """
+    if message.error is None:
+        return None
+    said = " ".join(block.text for block in message.content if isinstance(block, TextBlock))
+    return said.strip() or f"The API refused this turn ({message.error})."
 
 
 def assistant_events(content: list[Any]) -> Iterator[AgentEvent]:

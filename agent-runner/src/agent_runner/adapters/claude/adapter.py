@@ -17,10 +17,9 @@ The one decision that is not this adapter's: **whether a tool may run.** It asks
 """
 
 import asyncio
-import json
 import traceback
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any
+from typing import Any, cast
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -36,6 +35,7 @@ from claude_agent_sdk import (
     ToolPermissionContext,
     UserMessage,
 )
+from claude_agent_sdk.types import EffortLevel
 
 from ...attribution import anthropic_custom_headers, attribution_headers
 from ...events import (
@@ -59,8 +59,8 @@ from ...types import (
 )
 from ..base import AskPolicy, Emit
 from .errors import classify_error, route_hint
-from .events import assistant_events, user_events
-from .models import DEFAULT_MODEL, DEFAULT_STYLE, probe
+from .events import api_error_of, assistant_events, user_events
+from .models import DEFAULT_EFFORT, DEFAULT_MODEL, SETTING_SOURCES, cli_settings, probe
 from .sessions import session_state
 from .tools import claude_tools_for, common_tool
 
@@ -145,6 +145,8 @@ class ClaudeAdapter:
         answered = False
         #: A gateway's refusal, found in the assistant's own words. See below.
         gateway_refusal: str | None = None
+        #: The API's own refusal, which the SDK marks on the message. See below.
+        api_refusal: str | None = None
 
         def report_stopped() -> RunResult:
             emit(StoppedEvent())
@@ -184,6 +186,14 @@ class ClaudeAdapter:
                         block_name = getattr(block, "name", None)
                         if block_id and block_name:
                             tool_names[block_id] = block_name
+                    # The refusal is the failure, not an answer, so its text is
+                    # not emitted as one. Unlike a gateway's prose below, the SDK
+                    # marks it, so it is caught on every route.
+                    refused = api_error_of(message)
+                    if refused is not None:
+                        if api_refusal is None:
+                            api_refusal = classify_error(refused, request.route, request.model)
+                        continue
                     for event in assistant_events(message.content):
                         emit(event)
                         # **A gateway's refusal can arrive as the assistant's own
@@ -214,15 +224,7 @@ class ClaudeAdapter:
                     duration_ms = message.duration_ms
                     if message.subtype == "success":
                         answered = True
-                        usage = message.usage or {}
-                        emit(
-                            Completed(
-                                cost_usd=cost_usd,
-                                duration_ms=duration_ms,
-                                input_tokens=usage.get("input_tokens"),
-                                output_tokens=usage.get("output_tokens"),
-                            )
-                        )
+                        emit(_completed(cost_usd, duration_ms, message.usage or {}))
                     elif not stop.is_set():
                         # "ended" and not "stopped" on purpose: a stop is a
                         # person, and this line is the case that is a failure.
@@ -264,12 +266,13 @@ class ClaudeAdapter:
         if not answered and stop.is_set():
             return report_stopped()
 
-        # A turn the SDK called a success, whose only content was a gateway
-        # refusing it, is a failed turn. Reported once, and never over a real
-        # error the run already has.
-        if error is None and gateway_refusal is not None:
-            error = gateway_refusal
-            emit(ErrorEvent(text=gateway_refusal))
+        # A turn the SDK called a success, whose content was the API or a
+        # gateway refusing it, is a failed turn. Reported once, and never over a
+        # real error the run already has.
+        refusal = api_refusal or gateway_refusal
+        if error is None and refusal is not None:
+            error = refusal
+            emit(ErrorEvent(text=refusal))
 
         return RunResult(
             session_id=session_id,
@@ -300,7 +303,7 @@ class ClaudeAdapter:
             },
             # The repository's own `.claude/` is part of what "run in this
             # directory" means.
-            setting_sources=["project"],
+            setting_sources=SETTING_SOURCES,
             # Spec 52 — and the one place that sentence above goes too far. The
             # same switch that brings in the repository's `CLAUDE.md`, skills
             # and agents also brings in its `sandbox`, its permission rules and
@@ -343,11 +346,17 @@ class ClaudeAdapter:
         if request.model and request.model != DEFAULT_MODEL:
             options.model = request.model
 
+        # Spec 58 §3.1 — the same rule as the model: `default` is said by saying
+        # nothing. A level is passed as it came, unchecked, because the CLI's own
+        # row is where it came from and the CLI is the authority on its levels.
+        if request.effort and request.effort != DEFAULT_EFFORT:
+            options.effort = cast(EffortLevel, request.effort)
+
         # The Python SDK has no `output_style` option. `settings` is the CLI's
         # own `--settings`, which takes a JSON string — measured on 2026-09-04
-        # by reading `output_style` back out of the init message.
-        if request.style and request.style != DEFAULT_STYLE:
-            options.settings = json.dumps({"outputStyle": request.style})
+        # by reading `output_style` back out of the init message. It also turns
+        # the repository's hooks off (spec 62).
+        options.settings = cli_settings(request.style)
 
         session = request.session
         if isinstance(session, SeedSession):
@@ -366,9 +375,12 @@ class ClaudeAdapter:
     ) -> dict[str, str]:
         """Spec 43 §6.3 — where this run's inference is served from, per run.
 
-        **Nothing at all for the SDK's own endpoint.** `auth: inherit` with no
-        URL is today's behaviour exactly: the CLI inherits what the library was
-        started with and uses `claude login`, and REX changes nothing.
+        **Only the two credential variables, emptied, for the SDK's own
+        endpoint.** `auth: inherit` means the reviewer's `claude login`, and an
+        inherited `ANTHROPIC_API_KEY` outranks that login: the CLI bills the key
+        instead. Measured 2026-10-17 — a key exported by the reviewer's shell
+        sent a whole ASK to an API account, which ran out of credit mid-run.
+        With both variables empty the CLI reports `authMethod: claude.ai`.
 
         `ClaudeAgentOptions.env` is **merged** on top of the inherited
         environment — measured at `claude-agent-sdk` 0.2.152, spec 42 §17.6 — so
@@ -383,7 +395,7 @@ class ClaudeAdapter:
         assignment would route one of them nondeterministically.
         """
         if not route.base_url:
-            return {}
+            return {"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""}
 
         env = {
             "ANTHROPIC_BASE_URL": route.base_url,
@@ -421,9 +433,10 @@ class ClaudeAdapter:
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
             }
 
-        # Both credential variables get the same value, and neither is ever set
-        # to "". `ANTHROPIC_AUTH_TOKEN` becomes `Authorization: Bearer` and
-        # `ANTHROPIC_API_KEY` becomes `x-api-key`; which one is read has moved
+        # Both credential variables get the same value, and on a route with a
+        # URL neither is ever set to "". `ANTHROPIC_AUTH_TOKEN` becomes
+        # `Authorization: Bearer` and `ANTHROPIC_API_KEY` becomes `x-api-key`;
+        # which one is read has moved
         # between versions, and an empty string is not the same as an unset
         # variable to every client. The gateway author's own recipe
         # (`ai-gateway/litellm/README.md`) sets both.
@@ -543,6 +556,28 @@ def _cost_of(message: ResultMessage, route: ResolvedRoute) -> float | None:
     true wherever the tokens came from.
     """
     return None if route.base_url else message.total_cost_usd
+
+
+def _completed(cost_usd: float | None, duration_ms: int | None, usage: dict[str, Any]) -> Completed:
+    """Spec 61 §3 — Anthropic's usage, normalised to `Completed`'s meaning.
+
+    Anthropic's `input_tokens` is only the part of the prompt that was neither
+    read from the cache nor written to it. Read alone it is nonsense: the
+    reviewer's database held a $2.26 Opus run reported as 40 tokens in. The
+    whole input is the three summed. A field the usage leaves out counts as
+    nothing, but a usage with no `input_tokens` at all reports none.
+    """
+    given = usage.get("input_tokens")
+    read = usage.get("cache_read_input_tokens")
+    written = usage.get("cache_creation_input_tokens")
+    return Completed(
+        cost_usd=cost_usd,
+        duration_ms=duration_ms,
+        input_tokens=None if given is None else given + (read or 0) + (written or 0),
+        output_tokens=usage.get("output_tokens"),
+        cache_read_tokens=read,
+        cache_write_tokens=written,
+    )
 
 
 def _started(session_id: str, data: dict[str, Any]) -> Started:

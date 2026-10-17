@@ -116,6 +116,9 @@ export interface ModelChoice {
   value: string;
   displayName: string;
   description: string;
+  effortLevels: string[];
+  defaultEffort: string | null;
+  resolvesTo: string | null;
 }
 
 /** What this SDK, through this gateway, can actually offer. */
@@ -140,6 +143,7 @@ export interface RunRequest {
   session: AgentSession;
   model: string | null;
   style: string | null;
+  effort: string | null;
   systemPrompt: string;
   disallowed: CommonTool[];
   plugins: string[];
@@ -239,12 +243,15 @@ export interface StoppedEvent {
   durationMs: number | null;
 }
 
+/** Spec 61 §3 — one meaning for the token counts, whichever SDK ran. */
 export interface Completed {
   type: "completed";
   costUsd: number | null;
   durationMs: number | null;
   inputTokens: number | null;
   outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
 }
 
 /** The run is over. Nothing more will arrive for this `run_id`. */
@@ -394,6 +401,7 @@ export interface RunMessage {
   session: AgentSession;
   model: string | null;
   style: string | null;
+  effort: string | null;
   systemPrompt: string;
   disallowed: CommonTool[];
   plugins: string[];

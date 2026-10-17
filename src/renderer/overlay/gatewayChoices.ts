@@ -132,6 +132,7 @@ export function lastUsed(messages: readonly Message[]): SendChoices | null {
       gatewayId: null,
       model: message.model,
       style: message.style,
+      effort: message.effort,
     };
   }
   return null;

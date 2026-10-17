@@ -93,7 +93,6 @@ import type {
   WorkspaceSearchResult,
   WorkspaceTree,
 } from "../shared/types.ts";
-import { DEFAULT_MODEL } from "../shared/types.ts";
 import {
   forgetProbe,
   listCapabilities,
@@ -184,12 +183,13 @@ import {
 } from "./db/queries.ts";
 import {
   AGENT_GATEWAY_KEY,
-  AGENT_MODEL_KEY,
   AGENT_SDK_KEY,
   agentDefaults,
-  defaultModel,
+  agentEffort,
+  agentEffortKey,
+  agentModel,
+  agentModelKey,
   getSetting,
-  MODEL_DEFAULT_KEY,
   paperView,
   setPaperView,
   setSetting,
@@ -305,8 +305,14 @@ class Semaphore {
 
 // ── Spec 43 — what one send picks, and what it leaves behind ────
 
-/** §5.4 — a NOTE runs nothing, so it ran under nothing. Null in all four. */
-const NO_CHOICES: SendChoices = { sdk: null, gatewayId: null, model: null, style: null };
+/** §5.4 — a NOTE runs nothing, so it ran under nothing. Null in every field. */
+const NO_CHOICES: SendChoices = {
+  sdk: null,
+  gatewayId: null,
+  model: null,
+  style: null,
+  effort: null,
+};
 
 /** The same, for a notice that is REX's own and had no run behind it. */
 const NO_EVIDENCE: SendEvidence = { sdk: null, gatewayName: null, baseUrl: null };
@@ -332,6 +338,7 @@ function stamp(
   return {
     model: choices.model,
     style: choices.style,
+    effort: choices.effort,
     sdk: evidence.sdk,
     gatewayName: evidence.gatewayName,
     baseUrl: evidence.baseUrl,
@@ -353,13 +360,14 @@ function stamp(
  * flight while the sheet deleted one — refusing would lose the reviewer's
  * message to fix a row they can re-pick in one click.
  */
-/** The four fields of a send, taken off whatever request carried them. */
+/** The fields of a send, taken off whatever request carried them. */
 function choicesOf(request: SendChoices): SendChoices {
   return {
     sdk: request.sdk ?? REX_SDK,
     gatewayId: request.gatewayId ?? ORIGINAL_GATEWAY_ID,
     model: request.model,
     style: request.style,
+    effort: request.effort,
   };
 }
 
@@ -647,6 +655,7 @@ export function registerIpc(
           route,
           model: choices.model,
           style: choices.style,
+          effort: choices.effort,
           documentPath,
           signal: controller.signal,
           // Spec 25 §5, spec 31 §5 and spec 43 §5.3 — every block this run
@@ -1534,6 +1543,7 @@ export function registerIpc(
       runId,
       model: choices.model,
       style: choices.style,
+      effort: choices.effort,
     });
   });
 
@@ -1592,14 +1602,11 @@ export function registerIpc(
 
       return {
         models,
-        chosen:
-          gateway.id === ORIGINAL_GATEWAY_ID
-            ? defaultModel(db, models)
-            : // §4.1 — a rebuild that drops the current value picks the route's
-              // first model rather than clearing the control. An empty control
-              // the reviewer has to notice is worse than a filled one they can
-              // change.
-              (models[0]?.value ?? DEFAULT_MODEL),
+        // Spec 60 §4 — this agent's own default, checked against this list. On
+        // a routed gateway the fallback is the first model (§4.1): an empty
+        // control the reviewer has to notice is worse than a filled one.
+        chosen: agentModel(db, chosen, models, gateway.id !== ORIGINAL_GATEWAY_ID),
+        effort: agentEffort(db, chosen),
         // Spec 31 §2.2 — no `chosen` style. A style belongs to the chat, so
         // there is no app-wide value for the renderer to fall back to.
         styles: probe.styles,
@@ -1677,13 +1684,6 @@ export function registerIpc(
       defaults: {
         sdk: defaults.sdk,
         gatewayId: defaults.gatewayId,
-        // §4.0 — `Original` starts on spec 25's own stored default, which is a
-        // different key and a different lifetime. Any other gateway starts on
-        // the one this spec added, and the cascade fills it from the route.
-        model:
-          defaults.gatewayId === ORIGINAL_GATEWAY_ID
-            ? defaultModel(db, (await listCapabilities(SCRATCH_DIR)).models)
-            : defaults.model,
         missingGateway: defaults.missingGateway,
       },
     };
@@ -1847,6 +1847,7 @@ export function registerIpc(
           route,
           model: request.model,
           style: null,
+          effort: null,
           // **A probe, not a review.** REX's own instructions and its plugins are
           // what a comment needs; here they are pure cost, and on a small local
           // model they are most of the wall clock — the same measurement that
@@ -1902,16 +1903,35 @@ export function registerIpc(
    */
   handle(
     COMMAND.gatewayDefault,
-    (_event, choice: { sdk: AgentSdk; gatewayId: string; model: string | null }): void => {
+    (
+      _event,
+      choice: { sdk: AgentSdk; gatewayId: string; model: string | null; effort: string | null },
+    ): void => {
       setSetting(db, AGENT_SDK_KEY, choice.sdk);
       setSetting(db, AGENT_GATEWAY_KEY, choice.gatewayId);
-      if (choice.model !== null) setSetting(db, AGENT_MODEL_KEY, choice.model);
-      // `Original` keeps spec 25's own key too, so the model picker's fallback
-      // and this one cannot disagree about what "the default" is there.
-      if (choice.gatewayId === ORIGINAL_GATEWAY_ID && choice.model !== null) {
-        setSetting(db, MODEL_DEFAULT_KEY, choice.model);
-      }
+      setAgentDefault(choice);
     },
+  );
+
+  /**
+   * Spec 60 §5 — one agent's default model or effort, from Settings → Agents,
+   * and the second half of *Use as default* above.
+   *
+   * Null leaves that field as it is. For the effort that is also spec 58 §6.1's
+   * rule: null is a model that takes no level, which says nothing about the
+   * level the reviewer wants on the next model that does.
+   */
+  function setAgentDefault(choice: {
+    sdk: AgentSdk;
+    model: string | null;
+    effort: string | null;
+  }): void {
+    if (choice.model !== null) setSetting(db, agentModelKey(choice.sdk), choice.model);
+    if (choice.effort !== null) setSetting(db, agentEffortKey(choice.sdk), choice.effort);
+  }
+
+  handle(COMMAND.agentDefault, (_event, choice: Parameters<typeof setAgentDefault>[0]) =>
+    setAgentDefault(choice),
   );
 
   /**
