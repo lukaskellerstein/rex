@@ -97,7 +97,32 @@
     },
     "Completed": {
       "additionalProperties": false,
+      "description": "Spec 61 \u00a73 \u2014 one meaning for the token counts, whichever SDK ran.\n\n`input_tokens` is EVERY token the model read, the cached ones included, so\n`input_tokens + output_tokens` is the run's whole size. The two cache counts\nare parts of `input_tokens`, never additions to it. Each SDK splits these\ndifferently \u2014 Anthropic's `input_tokens` leaves the cache out, OpenAI's puts\nit in \u2014 so every adapter normalises to this before it emits.",
       "properties": {
+        "cacheReadTokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cachereadtokens"
+        },
+        "cacheWriteTokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cachewritetokens"
+        },
         "costUsd": {
           "anyOf": [
             {
@@ -721,6 +746,18 @@
       "additionalProperties": false,
       "description": "One row of a model picker, named by the adapter that knows the SDK.",
       "properties": {
+        "defaultEffort": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Defaulteffort"
+        },
         "description": {
           "title": "Description",
           "type": "string"
@@ -728,6 +765,25 @@
         "displayName": {
           "title": "Displayname",
           "type": "string"
+        },
+        "effortLevels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Effortlevels",
+          "type": "array"
+        },
+        "resolvesTo": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolvesto"
         },
         "value": {
           "title": "Value",
@@ -1214,6 +1270,18 @@
           "title": "Disallowed",
           "type": "array"
         },
+        "effort": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort"
+        },
         "maxTurns": {
           "anyOf": [
             {
@@ -1361,6 +1429,18 @@
           },
           "title": "Disallowed",
           "type": "array"
+        },
+        "effort": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effort"
         },
         "maxTurns": {
           "anyOf": [

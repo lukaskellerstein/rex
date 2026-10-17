@@ -11,12 +11,53 @@ import { type ScopeRect, toDocumentRect } from "../anchor/pick.ts";
 import { LANE_RESERVE } from "./marginLane.ts";
 import { prepareDocumentHtml } from "./sanitise.ts";
 
-export function baseHref(directory: string): string {
-  const encoded = directory
+function docUrl(path: string): string {
+  const encoded = path
     .split("/")
     .map((segment) => encodeURIComponent(segment))
     .join("/");
-  return `rex-doc://doc${encoded}/`;
+  return `rex-doc://doc${encoded}`;
+}
+
+export function baseHref(directory: string): string {
+  return `${docUrl(directory)}/`;
+}
+
+/**
+ * Spec 59 §3.1 — the file itself, for the Live frame.
+ *
+ * A URL and never a `srcdoc`: a `srcdoc` frame inherits the renderer's CSP,
+ * which runs no document script. A URL load runs under the policy its own
+ * response carries (`docHeaders.ts`).
+ */
+export function liveUrl(path: string, fragment: string | null): string {
+  return fragment === null ? docUrl(path) : `${docUrl(path)}#${encodeURIComponent(fragment)}`;
+}
+
+/**
+ * Spec 59 §3.1 — the last element with an id at or above the top of the view.
+ *
+ * The Live frame is cross-origin, so nothing can scroll it from outside. A
+ * fragment is the one place the page can be told to open at, and without it
+ * Live on a long page starts at the top, far from the figure the reviewer
+ * turned it on for.
+ */
+export function idAtTop(inner: Document | null | undefined): string | null {
+  let found: string | null = null;
+  let best = Number.NEGATIVE_INFINITY;
+  for (const element of inner?.querySelectorAll("[id]") ?? []) {
+    const box = element.getBoundingClientRect();
+    // An element that draws nothing — an SVG `<title>`, a `display: none`
+    // block — reports a box of zeros, which reads as "exactly at the top" and
+    // beats every real candidate. Measured on the MAMI review, 2026-10-17.
+    if (box.width === 0 && box.height === 0) continue;
+    const top = box.top;
+    if (top <= 1 && top > best) {
+      best = top;
+      found = element.id;
+    }
+  }
+  return found;
 }
 
 /**

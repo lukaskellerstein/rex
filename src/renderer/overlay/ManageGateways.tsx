@@ -557,11 +557,15 @@ export function ManageGateways(props: Props): React.JSX.Element {
                       >
                         Edit
                       </button>
+                      {/*
+                        Spec 58 §6.1 — pressable on the default gateway too: the
+                        model and effort it saves can change while the gateway
+                        does not, and the `default` tag already says which it is.
+                      */}
                       <button
                         type="button"
                         className="rex-button"
-                        disabled={props.list.defaults.gatewayId === view.gateway.id}
-                        title="New comments start on this gateway. Changing a control does not."
+                        title="New comments start on this gateway, with the model and effort the panel shows. Changing a control does not."
                         onClick={() => void props.onDefault(view.gateway.id)}
                       >
                         Use as default

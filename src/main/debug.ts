@@ -16,7 +16,7 @@
 // it is read by anything else, and a wrapped 4 KB JSON blob is neither.
 
 import { homedir } from "node:os";
-import { spentText, totalsOf } from "../shared/totals.ts";
+import { spentText, type TokenTotals, totalsOf } from "../shared/totals.ts";
 import type { Anchor, Message, Thread, ViewState } from "../shared/types.ts";
 import { sessionState } from "./agent/bridge.ts";
 import { sessionIdFor } from "./agent/profiles.ts";
@@ -201,7 +201,10 @@ export function badStepsOf(messages: readonly Message[]): BadStep[] {
  * the model row was older would be a lie about a column that was simply not
  * there yet.
  */
-export function lastChoice(messages: readonly Message[], field: "model" | "style"): string | null {
+export function lastChoice(
+  messages: readonly Message[],
+  field: "model" | "style" | "effort",
+): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const value = messages[index][field];
     if (value !== null) return value;
@@ -383,6 +386,9 @@ export async function debugReport(db: Db, threadId: string, appVersion: string):
     // Spec 31 §5 — recorded and not drawn on the card, so this is the one
     // place it can be read back.
     `  style      ${lastChoice(messages, "style") ?? "(the SDK's default)"}`,
+    // Spec 58 §5 — the level that was asked for. The report that started that
+    // spec could not say how hard the model had been thinking.
+    `  effort     ${lastChoice(messages, "effort") ?? "(the SDK's default)"}`,
     ...(await sessionLines(cwd, thread)),
     ...combinationLines(db, thread),
     `  cwd        ${tilde(cwd)}`,
@@ -403,6 +409,7 @@ export async function debugReport(db: Db, threadId: string, appVersion: string):
     // Spec 43 §8.1 — `$0.0000` for a comment nobody priced is the one
     // number in this report that would be read as measured.
     `  ${totals.steps} steps · ${spentText(totals.durationMs)} · ${totals.costUsd > 0 ? `$${totals.costUsd.toFixed(4)}` : "cost not reported"} · ${totals.denied} denied · ${totals.failed} failed`,
+    `  ${tokensLine(totals.tokens)}`,
     `  ${messages.length} messages · ${kindCounts(messages) || "none"}`,
   );
 
@@ -597,4 +604,15 @@ export function appReport(
 
   lines.push("", "VERSIONS", `  ${versionLine(facts.appVersion)}`);
   return lines.join("\n");
+}
+
+/** Spec 61 §5 — the card's token popover, as one line of the report. */
+function tokensLine(tokens: TokenTotals | null): string {
+  if (tokens === null) return "tokens not reported";
+  const cache = [
+    tokens.cacheRead === null ? null : `${tokens.cacheRead} read from cache`,
+    tokens.cacheWrite === null ? null : `${tokens.cacheWrite} written to cache`,
+  ].filter(Boolean);
+  const cached = cache.length > 0 ? ` (${cache.join(", ")})` : "";
+  return `${tokens.total} tokens · ${tokens.input} in${cached} · ${tokens.output} out`;
 }

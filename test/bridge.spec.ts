@@ -154,6 +154,8 @@ test("a completed row says how long it took and what it used", () => {
     durationMs: 4200,
     inputTokens: 11,
     outputTokens: 22,
+    cacheReadTokens: 7,
+    cacheWriteTokens: 3,
   });
   assert.deepEqual(row, {
     role: "system",
@@ -164,6 +166,8 @@ test("a completed row says how long it took and what it used", () => {
     durationMs: 4200,
     inputTokens: 11,
     outputTokens: 22,
+    cacheReadTokens: 7,
+    cacheWriteTokens: 3,
   });
 });
 
@@ -175,6 +179,8 @@ test("a cost the SDK did not report stays null and is never drawn as zero", () =
     durationMs: null,
     inputTokens: null,
     outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
   });
   assert.equal(row?.costUsd, null);
   assert.equal(row?.content, "Completed in ?ms");

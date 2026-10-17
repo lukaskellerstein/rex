@@ -9,6 +9,7 @@
 import { costText, type RunStats, spentText, stepsText } from "../../shared/totals.ts";
 import type { ModelChoice } from "../../shared/types.ts";
 import { modelLabel } from "./ModelPick.tsx";
+import { effortWord } from "./modelChoices.ts";
 
 /**
  * Spec 43 §5.3 — the evidence copied onto every message the run produced.
@@ -22,6 +23,8 @@ export interface AnswerEvidence {
   gatewayName: string | null;
   baseUrl: string | null;
   model: string | null;
+  /** Spec 58 §7.2 — drawn only when a level was chosen; `default` draws nothing. */
+  effort: string | null;
   style: string | null;
 }
 
@@ -136,6 +139,17 @@ export function AnswerFoot({
       node: (
         <span className="rex-foot-model" title="The model that wrote this answer">
           {modelLabel(models, evidence.model, evidence.model)}
+        </span>
+      ),
+    });
+  }
+  const effort = effortWord(evidence.effort);
+  if (effort) {
+    made.push({
+      key: "effort",
+      node: (
+        <span className="rex-foot-effort" title="The effort level this answer was thought out at">
+          {effort}
         </span>
       ),
     });

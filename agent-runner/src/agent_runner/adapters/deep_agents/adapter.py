@@ -278,6 +278,8 @@ class DeepAgentsAdapter:
                     duration_ms=_elapsed(started_at),
                     input_tokens=translator.input_tokens,
                     output_tokens=translator.output_tokens,
+                    cache_read_tokens=translator.cache_read_tokens,
+                    cache_write_tokens=translator.cache_write_tokens,
                 )
             )
         return RunResult(

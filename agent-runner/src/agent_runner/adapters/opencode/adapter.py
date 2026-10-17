@@ -326,8 +326,7 @@ class OpenCodeAdapter:
         roles: dict[str, str] = {}
         error: str | None = None
         cost: float | None = None
-        input_tokens: int | None = None
-        output_tokens: int | None = None
+        tokens: dict[str, Any] = {}
         answered = False
         subscribed = asyncio.Event()
         stopping = False
@@ -397,24 +396,15 @@ class OpenCodeAdapter:
         # part id, which is what makes running this every time safe.
         if answered:
             with contextlib.suppress(Exception):
-                cost, input_tokens, output_tokens = await self._reconcile(
-                    client, session_id, seen_tools, emitted, roles, emit
-                )
+                cost, tokens = await self._reconcile(client, session_id, seen_tools, emitted, roles, emit)
 
         if error is not None:
             emit(ErrorEvent(text=error, duration_ms=_elapsed(started_at)))
         else:
-            emit(
-                Completed(
-                    # §6 — a private provider has no pricing table, so OpenCode
-                    # reports 0 rather than nothing. None MEANS "not reported"
-                    # and draws as unknown; $0.00 would claim a paid run was free.
-                    cost_usd=cost,
-                    duration_ms=_elapsed(started_at),
-                    input_tokens=input_tokens,
-                    output_tokens=output_tokens,
-                )
-            )
+            # §6 — a private provider has no pricing table, so OpenCode reports
+            # 0 rather than nothing. None MEANS "not reported" and draws as
+            # unknown; $0.00 would claim a paid run was free.
+            emit(_completed(cost, _elapsed(started_at), tokens))
         _ = mirror_note
         return RunResult(
             session_id=session_id,
@@ -541,7 +531,7 @@ class OpenCodeAdapter:
         emitted: set[str],
         roles: dict[str, str],
         emit: Emit,
-    ) -> tuple[float | None, int | None, int | None]:
+    ) -> tuple[float | None, dict[str, Any]]:
         """§5.4 — the finished answer, from history rather than from the stream.
 
         The stream is the fast path and this is the true one. Anything the stream
@@ -550,8 +540,7 @@ class OpenCodeAdapter:
         """
         history = await client.messages(session_id, limit=20)
         cost: float | None = None
-        input_tokens: int | None = None
-        output_tokens: int | None = None
+        tokens: dict[str, Any] = {}
         for entry in history:
             # History says the role outright, which is also how `roles` learns
             # about a message whose `message.updated` the stream never delivered.
@@ -564,12 +553,8 @@ class OpenCodeAdapter:
             # §6 — 0 is what a private provider reports when it has no pricing
             # table, and drawing $0.00 for it would be a claim REX cannot make.
             cost = entry.info.cost or None
-            tokens = entry.info.tokens or {}
-            if isinstance(tokens.get("input"), int):
-                input_tokens = tokens["input"]
-            if isinstance(tokens.get("output"), int):
-                output_tokens = tokens["output"]
-        return cost, input_tokens, output_tokens
+            tokens = entry.info.tokens or tokens
+        return cost, tokens
 
     # ── the two questions that are not a run ────────────────────
 
@@ -661,6 +646,33 @@ def _probe_directory() -> str:
 
 def _unknown_session() -> SessionState:
     return SessionState(exists=False, summary=None, last_modified=None, path=None, size=None)
+
+
+def _completed(cost: float | None, duration_ms: int, tokens: dict[str, Any]) -> Completed:
+    """Spec 61 §3 — OpenCode's `tokens`, normalised to `Completed`'s meaning.
+
+    OpenCode's `input` leaves out what `cache.read` and `cache.write` count, the
+    way Anthropic's does, so the whole input is the three summed. A count that
+    is not an int was not reported, and stays None rather than zero.
+    """
+
+    def count(value: Any) -> int | None:
+        return value if isinstance(value, int) else None
+
+    cache = tokens.get("cache")
+    if not isinstance(cache, dict):
+        cache = {}
+    given = count(tokens.get("input"))
+    read = count(cache.get("read"))
+    written = count(cache.get("write"))
+    return Completed(
+        cost_usd=cost,
+        duration_ms=duration_ms,
+        input_tokens=None if given is None else given + (read or 0) + (written or 0),
+        output_tokens=count(tokens.get("output")),
+        cache_read_tokens=read,
+        cache_write_tokens=written,
+    )
 
 
 def _elapsed(started_at: float) -> int:

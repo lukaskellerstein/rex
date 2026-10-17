@@ -30,6 +30,7 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
     mode: null,
     model: null,
     style: null,
+    effort: null,
     sdk: null,
     gatewayName: null,
     baseUrl: null,
@@ -43,6 +44,8 @@ function message(kind: MessageKind, role: MessageRole, fields: Partial<Message> 
     durationMs: null,
     inputTokens: null,
     outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
     createdAt: "2026-09-11T20:12:59.000Z",
     ...fields,
   };

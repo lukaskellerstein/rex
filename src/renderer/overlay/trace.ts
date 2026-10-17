@@ -87,6 +87,8 @@ export interface TraceEntry {
   /** Spec 38 §3.5 — the model and the style, drawn in an answer's foot. */
   model: string | null;
   style: string | null;
+  /** Spec 58 §7.2 — and the effort level, drawn after the model. */
+  effort: string | null;
   /**
    * Spec 43 §5.3 — and the gateway that produced it, with the URL it used.
    *
@@ -308,6 +310,7 @@ function entry(message: Message, kind: TraceKind, label: string, body: string): 
     sent: message.mode,
     model: message.model,
     style: message.style,
+    effort: message.effort,
     sdk: message.sdk,
     gatewayName: message.gatewayName,
     baseUrl: message.baseUrl,

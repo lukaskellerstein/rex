@@ -7,8 +7,19 @@
 // reach. Nothing here touches Electron either.
 
 import type Database from "better-sqlite3";
+import type { AgentSdk } from "../../shared/agent-protocol.ts";
 import type { Anchor } from "../../shared/types.ts";
-import { getSetting, setSetting } from "./settings.ts";
+import {
+  AGENT_EFFORT_KEY,
+  AGENT_MODEL_KEY,
+  AGENT_SDK_KEY,
+  agentEffortKey,
+  agentModelKey,
+  deleteSetting,
+  getSetting,
+  MODEL_DEFAULT_KEY,
+  setSetting,
+} from "./settings.ts";
 
 type Db = Database.Database;
 
@@ -228,6 +239,64 @@ export function migrateMessageStyle(db: Db): boolean {
   if (present) return false;
   db.exec("ALTER TABLE message ADD COLUMN style TEXT");
   return true;
+}
+
+/**
+ * Spec 58 §5 — `message.effort`, the effort level a row ran under.
+ *
+ * `migrateMessageStyle`'s shape exactly, and NULL for every existing row for the
+ * same reason: until this spec no send named a level, so nobody recorded one.
+ */
+export function migrateMessageEffort(db: Db): boolean {
+  const present = db
+    .prepare<[], { name: string }>("PRAGMA table_info(message)")
+    .all()
+    .some((row) => row.name === "effort");
+  if (present) return false;
+  db.exec("ALTER TABLE message ADD COLUMN effort TEXT");
+  return true;
+}
+
+/**
+ * Spec 61 §4 — `message.cache_read_tokens` and `message.cache_write_tokens`.
+ *
+ * NULL for every existing row: nobody recorded a cache count before this spec.
+ * Those rows' `input_tokens` keep the meaning they were written with, which for
+ * a Claude run left the cache out — the migration cannot recover the part it
+ * never saw, so it does not pretend to.
+ */
+export function migrateMessageCacheTokens(db: Db): boolean {
+  if (hasColumn(db, "message", "cache_read_tokens")) return false;
+  db.exec("ALTER TABLE message ADD COLUMN cache_read_tokens INTEGER");
+  db.exec("ALTER TABLE message ADD COLUMN cache_write_tokens INTEGER");
+  return true;
+}
+
+/**
+ * Spec 60 §3.1 — the one app-wide default becomes the default of the agent it
+ * was set for.
+ *
+ * `agent.model` before `model.default`: spec 43's key was written with the
+ * agent beside it, spec 25's predates agents. A key already under the new name
+ * wins, so a second run, or a database that already has one, loses nothing.
+ * The old keys are deleted either way, so nothing can read two answers.
+ *
+ * Returns the keys it moved, for the test.
+ */
+export function migrateAgentDefaults(db: Db): string[] {
+  const sdk = (getSetting(db, AGENT_SDK_KEY) as AgentSdk | null) ?? "claude-agent";
+  const moves: [string | null, string][] = [
+    [getSetting(db, AGENT_MODEL_KEY) ?? getSetting(db, MODEL_DEFAULT_KEY), agentModelKey(sdk)],
+    [getSetting(db, AGENT_EFFORT_KEY), agentEffortKey(sdk)],
+  ];
+  const moved: string[] = [];
+  for (const [value, key] of moves) {
+    if (value === null || getSetting(db, key) !== null) continue;
+    setSetting(db, key, value);
+    moved.push(key);
+  }
+  for (const old of [MODEL_DEFAULT_KEY, AGENT_MODEL_KEY, AGENT_EFFORT_KEY]) deleteSetting(db, old);
+  return moved;
 }
 
 /**

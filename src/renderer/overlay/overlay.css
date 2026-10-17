@@ -70,6 +70,12 @@
   --added: #6fbf73;
   --removed: #d05744;
   --removed-text: #eda393;
+  /*
+    Spec 63 §4 — a block the change rewrote. Greener than `--moved`'s gold and
+    than `--find`'s lemon, and only ever a box round a block, never a wash on
+    text, so it cannot be read as either.
+  */
+  --rewritten: #c9c21a;
   --gone: #8b9298;
   --gone-text: #b8bfc5;
   --done: #e6eaed;
@@ -1187,6 +1193,19 @@
   display: block;
 }
 
+/*
+  Spec 59 §3.1 — over the review frame, which stays loaded underneath. Opaque,
+  because a page with no ground of its own would otherwise show the review
+  frame through it. Under the corner (z-index 6), so the switch stays reachable.
+*/
+.rex-live {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  z-index: 5;
+  background: #fff;
+}
+
 .rex-empty {
   position: absolute;
   inset: 0;
@@ -1714,6 +1733,18 @@
   border: 2px solid #4f9d57;
   border-radius: 2px;
   background: rgb(79 157 87 / 14%);
+  pointer-events: none;
+}
+
+/*
+  Spec 63 §4 — a block the change rewrote, in both panes. One colour for the
+  pair, so the eye matches the old half with the new one.
+*/
+.rex-rewritten-outline {
+  position: absolute;
+  border: 2px solid var(--rewritten);
+  border-radius: 2px;
+  background: rgb(201 194 26 / 16%);
   pointer-events: none;
 }
 
@@ -2603,6 +2634,7 @@
 .rex-foot-agent,
 .rex-foot-gateway,
 .rex-foot-model,
+.rex-foot-effort,
 .rex-foot-style {
   color: var(--muted);
   font-weight: 600;
@@ -4284,6 +4316,57 @@
   font-family: var(--mono);
   font-size: 10px;
   white-space: nowrap;
+}
+
+/* Spec 61 §5 — the chat's token total, on the card and in the trace head. The
+   dotted rule says "there is more under the pointer" without an icon. */
+.rex-tokens {
+  border-bottom: 1px dotted currentColor;
+  cursor: default;
+  outline: none;
+}
+
+.rex-tokens:hover,
+.rex-tokens:focus-visible {
+  color: var(--fg-dim);
+}
+
+/* Fixed, like `.rex-menu`, so the trace head's `overflow: hidden` cannot clip it. */
+.rex-tokens-pop {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 210px;
+  padding: 6px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  background: var(--raised);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  color: var(--fg-dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.rex-tokens-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* The total first and loudest: the number the reviewer reads the box for. */
+.rex-tokens-total {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* Cache counts are parts of `in`, so they hang under it rather than beside it. */
+.rex-tokens-part {
+  padding-left: 10px;
+  color: var(--faint);
 }
 
 /* Spec 35 §2.2 — the card's run ends in the trace, or `showing` while it is up. */
@@ -8255,6 +8338,14 @@ select.rex-field-input {
 .rex-set-row-act {
   align-items: flex-start;
   padding: 11px 15px;
+}
+
+/* Spec 60 §5 — an agent's model and effort, side by side, wrapping when narrow. */
+.rex-set-picks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .rex-set-row-name {

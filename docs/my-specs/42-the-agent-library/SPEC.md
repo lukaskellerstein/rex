@@ -1,6 +1,7 @@
 # REX 42 — the agent library
 
-**Version:** 3.0 · 2026-09-04
+**Version:** 3.1 · 2026-10-17 — §9.1's child environment empties the two
+API-key variables on a route with no URL (spec 43 §6.3).
 **Status:** **built, and driven in a live window.** All three milestones are in
 the tree. `npm run test:library` is green — 44 TypeScript tests across
 `test/service.spec.ts`, `test/bridge.spec.ts` and `test/protocol.spec.ts`, and
@@ -777,9 +778,10 @@ rules REX added on top of it. Neither is copied whole.
 | Choice | Value | Why it is the adapter's |
 |:--|:--|:--|
 | `system_prompt` | `{"type": "preset", "preset": "claude_code", "append": request.system_prompt}` | the preset is what makes the SDK behave as Claude Code; a host writes the append |
-| `setting_sources` | `["project"]` | the repository's own `.claude/` is part of what "run in this directory" means |
-| the child environment | **nothing passed** for a route with no URL | today's behaviour exactly — the CLI inherits the service's environment and uses `claude login`. Spec 43 §6 is where an `env=` is built |
-| the output style | `settings=json.dumps({"outputStyle": style})` when a style is chosen | the Python SDK has no `output_style` option; `settings` is the CLI's `--settings`, which takes a JSON string — **verified in milestone 1** |
+| `setting_sources` | `["project"]` | the repository's own `.claude/` is part of what "run in this directory" means — its context, not its boundary: spec 52 pins the sandbox and spec 62 turns its hooks off |
+| the hooks | `settings` always carries `"disableAllHooks": true` | a repository's `PreToolUse` deny outranks REX's gate, and its `SessionStart` runs its code on every run. REX's gate is an SDK callback and keeps running — spec 62 §5 |
+| the child environment | for a route with no URL, **only `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN`, both empty** | the CLI inherits the service's environment and uses `claude login`. An inherited key would outrank that login, so the two are emptied — spec 43 §6.3, changed 2026-10-17. Spec 43 §6 is where every other `env=` is built |
+| the output style | `"outputStyle": style` in the same `settings` when a style is chosen | the Python SDK has no `output_style` option; `settings` is the CLI's `--settings`, which takes a JSON string — **verified in milestone 1** |
 | stop | `interrupt()`, then `disconnect()` | `ClaudeSDKClient` always runs in the streaming mode `interrupt()` needs; REX's `AbortController` was the workaround for the TS `query()` form |
 
 One thing the Python SDK does differently from the TypeScript one, and it

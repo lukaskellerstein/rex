@@ -9,7 +9,14 @@
 
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { costText, runStatsOf, spentText, stepsText } from "../src/shared/totals.ts";
+import {
+  costText,
+  runStatsOf,
+  spentText,
+  stepsText,
+  tokensText,
+  totalsOf,
+} from "../src/shared/totals.ts";
 import type { Message } from "../src/shared/types.ts";
 
 /** A thread, in arrival order: `seq` is the position, which is what the walk sorts by. */
@@ -29,6 +36,8 @@ function thread(rows: Array<[Message["kind"], Partial<Message>]>): Message[] {
     durationMs: null,
     inputTokens: null,
     outputTokens: null,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
     model: null,
     style: null,
     mode: null,
@@ -238,4 +247,41 @@ test("stepsText counts one step as `1 step`", () => {
   assert.equal(stepsText(0), "0 steps");
   assert.equal(stepsText(1), "1 step");
   assert.equal(stepsText(4), "4 steps");
+});
+
+// Spec 61 §5 — the chat's token total and its breakdown.
+
+test("a chat's tokens are every run's in and out, with the cache as part of in", () => {
+  const totals = totalsOf(
+    thread([
+      you("2026-09-04T19:33:00Z"),
+      [
+        "completed",
+        { inputTokens: 1_000, outputTokens: 200, cacheReadTokens: 800, cacheWriteTokens: null },
+      ],
+      you("2026-09-04T19:34:00Z"),
+      [
+        "completed",
+        { inputTokens: 3_000, outputTokens: 50, cacheReadTokens: 2_500, cacheWriteTokens: null },
+      ],
+    ]),
+  );
+  assert.deepEqual(totals.tokens, {
+    total: 4_250,
+    input: 4_000,
+    output: 250,
+    cacheRead: 3_300,
+    cacheWrite: null,
+  });
+});
+
+test("a chat no run reported tokens for has no token total, never zero", () => {
+  const totals = totalsOf(thread([you("2026-09-04T19:33:00Z"), done("2026-09-04T19:33:10Z")]));
+  assert.equal(totals.tokens, null);
+});
+
+test("tokensText shortens to k and M", () => {
+  assert.equal(tokensText(912), "912");
+  assert.equal(tokensText(38_214), "38.2k");
+  assert.equal(tokensText(1_240_000), "1.24M");
 });

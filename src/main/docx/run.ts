@@ -49,6 +49,8 @@ export interface DocxApplyInput {
   model: string | null;
   /** Spec 31 §2.3 — the output style the plan is written in. */
   style: string | null;
+  /** Spec 58 §4 — the effort level the plan is thought out at. */
+  effort: string | null;
   /**
    * Spec 43 §11 — where this plan run's inference is served from.
    *
@@ -148,6 +150,7 @@ export async function runDocxApply(input: DocxApplyInput): Promise<DocxApplyResu
     writable: [docxCacheDir(contentHash)],
     model: input.model,
     style: input.style,
+    effort: input.effort,
     documentPath: input.documentPath,
     signal: input.signal,
     onMessage: input.onMessage,

@@ -23,6 +23,7 @@ import {
 } from "../../shared/types.ts";
 import { type PickScope, scopeWord } from "../anchor/pick.ts";
 import type { GatewayChoice } from "./Composer.tsx";
+import { EffortPick } from "./EffortPick.tsx";
 import { Trash } from "./Icons.tsx";
 import { onSendChord, SEND_CHORD_HINT, SendChord } from "./keys.tsx";
 import { ModelPick, styleRows } from "./ModelPick.tsx";
@@ -88,6 +89,9 @@ interface Props {
   /** Spec 31 §2.2 — the style the next comment is made with. Never null. */
   style: string;
   onStyle: (style: string) => void;
+  /** Spec 58 §6 — the effort level the next comment is made with. Never null. */
+  effort: string;
+  onEffort: (effort: string) => void;
   /** Sends in `mode`. §4 — ASK goes to `thread:ask`, ACT to `thread:apply`. */
   onAsk: () => void;
   onHover: (id: string | null) => void;
@@ -388,6 +392,14 @@ export function SelectionPanel(props: Props): React.JSX.Element {
               disabled={props.mode === "note" ? "A note runs nothing, so it uses no model." : null}
               error={props.models.error}
               onPick={props.onModel}
+            />
+            {/* Spec 58 §7.1 — the effort, between the model it depends on and the style. */}
+            <EffortPick
+              models={props.models}
+              model={props.model}
+              effort={props.effort}
+              note={props.mode === "note"}
+              onEffort={props.onEffort}
             />
             {/*
               Spec 31 §7.1 — the output style, beside the model. §7.3 — no

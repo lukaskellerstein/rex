@@ -91,9 +91,8 @@ UPSTREAM_AUTH = re.compile(
 )
 """A gateway whose OWN upstream credential is missing, refused or expired.
 
-The general `hint_for` answer to a 401 is "set ANTHROPIC_API_KEY, or run
-`claude login`", and through a gateway that is **the wrong instruction twice
-over**: REX never sends its own login to a gateway, and the credential that
+The general `hint_for` answer to a 401 is "run `claude login`", and through a
+gateway that is **the wrong instruction twice over**: REX never sends its own login to a gateway, and the credential that
 failed belongs to the gateway, not to the reviewer's machine. Measured
 2026-09-04, where a gateway started without its engine's key answered
 `401 Not authenticated` on every route and REX advised logging in to Anthropic.
@@ -181,7 +180,9 @@ def hint_for(text: str) -> str | None:
         or "unauthorized" in lowered
         or "authentication" in lowered
     ):
-        return "Authentication failed. Set ANTHROPIC_API_KEY, or run 'claude login' to authenticate."
+        # No "set ANTHROPIC_API_KEY": the SDK's own endpoint empties it, so the
+        # login is the one credential this hint can be about (spec 43 §6.3).
+        return "Authentication failed. Run 'claude login' to authenticate."
     if "timeout" in lowered or "timed out" in lowered:
         return "The agent timed out. The question may be too broad — try narrowing the comment."
     if EXECUTABLE_FAILURE.search(text):
@@ -214,8 +215,8 @@ def classify_error(
 
     The route's own hints come first when there is a route with a URL. They are
     more specific than the general ones and they say *where*, and the general
-    "Authentication failed. Set ANTHROPIC_API_KEY, or run 'claude login'" is
-    exactly the wrong advice about a gateway that refused a connection.
+    "Authentication failed. Run 'claude login'" is exactly the wrong advice
+    about a gateway that refused a connection.
     """
     text = str(error)
     hint = route_hint(text, route, model) or hint_for(text)

@@ -10,33 +10,64 @@
 
 import type Database from "better-sqlite3";
 import type { AgentSdk } from "../../shared/agent-protocol.ts";
-import { DEFAULT_MODEL, type ModelChoice, type PaperView } from "../../shared/types.ts";
+import {
+  DEFAULT_EFFORT,
+  DEFAULT_MODEL,
+  type ModelChoice,
+  type PaperView,
+} from "../../shared/types.ts";
 import { ORIGINAL_GATEWAY_ID } from "./migrate.ts";
 
 type Db = Database.Database;
 
-/** §6.1 — the app-wide default model. Absent means the SDK's own first row. */
+/**
+ * Spec 60 §3.1 — the three keys that held one default for every agent.
+ *
+ * Read by `migrateAgentDefaults` alone, which moves them under the agent they
+ * were set for and deletes them. Nothing else may read them: a key that
+ * survives beside its replacement is a second answer to one question.
+ */
 export const MODEL_DEFAULT_KEY = "model.default";
+export const AGENT_MODEL_KEY = "agent.model";
+export const AGENT_EFFORT_KEY = "agent.effort";
 
 /** Spec 27 §4.7 — how the Markdown page is drawn. Absent means narrow and light. */
 export const VIEW_MEASURE_KEY = "view.measure";
 export const VIEW_PAPER_KEY = "view.paper";
 
 /**
- * Spec 43 §4.0 — what a **new** comment's three controls start on.
- *
- * `agent.model` is deliberately a second key beside `model.default` and not a
- * rename of it. `model.default` is spec 25's, it is what `Original` starts on,
- * and §12 keeps its raw stored value on purpose; this one exists so that a
- * gateway with its own model list has a remembered choice too. A comment that
- * has already been sent reads neither: it starts on what it last used (§4.0).
+ * Spec 43 §4.0 — the agent and the gateway a **new** comment starts on.
  *
  * `agent.sdk` is written by spec 44 and read here from the day the column
  * exists, so that adding the agent control adds a control and no plumbing.
  */
 export const AGENT_SDK_KEY = "agent.sdk";
 export const AGENT_GATEWAY_KEY = "agent.gateway";
-export const AGENT_MODEL_KEY = "agent.model";
+
+/**
+ * Spec 60 §3 — each agent's own default model and effort.
+ *
+ * Per agent because a model id is one vendor's: a Claude alias stored as the
+ * one app-wide default meant nothing to Codex, which then quietly ran its own.
+ */
+export function agentModelKey(sdk: AgentSdk): string {
+  return `agent.${sdk}.model`;
+}
+
+export function agentEffortKey(sdk: AgentSdk): string {
+  return `agent.${sdk}.effort`;
+}
+
+/**
+ * Spec 60 §2 — what an agent starts on when the reviewer has set nothing.
+ *
+ * Claude alone, by the reviewer's choice of 2026-10-17. Absent for the others:
+ * REX has no opinion to ship about another vendor's models, so they start on
+ * their own CLI's default or their route's first model.
+ */
+export const SHIPPED_DEFAULTS: Partial<Record<AgentSdk, { model: string; effort: string }>> = {
+  "claude-agent": { model: "sonnet", effort: "medium" },
+};
 
 export function getSetting(db: Db, key: string): string | null {
   const row = db
@@ -51,23 +82,47 @@ export function setSetting(db: Db, key: string, value: string): void {
   ).run(key, value);
 }
 
-/**
- * §6.2 — the default, checked against what the CLI actually offers.
- *
- * A stored default can name a model that is not there any more: the CLI
- * updated, or the account ran out of credits for it. REX falls back to
- * `default` and **keeps the stored row**, because the model may come back and
- * silently rewriting the reviewer's choice would mean they never learn it
- * stopped being honoured.
- */
-export function defaultModel(db: Db, models: ModelChoice[]): string {
-  const stored = getSetting(db, MODEL_DEFAULT_KEY);
-  if (stored === null) return DEFAULT_MODEL;
-  return models.some((model) => model.value === stored) ? stored : DEFAULT_MODEL;
+export function deleteSetting(db: Db, key: string): void {
+  db.prepare("DELETE FROM setting WHERE key = ?").run(key);
 }
 
 /**
- * Spec 43 §4.0 — the three settings a new comment starts on, resolved.
+ * Spec 60 §4 — the model a new comment on `sdk` starts on, from this list.
+ *
+ * Stored, then shipped, then the fallback — each only if the list offers it.
+ * A stored default can name a model that is not there any more: the CLI
+ * updated, or the account ran out of credits for it. REX falls back and
+ * **keeps the stored row** (spec 25 §6.2), because the model may come back and
+ * silently rewriting the reviewer's choice would mean they never learn it
+ * stopped being honoured.
+ *
+ * The fallback is `default` on `Original`, where it means the CLI's own choice,
+ * and the first model on a `routed` gateway, which routes on the name and has
+ * no choice of its own to fall back to (spec 43 §4.1).
+ */
+export function agentModel(db: Db, sdk: AgentSdk, models: ModelChoice[], routed: boolean): string {
+  const offered = (value: string | null | undefined): value is string =>
+    typeof value === "string" && models.some((model) => model.value === value);
+  const stored = getSetting(db, agentModelKey(sdk));
+  if (offered(stored)) return stored;
+  const shipped = SHIPPED_DEFAULTS[sdk]?.model;
+  if (offered(shipped)) return shipped;
+  return routed ? (models[0]?.value ?? DEFAULT_MODEL) : DEFAULT_MODEL;
+}
+
+/**
+ * Spec 60 §4 — the effort a new comment on `sdk` starts on.
+ *
+ * NOT checked against the model's levels here: which levels exist depends on
+ * the model, and spec 58 §6.2's cascade in the renderer is where that is known.
+ */
+export function agentEffort(db: Db, sdk: AgentSdk): string {
+  return getSetting(db, agentEffortKey(sdk)) ?? SHIPPED_DEFAULTS[sdk]?.effort ?? DEFAULT_EFFORT;
+}
+
+/**
+ * Spec 43 §4.0 — the agent and the gateway a new comment starts on, resolved.
+ * The model and the effort are per agent and resolve against a list (§4).
  *
  * The rule for a gateway that no longer exists is spec 25 §6.2's, applied to one
  * more field: fall back to `Original`, **keep the stored row**, and let the
@@ -87,7 +142,6 @@ export function agentDefaults(db: Db, gatewayIds: readonly string[]): AgentDefau
     sdk: (getSetting(db, AGENT_SDK_KEY) as AgentSdk | null) ?? "claude-agent",
     gatewayId: known ? storedGateway : ORIGINAL_GATEWAY_ID,
     missingGateway: storedGateway !== null && !known ? storedGateway : null,
-    model: getSetting(db, AGENT_MODEL_KEY),
   };
 }
 
@@ -101,7 +155,6 @@ export interface AgentDefaults {
    * row stays in `setting` so the choice comes back if the gateway does.
    */
   missingGateway: string | null;
-  model: string | null;
 }
 
 /**

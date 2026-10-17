@@ -55,6 +55,7 @@ function runMessage(runId: string, prompt: string): RunMessage {
     readable: [],
     model: null,
     style: null,
+    effort: null,
     systemPrompt: "",
     disallowed: [],
     plugins: [],

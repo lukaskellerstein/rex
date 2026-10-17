@@ -8,11 +8,14 @@ import { dirname } from "node:path";
 import Database from "better-sqlite3";
 import { DB_PATH } from "./location.ts";
 import {
+  migrateAgentDefaults,
   migrateBuiltinGateway,
   migrateCommentOrder,
   migrateGatewayProviders,
   migrateGateways,
+  migrateMessageCacheTokens,
   migrateMessageDenied,
+  migrateMessageEffort,
   migrateMessageMode,
   migrateMessageModel,
   migrateMessageRoute,
@@ -66,6 +69,14 @@ export function openDatabase(): Db {
   // having. NULL on every existing row: until spec 31 no send named one.
   migrateMessageStyle(db);
   migrateThreadStyle(db);
+  // Spec 58 §5 — the effort level a row ran under. NULL on every existing row.
+  migrateMessageEffort(db);
+  // Spec 61 §4 — how much of each run's input came from the cache. NULL on
+  // every existing row: nobody recorded it before.
+  migrateMessageCacheTokens(db);
+  // Spec 60 §3.1 — the one app-wide default model and effort move under the
+  // agent they were set for. Settings only, so its place is free.
+  migrateAgentDefaults(db);
   // Spec 51 §4 — which turn a row belongs to, and the join key depth 3 needs.
   // NULL on every existing row, which groups them under "before turns were
   // recorded"; nothing in an old row could be used to guess it.

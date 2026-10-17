@@ -71,6 +71,7 @@ import { type PlaceFacts, placesByMessage } from "./placeLine.ts";
 import { Prose } from "./prose.tsx";
 import { RunNums, StepBars, stepsOf } from "./StepStrip.tsx";
 import type { SelectionItem } from "./selection.ts";
+import { TokenCount } from "./TokenCount.tsx";
 import { ToolIcon } from "./ToolRow.tsx";
 import {
   changeCounts,
@@ -111,6 +112,9 @@ interface Props {
   supportsStyles: boolean;
   style: string;
   onStyle: (style: string) => void;
+  /** Spec 58 §6 — the effort level the next reply sends at. */
+  effort: string;
+  onEffort: (effort: string) => void;
   /** Spec 24 §3.2 — the places waiting to go with the next send. */
   pending: SelectionItem[];
   hoveredItemId: string | null;
@@ -460,6 +464,7 @@ function Entry({
               gatewayName: entry.gatewayName,
               baseUrl: entry.baseUrl,
               model: entry.model,
+              effort: entry.effort,
               style: entry.style,
             }}
             stats={stats}
@@ -548,10 +553,10 @@ export function TraceSheet(props: Props): React.JSX.Element {
 
   // Spec 36 §2 — the whole chat's numbers, the card's run line's third group,
   // from the same helpers, so the head and the card cannot disagree.
+  // Spec 61 §5 — the tokens sit between the time and the price, as on the card.
   const summary = [
     `${turns} turn${turns === 1 ? "" : "s"}`,
     totals.durationMs > 0 ? spentText(totals.durationMs) : null,
-    totals.costUsd > 0 ? `$${totals.costUsd.toFixed(3)}` : null,
   ].filter(Boolean);
 
   return (
@@ -579,7 +584,16 @@ export function TraceSheet(props: Props): React.JSX.Element {
         {steps.length > 0 ? <StepBars steps={steps} /> : null}
         {steps.length > 0 ? <RunNums steps={steps} /> : null}
         {steps.length > 0 ? (
-          <span className="rex-trace-summary">{`· ${summary.join(" · ")}`}</span>
+          <span className="rex-trace-summary">
+            {`· ${summary.join(" · ")}`}
+            {totals.tokens ? (
+              <>
+                {" · "}
+                <TokenCount tokens={totals.tokens} />
+              </>
+            ) : null}
+            {totals.costUsd > 0 ? ` · $${totals.costUsd.toFixed(3)}` : null}
+          </span>
         ) : null}
 
         <DebugCopy
@@ -664,6 +678,8 @@ export function TraceSheet(props: Props): React.JSX.Element {
         supportsStyles={props.supportsStyles}
         style={props.style}
         onStyle={props.onStyle}
+        effort={props.effort}
+        onEffort={props.onEffort}
         pending={props.pending}
         hoveredItemId={props.hoveredItemId}
         onHoverItem={props.onHoverItem}

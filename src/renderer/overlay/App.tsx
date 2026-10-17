@@ -38,7 +38,6 @@ import type {
   DocumentPlace,
   DocumentRef,
   DocumentVersion,
-  LineRange,
   LinkResolution,
   Message,
   OpenedDocument,
@@ -53,6 +52,7 @@ import type {
   WorkspaceTree,
 } from "../../shared/types.ts";
 import {
+  DEFAULT_EFFORT,
   DEFAULT_MODEL,
   DEFAULT_STYLE,
   PAPER_VIEW_DEFAULT,
@@ -73,6 +73,7 @@ import {
 } from "./anchoring.ts";
 import { CommentCard } from "./CommentCard.tsx";
 import type { GatewayChoice } from "./Composer.tsx";
+import type { ChangeBox, PaneChanges } from "./changes.ts";
 import { DiffDialog } from "./DiffDialog.tsx";
 import { DocumentView } from "./DocumentView.tsx";
 import { diagramCommentsFor, diagramPlacesFor } from "./diagramPlaces.ts";
@@ -107,6 +108,7 @@ import { type Lane, laneOf } from "./lanes.ts";
 import { ManageGateways } from "./ManageGateways.tsx";
 import { drawDiagramPng, posterFramePng } from "./mermaid.ts";
 import type { Mode } from "./mode.ts";
+import { effortFor, effortLevelsOf } from "./modelChoices.ts";
 import type { PlaceFacts } from "./placeLine.ts";
 import type { PreviewFigure } from "./preview.ts";
 import { SelectionPanel } from "./SelectionPanel.tsx";
@@ -141,6 +143,7 @@ import { tokenClass } from "./wash.ts";
 const EMPTY_CHOICES: AgentChoices = {
   models: [],
   chosen: DEFAULT_MODEL,
+  effort: DEFAULT_EFFORT,
   styles: [DEFAULT_STYLE],
   error: null,
 };
@@ -304,20 +307,24 @@ function describeLink(answer: LinkResolution): Omit<LinkTipView, "rect"> {
  * is the set the new-version pane will answer a gesture on.
  *
  * `null` — no working copy — means everything is live, which is Reading mode
- * and every document nobody has changed. A non-null EMPTY list is a different
- * thing and is left empty deliberately: this pane has a change to show and no
- * way to say which blocks it touched (a plain HTML file has no `data-src-line`
- * to go on), so nothing is live and every comment goes on the left.
+ * and every document nobody has changed. Otherwise the line ranges for a page
+ * with `data-src-line`, and the original's page to compare against for one
+ * without (spec 63 §3).
  *
- * It is the same list spec 15 §6.2 already outlines in green, so the affordance
- * needs no new furniture: what is outlined is what responds.
+ * It is the same set spec 15 §6.2 already outlines, so the affordance needs no
+ * new furniture: what is outlined is what responds.
  */
-function liveRangesOf(doc: OpenedDocument | null): LineRange[] | null {
+function liveChangesOf(
+  doc: OpenedDocument | null,
+  original: () => Document | null,
+): PaneChanges | null {
   if (!doc?.working) return null;
   const path = doc.ref.value;
-  return doc.working.added
-    .filter((region) => region.file === path)
-    .map((region) => ({ from: region.from, to: region.to }));
+  return {
+    side: "new",
+    regions: doc.working.added.filter((region) => region.file === path),
+    other: original,
+  };
 }
 
 interface ApplyOutcome {
@@ -437,12 +444,7 @@ export function App(): React.JSX.Element {
    * of its own. Until it answers the picker has an empty list and shows the
    * default's own name, which is the truth: nothing else is known yet.
    */
-  const [modelList, setModelList] = useState<AgentChoices>({
-    models: [],
-    chosen: DEFAULT_MODEL,
-    styles: [DEFAULT_STYLE],
-    error: null,
-  });
+  const [modelList, setModelList] = useState<AgentChoices>(EMPTY_CHOICES);
   /**
    * §5 — the model each comment's next send will run on, or absent for "follow
    * the default".
@@ -456,6 +458,16 @@ export function App(): React.JSX.Element {
   const [modelByThread, setModelByThread] = useState<Record<string, string>>({});
   /** §7.1 — the model a comment that does not exist yet will be created with. */
   const [selectionModel, setSelectionModel] = useState<string | null>(null);
+  /**
+   * Spec 58 §6 — the effort level each comment sends at, `modelByThread`'s twin.
+   *
+   * The same lifetime as the model's, so the two move together: a pick holds
+   * for the session, and a comment with none follows the app-wide default —
+   * which is what makes "Sonnet 5.5 at Medium" one default and not two.
+   */
+  const [effortByThread, setEffortByThread] = useState<Record<string, string>>({});
+  /** §6 — the level a comment that does not exist yet is made with. Null follows the default. */
+  const [selectionEffort, setSelectionEffort] = useState<string | null>(null);
   /**
    * Spec 31 §2.2 — the style a comment that does not exist yet will be made
    * with, and the ONLY memory a style has outside a chat.
@@ -574,6 +586,15 @@ export function App(): React.JSX.Element {
     setGateways(next);
     setChoicesByGateway({});
   };
+
+  /**
+   * Spec 60 §5 — one agent's defaults moved, so only its lists are asked again.
+   * The others stay drawn rather than flashing empty for a round trip.
+   */
+  const forgetChoices = (sdk: AgentSdk): void =>
+    setChoicesByGateway((was) =>
+      Object.fromEntries(Object.entries(was).filter(([key]) => !key.startsWith(`${sdk}:`))),
+    );
 
   /**
    * Spec 46 §8 rule 3 — one task at a time, with the screen saying so.
@@ -743,6 +764,26 @@ export function App(): React.JSX.Element {
     });
 
   /**
+   * Spec 58 §6 — the level this comment's control shows: its pick, or the
+   * default. Spec 60 §4 — the default is its agent's own.
+   */
+  const effortOf = (threadId: string): string =>
+    effortByThread[threadId] ?? choicesFor(sdkOf(threadId), gatewayOf(threadId)).effort;
+
+  /** What the selection panel will send with: its pick, or its agent's default. */
+  const panelEffort = selectionEffort ?? choicesFor(panelSdk, panelGateway).effort;
+
+  const setEffort = (threadId: string, effort: string): void =>
+    setEffortByThread((current) => ({ ...current, [threadId]: effort }));
+
+  /**
+   * §6.2 — what a send carries for `picked` on this model: null when the model
+   * takes no level, `default` when it does not take this one.
+   */
+  const effortSent = (sdk: AgentSdk, gatewayId: string, model: string, picked: string) =>
+    effortFor(effortLevelsOf(choicesFor(sdk, gatewayId).models, model), picked);
+
+  /**
    * Spec 43 §4 — the gateway rows one control draws, and the two things it must
    * say about them.
    *
@@ -777,6 +818,12 @@ export function App(): React.JSX.Element {
     // non-null style on such a route rather than ignoring it, so sending one
     // here would turn a hidden control into a refused send.
     style: stylesFor(sdkOf(threadId)) ? styleOf(threadId) : null,
+    effort: effortSent(
+      sdkOf(threadId),
+      gatewayOf(threadId),
+      modelFor(threadId),
+      effortOf(threadId),
+    ),
   });
 
   useEffect(() => {
@@ -1034,7 +1081,7 @@ export function App(): React.JSX.Element {
   /** Spec 26 §4.2 — the place the bar is about, or null while it is a hover. */
   const [pathFocus, setPathFocus] = useState<PathFocus | null>(null);
   /** Spec 05 §5.6.1 — what a pending Apply changed in the document on screen. */
-  const [changeBoxes, setChangeBoxes] = useState<ScopeRect[]>([]);
+  const [changeBoxes, setChangeBoxes] = useState<ChangeBox[]>([]);
 
   /**
    * Spec 08 §3.1 — the tab follows what the reviewer is doing, in both
@@ -1204,9 +1251,10 @@ export function App(): React.JSX.Element {
   const pickChosenByHand = useRef(false);
   /** Which pane the chain on screen belongs to, for the callbacks that commit it. */
   const pathPaneRef = useRef<DocumentVersion>("current");
-  /** §4.1 — what the new-version pane answers a gesture on. See `liveRangesOf`. */
-  const liveRangesRef = useRef<LineRange[] | null>(null);
-  liveRangesRef.current = liveRangesOf(doc);
+  /** §4.1 — what the new-version pane answers a gesture on. See `liveChangesOf`. */
+  const originalPage = useCallback(() => originalSurfaceRef.current?.page() ?? null, []);
+  const liveChangesRef = useRef<PaneChanges | null>(null);
+  liveChangesRef.current = liveChangesOf(doc, originalPage);
 
   /**
    * Spec 13 §4.2 — the four view fields the debug report needs, and the shell
@@ -1577,13 +1625,15 @@ export function App(): React.JSX.Element {
     // Spec 16 §4.1 — with a working copy these are also exactly the blocks that
     // answer a gesture here, which is why the outline needs no companion: what
     // is outlined is what responds.
-    const ranges =
-      liveRangesOf(current) ??
-      (pending?.regions ?? [])
-        .filter((region) => region.file === path)
-        .map((region) => ({ from: region.from, to: region.to }));
-    setChangeBoxes(ranges.length > 0 ? await surface.boxesForLines(ranges) : []);
-  }, []);
+    const changes: PaneChanges = liveChangesOf(current, originalPage) ?? {
+      side: "new",
+      regions: (pending?.regions ?? []).filter((region) => region.file === path),
+      // One pane, so nothing to compare against: a pending Apply outlines only
+      // where `data-src-line` says, as spec 05 §5.6.1 always did.
+      other: () => null,
+    };
+    setChangeBoxes(await surface.changeBoxes(changes));
+  }, [originalPage]);
 
   /**
    * A resize re-resolves, because an outline is geometry.
@@ -1649,7 +1699,7 @@ export function App(): React.JSX.Element {
    * the ranges themselves are read through a ref at call time.
    */
   useEffect(() => {
-    surfaceRef.current?.setLiveBlocks(liveRangesRef.current);
+    surfaceRef.current?.setLiveBlocks(liveChangesRef.current);
   }, [doc]);
 
   /**
@@ -1671,6 +1721,9 @@ export function App(): React.JSX.Element {
         // The left lane has nothing in it until this sweep runs, and a comment
         // on removed text has nowhere at all until then.
         await sweep();
+        // Spec 63 §3 — a page with no `data-src-line` is outlined by comparing
+        // it with this one, so the new version's outlines wait for it.
+        await refreshChangeBoxes();
         // Spec 28 §5.5 — a Search hit waiting for this pane lands now.
         if (surface) find.surfaceReady("original");
         return;
@@ -1680,7 +1733,7 @@ export function App(): React.JSX.Element {
       if (!surface) return;
       // §4.1 — before the first sweep and long before the first gesture: a pane
       // that has not been told what is live would take a comment on anything.
-      surface.setLiveBlocks(liveRangesRef.current);
+      surface.setLiveBlocks(liveChangesRef.current);
       const summary = await sweep();
       await refreshChangeBoxes();
       // Spec 28 §5.5 — a Search hit waiting for this document lands now, on
@@ -2367,10 +2420,13 @@ export function App(): React.JSX.Element {
    * Rendered from the file every time the working copy changes, because that is
    * the only moment it can have: `base` and the file agree until somebody edits
    * the file, and §7.3 is what refuses when they stop agreeing.
+   *
+   * Spec 63 §3 — loaded on `New` too, and only hidden there: a page with no
+   * `data-src-line` finds its changed blocks by comparing against this one.
    */
   useEffect(() => {
     let live = true;
-    const wanted = doc?.working && paneMode !== "new" ? doc.ref : null;
+    const wanted = doc?.working ? doc.ref : null;
     if (!wanted) {
       setOriginal(null);
       return;
@@ -2386,7 +2442,7 @@ export function App(): React.JSX.Element {
     return () => {
       live = false;
     };
-  }, [doc?.working, doc?.ref, paneMode]);
+  }, [doc?.working, doc?.ref]);
 
   /** Every route that changes what is on disk ends here: re-render and re-sweep. */
   const reopenDocument = useCallback(async (): Promise<void> => {
@@ -3296,6 +3352,9 @@ export function App(): React.JSX.Element {
       // escalated the panel to Fable meant this comment, so the comment it
       // creates keeps the pick.
       setModel(thread.id, selectionModel);
+      // Spec 58 §6 — and the panel's effort, the model's twin. Only a pick: a
+      // panel that follows the default makes a comment that follows it too.
+      if (selectionEffort !== null) setEffort(thread.id, selectionEffort);
       // Spec 31 §2.2 — and the panel's style, which the first send then writes
       // to the comment so it is still there tomorrow.
       setStyle(thread.id, selectionStyle);
@@ -3310,13 +3369,15 @@ export function App(): React.JSX.Element {
       // no work to be busy with, and a spinner over an instant save is a lie.
       if (mode === "note") return;
 
-      // Spec 43 §2.1 — all four, as the panel had them. The comment did not
+      // Spec 43 §2.1 — all of them, as the panel had them. The comment did not
       // exist a moment ago, so there is nothing it "last used" to fall back to.
+      const model = selectionModel ?? choicesFor(panelSdk, panelGateway).chosen;
       const choices: SendChoices = {
         sdk: panelSdk,
         gatewayId: panelGateway,
-        model: selectionModel ?? choicesFor(panelSdk, panelGateway).chosen,
+        model,
         style: stylesFor(panelSdk) ? selectionStyle : null,
+        effort: effortSent(panelSdk, panelGateway, model, panelEffort),
       };
       await withBusy(thread.id, async () => {
         // Spec 21 §3 — the open workspace, so a file the agent creates can be
@@ -3341,6 +3402,8 @@ export function App(): React.JSX.Element {
     selectionMode,
     selectionModel,
     selectionStyle,
+    selectionEffort,
+    panelEffort,
     selectionNote,
     sweep,
     withBusy,
@@ -4691,6 +4754,7 @@ export function App(): React.JSX.Element {
             gatewayId: null,
             model: null,
             style: null,
+            effort: null,
           }),
         );
         await refreshThreads();
@@ -5019,6 +5083,8 @@ export function App(): React.JSX.Element {
               supportsStyles={stylesFor(sdkOf(active.id))}
               style={styleOf(active.id)}
               onStyle={(style) => setStyle(active.id, style)}
+              effort={effortOf(active.id)}
+              onEffort={(effort) => setEffort(active.id, effort)}
               pending={pending}
               hoveredItemId={hoveredItemId}
               onHoverItem={setHoveredItemId}
@@ -5159,6 +5225,8 @@ export function App(): React.JSX.Element {
                 supportsStyles={stylesFor(panelSdk)}
                 style={selectionStyle}
                 onStyle={setSelectionStyle}
+                effort={panelEffort}
+                onEffort={setSelectionEffort}
                 onNote={setSelectionNote}
                 onExpand={expandRow}
                 onScope={rescope}
@@ -5202,6 +5270,8 @@ export function App(): React.JSX.Element {
               supportsStyles={stylesFor(sdkOf(active.id))}
               style={styleOf(active.id)}
               onStyle={(style) => setStyle(active.id, style)}
+              effort={effortOf(active.id)}
+              onEffort={(effort) => setEffort(active.id, effort)}
               tracing={traceId === active.id}
               openDocumentId={doc?.documentId ?? null}
               hoveredPlace={hoveredPlace}
@@ -5274,6 +5344,12 @@ export function App(): React.JSX.Element {
                       gatewayId: defaultGateway,
                       model: choicesFor(defaultSdk, defaultGateway).chosen,
                       style: DEFAULT_STYLE,
+                      effort: effortSent(
+                        defaultSdk,
+                        defaultGateway,
+                        choicesFor(defaultSdk, defaultGateway).chosen,
+                        choicesFor(defaultSdk, defaultGateway).effort,
+                      ),
                     }),
                   );
                 })
@@ -5361,6 +5437,14 @@ export function App(): React.JSX.Element {
           // The agents that actually have an adapter, so Original's list grows
           // when spec 47 or 48 lands and shrinks for nobody.
           agents={descriptor?.sdks ?? []}
+          agentChoices={(sdk) => choicesFor(sdk, defaultGateway)}
+          defaultGatewayName={
+            gateways.gateways.find((view) => view.gateway.id === defaultGateway)?.gateway.name ??
+            "Original"
+          }
+          onAgentDefault={(sdk, choice) =>
+            void window.rex.agentDefault({ sdk, ...choice }).then(() => forgetChoices(sdk))
+          }
           onManageExternal={() => setGatewaysOpen(true)}
           onClose={settings.hide}
         />
@@ -5472,10 +5556,18 @@ export function App(): React.JSX.Element {
             // decides what a new comment starts on, so "make this the default"
             // means the row the reviewer has set there, not the row that was
             // already stored.
+            //
+            // Spec 58 §6.1 — and the same for the model and the effort. This
+            // wrote the STORED model, so a model picked in the panel could never
+            // become the default. The panel's pick is only the panel's for its
+            // own gateway: a model from one route means nothing on another.
+            const chosen = choicesFor(panelSdk, gatewayId).chosen;
+            const model = gatewayId === panelGateway ? (selectionModel ?? chosen) : chosen;
             await window.rex.gatewayDefault({
               sdk: panelSdk,
               gatewayId,
-              model: choicesFor(panelSdk, gatewayId).chosen,
+              model,
+              effort: effortSent(panelSdk, gatewayId, model, panelEffort),
             });
             refreshGateways(await window.rex.gatewayList());
           }}

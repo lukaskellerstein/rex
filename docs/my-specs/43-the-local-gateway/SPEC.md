@@ -1,6 +1,6 @@
 # REX 43 — the local gateway
 
-**Version:** 4.1 · 2026-09-04
+**Version:** 4.2 · 2026-10-17
 **Status:** **proposal. Nothing in this spec is built.**
 **Depends on:** [`42-the-agent-library/SPEC.md`](../42-the-agent-library/SPEC.md)
 (the seam, the route types, the Claude adapter, the descriptor);
@@ -49,6 +49,14 @@ styles); [`34-the-permanent-copy/SPEC.md`](../34-the-permanent-copy/SPEC.md) §5
 > credential crosses the pipe once, going down (§6.1); and the Python SDK
 > documents `ClaudeAgentOptions.env` as **merged** onto the inherited
 > environment, where the TypeScript one replaced it (§6.2).
+>
+> **What changed in 4.2** (2026-10-17). `Original` with `auth: inherit` no
+> longer passes an empty `env`. It empties `ANTHROPIC_API_KEY` and
+> `ANTHROPIC_AUTH_TOKEN` (§2.5, §6.3). The reviewer's shell exported an API key,
+> the CLI preferred it to `claude login`, and a whole ASK was billed to an API
+> account that ran out of credit mid-run. "No `env`" and "the reviewer's own
+> subscription" were two promises, and with a key in the shell they disagreed.
+> The subscription is the one kept.
 
 ---
 
@@ -203,7 +211,9 @@ published and whether the expected path is in it — and §4.5 is the button.
 every SDK and **no `baseUrl` on any of them**: each SDK uses its own official
 endpoint and the credential the reviewer already has installed — `claude login`
 today; the OpenAI subscription and `opencode auth login` in specs 44 and 47.
-`auth` is `inherit`, and REX changes nothing about how that SDK authenticates.
+`auth` is `inherit`, and REX changes nothing about how that SDK authenticates —
+except that the Claude adapter empties the two API-key variables, so that a key
+exported by the reviewer's shell cannot outrank the login (§6.3).
 
 `Original` cannot be edited or deleted. It is what REX does today, and it must
 stay reachable in one click from any state the settings screen can get into.
@@ -591,9 +601,21 @@ URL. They never carry a credential value or arbitrary request headers.
 
 ### 6.3 What the Claude adapter sets
 
-For the `Original` gateway with `auth: inherit`, REX changes nothing at all —
-today's behaviour exactly, on the reviewer's own subscription, with no `env`
-option passed.
+For the `Original` gateway with `auth: inherit`, the run is on the reviewer's own
+subscription, and the `env` names exactly two keys:
+
+```python
+if not route.base_url:
+    return {"ANTHROPIC_API_KEY": "", "ANTHROPIC_AUTH_TOKEN": ""}
+```
+
+An inherited `ANTHROPIC_API_KEY` **outranks `claude login`** in the CLI an SDK
+run starts. Measured on 2026-10-17 with the bundled CLI 2.1.301 and
+`claude auth status`: with the key inherited it reports `authMethod: api_key`,
+and with both variables empty it reports `authMethod: claude.ai` and
+`subscriptionType: max`. An empty value is enough because the merge (§6.2) puts
+`env` last. No URL, model slot or routing flag is named, so nothing else about
+the run changes.
 
 For any route with a base URL, the adapter passes an `env` that is merged onto
 the service's own environment (§6.2):

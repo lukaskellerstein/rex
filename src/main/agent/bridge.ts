@@ -35,6 +35,7 @@ import { CATALOGUE } from "../../shared/agent-protocol.ts";
 export { baseUrlProblem, buildRoutes, validateGateway } from "../../shared/gateways.ts";
 
 import {
+  DEFAULT_EFFORT,
   DEFAULT_MODEL,
   DEFAULT_STYLE,
   type MessageKind,
@@ -97,6 +98,8 @@ export interface AgentRunInput {
   model: string | null;
   /** Spec 31 §4 — the output style this run writes in. Null is the CLI's default. */
   style: string | null;
+  /** Spec 58 §4 — the effort level this run thinks at. Null is the CLI's default. */
+  effort: string | null;
   /** Spec 11 §7.2 — a different system prompt, when the caller genuinely needs one. */
   systemPrompt?: string;
   /**
@@ -341,6 +344,11 @@ function unreachable(reason: string, sdk: AgentSdk = REX_SDK): RouteCapabilities
         value: DEFAULT_MODEL,
         displayName: "Default",
         description: `Whatever ${label} is configured to use.`,
+        // Spec 58 §3 — a route REX could not ask about has no known levels,
+        // and nothing known about what its default stands for.
+        effortLevels: [],
+        defaultEffort: null,
+        resolvesTo: null,
       },
     ],
     styles: claude ? [DEFAULT_STYLE] : [],
@@ -531,11 +539,12 @@ function requestFor(input: AgentRunInput, runId: string): RunMessage {
     cwd: input.cwd,
     prompt: input.prompt,
     session: sessionOf(input),
-    // Spec 25 §5.1 and spec 31 §6 — `default` MEANS "REX says nothing", and
-    // saying nothing is how that is said. The record keeps the reviewer's word;
-    // the call does not repeat it.
+    // Spec 25 §5.1, spec 31 §6 and spec 58 §3.1 — `default` MEANS "REX says
+    // nothing", and saying nothing is how that is said. The record keeps the
+    // reviewer's word; the call does not repeat it.
     model: input.model && input.model !== DEFAULT_MODEL ? input.model : null,
     style: input.style && input.style !== DEFAULT_STYLE ? input.style : null,
+    effort: input.effort && input.effort !== DEFAULT_EFFORT ? input.effort : null,
     systemPrompt:
       input.systemPrompt ?? (input.profile === "read" ? READ_SYSTEM_PROMPT : WRITE_SYSTEM_PROMPT),
     disallowed: config.disallowedTools,
@@ -639,6 +648,8 @@ export function draftFor(event: AgentEvent, onWrote?: (path: string) => void): M
         durationMs: event.durationMs,
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,
+        cacheReadTokens: event.cacheReadTokens,
+        cacheWriteTokens: event.cacheWriteTokens,
       });
 
     // A refusal is already in `RunResult.denials`, which is where every caller

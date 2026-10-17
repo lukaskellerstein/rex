@@ -15,6 +15,7 @@
 // side and from a plain `node --test`.
 
 const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown", ".mdown", ".mkd"]);
+const HTML_EXTENSIONS = new Set([".html", ".htm"]);
 
 /**
  * The file's extension, lower-cased, including the dot. `""` when it has none.
@@ -31,4 +32,14 @@ export function extensionOf(path: string): string {
 
 export function isMarkdownPath(path: string): boolean {
   return MARKDOWN_EXTENSIONS.has(extensionOf(path));
+}
+
+/**
+ * Spec 59 §3.1 — a page whose own script may run in the Live frame.
+ *
+ * Asked by main, which gives exactly these responses the Live policy (§3.2),
+ * and by the renderer, which draws the switch only where that policy applies.
+ */
+export function isHtmlPath(path: string): boolean {
+  return HTML_EXTENSIONS.has(extensionOf(path));
 }

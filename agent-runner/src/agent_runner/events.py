@@ -135,11 +135,22 @@ class StoppedEvent(Model):
 
 
 class Completed(Model):
+    """Spec 61 §3 — one meaning for the token counts, whichever SDK ran.
+
+    `input_tokens` is EVERY token the model read, the cached ones included, so
+    `input_tokens + output_tokens` is the run's whole size. The two cache counts
+    are parts of `input_tokens`, never additions to it. Each SDK splits these
+    differently — Anthropic's `input_tokens` leaves the cache out, OpenAI's puts
+    it in — so every adapter normalises to this before it emits.
+    """
+
     type: Literal["completed"] = "completed"
     cost_usd: float | None = None
     duration_ms: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
 
 
 AgentEvent = Annotated[

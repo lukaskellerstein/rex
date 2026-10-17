@@ -28,7 +28,9 @@ test("only the added lines are reported, at their new numbers", () => {
   // Line 12 is the context line; the two added lines are 13 and 14. The whole
   // hunk would be 12–16, and on a short file that reaches blocks the agent
   // never touched — see the note in diff.ts.
-  assert.deepEqual(changedRegions(diff, ROOT), [{ file: `${ROOT}/docs/a.md`, from: 13, to: 14 }]);
+  assert.deepEqual(changedRegions(diff, ROOT), [
+    { file: `${ROOT}/docs/a.md`, from: 13, to: 14, changed: true },
+  ]);
 });
 
 test("the old side's numbering is never used", () => {
@@ -42,7 +44,9 @@ test("the old side's numbering is never used", () => {
     "+is here",
   ].join("\n");
 
-  assert.deepEqual(changedRegions(diff, ROOT), [{ file: `${ROOT}/docs/a.md`, from: 7, to: 7 }]);
+  assert.deepEqual(changedRegions(diff, ROOT), [
+    { file: `${ROOT}/docs/a.md`, from: 7, to: 7, changed: true },
+  ]);
 });
 
 test("a hunk that only deletes yields no range", () => {
@@ -75,15 +79,17 @@ test("two separate edits in one hunk stay two ranges", () => {
   ].join("\n");
 
   assert.deepEqual(changedRegions(diff, ROOT), [
-    { file: `${ROOT}/docs/a.md`, from: 2, to: 2 },
-    { file: `${ROOT}/docs/a.md`, from: 5, to: 5 },
+    { file: `${ROOT}/docs/a.md`, from: 2, to: 2, changed: true },
+    { file: `${ROOT}/docs/a.md`, from: 5, to: 5, changed: true },
   ]);
 });
 
 test("an omitted count means exactly one line", () => {
   const diff = ["--- a/docs/a.md", "+++ b/docs/a.md", "@@ -9 +9 @@", "-old", "+new"].join("\n");
 
-  assert.deepEqual(changedRegions(diff, ROOT), [{ file: `${ROOT}/docs/a.md`, from: 9, to: 9 }]);
+  assert.deepEqual(changedRegions(diff, ROOT), [
+    { file: `${ROOT}/docs/a.md`, from: 9, to: 9, changed: true },
+  ]);
 });
 
 test("several files in one patch keep their own ranges", () => {
@@ -111,4 +117,31 @@ test("a deleted file contributes nothing", () => {
   const diff = ["--- a/docs/gone.md", "+++ /dev/null", "@@ -1,5 +0,0 @@", "-all of it"].join("\n");
 
   assert.deepEqual(changedRegions(diff, ROOT), []);
+});
+
+test("spec 63 §3.3 — a run against the other side is a rewrite, on both sides", () => {
+  // A pure addition and a pure deletion stay plain; only the run that sits
+  // against the other side's lines, with no context between, is a rewrite.
+  const diff = [
+    "--- a/docs/a.md",
+    "+++ b/docs/a.md",
+    "@@ -1,7 +1,7 @@",
+    " one",
+    "+inserted",
+    " two",
+    "-three",
+    "+THREE",
+    " four",
+    "-five",
+    " six",
+  ].join("\n");
+
+  assert.deepEqual(changedRegions(diff, ROOT, "new"), [
+    { file: `${ROOT}/docs/a.md`, from: 2, to: 2 },
+    { file: `${ROOT}/docs/a.md`, from: 4, to: 4, changed: true },
+  ]);
+  assert.deepEqual(changedRegions(diff, ROOT, "old"), [
+    { file: `${ROOT}/docs/a.md`, from: 3, to: 3, changed: true },
+    { file: `${ROOT}/docs/a.md`, from: 5, to: 5 },
+  ]);
 });

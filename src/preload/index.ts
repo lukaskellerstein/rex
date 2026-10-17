@@ -68,6 +68,7 @@ const api: RexApi = {
   gatewayVerify: (request) => ipcRenderer.invoke(COMMAND.gatewayVerify, request),
   gatewayTest: (request) => ipcRenderer.invoke(COMMAND.gatewayTest, request),
   gatewayDefault: (choice) => ipcRenderer.invoke(COMMAND.gatewayDefault, choice),
+  agentDefault: (choice) => ipcRenderer.invoke(COMMAND.agentDefault, choice),
   gatewayHasEnv: (name) => ipcRenderer.invoke(COMMAND.gatewayHasEnv, name),
   openCodeStatus: () => ipcRenderer.invoke(COMMAND.openCodeStatus),
   openCodeExecutable: (override) => ipcRenderer.invoke(COMMAND.openCodeExecutable, override),

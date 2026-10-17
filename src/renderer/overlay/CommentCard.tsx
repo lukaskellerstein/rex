@@ -46,6 +46,7 @@ import { Prose } from "./prose.tsx";
 import { RunNums, StepBars, stepsOf } from "./StepStrip.tsx";
 import type { SelectionItem } from "./selection.ts";
 import { cornerWord } from "./ThreadRow.tsx";
+import { TokenCount } from "./TokenCount.tsx";
 import { ToolRow } from "./ToolRow.tsx";
 import { toolRowsOf } from "./toolRows.ts";
 // Spec 38 §3.3's own fold count — `12 lines`, `43 chars` — so the folded
@@ -120,6 +121,9 @@ interface Props {
    */
   style: string;
   onStyle: (style: string) => void;
+  /** Spec 58 §6 — the effort level this comment sends at. Never null. */
+  effort: string;
+  onEffort: (effort: string) => void;
   /** Spec 08 §6 — true while this comment's trace is covering the pane. */
   tracing: boolean;
   /** Spec 08 §7 — the open document, so a row knows if it has a mark to light. */
@@ -226,6 +230,8 @@ interface Turn {
   model: string | null;
   /** Spec 31 §5 — and the output style it was written in. Null, the same way. */
   style: string | null;
+  /** Spec 58 §5 — and the effort level it was thought out at. Null, the same way. */
+  effort: string | null;
   /**
    * Spec 43 §5.3 — the gateway that produced this turn, and the URL it used.
    *
@@ -328,6 +334,7 @@ function turnsOf(thread: ThreadWithMessages): Turn[] {
       // Spec 31 §5 — like the model, it cannot change inside a turn: every
       // message a run produces is stamped with the run's own style.
       style: message.style,
+      effort: message.effort,
       // Spec 43 §5.3 — and the rest of the evidence, for the same reason.
       sdk: message.sdk,
       gatewayName: message.gatewayName,
@@ -598,6 +605,7 @@ function TurnBlock({
             gatewayName: turn.gatewayName,
             baseUrl: turn.baseUrl,
             model: turn.model,
+            effort: turn.effort,
             style: turn.style,
           }}
           stats={stats}
@@ -969,10 +977,17 @@ export function CommentCard(props: Props): React.JSX.Element {
                 {[
                   `${spokenTurns} turn${spokenTurns === 1 ? "" : "s"}`,
                   totals.durationMs > 0 ? spentText(totals.durationMs) : null,
-                  totals.costUsd > 0 ? `$${totals.costUsd.toFixed(3)}` : null,
                 ]
                   .filter(Boolean)
                   .join(" · ")}
+                {/* Spec 61 §5 — the chat's size, with its breakdown on hover. */}
+                {totals.tokens ? (
+                  <>
+                    {" · "}
+                    <TokenCount tokens={totals.tokens} />
+                  </>
+                ) : null}
+                {totals.costUsd > 0 ? ` · $${totals.costUsd.toFixed(3)}` : null}
               </span>
               <button
                 type="button"
@@ -1158,6 +1173,8 @@ export function CommentCard(props: Props): React.JSX.Element {
         supportsStyles={props.supportsStyles}
         style={props.style}
         onStyle={props.onStyle}
+        effort={props.effort}
+        onEffort={props.onEffort}
         pending={props.pending}
         hoveredItemId={props.hoveredItemId}
         onHoverItem={props.onHoverItem}

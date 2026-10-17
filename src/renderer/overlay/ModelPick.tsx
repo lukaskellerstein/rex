@@ -13,7 +13,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ModelChoice } from "../../shared/types.ts";
-import { modelLabel, modelRows, styleRows } from "./modelChoices.ts";
+import { defaultModelLabel, modelLabel, modelRows, styleRows } from "./modelChoices.ts";
 
 // Re-exported so every existing import of these two keeps working — they are
 // pure data helpers and live in a `.ts` file the test runner can load.
@@ -204,7 +204,7 @@ export function ModelPick(props: Props): React.JSX.Element {
               }}
             >
               {props.value === null ? TICK : SPACE}
-              Default — {modelLabel(models, null, props.fallback)}
+              {defaultModelLabel(models, props.fallback)}
             </button>
           ) : null}
 

@@ -14,11 +14,12 @@ enough" is wrong:
 * `denied` is decided on the FULL result text and reported with the clipped one.
 """
 
-from claude_agent_sdk import TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock
+from claude_agent_sdk import AssistantMessage, TextBlock, ThinkingBlock, ToolResultBlock, ToolUseBlock
 
 from agent_runner.adapters.claude.events import (
     RESULT_CLIP,
     WRITE_CLIP,
+    api_error_of,
     assistant_events,
     flatten_result,
     user_events,
@@ -37,6 +38,25 @@ from agent_runner.events import (
 
 def kinds(events: list[AgentEvent]) -> list[str]:
     return [event.type for event in events]
+
+
+def test_an_api_refusal_is_read_from_the_sdks_mark_not_from_the_words() -> None:
+    """Measured 2026-10-17: the CLI's synthetic message, exactly as it arrived."""
+    refused = AssistantMessage(
+        content=[TextBlock(text="Credit balance is too low")],
+        model="<synthetic>",
+        error="billing_error",
+    )
+    assert api_error_of(refused) == "Credit balance is too low"
+    # The same words with no mark are an answer — a model may say anything.
+    quoted = AssistantMessage(content=[TextBlock(text="Credit balance is too low")], model="claude-opus-5")
+    assert api_error_of(quoted) is None
+
+
+def test_a_refusal_with_no_words_still_names_its_kind() -> None:
+    assert api_error_of(AssistantMessage(content=[], model="<synthetic>", error="rate_limit")) == (
+        "The API refused this turn (rate_limit)."
+    )
 
 
 def test_text_and_thinking_become_their_own_events() -> None:

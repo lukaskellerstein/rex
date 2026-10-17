@@ -48,6 +48,10 @@ export type DiffSide = "new" | "old";
  *
  * A hunk that only deletes has no added lines and yields no range. There is
  * nothing left in the document to outline, and the diff says the rest.
+ *
+ * Spec 63 §3.3 — a run that sits against lines of the other side, with no
+ * context line between, is a rewrite rather than an addition or a deletion,
+ * and is marked `changed`.
  */
 export function changedRegions(
   unifiedDiff: string,
@@ -64,6 +68,8 @@ export function changedRegions(
   /** The next line number on this side, as the hunk body is walked. */
   let line = 0;
   let run: ChangedRegion | null = null;
+  /** Whether the line before this one belonged to the other side. */
+  let afterTheirs = false;
 
   const closeRun = (): void => {
     if (run) regions.push(run);
@@ -82,6 +88,7 @@ export function changedRegions(
     const hunk = HUNK.exec(text);
     if (hunk) {
       closeRun();
+      afterTheirs = false;
       line = Number(side === "new" ? hunk[2] : hunk[1]);
       continue;
     }
@@ -92,14 +99,21 @@ export function changedRegions(
     // above — so a line starting with one marker here is content.
     if (text.startsWith(mine)) {
       if (run) run.to = line;
-      else run = { file, from: line, to: line };
+      else
+        run = afterTheirs
+          ? { file, from: line, to: line, changed: true }
+          : { file, from: line, to: line };
+      afterTheirs = false;
       line++;
     } else if (text.startsWith(theirs)) {
       // A line belonging to the other side takes no room on this one, so the
       // numbering stands still — but the run of changed lines has ended.
+      if (run) run.changed = true;
       closeRun();
+      afterTheirs = true;
     } else if (text.startsWith(" ") || text === "") {
       closeRun();
+      afterTheirs = false;
       line++;
     }
     // `\ No newline at end of file` and anything else is neither, and moves
