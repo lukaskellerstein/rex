@@ -79,7 +79,6 @@ import { DocumentView } from "./DocumentView.tsx";
 import { diagramCommentsFor, diagramPlacesFor } from "./diagramPlaces.ts";
 import { type ChangeCounts, Explorer } from "./Explorer.tsx";
 import { FindBar } from "./FindBar.tsx";
-import { FindRuler } from "./FindRuler.tsx";
 import { type FindDeps, useFind } from "./find.ts";
 import { GraphView } from "./GraphView.tsx";
 import {
@@ -109,6 +108,7 @@ import { ManageGateways } from "./ManageGateways.tsx";
 import { drawDiagramPng, posterFramePng } from "./mermaid.ts";
 import type { Mode } from "./mode.ts";
 import { effortFor, effortLevelsOf } from "./modelChoices.ts";
+import type { FindMarks } from "./OverviewRuler.tsx";
 import type { PlaceFacts } from "./placeLine.ts";
 import type { PreviewFigure } from "./preview.ts";
 import { SelectionPanel } from "./SelectionPanel.tsx";
@@ -4830,8 +4830,9 @@ export function App(): React.JSX.Element {
   */
   const sideHidden = !commentsShown || (centre !== "document" && selection.length === 0);
 
-  // Spec 28 — the bar while it is open, the ruler while there is a mark to
-  // draw. Both go to the pane being read; `DocumentView` decides which.
+  // Spec 28 — the bar while it is open, the marks while there are any. Both go
+  // to the pane being read; `DocumentView` decides which. Spec 64 — the ruler
+  // they land on is drawn in every pane, always.
   const findBar = find.bar.open ? (
     <FindBar
       query={find.bar.query}
@@ -4845,10 +4846,8 @@ export function App(): React.JSX.Element {
       onClose={find.closeBar}
     />
   ) : null;
-  const findRuler =
-    find.marks.length > 0 ? (
-      <FindRuler marks={find.marks} current={find.current} onPick={find.goTo} />
-    ) : null;
+  const findMarks: FindMarks | null =
+    find.marks.length > 0 ? { marks: find.marks, current: find.current, onPick: find.goTo } : null;
 
   return (
     <div className="rex-app" ref={appRef}>
@@ -5041,7 +5040,7 @@ export function App(): React.JSX.Element {
               onPaperDark={togglePaperDark}
               findPane={readPane}
               corner={findBar}
-              ruler={findRuler}
+              findMarks={findMarks}
               onProbe={probe}
               onWiden={widenBy}
               onPickCommit={commitScope}

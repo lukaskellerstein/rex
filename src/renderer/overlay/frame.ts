@@ -9,6 +9,7 @@
 import type { OpenedDocument, PaperView } from "../../shared/types.ts";
 import { type ScopeRect, toDocumentRect } from "../anchor/pick.ts";
 import { LANE_RESERVE } from "./marginLane.ts";
+import type { PageExtent } from "./rulerMarks.ts";
 import { prepareDocumentHtml } from "./sanitise.ts";
 
 function docUrl(path: string): string {
@@ -58,6 +59,21 @@ export function idAtTop(inner: Document | null | undefined): string | null {
     }
   }
   return found;
+}
+
+/**
+ * Spec 64 §3.3 — where the reader is in the page, read now.
+ *
+ * `scrollHeight` rather than the root's box: it is never less than the view,
+ * so a page shorter than the pane still spans the strip. Under the root's CSS
+ * `zoom` it is in the same units as `scrollY` and every box the overlay holds —
+ * measured in `test/rulerMarks.spec.ts`. Null until the frame has a document.
+ */
+export function pageExtent(frame: HTMLIFrameElement | null): PageExtent | null {
+  const view = frame?.contentWindow;
+  const root = frame?.contentDocument?.documentElement;
+  if (!view || !root) return null;
+  return { scrollY: view.scrollY, viewHeight: view.innerHeight, total: root.scrollHeight };
 }
 
 /**

@@ -31,7 +31,7 @@ import type { ThreadWithMessages } from "../../shared/types.ts";
 import type { ScopeRect } from "../anchor/pick.ts";
 import type { ResolvedThread } from "./anchoring.ts";
 import { LANE_STEP, laneGeometry } from "./marginLane.ts";
-import { markerClass } from "./wash.ts";
+import { barClasses } from "./wash.ts";
 
 interface Props {
   resolved: ResolvedThread[];
@@ -121,9 +121,12 @@ export function MarginBars(props: Props): React.JSX.Element {
         rule: check.rule,
         className: [
           "rex-margin",
-          markerClass(thread.status, check.state),
-          props.activeId === thread.id ? "rex-margin-active" : "",
-          props.hoveredThreadId === thread.id ? "rex-margin-lit" : "",
+          barClasses(
+            thread.status,
+            check.state,
+            props.activeId === thread.id,
+            props.hoveredThreadId === thread.id,
+          ),
         ]
           .filter(Boolean)
           .join(" "),

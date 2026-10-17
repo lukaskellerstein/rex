@@ -56,6 +56,7 @@ import { LinkTip, type LinkTipView } from "./LinkTip.tsx";
 import { ModeStrip } from "./ModeStrip.tsx";
 import { mermaidPass } from "./mermaid.ts";
 import { OriginalPane } from "./OriginalPane.tsx";
+import { type FindMarks, OverviewRuler } from "./OverviewRuler.tsx";
 import { type DraftMark, PaneMarks } from "./PaneMarks.tsx";
 import { PaperStrip } from "./PaperStrip.tsx";
 import { PathBar } from "./PathBar.tsx";
@@ -232,8 +233,12 @@ interface Props {
   findPane: DocumentVersion;
   /** §5.6 — the find bar, or null while it is closed. Drawn in `findPane`'s corner. */
   corner: React.ReactNode;
-  /** §4.1.1 — the overview ruler, or null while there is nothing to mark. */
-  ruler: React.ReactNode;
+  /**
+   * §4.1.1 — a find's marks, or null while there are none. Spec 64 — they go on
+   * `findPane`'s overview ruler, which every pane draws whether or not a find
+   * stands.
+   */
+  findMarks: FindMarks | null;
 }
 
 /** A drag-resize fires continuously; answer once it stops. */
@@ -848,7 +853,7 @@ export function DocumentView(props: Props): React.JSX.Element {
             paper={props.paper}
             // Spec 28 §4.1 — the find follows the pane being read.
             corner={props.findPane === "original" ? props.corner : null}
-            ruler={props.findPane === "original" ? props.ruler : null}
+            findMarks={props.findPane === "original" ? props.findMarks : null}
             onFrameReady={setOriginalFrame}
             onSurfaceReady={originalSurfaceReady}
             onSelectionChanged={originalSelectionChanged}
@@ -959,7 +964,29 @@ export function DocumentView(props: Props): React.JSX.Element {
               />
             ) : (
               <>
-                {props.findPane === "current" ? props.ruler : null}
+                {/*
+                  Spec 64 — the whole document at the pane's right edge, in
+                  every pane and always. While comparing it carries the change
+                  and no comment, for the reason `PaneMarks` drops them.
+                */}
+                {doc ? (
+                  <OverviewRuler
+                    frame={frameRef}
+                    comments={
+                      props.original
+                        ? null
+                        : {
+                            resolved: props.resolved,
+                            threads: props.threads,
+                            activeId: props.activeId,
+                            hoveredThreadId: props.hoveredThreadId,
+                          }
+                    }
+                    changes={props.changeBoxes}
+                    find={props.findPane === "current" ? props.findMarks : null}
+                    onSelectMarker={props.onSelectMarker}
+                  />
+                ) : null}
 
                 {/*
         Spec 05 §5.6.1 — what an Apply just changed, in the write colour, while
@@ -968,9 +995,13 @@ export function DocumentView(props: Props): React.JSX.Element {
         the blocks this pane will answer a gesture on, so the outline is the
         affordance and no new furniture is needed.
       */}
-                {props.changeBoxes.map((box) => (
+                {props.changeBoxes.map((box, at) => (
                   <div
-                    key={`change-${box.x}-${box.y}-${box.w}-${box.h}`}
+                    // By position: while the pane is hidden every block
+                    // measures 0×0, two boxes then share a geometry key, and
+                    // React left the extra outline behind once the pane came
+                    // back (measured 2026-10-17, spec 64).
+                    key={`change-${at}`}
                     className={OUTLINE_CLASS[box.kind]}
                     style={{
                       left: box.x - scroll.x,

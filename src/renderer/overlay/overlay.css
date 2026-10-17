@@ -68,6 +68,8 @@
     family now that green means "a block the change added".
   */
   --added: #6fbf73;
+  /* The edge of a block the change added — its outline, and its mark on the ruler. */
+  --added-outline: #4f9d57;
   --removed: #d05744;
   --removed-text: #eda393;
   /*
@@ -1730,7 +1732,7 @@
 */
 .rex-change-outline {
   position: absolute;
-  border: 2px solid #4f9d57;
+  border: 2px solid var(--added-outline);
   border-radius: 2px;
   background: rgb(79 157 87 / 14%);
   pointer-events: none;
@@ -7936,28 +7938,43 @@ select.rex-field-input {
 }
 
 /*
-  §4.1.1 — the overview ruler. The strip takes no pointer events and every
-  mark does, so the frame's scrollbar under it keeps working wherever a mark
-  is not. Below `.rex-corner` in z-order and above the frame.
+  §4.1.1, widened by spec 64 §4 — the overview ruler. The strip and its band
+  take no pointer events and every mark does, so the frame's scrollbar under it
+  keeps working wherever a mark is not. Below `.rex-corner` in z-order and above
+  the frame.
+
+  Two lanes, so a find and a comment at one height are both visible: comments
+  or the change in the left 8px, a find's matches in the right 4px, and 2px of
+  gutter between them.
 */
 .rex-ruler {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
-  width: 10px;
+  width: 14px;
   z-index: 5;
+  pointer-events: none;
+}
+
+/*
+  Spec 64 §3.3 — the part of the document on screen, the strip's full width and
+  under every mark. Grey, because the paper under it is light or dark.
+*/
+.rex-ruler-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
+  background: rgb(128 128 128 / 22%);
   pointer-events: none;
 }
 
 .rex-ruler-mark {
   position: absolute;
-  right: 2px;
-  width: 6px;
   padding: 0;
   border: none;
   border-radius: 1px;
-  background: var(--find);
   opacity: 0.85;
   pointer-events: auto;
   cursor: pointer;
@@ -7967,10 +7984,44 @@ select.rex-field-input {
   opacity: 1;
 }
 
-/* The current match: the stronger yellow, and a pixel wider each side. */
+/* Spec 64 §4 — the left lane: a comment's place, or a changed block. */
+.rex-ruler-lane {
+  left: 1px;
+  width: 6px;
+}
+
+/*
+  §3.1 — a comment wears its bar's colour. This is the open comment's blue,
+  and `:where` gives it no weight, so every `.rex-margin-*` state that
+  `markerClass` adds wins over it wherever it sits in this file.
+*/
+:where(.rex-ruler-comment) {
+  background: var(--action);
+}
+
+/* §3.2 — the three kinds, in the outlines' own colours. */
+.rex-ruler-removed {
+  background: var(--removed);
+}
+
+.rex-ruler-added {
+  background: var(--added-outline);
+}
+
+.rex-ruler-rewritten {
+  background: var(--rewritten);
+}
+
+/* Spec 64 §4 — the right lane: a find's matches. */
+.rex-ruler-find {
+  right: 0;
+  width: 4px;
+  background: var(--find);
+}
+
+/* The current match: the stronger yellow, and a pixel wider into the gutter. */
 .rex-ruler-current {
-  right: 1px;
-  width: 8px;
+  width: 5px;
   background: var(--find-strong);
   opacity: 1;
 }

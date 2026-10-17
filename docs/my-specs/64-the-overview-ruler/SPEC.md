@@ -1,6 +1,6 @@
 # Spec 64 — the overview ruler
 
-**Status**: proposed, 2026-10-17. To be built in its own worktree.
+**Status**: built, 2026-10-17.
 
 > [!important]
 > **The strip at the right edge of a pane shows the whole document.** Where the
@@ -164,3 +164,52 @@ In a worktree, so the reviewer's own REX keeps running from the main checkout.
 Their `npm run dev` holds the Vite port 5334 and the CDP port 9334, so the
 worktree's live checks run the built app on another CDP port, against its own
 database and work store, as spec 63 §9 did.
+
+## 11. What was built
+
+| File | What it holds |
+|:--|:--|
+| `renderer/overlay/rulerMarks.ts` | `commentMarks`, `changeMarks`, `bandOf` — pure, as §8 says |
+| `renderer/overlay/OverviewRuler.tsx` | the strip; it reads the page through `pageExtent` on every render, so it adds no trigger (§4) |
+| `renderer/overlay/frame.ts` | `pageExtent` — `scrollY`, `innerHeight`, `scrollHeight` |
+| `renderer/overlay/wash.ts` | `barClasses` — the bar's colour with the open and the pointed-at comment on top, read by `MarginBars` and the strip alike |
+| `renderer/overlay/anchoring.ts` | `bringBoxIntoView` — REX's one scroll rule, for a box already in document pixels |
+| `renderer/overlay/overlay.css` | the strip at 14px; `--added-outline`, the green the outline and the mark share |
+
+Two things differ from §8:
+
+- **`App.tsx` hands through only the find's marks.** Each pane already holds
+  the comment list, the thread list and `onSelectMarker` for its margin bars,
+  so the strip takes them there.
+- **A comment mark under `moved` is steel, not amber**, because its bar is:
+  spec 33 §3.1 took `moved` off the bar. §3.1's rule — the bar's colour,
+  through `markerClass` — is what decides, and the example in it was older
+  than that rule.
+
+`DocumentView` keyed its change outlines by geometry. While the pane is hidden
+every block measures 0×0, two boxes then share a key, and React left an
+outline behind when the pane came back. It keys by position now, as
+`OriginalPane` already did.
+
+## 12. What was measured
+
+2026-10-17, on an isolated REX (port 9444, its own database and work store),
+against a copy of `documentation-sample/one/sample-document.md` with four
+comments, and two hand-made HTML pages with seeded working copies.
+
+| Check | Result |
+|:--|:--|
+| Reading, `open` chip | 4 marks at 0.376, 0.463, 0.716, 0.916 — each its bar's height and colour; the note and the resolved comment have neither |
+| `note` chip, `done` chip | 1 yellow mark, then 1 grey one, each equal to its bar |
+| The band | 0.154 tall (873 / 5685); 0.352 at `scrollY` 2000; 0.846 + 0.154 at the foot |
+| Clicking comment 1's mark from the foot | its card opened; `scrollY` 1849, the place a third down; mark and bar violet |
+| One paragraph gained a link | 1 yellow mark in each pane at 0.673; clicking it scrolled to the paragraph |
+| One removed, one rewritten, two added | original: red 0.166, yellow 0.46; new version: yellow 0.444, green 0.804 and 0.877 |
+| `⌘F` while comparing | 11 find marks at x 10–14, change marks at x 1–7; match 9 and the rewritten block both at 0.444 |
+| Dragging the scrollbar thumb through the band, 200px | `scrollY` 0 → 1059 |
+| Zoom 121%, `W`, comments hidden, pane control round trip | every strip equal to its page's outlines and bars after each |
+| Markdown with comments and a working copy | no comment mark and no bar; yellow in both panes, green in the new version. After Discard, the 4 comment marks are back |
+
+`scrollHeight` is in `scrollY`'s units under the root's CSS `zoom` (1, 1.5 and
+0.75), so the band ends at the strip's foot exactly when the page does —
+asserted in `test/rulerMarks.spec.ts`, with the bar colours.
